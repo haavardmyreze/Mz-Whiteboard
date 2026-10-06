@@ -73,8 +73,11 @@
   const deepen = (hex) => shade(mute(hex), 0.9, 0.62);
   const swatchColor = (c) => (c === 'ink' ? inkColor(c) : c === 'note' ? noteColor(c) : c);
   // Vivid header colours for frames and the free-standing heading blocks.
-  const BLOCK_COLORS = ['#ff6bd6', '#7ed957', '#4d7cff', '#ffd43b', '#ff9a3c', '#b388ff', '#2dd4bf', '#6b6b73', '#17171a', '#f4f4f5'];
-  const FRAME_COLORS = ['#8a8a93', ...BLOCK_COLORS.filter((c) => c !== '#f4f4f5')];
+  const BLOCK_COLORS = ['#ff6bd6', '#7ed957', '#4d7cff', '#ffd43b', '#ff9a3c', '#b388ff', '#2dd4bf', '#6b6b73', '#17171a'];
+  const FRAME_COLORS = ['#8a8a93', ...BLOCK_COLORS];
+  // Headings on blocks and frames are always white, so the old light block colour, which white could not
+  // be read on, is shown as the mid grey.
+  const LEGACY_LIGHT = '#f4f4f5';
   const PEN_SIZES = [4, 8, 16];
   const FRAME_PAD = 28;
   // World-unit sizes for new items: what you get does not depend on how far you are zoomed in.
@@ -562,15 +565,15 @@
       const headColor = tinted ? deepen(it.color) : FRAME_COLORS[0];
       st.setProperty('--c', headColor);
       node.dataset.tint = tinted ? '1' : '';
-      st.setProperty('--head-ink', tinted && luminance(headColor) > 0.55 ? '#1b1b1c' : '#fff');
+      st.setProperty('--head-ink', '#fff');
       if (!isEditing) node.firstChild.firstChild.textContent = it.title || '';
     } else if (it.type === 'block') {
-      const fill = mute(it.color || BLOCK_COLORS[0]);
+      const fill = mute(!it.color ? BLOCK_COLORS[0] : it.color === LEGACY_LIGHT ? '#6b6b73' : it.color);
       st.width = `${it.w}px`;
       st.height = `${it.h}px`;
       st.fontSize = `${BLOCK_FS}px`;
       st.background = fill;
-      st.color = luminance(fill) > 0.55 ? '#1b1b1c' : '#ffffff';
+      st.color = '#ffffff';
       node.dataset.align = it.align || 'center';
       if (!isEditing) fillText(node.firstChild, it.text);
     } else if (it.type === 'stroke') {

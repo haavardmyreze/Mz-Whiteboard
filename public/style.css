@@ -505,11 +505,12 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport { cursor: c
 .video.playing .vplay { opacity: 0; }
 .video.playing:hover .vplay { opacity: 0.92; }
 
-/* Notes are cards of paper: a lit top edge, a hairline, a soft shadow on the table. */
+/* Depth says where something sits in the hierarchy: frames and blocks lift the most, artwork a little less,
+   and a note, the lowest of all, only just rests on the board with a hairline and a small contact shadow. */
 .note {
   padding: 0.8em 0.95em;
   border-radius: var(--r);
-  box-shadow: 0 0 0 0.04em var(--ring-c), 0 0.08em 0.18em color-mix(in srgb, var(--lift-c) 60%, transparent), 0 0.7em 1.3em -0.55em var(--lift-c);
+  box-shadow: 0 0 0 0.04em var(--ring-c), 0 0.05em 0.14em color-mix(in srgb, var(--lift-c) 50%, transparent);
   font-family: var(--serif);
   font-weight: 400;
   line-height: 1.5;

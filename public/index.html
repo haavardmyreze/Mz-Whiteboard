@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wipboard</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="home">
+  <header class="home-head">
+    <h1>Wipboard</h1>
+    <div class="spacer"></div>
+    <button id="me" class="btn ghost" title="Change your name"></button>
+    <button id="new" class="btn primary">New board</button>
+  </header>
+  <main>
+    <div id="boards" class="board-grid"></div>
+    <p id="empty" class="home-empty" hidden>No boards yet. Create one to start pinning up work for the next standup.</p>
+  </main>
+  <script src="/common.js"></script>
+  <script src="/home.js"></script>
+</body>
+</html>

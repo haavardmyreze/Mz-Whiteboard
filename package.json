@@ -1,0 +1,16 @@
+{
+  "name": "wipboard",
+  "version": "0.1.0",
+  "description": "Shared reference and WIP boards for creative team standups",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

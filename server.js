@@ -1,0 +1,516 @@
+'use strict';
+
+const http = require('http');
+const fs = require('fs');
+const fsp = fs.promises;
+const path = require('path');
+const crypto = require('crypto');
+const os = require('os');
+const { WebSocketServer } = require('ws');
+
+const PORT = Number(process.env.PORT) || 4680;
+const HOST = process.env.HOST || '0.0.0.0';
+const DATA_DIR = path.resolve(process.env.WIPBOARD_DATA || path.join(__dirname, 'data'));
+const BOARD_DIR = path.join(DATA_DIR, 'boards');
+const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
+const TRASH_DIR = path.join(DATA_DIR, 'trash');
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const MAX_UPLOAD = (Number(process.env.WIPBOARD_MAX_UPLOAD_MB) || 2048) * 1024 * 1024;
+const SAVE_DELAY = 800;
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.avif': 'image/avif',
+  '.bmp': 'image/bmp',
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.ico': 'image/x-icon',
+};
+const UPLOAD_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp', '.svg', '.mp4', '.m4v', '.webm', '.mov']);
+
+for (const dir of [BOARD_DIR, UPLOAD_DIR, TRASH_DIR]) fs.mkdirSync(dir, { recursive: true });
+
+// ---------------------------------------------------------------- boards
+
+const ID_RE = /^[\w-]{4,40}$/;
+const boards = new Map();
+
+function newId(bytes = 6) {
+  return crypto.randomBytes(bytes).toString('base64url');
+}
+
+function loadBoards() {
+  for (const file of fs.readdirSync(BOARD_DIR)) {
+    if (!file.endsWith('.json')) continue;
+    try {
+      const raw = JSON.parse(fs.readFileSync(path.join(BOARD_DIR, file), 'utf8'));
+      if (!ID_RE.test(raw.id)) continue;
+      const items = new Map();
+      for (const it of raw.items || []) if (it && ID_RE.test(it.id)) items.set(it.id, it);
+      boards.set(raw.id, {
+        id: raw.id,
+        name: raw.name || 'Untitled',
+        createdAt: raw.createdAt || Date.now(),
+        updatedAt: raw.updatedAt || Date.now(),
+        items,
+        peers: new Map(),
+        presenter: null,
+        saveTimer: null,
+        saving: Promise.resolve(),
+      });
+    } catch (err) {
+      console.error(`Skipping unreadable board file ${file}: ${err.message}`);
+    }
+  }
+}
+
+function createBoard(name) {
+  const board = {
+    id: newId(),
+    name: String(name || 'Untitled board').slice(0, 120),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    items: new Map(),
+    peers: new Map(),
+    presenter: null,
+    saveTimer: null,
+    saving: Promise.resolve(),
+  };
+  boards.set(board.id, board);
+  scheduleSave(board);
+  return board;
+}
+
+function boardFile(board) {
+  return path.join(BOARD_DIR, `${board.id}.json`);
+}
+
+function serialize(board) {
+  return JSON.stringify({
+    id: board.id,
+    name: board.name,
+    createdAt: board.createdAt,
+    updatedAt: board.updatedAt,
+    items: [...board.items.values()],
+  });
+}
+
+function scheduleSave(board) {
+  board.updatedAt = Date.now();
+  if (board.saveTimer) return;
+  board.saveTimer = setTimeout(() => {
+    board.saveTimer = null;
+    board.saving = board.saving.then(() => writeBoard(board)).catch((err) => {
+      console.error(`Failed to save board ${board.id}: ${err.message}`);
+    });
+  }, SAVE_DELAY);
+}
+
+// Write to a temp file and rename so a crash mid-write never truncates a board.
+async function writeBoard(board) {
+  if (!boards.has(board.id)) return;
+  const file = boardFile(board);
+  const tmp = `${file}.tmp`;
+  const data = serialize(board);
+  await fsp.writeFile(tmp, data);
+  try {
+    await fsp.rename(tmp, file);
+  } catch {
+    // Windows can refuse the rename while another process holds the target open.
+    await fsp.writeFile(file, data);
+    await fsp.rm(tmp, { force: true });
+  }
+}
+
+function flushAllSync() {
+  for (const board of boards.values()) {
+    if (!board.saveTimer) continue;
+    clearTimeout(board.saveTimer);
+    board.saveTimer = null;
+    try {
+      fs.writeFileSync(boardFile(board), serialize(board));
+    } catch (err) {
+      console.error(`Failed to save board ${board.id}: ${err.message}`);
+    }
+  }
+}
+
+function boardMeta(board) {
+  const thumbs = [];
+  let media = 0;
+  for (const it of board.items.values()) {
+    if (it.type !== 'image' && it.type !== 'video') continue;
+    media++;
+    if (it.type === 'image' && thumbs.length < 4) thumbs.push(it.prev || it.src);
+  }
+  return {
+    id: board.id,
+    name: board.name,
+    createdAt: board.createdAt,
+    updatedAt: board.updatedAt,
+    count: board.items.size,
+    media,
+    thumbs,
+    online: board.peers.size,
+  };
+}
+
+function applyOps(board, ops) {
+  const applied = [];
+  if (!Array.isArray(ops)) return applied;
+  for (const op of ops) {
+    if (!op || typeof op !== 'object') continue;
+    if (op.t === 'add') {
+      const it = op.item;
+      if (!it || typeof it !== 'object' || !ID_RE.test(it.id) || typeof it.type !== 'string') continue;
+      board.items.set(it.id, it);
+      applied.push({ t: 'add', item: it });
+    } else if (op.t === 'set') {
+      const it = board.items.get(op.id);
+      if (!it || !op.patch || typeof op.patch !== 'object') continue;
+      const patch = {};
+      for (const key of Object.keys(op.patch)) {
+        if (key === 'id' || key === 'type' || key === '__proto__') continue;
+        patch[key] = op.patch[key];
+      }
+      Object.assign(it, patch);
+      applied.push({ t: 'set', id: op.id, patch });
+    } else if (op.t === 'del') {
+      if (!Array.isArray(op.ids)) continue;
+      const ids = op.ids.filter((id) => board.items.delete(id));
+      if (ids.length) applied.push({ t: 'del', ids });
+    } else if (op.t === 'meta') {
+      if (!op.patch || typeof op.patch.name !== 'string') continue;
+      board.name = op.patch.name.trim().slice(0, 120) || 'Untitled';
+      applied.push({ t: 'meta', patch: { name: board.name } });
+    }
+  }
+  if (applied.length) scheduleSave(board);
+  return applied;
+}
+
+// ---------------------------------------------------------------- http
+
+function sendJson(res, status, body) {
+  const data = JSON.stringify(body);
+  res.writeHead(status, {
+    'Content-Type': MIME['.json'],
+    'Content-Length': Buffer.byteLength(data),
+    'Cache-Control': 'no-store',
+  });
+  res.end(data);
+}
+
+function readJson(req, limit = 64 * 1024) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(new Error('Body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      try {
+        resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {});
+      } catch (err) {
+        reject(err);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function sendFile(req, res, file, headers = {}) {
+  fs.stat(file, (err, st) => {
+    if (err || !st.isFile()) return sendJson(res, 404, { error: 'Not found' });
+    const head = {
+      'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
+      'Accept-Ranges': 'bytes',
+      ...headers,
+    };
+    let start = 0;
+    let end = st.size - 1;
+    let status = 200;
+    // Range support is what lets browsers scrub through video.
+    const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+    if (range && (range[1] || range[2])) {
+      if (range[1] === '') {
+        start = Math.max(0, st.size - Number(range[2]));
+      } else {
+        start = Number(range[1]);
+        if (range[2] !== '') end = Math.min(end, Number(range[2]));
+      }
+      if (start > end || start >= st.size) {
+        res.writeHead(416, { 'Content-Range': `bytes */${st.size}` });
+        return res.end();
+      }
+      status = 206;
+      head['Content-Range'] = `bytes ${start}-${end}/${st.size}`;
+    }
+    head['Content-Length'] = st.size === 0 ? 0 : end - start + 1;
+    res.writeHead(status, head);
+    if (req.method === 'HEAD' || st.size === 0) return res.end();
+    const stream = fs.createReadStream(file, { start, end });
+    stream.on('error', () => res.destroy());
+    stream.pipe(res);
+  });
+}
+
+function handleUpload(req, res, url) {
+  const ext = path.extname(url.searchParams.get('name') || '').toLowerCase();
+  if (!UPLOAD_EXTS.has(ext)) return sendJson(res, 415, { error: `Unsupported file type ${ext || '(none)'}` });
+  if (Number(req.headers['content-length']) > MAX_UPLOAD) return sendJson(res, 413, { error: 'File too large' });
+
+  const tmp = path.join(UPLOAD_DIR, `.upload-${newId(9)}`);
+  const out = fs.createWriteStream(tmp);
+  const hash = crypto.createHash('sha1');
+  let size = 0;
+  let failed = false;
+
+  const fail = (status, message) => {
+    if (failed) return;
+    failed = true;
+    req.unpipe(out);
+    out.destroy();
+    fs.rm(tmp, { force: true }, () => {});
+    if (!res.headersSent) sendJson(res, status, { error: message });
+    req.resume();
+  };
+
+  req.on('data', (chunk) => {
+    size += chunk.length;
+    if (size > MAX_UPLOAD) return fail(413, 'File too large');
+    hash.update(chunk);
+  });
+  req.on('error', () => fail(400, 'Upload interrupted'));
+  req.on('aborted', () => fail(400, 'Upload interrupted'));
+  out.on('error', (err) => fail(500, err.message));
+  out.on('finish', async () => {
+    if (failed) return;
+    // Content-addressed names: re-uploading the same file reuses the stored copy.
+    const name = `${hash.digest('hex').slice(0, 24)}${ext}`;
+    const dest = path.join(UPLOAD_DIR, name);
+    try {
+      if (fs.existsSync(dest)) await fsp.rm(tmp, { force: true });
+      else await fsp.rename(tmp, dest);
+      sendJson(res, 200, { url: `/uploads/${name}`, size });
+    } catch (err) {
+      fail(500, err.message);
+    }
+  });
+  req.pipe(out);
+}
+
+async function handleApi(req, res, url) {
+  const parts = url.pathname.split('/').filter(Boolean); // ['api', ...]
+  if (parts[1] === 'boards' && parts.length === 2) {
+    if (req.method === 'GET') {
+      const list = [...boards.values()].map(boardMeta).sort((a, b) => b.updatedAt - a.updatedAt);
+      return sendJson(res, 200, list);
+    }
+    if (req.method === 'POST') {
+      const body = await readJson(req);
+      return sendJson(res, 201, boardMeta(createBoard(body.name)));
+    }
+  }
+  if (parts[1] === 'boards' && parts.length === 3) {
+    const board = boards.get(parts[2]);
+    if (!board) return sendJson(res, 404, { error: 'Board not found' });
+    if (req.method === 'GET') return sendJson(res, 200, boardMeta(board));
+    if (req.method === 'PATCH') {
+      const body = await readJson(req);
+      const applied = applyOps(board, [{ t: 'meta', patch: { name: body.name } }]);
+      if (applied.length) broadcast(board, { t: 'op', ops: applied, from: null });
+      return sendJson(res, 200, boardMeta(board));
+    }
+    if (req.method === 'DELETE') {
+      // Soft delete: the JSON is moved to data/trash so a mis-click is recoverable.
+      boards.delete(board.id);
+      clearTimeout(board.saveTimer);
+      board.saveTimer = null;
+      await board.saving;
+      await fsp.writeFile(path.join(TRASH_DIR, `${board.id}-${Date.now()}.json`), serialize(board));
+      await fsp.rm(boardFile(board), { force: true });
+      for (const peer of board.peers.values()) peer.ws.close(4004, 'Board deleted');
+      return sendJson(res, 200, { ok: true });
+    }
+  }
+  if (parts[1] === 'upload' && req.method === 'POST') return handleUpload(req, res, url);
+  sendJson(res, 404, { error: 'Not found' });
+}
+
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url, 'http://localhost');
+  let pathname;
+  try {
+    pathname = decodeURIComponent(url.pathname);
+  } catch {
+    return sendJson(res, 400, { error: 'Bad request' });
+  }
+
+  if (pathname.startsWith('/api/')) {
+    handleApi(req, res, url).catch((err) => {
+      if (!res.headersSent) sendJson(res, 400, { error: err.message });
+    });
+    return;
+  }
+  if (req.method !== 'GET' && req.method !== 'HEAD') return sendJson(res, 405, { error: 'Method not allowed' });
+
+  if (pathname.startsWith('/uploads/')) {
+    const name = path.basename(pathname);
+    if (name.startsWith('.')) return sendJson(res, 404, { error: 'Not found' });
+    return sendFile(req, res, path.join(UPLOAD_DIR, name), {
+      'Cache-Control': 'public, max-age=31536000, immutable',
+      // Uploaded SVGs must never run script when opened directly.
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+      'X-Content-Type-Options': 'nosniff',
+    });
+  }
+
+  let file;
+  if (pathname === '/') file = 'index.html';
+  else if (/^\/b\/[\w-]+\/?$/.test(pathname)) file = 'board.html';
+  else file = pathname.slice(1);
+  const full = path.join(PUBLIC_DIR, file);
+  if (!full.startsWith(PUBLIC_DIR + path.sep)) return sendJson(res, 404, { error: 'Not found' });
+  sendFile(req, res, full, { 'Cache-Control': 'no-cache' });
+});
+
+// ---------------------------------------------------------------- realtime
+
+const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
+
+server.on('upgrade', (req, socket, head) => {
+  const url = new URL(req.url, 'http://localhost');
+  const board = url.pathname === '/ws' ? boards.get(url.searchParams.get('board')) : null;
+  if (!board) return socket.destroy();
+  wss.handleUpgrade(req, socket, head, (ws) => onConnect(ws, board));
+});
+
+function send(ws, msg) {
+  if (ws.readyState === 1) ws.send(JSON.stringify(msg));
+}
+
+function broadcast(board, msg, except) {
+  const data = JSON.stringify(msg);
+  for (const peer of board.peers.values()) {
+    if (peer !== except && peer.ws.readyState === 1) peer.ws.send(data);
+  }
+}
+
+function publicPeer(peer) {
+  return { id: peer.id, name: peer.name, color: peer.color, p: peer.p };
+}
+
+function onConnect(ws, board) {
+  const peer = { id: newId(4), ws, name: 'Guest', color: '#888888', p: {}, joined: false };
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+
+  ws.on('message', (raw) => {
+    let msg;
+    try {
+      msg = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (!msg || typeof msg !== 'object') return;
+
+    if (msg.t === 'hello') {
+      if (peer.joined) return;
+      peer.joined = true;
+      peer.name = String(msg.name || 'Guest').slice(0, 32);
+      if (/^#[0-9a-f]{6}$/i.test(msg.color)) peer.color = msg.color;
+      send(ws, {
+        t: 'init',
+        you: peer.id,
+        board: { id: board.id, name: board.name },
+        items: [...board.items.values()],
+        peers: [...board.peers.values()].map(publicPeer),
+        presenter: board.presenter,
+      });
+      board.peers.set(peer.id, peer);
+      broadcast(board, { t: 'join', peer: publicPeer(peer) }, peer);
+      return;
+    }
+    if (!peer.joined) return;
+
+    if (msg.t === 'op') {
+      const applied = applyOps(board, msg.ops);
+      // Always ack, even when nothing applied, so the sender's outbox stays in step.
+      send(ws, { t: 'ack' });
+      if (applied.length) broadcast(board, { t: 'op', ops: applied, from: peer.id }, peer);
+    } else if (msg.t === 'p') {
+      if (!msg.p || typeof msg.p !== 'object') return;
+      Object.assign(peer.p, msg.p);
+      broadcast(board, { t: 'p', id: peer.id, p: msg.p }, peer);
+    } else if (msg.t === 'present') {
+      if (msg.on) board.presenter = peer.id;
+      else if (board.presenter === peer.id) board.presenter = null;
+      else return;
+      broadcast(board, { t: 'presenter', id: board.presenter });
+    } else if (msg.t === 'media') {
+      broadcast(board, { t: 'media', from: peer.id, id: msg.id, playing: !!msg.playing, time: Number(msg.time) || 0 }, peer);
+    }
+  });
+
+  ws.on('close', () => {
+    if (!board.peers.delete(peer.id)) return;
+    broadcast(board, { t: 'leave', id: peer.id });
+    if (board.presenter === peer.id) {
+      board.presenter = null;
+      broadcast(board, { t: 'presenter', id: null });
+    }
+  });
+  ws.on('error', () => {});
+}
+
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (!ws.isAlive) {
+      ws.terminate();
+      continue;
+    }
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, 30000).unref();
+
+// ---------------------------------------------------------------- start
+
+loadBoards();
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    flushAllSync();
+    process.exit(0);
+  });
+}
+process.on('exit', flushAllSync);
+
+server.listen(PORT, HOST, () => {
+  console.log(`Wipboard is running. ${boards.size} board(s) loaded from ${DATA_DIR}`);
+  console.log(`  This machine:  http://localhost:${PORT}`);
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const net of list || []) {
+      if (net.family === 'IPv4' && !net.internal) console.log(`  On the network: http://${net.address}:${PORT}`);
+    }
+  }
+  console.log(`  By hostname:   http://${os.hostname()}:${PORT}`);
+});

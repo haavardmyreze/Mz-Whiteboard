@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>Wipboard</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="board">
+  <div id="viewport">
+    <div id="world">
+      <div id="frames"></div>
+      <div id="items"></div>
+    </div>
+    <div id="hint" hidden>
+      <strong>This board is empty</strong>
+      <span>Drop images or video here, paste from the clipboard, or press <kbd>N</kbd> for a note.</span>
+    </div>
+    <div id="marquee" hidden></div>
+    <div id="selbox" hidden>
+      <i class="handle nw" data-h="nw"></i><i class="handle ne" data-h="ne"></i>
+      <i class="handle sw" data-h="sw"></i><i class="handle se" data-h="se"></i>
+    </div>
+    <canvas id="laser"></canvas>
+    <div id="cursors"></div>
+    <div id="followring" hidden></div>
+    <div id="dropzone" hidden><span>Drop to add to the board</span></div>
+  </div>
+
+  <header id="topbar" class="chrome">
+    <a class="iconbtn" href="/" title="All boards" id="back"></a>
+    <input id="boardname" type="text" maxlength="120" spellcheck="false" aria-label="Board name">
+    <span id="conn" hidden>Reconnecting…</span>
+    <div class="spacer"></div>
+    <div id="peers"></div>
+    <button id="zoom" class="btn ghost" title="Fit everything (Shift+1)">100%</button>
+    <button id="help" class="iconbtn" title="Keyboard shortcuts (?)">?</button>
+    <button id="present" class="btn primary" title="Present this board to everyone on it">Present</button>
+  </header>
+
+  <nav id="toolbar" class="chrome"></nav>
+  <div id="tooloptions" class="chrome" hidden></div>
+  <div id="seltools" hidden></div>
+
+  <div id="followpill" hidden></div>
+  <div id="presentbar" hidden>
+    <button class="iconbtn" id="pprev" title="Previous (←)"></button>
+    <div id="pstep"></div>
+    <button class="iconbtn" id="pnext" title="Next (→)"></button>
+    <span class="sep"></span>
+    <button class="btn ghost" id="plaser" title="Laser pointer (L)">Laser</button>
+    <button class="btn" id="pexit" title="Stop presenting (Esc)">Stop presenting</button>
+  </div>
+
+  <div id="helppanel" hidden></div>
+  <div id="toasts"></div>
+  <input id="filepick" type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple hidden>
+
+  <script src="/common.js"></script>
+  <script src="/board.js"></script>
+</body>
+</html>

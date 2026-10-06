@@ -29,7 +29,9 @@ private networks, otherwise only the host machine can connect.
   remembered per browser. Everything is set in Inter, served from this machine (`public/fonts`), so text
   measures the same on every screen and nothing is fetched from the internet. The greys carry no hue in
   either theme, so the interface never tints how the artwork reads.
-- **Infinite canvas.** Wheel to zoom, Space-drag or middle-drag to pan.
+- **Infinite canvas.** Wheel to zoom, Space-drag or middle-drag to pan. Let go of a pan while it is still
+  moving and the board runs on a little before it settles. Undo and redo ease pieces back to where they
+  were instead of jumping. Both are skipped when the system asks for reduced motion.
 - **Images and video.** Drop files on the board, paste screenshots from the clipboard, or
   paste an image URL. Large images get a 2K preview so heavy boards stay fast; the
   original loads when you zoom in past the preview's resolution. Videos have a play

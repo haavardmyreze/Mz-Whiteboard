@@ -324,6 +324,40 @@
   function stopCamAnim() {
     cancelAnimationFrame(camAnim);
     clearTimeout(camTimer);
+    coasting = false;
+  }
+
+  // Letting go of a pan while the board is still moving lets it run on a little and settle, rather
+  // than stopping dead. The speed (screen pixels per millisecond) dies away over COAST_MS, so a
+  // quick flick carries the view roughly its own speed times that far and a slow drag not at all.
+  const COAST_MS = 65;
+  let coasting = false;
+
+  function coast(vx, vy) {
+    const speed = Math.hypot(vx, vy);
+    if (speed < 0.2 || calm.matches || document.hidden) return;
+    // Nobody means to throw the board across the room.
+    const cap = Math.min(1, 3.5 / speed);
+    vx *= cap;
+    vy *= cap;
+    stopCamAnim();
+    coasting = true;
+    let last = performance.now();
+    const tick = (now) => {
+      const dt = Math.min(64, Math.max(0, now - last));
+      last = now;
+      const decay = Math.exp(-dt / COAST_MS);
+      // The distance covered while the speed fell from where it was to where it is now.
+      const travel = COAST_MS * (1 - decay);
+      cam.x -= (vx * travel) / cam.z;
+      cam.y -= (vy * travel) / cam.z;
+      vx *= decay;
+      vy *= decay;
+      applyCam();
+      if (Math.hypot(vx, vy) > 0.02) camAnim = requestAnimationFrame(tick);
+      else coasting = false;
+    };
+    camAnim = requestAnimationFrame(tick);
   }
 
   function setCam(x, y, z) {
@@ -773,12 +807,106 @@
     flushLive();
     const ops = from.pop();
     if (!ops) return;
+    // Where everything the step may move is now: what it sets, and the frames that refit around that.
+    const before = new Map();
+    for (const op of ops) if (op.t === 'set' && items.has(op.id)) before.set(op.id, geometry(items.get(op.id)));
+    for (const id of frameIds()) if (!before.has(id)) before.set(id, geometry(items.get(id)));
     const inverse = invert(ops);
     applyOps(ops);
     sendOps(ops);
     if (inverse.length) to.push(inverse);
     refitLive(frameIds());
+    glideFrom(before);
     selChanged();
+  }
+
+  // ---- undo and redo glide
+
+  // The document changes at once, as it always has; only what is drawn takes a moment to catch up, so
+  // a piece that undo sends back can be followed by eye instead of jumping. What is shown eases from
+  // where the piece was to wherever the document has it now, which keeps it right if something else
+  // moves the piece in the meantime.
+  const GLIDE_MS = 180;
+  const GLIDE_KEYS = ['x', 'y', 'w', 'h', 'fs'];
+  const glides = new Map(); // id -> { from, t0, cur }: where it started, when, and where it is drawn now
+  const calm = window.matchMedia('(prefers-reduced-motion: reduce)');
+  let glideRaf = 0;
+  let glideTimer = 0;
+
+  function geometry(it) {
+    const g = {};
+    for (const k of GLIDE_KEYS) if (typeof it[k] === 'number') g[k] = it[k];
+    return g;
+  }
+
+  function glideFrom(before) {
+    if (calm.matches || document.hidden) return;
+    const now = performance.now();
+    for (const [id, was] of before) {
+      const it = items.get(id);
+      if (!it) continue;
+      // Already on its way somewhere: carry on from where it is drawn, not from where it was heading.
+      const from = glides.has(id) ? { ...was, ...glides.get(id).cur } : was;
+      if (GLIDE_KEYS.some((k) => typeof it[k] === 'number' && typeof from[k] === 'number' && Math.abs(it[k] - from[k]) > 0.05)) {
+        glides.set(id, { from, t0: now, cur: from });
+      }
+    }
+    if (!glides.size) return;
+    if (!glideRaf) glideRaf = requestAnimationFrame(glideTick);
+    // A window that is covered or in the background may get no frames at all; land everything anyway.
+    clearTimeout(glideTimer);
+    glideTimer = setTimeout(endGlides, GLIDE_MS + 120);
+  }
+
+  function endGlides() {
+    cancelAnimationFrame(glideRaf);
+    clearTimeout(glideTimer);
+    glideRaf = 0;
+    const ids = [...glides.keys()];
+    glides.clear();
+    for (const id of ids) if (items.has(id) && els.has(id)) renderItem(items.get(id));
+    updateOverlay();
+    if (comments.size) placePins();
+  }
+
+  function glideTick(now) {
+    glideRaf = 0;
+    for (const [id, g] of glides) {
+      const it = items.get(id);
+      const node = els.get(id);
+      const k = clamp((now - g.t0) / GLIDE_MS, 0, 1);
+      if (!it || !node || k >= 1) {
+        glides.delete(id);
+        if (it && node) renderItem(it);
+        continue;
+      }
+      // Quick off the mark, settling at the end.
+      const e = 1 - (1 - k) ** 3;
+      const cur = {};
+      let resized = false;
+      for (const key of GLIDE_KEYS) {
+        if (typeof it[key] !== 'number' || typeof g.from[key] !== 'number') continue;
+        cur[key] = g.from[key] + (it[key] - g.from[key]) * e;
+        if (key !== 'x' && key !== 'y' && Math.abs(it[key] - g.from[key]) > 0.05) resized = true;
+      }
+      g.cur = cur;
+      // A plain move only needs its position set; a change of size is drawn in full.
+      if (resized) renderItem({ ...it, ...cur });
+      else node.style.transform = `translate(${cur.x}px, ${cur.y}px)`;
+    }
+    updateOverlay();
+    if (comments.size) placePins();
+    if (glides.size) glideRaf = requestAnimationFrame(glideTick);
+    else clearTimeout(glideTimer);
+  }
+
+  // Where a piece is drawn right now, which during a glide is not yet where the document has it. For
+  // what follows a piece on screen (the selection box, comment pins), never for working anything out.
+  function shownBounds(it) {
+    const b = bounds(it);
+    const g = glides.get(it.id);
+    if (!g) return b;
+    return { x: g.cur.x ?? b.x, y: g.cur.y ?? b.y, w: g.cur.w ?? b.w, h: it.type === 'note' ? b.h : g.cur.h ?? b.h };
   }
 
   // Continuous edits (drags, typing) apply locally at once and reach the network in batches.
@@ -849,17 +977,17 @@
     sendP({ s: [...sel] });
   }
 
-  function selBounds() {
+  function selBounds(of = bounds) {
     let r = null;
     for (const id of sel) {
       const it = items.get(id);
-      if (it) r = union(r, bounds(it));
+      if (it) r = union(r, of(it));
     }
     return r;
   }
 
   function updateOverlay() {
-    const r = sel.size && !editing ? selBounds() : null;
+    const r = sel.size && !editing ? selBounds(shownBounds) : null;
     if (!r) {
       selbox.hidden = true;
       seltools.hidden = true;
@@ -2150,6 +2278,8 @@
     const pan = e.button === 1 || e.button === 2 || (e.button === 0 && (spaceDown || tool === 'pan' || tool === 'laser'));
     e.preventDefault();
     if (gesture) return;
+    // Touching the board catches it.
+    if (coasting) stopCamAnim();
     if (e.button === 2 && (tool === 'pen' || tool === 'arrow')) {
       const g = { type: 'erase', last: p, hit: new Set() };
       begin(g, e);
@@ -2160,7 +2290,7 @@
     }
     if (pan) {
       userMovedView();
-      begin({ type: 'pan', sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y }, e);
+      begin({ type: 'pan', sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, lx: e.clientX, ly: e.clientY, t: performance.now(), vx: 0, vy: 0 }, e);
       document.body.classList.add('panning');
       return;
     }
@@ -2340,6 +2470,17 @@
       eraserRing.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
     } else if (g.type === 'pan') {
       setCam(g.cx - (e.clientX - g.sx) / cam.z, g.cy - (e.clientY - g.sy) / cam.z, cam.z);
+      // How fast the hand is moving, smoothed over the last few moves so one jittery sample does not decide it.
+      const now = performance.now();
+      const dt = now - g.t;
+      if (dt > 0) {
+        const k = Math.min(1, dt / 40);
+        g.vx += ((e.clientX - g.lx) / dt - g.vx) * k;
+        g.vy += ((e.clientY - g.ly) / dt - g.vy) * k;
+        g.lx = e.clientX;
+        g.ly = e.clientY;
+        g.t = now;
+      }
     } else if (g.type === 'move') {
       dragMove(g, e, p);
     } else if (g.type === 'resize') {
@@ -2397,6 +2538,9 @@
       eraserRing.hidden = true;
       // Everything the stroke touched goes in one undo step.
       if (g.hit.size) exec(delOps([...g.hit]));
+    } else if (g.type === 'pan') {
+      // Only if the hand was still moving when it let go: a pan brought to rest stays where it was put.
+      if (e && e.type === 'pointerup' && performance.now() - g.t < 60) coast(g.vx, g.vy);
     } else if (g.type === 'move') {
       clearGuides();
       if (!g.started) {
@@ -2595,7 +2739,7 @@
   function anchorOf(c) {
     const host = items.get(c.on);
     if (!host) return null;
-    const r = bounds(host);
+    const r = shownBounds(host);
     return { x: r.x + c.rx * r.w, y: r.y + c.ry * r.h };
   }
 

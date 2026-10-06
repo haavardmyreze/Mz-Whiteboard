@@ -76,7 +76,23 @@ const WB = (() => {
   }
 
   // Resolves with the user, asking for a name first when there is none yet.
+  // Behind a login (see DEPLOY.md) the server knows who you are; nobody has to type a name.
+  let signedIn;
+  async function identity() {
+    if (signedIn !== undefined) return signedIn;
+    try {
+      const res = await fetch('/api/me');
+      const data = await res.json();
+      signedIn = data.user || null;
+    } catch {
+      signedIn = null;
+    }
+    return signedIn;
+  }
+
   async function askName(force) {
+    const managed = await identity();
+    if (managed) return managed;
     const existing = user();
     if (existing && !force) return existing;
     for (;;) {

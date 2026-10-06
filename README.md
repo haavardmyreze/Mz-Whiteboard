@@ -66,6 +66,12 @@ private networks, otherwise only the host machine can connect.
 
 Press `?` on a board for the full shortcut list.
 
+## Hosting it
+
+For a team that is not on one network, deploy it to Google Cloud Run behind Google sign-in. A
+`Dockerfile`, a health check, piece-by-piece uploads and an email allow list are included; see
+[DEPLOY.md](DEPLOY.md) for the commands, the settings and why it should run as a single instance.
+
 ## Folders
 
 The board list is organised in folders. Drag a board or folder onto a folder, or onto a

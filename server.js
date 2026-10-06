@@ -7,6 +7,7 @@ const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
 const { WebSocketServer } = require('ws');
+const { createAuth } = require('./auth');
 
 const PORT = Number(process.env.PORT) || 4680;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -16,6 +17,21 @@ const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const TRASH_DIR = path.join(DATA_DIR, 'trash');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const MAX_UPLOAD = (Number(process.env.WIPBOARD_MAX_UPLOAD_MB) || 2048) * 1024 * 1024;
+// Uploads arrive in pieces, so a single request never needs to be large (hosting front ends cap it).
+const MAX_PART = 64 * 1024 * 1024;
+
+let auth;
+try {
+  auth = createAuth({
+    mode: process.env.AUTH_MODE,
+    audience: process.env.IAP_AUDIENCE,
+    allowedEmails: process.env.ALLOWED_EMAILS,
+    allowedDomains: process.env.ALLOWED_DOMAINS,
+  });
+} catch (err) {
+  console.error(err.message);
+  process.exit(1);
+}
 const SAVE_DELAY = 800;
 
 const MIME = {
@@ -322,14 +338,25 @@ function sendFile(req, res, file, headers = {}) {
   });
 }
 
+// A file arrives as one or more pieces, POSTed in order to /api/upload?uid=..&offset=..&done=0|1.
+// Each piece is stored on its own and joined when the last one lands. Plain uploads (no uid) are a
+// single piece. Separate small files, rather than appending, also suit object-storage mounts.
+const PARTS_PREFIX = '.parts-';
+
 function handleUpload(req, res, url) {
   const ext = path.extname(url.searchParams.get('name') || '').toLowerCase();
   if (!UPLOAD_EXTS.has(ext)) return sendJson(res, 415, { error: `Unsupported file type ${ext || '(none)'}` });
-  if (Number(req.headers['content-length']) > MAX_UPLOAD) return sendJson(res, 413, { error: 'File too large' });
+  const uid = url.searchParams.get('uid') || newId(9);
+  if (!/^[\w-]{6,40}$/.test(uid)) return sendJson(res, 400, { error: 'Bad upload id' });
+  const offset = Number(url.searchParams.get('offset') || 0);
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > MAX_UPLOAD) return sendJson(res, 400, { error: 'Bad offset' });
+  const done = url.searchParams.get('done') !== '0';
+  if (Number(req.headers['content-length']) > MAX_PART) return sendJson(res, 413, { error: 'Piece too large' });
 
-  const tmp = path.join(UPLOAD_DIR, `.upload-${newId(9)}`);
-  const out = fs.createWriteStream(tmp);
-  const hash = crypto.createHash('sha1');
+  const partsDir = path.join(UPLOAD_DIR, PARTS_PREFIX + uid);
+  fs.mkdirSync(partsDir, { recursive: true });
+  const partFile = path.join(partsDir, String(offset).padStart(12, '0'));
+  const out = fs.createWriteStream(partFile);
   let size = 0;
   let failed = false;
 
@@ -338,37 +365,96 @@ function handleUpload(req, res, url) {
     failed = true;
     req.unpipe(out);
     out.destroy();
-    fs.rm(tmp, { force: true }, () => {});
+    fs.rm(partFile, { force: true }, () => {});
     if (!res.headersSent) sendJson(res, status, { error: message });
     req.resume();
   };
 
   req.on('data', (chunk) => {
     size += chunk.length;
-    if (size > MAX_UPLOAD) return fail(413, 'File too large');
-    hash.update(chunk);
+    if (size > MAX_PART) fail(413, 'Piece too large');
   });
   req.on('error', () => fail(400, 'Upload interrupted'));
   req.on('aborted', () => fail(400, 'Upload interrupted'));
   out.on('error', (err) => fail(500, err.message));
   out.on('finish', async () => {
     if (failed) return;
-    // Content-addressed names: re-uploading the same file reuses the stored copy.
-    const name = `${hash.digest('hex').slice(0, 24)}${ext}`;
-    const dest = path.join(UPLOAD_DIR, name);
     try {
-      if (fs.existsSync(dest)) await fsp.rm(tmp, { force: true });
-      else await fsp.rename(tmp, dest);
-      sendJson(res, 200, { url: `/uploads/${name}`, size });
+      if (!done) return sendJson(res, 200, { ok: true, received: offset + size });
+      sendJson(res, 200, await assembleUpload(partsDir, ext));
     } catch (err) {
-      fail(500, err.message);
+      sendJson(res, err.status || 500, { error: err.message });
     }
   });
   req.pipe(out);
 }
 
+// Joins the pieces in order, checking none is missing, under a content-addressed name so that
+// re-uploading the same file reuses the stored copy.
+async function assembleUpload(partsDir, ext) {
+  const names = (await fsp.readdir(partsDir)).sort();
+  const hash = crypto.createHash('sha1');
+  let total = 0;
+  const finish = async (tmp) => {
+    const name = `${hash.digest('hex').slice(0, 24)}${ext}`;
+    const dest = path.join(UPLOAD_DIR, name);
+    if (fs.existsSync(dest)) await fsp.rm(tmp, { force: true });
+    else await fsp.rename(tmp, dest);
+    await fsp.rm(partsDir, { recursive: true, force: true });
+    return { url: `/uploads/${name}`, size: total };
+  };
+
+  // The common case, one piece: hash it where it lies and move it into place without copying.
+  if (names.length === 1 && Number(names[0]) === 0) {
+    const only = path.join(partsDir, names[0]);
+    for await (const chunk of fs.createReadStream(only)) {
+      total += chunk.length;
+      hash.update(chunk);
+    }
+    return finish(only);
+  }
+
+  const tmp = path.join(UPLOAD_DIR, `.upload-${newId(9)}`);
+  const out = fs.createWriteStream(tmp);
+  try {
+    for (const name of names) {
+      if (Number(name) !== total) throw Object.assign(new Error('A piece of the upload is missing'), { status: 409 });
+      for await (const chunk of fs.createReadStream(path.join(partsDir, name))) {
+        total += chunk.length;
+        if (total > MAX_UPLOAD) throw Object.assign(new Error('File too large'), { status: 413 });
+        hash.update(chunk);
+        if (!out.write(chunk)) await new Promise((resolve) => out.once('drain', resolve));
+      }
+    }
+    await new Promise((resolve, reject) => {
+      out.once('error', reject);
+      out.end(resolve);
+    });
+    return await finish(tmp);
+  } catch (err) {
+    out.destroy();
+    await fsp.rm(tmp, { force: true });
+    throw err;
+  }
+}
+
+// Abandoned uploads (a closed tab, a dropped connection) leave pieces behind; sweep them up.
+function cleanStaleUploads() {
+  const cutoff = Date.now() - 6 * 3600e3;
+  for (const name of fs.readdirSync(UPLOAD_DIR)) {
+    if (!name.startsWith(PARTS_PREFIX) && !name.startsWith('.upload-')) continue;
+    const file = path.join(UPLOAD_DIR, name);
+    try {
+      if (fs.statSync(file).mtimeMs < cutoff) fs.rmSync(file, { recursive: true, force: true });
+    } catch {
+      // gone already
+    }
+  }
+}
+
 async function handleApi(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean); // ['api', ...]
+  if (parts[1] === 'me') return sendJson(res, 200, { auth: auth.mode, user: req.user || null });
   if (parts[1] === 'library' && req.method === 'GET') {
     return sendJson(res, 200, {
       folders: [...folders.values()],
@@ -456,7 +542,7 @@ async function handleApi(req, res, url) {
   sendJson(res, 404, { error: 'Not found' });
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   let pathname;
   try {
@@ -464,6 +550,17 @@ const server = http.createServer((req, res) => {
   } catch {
     return sendJson(res, 400, { error: 'Bad request' });
   }
+
+  // For the platform's health checks: no login, no data.
+  if (pathname === '/healthz') {
+    res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
+    return res.end('ok');
+  }
+  const who = await auth.authenticate(req);
+  if (who.status) {
+    return sendJson(res, who.status, { error: who.status === 403 ? 'This account is not on the list for these boards' : 'Sign in required' });
+  }
+  req.user = who.user;
 
   if (pathname.startsWith('/api/')) {
     handleApi(req, res, url).catch((err) => {
@@ -493,15 +590,29 @@ const server = http.createServer((req, res) => {
   sendFile(req, res, full, { 'Cache-Control': 'no-cache' });
 });
 
+// Behind a load balancer, keep connections open longer than the balancer does, and let big uploads take their time.
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
+server.requestTimeout = 0;
+
 // ---------------------------------------------------------------- realtime
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
 
-server.on('upgrade', (req, socket, head) => {
-  const url = new URL(req.url, 'http://localhost');
-  const board = url.pathname === '/ws' ? boards.get(url.searchParams.get('board')) : null;
-  if (!board) return socket.destroy();
-  wss.handleUpgrade(req, socket, head, (ws) => onConnect(ws, board));
+server.on('upgrade', async (req, socket, head) => {
+  try {
+    const url = new URL(req.url, 'http://localhost');
+    const board = url.pathname === '/ws' ? boards.get(url.searchParams.get('board')) : null;
+    if (!board) return socket.destroy();
+    const who = await auth.authenticate(req);
+    if (who.status) {
+      socket.write(`HTTP/1.1 ${who.status} Unauthorized\r\nConnection: close\r\n\r\n`);
+      return socket.destroy();
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => onConnect(ws, board, who.user));
+  } catch {
+    socket.destroy();
+  }
 });
 
 function send(ws, msg) {
@@ -519,7 +630,7 @@ function publicPeer(peer) {
   return { id: peer.id, name: peer.name, color: peer.color, p: peer.p };
 }
 
-function onConnect(ws, board) {
+function onConnect(ws, board, user) {
   const peer = { id: newId(4), ws, name: 'Guest', color: '#888888', p: {}, joined: false };
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
@@ -536,8 +647,14 @@ function onConnect(ws, board) {
     if (msg.t === 'hello') {
       if (peer.joined) return;
       peer.joined = true;
-      peer.name = String(msg.name || 'Guest').slice(0, 32);
-      if (/^#[0-9a-f]{6}$/i.test(msg.color)) peer.color = msg.color;
+      // Behind a login the identity comes from the sign-in, never from what the browser claims.
+      if (user) {
+        peer.name = user.name;
+        peer.color = user.color;
+      } else {
+        peer.name = String(msg.name || 'Guest').slice(0, 32);
+        if (/^#[0-9a-f]{6}$/i.test(msg.color)) peer.color = msg.color;
+      }
       send(ws, {
         t: 'init',
         you: peer.id,
@@ -601,6 +718,8 @@ setInterval(() => {
 
 loadBoards();
 loadFolders();
+cleanStaleUploads();
+setInterval(cleanStaleUploads, 3600e3).unref();
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
@@ -611,7 +730,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 process.on('exit', flushAllSync);
 
 server.listen(PORT, HOST, () => {
-  console.log(`Wipboard is running. ${boards.size} board(s) loaded from ${DATA_DIR}`);
+  console.log(`Wipboard is running. ${boards.size} board(s) loaded from ${DATA_DIR}. Sign-in: ${auth.mode}`);
   console.log(`  This machine:  http://localhost:${PORT}`);
   for (const list of Object.values(os.networkInterfaces())) {
     for (const net of list || []) {

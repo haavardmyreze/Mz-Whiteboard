@@ -1559,11 +1559,16 @@
     return EXT_BY_TYPE[file.type] || '';
   }
 
-  function upload(blob, ext, onProgress) {
+  // Files go up in pieces, in order. Hosting front ends cap the size of a request (Cloud Run allows
+  // about 32 MB), so nothing larger than a piece is ever sent at once; the server joins them when the
+  // last one lands. A dropped piece is retried instead of restarting the file.
+  const UPLOAD_PIECE = 8 * 1024 * 1024;
+
+  function sendPiece(piece, query, onSent) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', `/api/upload?name=file${ext}`);
-      xhr.upload.onprogress = (e) => { if (onProgress && e.lengthComputable) onProgress(e.loaded / e.total); };
+      xhr.open('POST', `/api/upload?${query}`);
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) onSent(e.loaded); };
       xhr.onload = () => {
         let data = {};
         try {
@@ -1572,11 +1577,34 @@
           // fall through to the generic error
         }
         if (xhr.status === 200) resolve(data);
-        else reject(new Error(data.error || 'Upload failed'));
+        else reject(Object.assign(new Error(data.error || 'Upload failed'), { fatal: xhr.status < 500 }));
       };
       xhr.onerror = () => reject(new Error('Upload failed'));
-      xhr.send(blob);
+      xhr.send(piece);
     });
+  }
+
+  async function upload(blob, ext, onProgress) {
+    const id = uid();
+    let offset = 0;
+    let result = {};
+    do {
+      const end = Math.min(blob.size, offset + UPLOAD_PIECE);
+      const query = `name=file${ext}&uid=${id}&offset=${offset}&done=${end >= blob.size ? 1 : 0}`;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          result = await sendPiece(blob.slice(offset, end), query, (sent) => {
+            if (onProgress) onProgress((offset + sent) / Math.max(1, blob.size));
+          });
+          break;
+        } catch (err) {
+          if (err.fatal || attempt >= 3) throw err;
+          await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+        }
+      }
+      offset = end;
+    } while (offset < blob.size);
+    return result;
   }
 
   function loadImage(url) {

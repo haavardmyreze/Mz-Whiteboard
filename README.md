@@ -44,7 +44,9 @@ private networks, otherwise only the host machine can connect.
   level of selected text from the floating toolbar.
 - **Brush.** The pen is pressure sensitive on a tablet and speed sensitive with a mouse:
   slow strokes are thick, quick flicks thin out, and strokes taper at the end. Right-drag
-  while drawing to erase: every drawing the stroke touches is removed.
+  while drawing to erase: every drawing the stroke touches is removed. Drawings always sit above
+  the content and never change a frame's size, but they attach to the piece they are drawn on and
+  follow it when it moves, scales, is duplicated or deleted.
 - **Headers and colour blocks.** Every frame has a header with its title and an item count; colour a
   frame and its header band takes the colour while the card stays neutral. Colour blocks (B) are
   free-standing banners for headings, resizable and left- or centre-aligned.
@@ -63,7 +65,9 @@ private networks, otherwise only the host machine can connect.
 - **Follow anyone.** Click a teammate's avatar to follow their view outside a
   presentation. Pan or zoom yourself to stop.
 - **Tidy.** Select some images and press Ctrl+P. A vertical line becomes an evenly sized
-  column, a horizontal line a row, and a grid keeps its number of columns.
+  column, a horizontal line a row, and a grid keeps its number of columns. Select two or more
+  frames and the same shortcut tidies the frames themselves, each as one piece with its contents and
+  drawings, keeping their own sizes.
 - **Undo / redo** per person, copy and paste between boards, duplicate with Alt-drag.
 
 Press `?` on a board for the full shortcut list.

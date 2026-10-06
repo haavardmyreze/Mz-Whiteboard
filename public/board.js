@@ -9,6 +9,7 @@
   const world = $('world');
   const framesLayer = $('frames');
   const itemsLayer = $('items');
+  const inksLayer = $('inks'); // drawings, always above the content whatever its order
   const cursorsLayer = $('cursors');
   const selbox = $('selbox');
   const seltools = $('seltools');
@@ -29,12 +30,12 @@
   const noteColor = (c) => (!c || NOTE_DEFAULTS.has(c) ? (isLight() ? '#ffffff' : '#2c2c31') : c);
   // Colours are stored vivid and shown a little softer, more so in the dark theme, so headings and
   // notes sit calmly beside the artwork instead of competing with it.
-  const mutedCache = new Map();
-  function mute(hex) {
+  const shadeCache = new Map();
+  // Moves a #rrggbb colour in HSL: saturation and lightness are scaled by the given factors.
+  function shade(hex, satK, lightK) {
     if (!/^#[0-9a-f]{6}$/i.test(hex || '')) return hex;
-    const dark = !isLight();
-    const key = `${dark ? 'd' : 'l'}${hex}`;
-    if (mutedCache.has(key)) return mutedCache.get(key);
+    const key = `${hex}|${satK}|${lightK}`;
+    if (shadeCache.has(key)) return shadeCache.get(key);
     const n = parseInt(hex.slice(1), 16);
     const r = (n >> 16) / 255;
     const g = ((n >> 8) & 255) / 255;
@@ -50,8 +51,8 @@
       h = max === r ? (g - bl) / d + (g < bl ? 6 : 0) : max === g ? (bl - r) / d + 2 : (r - g) / d + 4;
       h /= 6;
     }
-    s *= dark ? 0.55 : 0.78;
-    const nl = dark ? l * 0.82 : l;
+    s = Math.min(1, s * satK);
+    const nl = Math.min(1, l * lightK);
     const q = nl < 0.5 ? nl * (1 + s) : nl + s - nl * s;
     const p = 2 * nl - q;
     const chan = (t) => {
@@ -60,15 +61,19 @@
       return Math.round(v * 255).toString(16).padStart(2, '0');
     };
     const grey = [nl, nl, nl].map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
-    const out = s === 0 ? grey : chan(h + 1 / 3) + chan(h) + chan(h - 1 / 3);
-    const hexOut = `#${out}`;
-    mutedCache.set(key, hexOut);
-    return hexOut;
+    const out = `#${s === 0 ? grey : chan(h + 1 / 3) + chan(h) + chan(h - 1 / 3)}`;
+    shadeCache.set(key, out);
+    return out;
   }
+  // Colours are stored vivid and shown a little softer, more so in the dark theme, so headings and
+  // notes sit calmly beside the artwork instead of competing with it.
+  const mute = (hex) => (isLight() ? shade(hex, 0.78, 1) : shade(hex, 0.55, 0.82));
+  // Frames sit a rung below blocks in the hierarchy: the same hues, set deeper.
+  const deepen = (hex) => shade(mute(hex), 0.9, 0.62);
   const swatchColor = (c) => (c === 'ink' ? inkColor(c) : c === 'note' ? noteColor(c) : c);
   // Vivid header colours for frames and the free-standing heading blocks.
-  const BLOCK_COLORS = ['#ff6bd6', '#7ed957', '#4d7cff', '#ffd43b', '#ff9a3c', '#b388ff', '#2dd4bf', '#f4f4f5'];
-  const FRAME_COLORS = ['#8a8a93', ...BLOCK_COLORS.slice(0, 7)];
+  const BLOCK_COLORS = ['#ff6bd6', '#7ed957', '#4d7cff', '#ffd43b', '#ff9a3c', '#b388ff', '#2dd4bf', '#6b6b73', '#17171a', '#f4f4f5'];
+  const FRAME_COLORS = ['#8a8a93', ...BLOCK_COLORS.filter((c) => c !== '#f4f4f5')];
   const PEN_SIZES = [4, 8, 16];
   const FRAME_PAD = 28;
   // World-unit sizes for new items: what you get does not depend on how far you are zoomed in.
@@ -79,7 +84,7 @@
   const FRAME_W = 800;
   const FRAME_H = 500;
   // Every frame has a header band for its title and a count; blocks are free-standing coloured headings.
-  const FRAME_HEAD = 112;
+  const FRAME_HEAD = 80;
   const BLOCK_W = 480;
   const BLOCK_H = 104;
   const BLOCK_FS = 56;
@@ -503,7 +508,7 @@
     if (!node) {
       node = createNode(it);
       els.set(it.id, node);
-      (it.type === 'frame' ? framesLayer : itemsLayer).append(node);
+      (it.type === 'frame' ? framesLayer : it.type === 'stroke' ? inksLayer : itemsLayer).append(node);
     }
     const st = node.style;
     st.transform = `translate(${it.x}px, ${it.y}px)`;
@@ -545,7 +550,7 @@
       st.width = `${it.w}px`;
       st.height = `${it.h}px`;
       const tinted = !!it.color && it.color !== FRAME_COLORS[0];
-      const headColor = tinted ? mute(it.color) : FRAME_COLORS[0];
+      const headColor = tinted ? deepen(it.color) : FRAME_COLORS[0];
       st.setProperty('--c', headColor);
       node.dataset.tint = tinted ? '1' : '';
       st.setProperty('--head-ink', tinted && luminance(headColor) > 0.55 ? '#1b1b1c' : '#fff');
@@ -839,7 +844,7 @@
       const only = types.size === 1 ? [...types][0] : null;
       const palette = only === 'note' ? NOTE_FILLS : only === 'frame' ? FRAME_COLORS : only === 'block' ? BLOCK_COLORS : INK;
       for (const c of palette) {
-        kids.push(el('button', { class: 'swatch', style: { background: only === 'note' ? mute(noteColor(c)) : only === 'block' || only === 'frame' ? mute(c) : swatchColor(c) }, title: 'Set colour', onclick: () => colorSel(c) }));
+        kids.push(el('button', { class: 'swatch', style: { background: only === 'note' ? mute(noteColor(c)) : only === 'block' ? mute(c) : only === 'frame' ? (c === FRAME_COLORS[0] ? c : deepen(c)) : swatchColor(c) }, title: 'Set colour', onclick: () => colorSel(c) }));
       }
       kids.push(el('span', { class: 'sep' }));
     }
@@ -962,9 +967,46 @@
     return { cols: Math.min(n, perRow) };
   }
 
+  // Tidying frames treats each as one piece: they keep their own sizes, are laid out in the shape they
+  // already have (a column, a row or a grid), and carry their contents and drawings along.
+  function packFrames(frames) {
+    const ordered = readingOrder(frames);
+    const boxed = ordered.map((it) => ({ it, b: bounds(it) }));
+    const origin = boxed.reduce((r, o) => union(r, o.b), null);
+    const { cols } = detectShape(boxed);
+    const gap = 48;
+    const ops = [];
+    let x = 0;
+    let y = 0;
+    let tallest = 0;
+    let inRow = 0;
+    for (const o of boxed) {
+      if (inRow === cols) {
+        x = 0;
+        y += tallest + gap;
+        tallest = 0;
+        inRow = 0;
+      }
+      const dx = round(origin.x + x - o.b.x);
+      const dy = round(origin.y + y - o.b.y);
+      if (dx || dy) {
+        for (const id of withDependents([o.it.id])) {
+          const part = items.get(id);
+          ops.push({ t: 'set', id, patch: { x: round(part.x + dx), y: round(part.y + dy) } });
+        }
+      }
+      x += o.b.w + gap;
+      tallest = Math.max(tallest, o.b.h);
+      inRow++;
+    }
+    if (ops.length) exec(ops);
+  }
+
   // PureRef-style pack: media is normalised to one size and laid out in the shape it already has.
   // Frames and drawn annotations stay put; moving them would change what they mean.
   function packSelection() {
+    const frames = [...sel].map((id) => items.get(id)).filter((it) => it && it.type === 'frame');
+    if (frames.length >= 2) return packFrames(frames);
     const list = readingOrder([...sel].map((id) => items.get(id))
       .filter((it) => it && it.type !== 'frame' && it.type !== 'stroke'));
     if (list.length < 2) return;
@@ -998,6 +1040,12 @@
       const patch = { x: round(origin.x + x), y: round(origin.y + y) };
       if (o.s !== 1) Object.assign(patch, { w: round(o.w), h: round(o.h) });
       ops.push({ t: 'set', id: o.it.id, patch });
+      for (const ch of items.values()) {
+        if (ch.pid !== o.it.id) continue;
+        const moved = { x: round(patch.x + (ch.x - o.b.x) * o.s), y: round(patch.y + (ch.y - o.b.y) * o.s) };
+        if (o.s !== 1) Object.assign(moved, { w: round(ch.w * o.s), h: round(ch.h * o.s), size: round(ch.size * o.s) });
+        ops.push({ t: 'set', id: ch.id, patch: moved });
+      }
       x += o.w + gap;
       tallest = Math.max(tallest, o.h);
       inRow++;
@@ -1073,9 +1121,9 @@
   function membersOf(frameId, { extra = [], excl = null } = {}) {
     const list = [];
     for (const it of items.values()) {
-      if (it.fid === frameId && it.type !== 'frame' && it.type !== 'block' && !(excl && excl.has(it.id))) list.push(it);
+      if (it.fid === frameId && it.type !== 'frame' && it.type !== 'block' && it.type !== 'stroke' && !(excl && excl.has(it.id))) list.push(it);
     }
-    for (const it of extra) if (it.fid === frameId && it.type !== 'block') list.push(it);
+    for (const it of extra) if (it.fid === frameId && it.type !== 'block' && it.type !== 'stroke') list.push(it);
     return list;
   }
 
@@ -1130,7 +1178,7 @@
   // Loose items that land inside a frame become part of it.
   function autoJoin(list) {
     for (const it of list) {
-      if (it.type === 'frame' || it.type === 'block' || it.pid || it.fid) continue;
+      if (it.type === 'frame' || it.type === 'block' || it.type === 'stroke' || it.pid || it.fid) continue;
       const f = frameHolding(it);
       if (f) it.fid = f.id;
     }
@@ -1163,7 +1211,7 @@
   function adoptInside(frameId) {
     const f = items.get(frameId);
     for (const it of items.values()) {
-      if (it.type === 'frame' || it.type === 'block' || it.pid) continue;
+      if (it.type === 'frame' || it.type === 'block' || it.type === 'stroke' || it.pid) continue;
       const inside = halfIn(it, f);
       const cur = frameOf(it);
       if (cur && cur.id === frameId && !inside) liveSet(it.id, { fid: null });
@@ -1244,10 +1292,76 @@
     }
   }
 
+  // A drawing attaches to whatever it touches, even slightly, and only floats free when it is
+  // clear of everything. Content outranks a frame (a mark on an image that sits in a frame follows the
+  // image), and between two pieces of content it goes with the one it crosses most.
+  function hostFor(drawing) {
+    const pts = drawing.pts;
+    const n = pts.length / 2;
+    const at = (i) => ({ x: drawing.x + pts[i * 2] * drawing.w, y: drawing.y + pts[i * 2 + 1] * drawing.h });
+    // Walk along the line in small steps so a long stroke is judged by its whole length.
+    const samples = [at(0)];
+    for (let i = 0; i < n - 1; i++) {
+      const p = at(i);
+      const q = at(i + 1);
+      const steps = clamp(Math.ceil(Math.hypot(q.x - p.x, q.y - p.y) / 4), 1, 80);
+      for (let k = 1; k <= steps; k++) samples.push({ x: p.x + ((q.x - p.x) * k) / steps, y: p.y + ((q.y - p.y) * k) / steps });
+    }
+    const reach = (drawing.size || 0) / 2;
+    let best = null;
+    let bestTier = -1;
+    let bestHits = 0;
+    for (const it of items.values()) {
+      if (it.type === 'stroke' || it.id === drawing.id || !selectable(it)) continue;
+      const zone = grow(bounds(it), reach);
+      let hits = 0;
+      for (const s of samples) if (hasPoint(zone, s)) hits++;
+      if (!hits) continue;
+      const tier = it.type === 'frame' ? 0 : 1;
+      if (tier > bestTier || (tier === bestTier && (hits > bestHits || (hits === bestHits && (it.z || 0) > (best.z || 0))))) {
+        best = it;
+        bestTier = tier;
+        bestHits = hits;
+      }
+    }
+    return best;
+  }
+
+  // Makes a frame (gathering loose pieces inside it) or a colour block covering `r`, and starts
+  // naming it. Shared by drawing one out with the tool and dropping one from the toolbar.
+  function makeFrameLike(kind, r) {
+    if (kind === 'block') {
+      const block = { id: uid(), type: 'block', x: round(r.x), y: round(r.y), w: round(r.w), h: round(r.h), text: '', color: BLOCK_COLORS[0], fs: BLOCK_FS, align: 'center', z: topZ() + 1 };
+      exec(addOps([block]));
+      setTool('select');
+      setSel([block.id]);
+      startEdit(block.id);
+      return;
+    }
+    // A frame drawn around loose pieces gathers them, and the frame closes in on them.
+    const gathered = [...items.values()].filter((it) => it.type !== 'frame' && it.type !== 'block' && it.type !== 'stroke' && !it.pid && !frameOf(it) && selectable(it) && halfIn(it, r));
+    const hug = hugRect(gathered);
+    const box = hug || r;
+    const item = { id: uid(), type: 'frame', x: round(box.x), y: round(box.y), w: round(box.w), h: round(box.h), title: '', color: FRAME_COLORS[0], z: 0, auto: true };
+    exec([{ t: 'add', item }, ...gathered.map((it) => ({ t: 'set', id: it.id, patch: { fid: item.id } }))]);
+    setTool('select');
+    setSel([item.id]);
+    startEdit(item.id);
+  }
+
+  // Drawings made before they could attach are matched up once, the first time a board is opened.
+  function attachLegacyStrokes() {
+    for (const st of items.values()) {
+      if (st.type !== 'stroke' || st.pid !== undefined) continue;
+      const host = hostFor(st);
+      liveSet(st.id, { pid: host ? host.id : null });
+    }
+  }
+
   // The small line under a frame's title counts what is in it.
   function updateFrameCounts() {
     const n = new Map();
-    for (const it of items.values()) if (it.fid && it.type !== 'frame' && it.type !== 'block') n.set(it.fid, (n.get(it.fid) || 0) + 1);
+    for (const it of items.values()) if (it.fid && it.type !== 'frame' && it.type !== 'block' && it.type !== 'stroke') n.set(it.fid, (n.get(it.fid) || 0) + 1);
     for (const it of items.values()) {
       if (it.type !== 'frame') continue;
       const sub = els.get(it.id) && els.get(it.id).querySelector('.frame-sub');
@@ -1260,7 +1374,7 @@
   // With items selected the frame button wraps them; otherwise it is the draw-a-frame tool.
   function frameSelection() {
     if (focusId) return false;
-    const members = [...sel].map((id) => items.get(id)).filter((it) => it && it.type !== 'frame' && it.type !== 'block' && !it.pid);
+    const members = [...sel].map((id) => items.get(id)).filter((it) => it && it.type !== 'frame' && it.type !== 'block' && it.type !== 'stroke' && !it.pid);
     if (!members.length) return false;
     const previous = members.map((it) => it.fid).filter(Boolean);
     const box = hugRect(members);
@@ -1288,15 +1402,28 @@
     toast(snapOn ? 'Snapping on' : 'Snapping off', { ms: 1200 });
   }
 
+  // Snapping follows the hierarchy of the board: a frame lines up with other frames before it looks at
+  // blocks or content, a block with other blocks before frames, content with other content first.
+  const snapKind = (it) => (it.type === 'frame' ? 'frame' : it.type === 'block' ? 'block' : 'content');
+
+  function snapOrder(ids) {
+    const kinds = new Set([...ids].map((id) => items.get(id)).filter((it) => it && it.type !== 'stroke').map(snapKind));
+    if (kinds.has('frame')) return ['frame', 'block', 'content'];
+    if (kinds.has('block')) return ['block', 'frame', 'content'];
+    return ['content', 'block', 'frame'];
+  }
+
   function snapTargets(exclude) {
     const view = grow(viewRect(), 400 / cam.z);
+    // The frame that wraps the pieces being moved follows them, so its edges are no use as a guide;
+    // every other frame, auto-fit or not, is something to line up with.
+    const ownFrames = new Set([...exclude].map((id) => items.get(id) && items.get(id).fid).filter(Boolean));
     const out = [];
     for (const it of items.values()) {
       if (exclude.has(it.id) || it.type === 'stroke' || !selectable(it)) continue;
-      // Auto-fit frames hug their contents, so their edges are not something to line up with.
-      if (it.type === 'frame' && it.auto !== false) continue;
+      if (it.type === 'frame' && ownFrames.has(it.id)) continue;
       const b = bounds(it);
-      if (intersects(view, b)) out.push(b);
+      if (intersects(view, b)) out.push({ ...b, kind: snapKind(it) });
     }
     return out;
   }
@@ -1353,12 +1480,21 @@
   }
 
   // Nudges a rect onto nearby edges, centres and equal gaps. Returns the offset and what to draw.
-  function snapMove(r, targets, spacing = true) {
+  function snapMove(r, targets, spacing = true, order = ['content', 'block', 'frame']) {
     const thr = SNAP_PX / cam.z;
     const ax = (t) => ({ p: t.x, s: t.w, q: t.y, c: t.h });
     const ay = (t) => ({ p: t.y, s: t.h, q: t.x, c: t.w });
-    const sx = snapAxis(ax(r), targets.map(ax), thr, spacing);
-    const sy = snapAxis(ay(r), targets.map(ay), thr, spacing);
+    // Each axis takes the first kind in priority order that has anything to snap to.
+    const groups = order.map((kind) => targets.filter((t) => t.kind === kind)).filter((g) => g.length);
+    const first = (axis, convert) => {
+      for (const g of groups) {
+        const found = snapAxis(convert(r), g.map(convert), thr, spacing);
+        if (found) return found;
+      }
+      return null;
+    };
+    const sx = first('x', ax);
+    const sy = first('y', ay);
     const guides = [];
     for (const g of sx ? sx.guides : []) {
       guides.push('q0' in g ? { x1: g.p, y1: g.q0, x2: g.p, y2: g.q1 } : { x1: g.p0, y1: g.q, x2: g.p1, y2: g.q, gap: true });
@@ -1959,7 +2095,7 @@
         : { fill: inkColor(pen.color) });
       const svg = svgEl('svg', { class: 'drawing' });
       svg.append(path);
-      itemsLayer.append(svg);
+      inksLayer.append(svg);
       // Brush width follows pen pressure when there is any, otherwise how fast the stroke moves.
       const w0 = e.pointerType === 'pen' && e.pressure > 0 ? 0.25 + 0.75 * e.pressure : 0.5;
       const g = { type: 'draw', arrow, pts: [p.x, p.y], ws: [w0], lt: e.timeStamp, svg, path, size };
@@ -1984,6 +2120,7 @@
       ay: h.includes('n') ? r.y + r.h : r.y,
       snap: snapshot(items.keys()),
       targets: snapTargets(new Set(ids)),
+      order: snapOrder(ids),
       rects: new Map(ids.map((id) => [id, bounds(items.get(id))])),
     }, e);
   }
@@ -2004,19 +2141,21 @@
       const moving = movingIds();
       g.moving = [...moving];
       g.start = new Map(g.moving.map((id) => [id, { x: items.get(id).x, y: items.get(id).y }]));
-      g.box = g.moving.reduce((r, id) => union(r, bounds(items.get(id))), null);
+      const solid = g.moving.filter((id) => items.get(id).type !== 'stroke');
+      g.box = (solid.length ? solid : g.moving).reduce((r, id) => union(r, bounds(items.get(id))), null);
       g.targets = snapTargets(moving);
+      g.order = snapOrder(moving);
       // Loose items being dragged on their own may join or leave frames; frames' own contents just ride along.
       g.items = [...sel].filter((id) => {
         const it = items.get(id);
-        return it.type !== 'frame' && it.type !== 'block' && !it.pid && !(it.fid && moving.has(it.fid));
+        return it.type !== 'frame' && it.type !== 'block' && it.type !== 'stroke' && !it.pid && !(it.fid && moving.has(it.fid));
       });
       g.rest = restRects(moving, new Set(g.items));
     }
     let dx = p.x - g.p0.x;
     let dy = p.y - g.p0.y;
     if (snapOn && !(e.ctrlKey || e.metaKey) && g.targets.length) {
-      const s = snapMove({ x: g.box.x + dx, y: g.box.y + dy, w: g.box.w, h: g.box.h }, g.targets);
+      const s = snapMove({ x: g.box.x + dx, y: g.box.y + dy, w: g.box.w, h: g.box.h }, g.targets, true, g.order);
       dx += s.dx;
       dy += s.dy;
       drawGuides(s.guides);
@@ -2033,7 +2172,7 @@
 
   function dragResize(g, p, e) {
     if (snapOn && !(e.ctrlKey || e.metaKey) && g.targets.length) {
-      const s = snapMove({ x: p.x, y: p.y, w: 0, h: 0 }, g.targets, false);
+      const s = snapMove({ x: p.x, y: p.y, w: 0, h: 0 }, g.targets, false, g.order);
       p = { x: p.x + s.dx, y: p.y + s.dy };
       drawGuides(s.guides);
     } else {
@@ -2108,9 +2247,13 @@
       const r = { x: Math.min(g.p0.x, p.x), y: Math.min(g.p0.y, p.y), w: Math.abs(p.x - g.p0.x), h: Math.abs(p.y - g.p0.y) };
       const ids = new Set(g.base);
       for (const it of items.values()) {
-        if (!selectable(it) || (it.pid && !focusId)) continue;
+        if (!selectable(it)) continue;
         const b = bounds(it);
         if (it.type === 'frame' ? contains(r, b) : intersects(r, b)) ids.add(it.id);
+      }
+      for (const id of [...ids]) {
+        const st = items.get(id);
+        if (st && st.type === 'stroke' && st.pid && ids.has(st.pid)) ids.delete(id);
       }
       setSel(ids);
     } else if (g.type === 'frame') {
@@ -2160,6 +2303,13 @@
       } else if (g.clones) {
         recordSince(g.snap, [{ t: 'del', ids: g.clones }]);
       } else {
+        for (const id of g.moving) {
+          const st = items.get(id);
+          if (!st || st.type !== 'stroke' || g.moving.includes(st.pid)) continue;
+          const host = hostFor(st);
+          const pid = host ? host.id : null;
+          if (pid !== (st.pid ?? null)) liveSet(id, { pid });
+        }
         recordSince(g.snap);
       }
     } else if (g.type === 'resize') {
@@ -2178,23 +2328,7 @@
       if (r.w < 24 / cam.z || r.h < 24 / cam.z) {
         r = { x: g.p0.x - defW / 2, y: g.p0.y - defH / 2, w: defW, h: defH };
       }
-      if (isBlock) {
-        const block = { id: uid(), type: 'block', x: round(r.x), y: round(r.y), w: round(r.w), h: round(r.h), text: '', color: BLOCK_COLORS[0], fs: BLOCK_FS, align: 'center', z: topZ() + 1 };
-        exec(addOps([block]));
-        setTool('select');
-        setSel([block.id]);
-        startEdit(block.id);
-      } else {
-        // Drawing a frame around loose items gathers them, and the frame closes in on them.
-        const gathered = [...items.values()].filter((it) => it.type !== 'frame' && it.type !== 'block' && !it.pid && !frameOf(it) && selectable(it) && halfIn(it, r));
-        const hug = hugRect(gathered);
-        const box = hug || r;
-        const item = { id: uid(), type: 'frame', x: round(box.x), y: round(box.y), w: round(box.w), h: round(box.h), title: '', color: FRAME_COLORS[0], z: 0, auto: true };
-        exec([{ t: 'add', item }, ...gathered.map((it) => ({ t: 'set', id: it.id, patch: { fid: item.id } }))]);
-        setTool('select');
-        setSel([item.id]);
-        startEdit(item.id);
-      }
+      makeFrameLike(g.kind, r);
     } else if (g.type === 'draw') {
       g.svg.remove();
       const pts = g.pts;
@@ -2219,7 +2353,12 @@
           if (ws.length > 4) [0.8, 0.6, 0.4].forEach((k, i) => { ws[ws.length - 1 - i] *= k; });
           item.ws = ws.map((v) => Math.round(v * 100) / 100);
         }
-        if (focusId) item.pid = focusId;
+        if (focusId) {
+          item.pid = focusId;
+        } else {
+          const host = hostFor(item);
+          item.pid = host ? host.id : null;
+        }
         exec(addOps([item]));
       }
     }
@@ -2317,10 +2456,10 @@
     ['pan', 'Pan. Or hold Space and drag (H)', ICON.pan],
     null,
     ['upload', 'Add images or video (or just drop or paste them)', ICON.upload],
-    ['note', 'Note (N)', ICON.note],
-    ['text', 'Heading or text. Pick the level first (T)', ICON.text],
-    ['block', 'Coloured heading block (B)', ICON.block],
-    ['frame', 'Frame the selection, or draw a frame (F)', ICON.frame],
+    ['note', 'Note. Click, or drag it onto the board (N)', ICON.note],
+    ['text', 'Heading or text. Pick the level, then click or drag it out (T)', ICON.text],
+    ['block', 'Coloured heading block. Click, or drag it onto the board (B)', ICON.block],
+    ['frame', 'Frame the selection, or draw or drag out a frame (F)', ICON.frame],
     null,
     ['pen', 'Draw. Right-drag to erase (P)', ICON.pen],
     ['arrow', 'Arrow (A)', ICON.arrow],
@@ -2329,13 +2468,87 @@
 
   const TOOL_LABELS = { select: 'Select', pan: 'Pan', upload: 'Image', note: 'Note', text: 'Heading', block: 'Block', frame: 'Frame', pen: 'Draw', arrow: 'Arrow', laser: 'Laser' };
 
+  // Drag a note, heading, block or frame out of the strip and drop it where you want it, instead of
+  // choosing the tool and then clicking. A plain click on the tool still works as before.
+  const DRAGGABLE_TOOLS = new Set(['note', 'text', 'block', 'frame']);
+  let toolDrag = null;
+  let suppressToolClick = false;
+
+  function overBoard(x, y) {
+    const t = document.elementFromPoint(x, y);
+    return !!t && vp.contains(t);
+  }
+
+  function makeToolGhost(name) {
+    const size = {
+      note: [NOTE_W, NOTE_W * 0.45],
+      text: [levelSize(textPref.lvl) * 4.5, levelSize(textPref.lvl) * 1.35],
+      block: [BLOCK_W, BLOCK_H],
+      frame: [FRAME_W, FRAME_H],
+    }[name];
+    // Shown at the size it will land at, kept to a sensible size on screen.
+    const k = Math.min(cam.z, 520 / Math.max(...size));
+    const ghost = el('div', { class: `tool-ghost ${name}`, text: TOOL_LABELS[name] });
+    ghost.style.width = `${Math.max(48, size[0] * k)}px`;
+    ghost.style.height = `${Math.max(28, size[1] * k)}px`;
+    document.body.append(ghost);
+    return ghost;
+  }
+
+  function endToolDrag() {
+    if (toolDrag && toolDrag.ghost) toolDrag.ghost.remove();
+    document.body.classList.remove('dragging-tool');
+    toolDrag = null;
+  }
+
+  function dropTool(name, p) {
+    setTool('select');
+    if (name === 'note') createTextItem('note', { x: p.x - NOTE_W / 2, y: p.y - 28 });
+    else if (name === 'text') createTextItem('text', { x: p.x - 40, y: p.y - 28 });
+    else if (name === 'block') makeFrameLike('block', { x: p.x - BLOCK_W / 2, y: p.y - BLOCK_H / 2, w: BLOCK_W, h: BLOCK_H });
+    else makeFrameLike('frame', { x: p.x - FRAME_W / 2, y: p.y - FRAME_H / 2, w: FRAME_W, h: FRAME_H });
+  }
+
+  $('toolbar').addEventListener('pointerdown', (e) => {
+    const btn = e.target.closest('[data-tool]');
+    if (!btn || e.button !== 0 || e.pointerType === 'touch' || focusId || !DRAGGABLE_TOOLS.has(btn.dataset.tool)) return;
+    toolDrag = { tool: btn.dataset.tool, x0: e.clientX, y0: e.clientY, ghost: null };
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (!toolDrag) return;
+    if (!toolDrag.ghost) {
+      if (Math.hypot(e.clientX - toolDrag.x0, e.clientY - toolDrag.y0) < 6) return;
+      toolDrag.ghost = makeToolGhost(toolDrag.tool);
+      document.body.classList.add('dragging-tool');
+    }
+    toolDrag.ghost.style.transform = `translate(${e.clientX}px, ${e.clientY}px) translate(-50%, -50%)`;
+    toolDrag.ghost.classList.toggle('off', !overBoard(e.clientX, e.clientY));
+  });
+  window.addEventListener('pointerup', (e) => {
+    if (!toolDrag) return;
+    const drag = toolDrag;
+    const dragged = !!drag.ghost;
+    const drop = dragged && overBoard(e.clientX, e.clientY);
+    endToolDrag();
+    if (!dragged) return;
+    suppressToolClick = true;
+    setTimeout(() => { suppressToolClick = false; }, 0);
+    if (drop) dropTool(drag.tool, s2w(e.clientX, e.clientY));
+  });
+  window.addEventListener('keydown', (e) => {
+    if (toolDrag && e.key === 'Escape') {
+      endToolDrag();
+      e.stopPropagation();
+    }
+  }, true);
+
   function buildToolbar() {
     $('toolbar').replaceChildren(...TOOLS.map((t) => {
       if (!t) return el('span', { class: 'sep' });
       const [name, title, html] = t;
       return el('button', {
         class: 'iconbtn', 'data-tool': name, title, html,
-        onclick: () => (name === 'upload' ? $('filepick').click() : name === 'frame' ? activateFrame() : setTool(name)),
+        onclick: () => (suppressToolClick ? null : name === 'upload' ? $('filepick').click() : name === 'frame' ? activateFrame() : setTool(name)),
       }, el('span', { class: 'tl', text: TOOL_LABELS[name] }));
     }));
     $('back').innerHTML = ICON.boards;
@@ -2461,6 +2674,7 @@
     ['Open an image or video and draw on it', 'Double-click it, Esc to close'],
     ['Smart snapping on / off', 'S, hold Ctrl to bypass'],
     ['Add media', 'Drop files, or paste from the clipboard'],
+    ['Place a note, heading, block or frame', 'Drag it out of the tool strip'],
     ['Upload video without compressing', 'Hold Shift while dropping'],
     ['Note / Heading / Colour block', 'N / T / B'],
     ['Frame the selection, or draw a frame', 'F'],
@@ -2469,7 +2683,7 @@
     ['Erase drawings', 'Right-drag while drawing'],
     ['Edit text', 'Double-click or Enter'],
     ['Duplicate', 'Ctrl+D, or Alt + drag'],
-    ['Tidy selection into a grid', 'Ctrl+P'],
+    ['Tidy into a grid (frames tidy as whole pieces)', 'Ctrl+P'],
     ['Bring to front / send to back', '] / [  or  PgUp / PgDn'],
     ['Scale a note with its text', 'Shift + drag a corner'],
     ['Play or pause video', 'Click the play button, or K'],
@@ -2857,6 +3071,7 @@
       firstInit = false;
       // Frames made before they had headers close up around their contents again, headers included.
       refitLive(frameIds());
+      attachLegacyStrokes();
       const saved = store(`wb:cam:${boardId}`);
       if (saved && isFinite(saved.x) && isFinite(saved.y) && saved.z > 0) setCam(saved.x, saved.y, saved.z);
       else fitAll(0);

@@ -443,9 +443,10 @@ body[data-tool="frame"] #viewport, body[data-tool="block"] #viewport, body[data-
 body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport { cursor: crosshair; }
 
 #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; --z: 1; --inv: 1; }
-#frames, #items { position: absolute; left: 0; top: 0; }
+#frames, #items, #inks { position: absolute; left: 0; top: 0; }
 #frames { z-index: 0; }
 #items { z-index: 1; }
+#inks { z-index: 2; }
 
 .item { position: absolute; left: 0; top: 0; }
 .item.peersel { outline: calc(2px * var(--inv)) solid var(--peer); outline-offset: calc(2px * var(--inv)); }
@@ -545,7 +546,7 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport { cursor: c
   left: 0;
   right: 0;
   top: 0;
-  height: 112px;
+  height: 80px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -557,10 +558,10 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport { cursor: c
   pointer-events: auto;
   cursor: move;
 }
-.frame-title { max-width: 100%; overflow: hidden; font: 700 56px/1.15 var(--serif); letter-spacing: -0.025em; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.frame-title { max-width: 100%; overflow: hidden; font: 700 36px/1.15 var(--serif); letter-spacing: -0.015em; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .frame-title[contenteditable="plaintext-only"], .frame-title[contenteditable="true"] { overflow: visible; text-overflow: clip; }
 .frame-title:empty::before { content: "Untitled"; opacity: 0.38; }
-.frame-sub { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+.frame-sub { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .frame[data-tint="1"] .frame-head { border-bottom-color: transparent; background: var(--c); color: var(--head-ink, #fff); }
 .frame[data-tint="1"] .frame-sub { color: inherit; opacity: 0.72; }
 
@@ -571,7 +572,7 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport { cursor: c
   justify-content: center;
   padding: 0 0.6em;
   border-radius: var(--r);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 2px 4px color-mix(in srgb, var(--lift-c) 60%, transparent), 0 14px 26px -14px var(--lift-c);
+  box-shadow: 0 0 0 1px var(--ring-c), 0 2px 4px color-mix(in srgb, var(--lift-c) 60%, transparent), 0 14px 26px -14px var(--lift-c);
   font-family: var(--serif);
   font-weight: 700;
   line-height: 1.15;
@@ -780,3 +781,25 @@ body.presenting #followpill, body.presenting #focusbar { top: 16px; }
 .block { border-radius: 5px; }
 .note { border-radius: 0.28em; }
 #topbar { border-radius: 0; }
+
+/* The tool being dragged out of the strip, shown where it will land. */
+#toolbar .iconbtn[data-tool="note"], #toolbar .iconbtn[data-tool="text"], #toolbar .iconbtn[data-tool="block"], #toolbar .iconbtn[data-tool="frame"] { cursor: grab; }
+body.dragging-tool, body.dragging-tool * { cursor: grabbing !important; }
+.tool-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-1));
+  color: var(--accent);
+  font: 700 14px/1 var(--sans);
+  pointer-events: none;
+  transition: opacity 0.12s, border-color 0.12s;
+}
+.tool-ghost.note { background: var(--surface-1); color: var(--text-2); }
+.tool-ghost.block { background: color-mix(in srgb, #ff6bd6 55%, var(--surface-1)); border-color: transparent; color: var(--text); }
+.tool-ghost.off { opacity: 0.4; border-color: var(--muted); }

@@ -28,6 +28,7 @@
     <canvas id="laser"></canvas>
     <svg id="guides" aria-hidden="true"><path id="guidepath"/></svg>
     <div id="eraser" hidden></div>
+    <div id="pins"></div>
     <div id="cursors"></div>
     <div id="followring" hidden></div>
     <div id="dropzone" hidden><span>Drop to add to the board</span></div>
@@ -40,6 +41,7 @@
     <div class="spacer"></div>
     <div id="peers"></div>
     <span class="sep"></span>
+    <button id="comments" class="btn ghost" title="All comments (Shift+C)"><span id="commentsicon"></span>Comments<span id="commentcount" class="count" hidden></span></button>
     <button id="snap" class="iconbtn" title="Smart snapping. Hold Ctrl while dragging to bypass (S)"></button>
     <button id="zoom" class="btn ghost" title="Fit everything (Shift+1)">100%</button>
     <span id="themeslot"></span>
@@ -51,6 +53,8 @@
   <nav id="toolbar" class="chrome"></nav>
   <div id="tooloptions" class="chrome" hidden></div>
   <div id="seltools" hidden></div>
+  <div id="thread" class="chrome" hidden></div>
+  <aside id="commentpanel" class="chrome" hidden></aside>
 
   <div id="followpill" hidden></div>
   <div id="focusbar" hidden>

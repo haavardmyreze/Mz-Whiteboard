@@ -180,21 +180,54 @@ function boardMeta(board) {
     folderId: board.folderId || null,
     createdAt: board.createdAt,
     updatedAt: board.updatedAt,
-    count: board.items.size,
+    count: [...board.items.values()].filter((it) => it.type !== 'comment').length,
     media,
     thumbs,
     online: board.peers.size,
   };
 }
 
-function applyOps(board, ops) {
+// A comment is built from scratch rather than copied: who wrote it comes from the connection, not
+// from what the browser claims, and only the fields a comment has are kept.
+function cleanComment(it, peer) {
+  const text = typeof it.text === 'string' ? it.text.trim().slice(0, 2000) : '';
+  if (!text) return null;
+  const now = Date.now();
+  const num = (v) => (Number.isFinite(v) ? v : null);
+  // A comment belongs to one piece of content, never to a spot on the board.
+  if (typeof it.on !== 'string' || !ID_RE.test(it.on)) return null;
+  const clean = {
+    id: it.id,
+    type: 'comment',
+    text,
+    name: peer ? peer.name : 'Guest',
+    color: peer ? peer.color : '#888888',
+    // Keep the author's own clock when it is plausible so every screen numbers the pins the same way,
+    // and so a deleted comment that is undone gets its old place back.
+    t: Number.isFinite(it.t) && it.t > 1.6e12 && it.t < now + 10 * 60 * 1000 ? Math.round(it.t) : now,
+    on: it.on,
+    done: it.done === true,
+  };
+  if (typeof it.re === 'string' && ID_RE.test(it.re)) clean.re = it.re;
+  clean.rx = Math.min(1, Math.max(0, num(it.rx) ?? 0.5));
+  clean.ry = Math.min(1, Math.max(0, num(it.ry) ?? 0.5));
+  if (num(it.at) !== null && it.at >= 0) clean.at = it.at;
+  return clean;
+}
+
+function applyOps(board, ops, peer) {
   const applied = [];
   if (!Array.isArray(ops)) return applied;
   for (const op of ops) {
     if (!op || typeof op !== 'object') continue;
     if (op.t === 'add') {
-      const it = op.item;
+      let it = op.item;
       if (!it || typeof it !== 'object' || !ID_RE.test(it.id) || typeof it.type !== 'string') continue;
+      if (it.type === 'comment') {
+        if (board.items.has(it.id)) continue;
+        it = cleanComment(it, peer);
+        if (!it) continue;
+      }
       board.items.set(it.id, it);
       applied.push({ t: 'add', item: it });
     } else if (op.t === 'set') {
@@ -203,7 +236,13 @@ function applyOps(board, ops) {
       const patch = {};
       for (const key of Object.keys(op.patch)) {
         if (key === 'id' || key === 'type' || key === '__proto__') continue;
+        // The one thing about a comment that changes is whether it has been dealt with.
+        if (it.type === 'comment' && key !== 'done') continue;
         patch[key] = op.patch[key];
+      }
+      if (it.type === 'comment') {
+        if (!('done' in patch)) continue;
+        patch.done = !!patch.done;
       }
       Object.assign(it, patch);
       applied.push({ t: 'set', id: op.id, patch });
@@ -690,7 +729,7 @@ function onConnect(ws, board, user) {
     if (!peer.joined) return;
 
     if (msg.t === 'op') {
-      const applied = applyOps(board, msg.ops);
+      const applied = applyOps(board, msg.ops, peer);
       // Always ack, even when nothing applied, so the sender's outbox stays in step.
       send(ws, { t: 'ack' });
       if (applied.length) broadcast(board, { t: 'op', ops: applied, from: peer.id }, peer);

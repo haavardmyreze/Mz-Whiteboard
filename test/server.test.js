@@ -160,3 +160,55 @@ test('the in-browser video encoder is served as a module', async (t) => {
   assert.match(res.headers.get('content-type'), /javascript/);
   assert.match(await res.text(), /Conversion/);
 });
+
+test('comments are stamped with who wrote them, and only ever sit on a piece of content', async (t) => {
+  const WebSocket = require('ws');
+  const s = start(4796);
+  t.after(s.stop);
+  await s.ready;
+  const board = await (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Review' }) })).json();
+
+  const join = (name) => new Promise((resolve) => {
+    const ws = new WebSocket(`ws://127.0.0.1:4796/ws?board=${board.id}`);
+    const seen = [];
+    ws.on('open', () => ws.send(JSON.stringify({ t: 'hello', name, color: '#336699' })));
+    ws.on('message', (raw) => {
+      const msg = JSON.parse(raw);
+      seen.push(msg);
+      if (msg.t === 'init') resolve({ ws, seen });
+    });
+  });
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const author = await join('Anna');
+  const reviewer = await join('Ben');
+  t.after(() => { author.ws.close(); reviewer.ws.close(); });
+
+  author.ws.send(JSON.stringify({ t: 'op', ops: [
+    { t: 'add', item: { id: 'imageone1', type: 'image', x: 0, y: 0, w: 100, h: 100, src: '/x.png' } },
+    // claims to be somebody else, and carries a field no comment has
+    { t: 'add', item: { id: 'comment01', type: 'comment', on: 'imageone1', rx: 4, ry: 0.5, text: ' Lovely ', name: 'Boss', color: '#ff0000', extra: 1 } },
+    // not on anything, and empty: both refused
+    { t: 'add', item: { id: 'comment02', type: 'comment', x: 5, y: 5, text: 'floating' } },
+    { t: 'add', item: { id: 'comment03', type: 'comment', on: 'imageone1', text: '   ' } },
+  ] }));
+  await wait(300);
+
+  const added = reviewer.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).filter((o) => o.item && o.item.type === 'comment');
+  assert.equal(added.length, 1);
+  const c = added[0].item;
+  assert.equal(c.name, 'Anna');
+  assert.equal(c.color, '#336699');
+  assert.equal(c.text, 'Lovely');
+  assert.equal(c.rx, 1);
+  assert.equal(c.extra, undefined);
+
+  // the only thing about a comment that can change afterwards is whether it is resolved
+  reviewer.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'set', id: 'comment01', patch: { text: 'rewritten', name: 'Ben', done: true } }] }));
+  await wait(300);
+  const late = await join('Cara');
+  t.after(() => late.ws.close());
+  const stored = late.seen.find((m) => m.t === 'init').items.find((i) => i.id === 'comment01');
+  assert.equal(stored.text, 'Lovely');
+  assert.equal(stored.name, 'Anna');
+  assert.equal(stored.done, true);
+});

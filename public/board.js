@@ -11,6 +11,7 @@
   const itemsLayer = $('items');
   const inksLayer = $('inks'); // drawings, always above the content whatever its order
   const cursorsLayer = $('cursors');
+  const pinsLayer = $('pins');
   const selbox = $('selbox');
   const seltools = $('seltools');
   const marquee = $('marquee');
@@ -134,6 +135,9 @@
     alignL: icon('<path d="M4 6h16M4 10h10M4 14h16M4 18h10"/>'),
     alignC: icon('<path d="M4 6h16M7 10h10M4 14h16M7 18h10"/>'),
     snap: icon('<path d="M6 3v8a6 6 0 0 0 12 0V3h-4v8a2 2 0 0 1-4 0V3z"/><path d="M6 7h4M14 7h4"/>'),
+    comment: icon('<path d="M4 5h16v11H11l-5 4v-4H4z"/>'),
+    check: icon('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
+    close: icon('<path d="M6 6l12 12M18 6L6 18"/>'),
     fit: icon('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><rect x="9" y="9" width="6" height="6"/>'),
   };
   const CURSOR_SVG = '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M1 1l4.5 13 2.2-5.3L13 6.5z" fill="var(--c)" stroke="#fff" stroke-width="1"/></svg>';
@@ -141,6 +145,7 @@
   // ------------------------------------------------------------- state
 
   const items = new Map();       // id -> item; the shared document
+  const comments = new Map();    // id -> comment; kept apart from items so they never take part in layout, snapping or fitting
   const els = new Map();         // id -> DOM node
   const sel = new Set();
   const peers = new Map();       // id -> { id, name, color, p, cur }
@@ -176,6 +181,8 @@
   let snapOn = store('wb:snap') !== false;
   let focusId = null;
   let focusReturn = null;
+  let cmDirty = false;
+  let penBeforeFocus = null;
 
   // ------------------------------------------------------------- helpers
 
@@ -266,6 +273,7 @@
     vp.style.backgroundPosition = `${-cam.x * cam.z}px ${-cam.y * cam.z}px`;
     $('zoom').textContent = `${Math.round(cam.z * 100)}%`;
     updateOverlay();
+    if (comments.size || openThread) placePins();
     for (const peer of peers.values()) placeCursor(peer);
     const v = viewRect();
     sendP({ v: [round(v.x), round(v.y), round(v.w), round(v.h)] });
@@ -513,6 +521,7 @@
     const st = node.style;
     st.transform = `translate(${it.x}px, ${it.y}px)`;
     st.zIndex = it.z || 0;
+    if (comments.size) queuePins();
     const isEditing = editing && editing.id === it.id;
     node.classList.toggle('dim', !!focusId && it.id !== focusId && it.pid !== focusId);
 
@@ -587,6 +596,10 @@
   }
 
   function removeItem(id) {
+    if (comments.delete(id)) {
+      cmDirty = true;
+      return;
+    }
     if (focusId === id) exitFocus();
     if (editing && editing.id === id) editing = null;
     items.delete(id);
@@ -643,10 +656,16 @@
   function applyOps(ops, remote = false) {
     for (const op of ops) {
       if (op.t === 'add') {
+        if (op.item.type === 'comment') {
+          comments.set(op.item.id, { ...op.item });
+          cmDirty = true;
+          if (remote && !op.item.re) toast(`${op.item.name} commented on ${hostLabel(op.item)}`);
+          continue;
+        }
         items.set(op.item.id, { ...op.item });
         renderItem(items.get(op.item.id));
       } else if (op.t === 'set') {
-        const it = items.get(op.id);
+        const it = items.get(op.id) || comments.get(op.id);
         if (!it) continue;
         let patch = op.patch;
         if (remote) {
@@ -658,7 +677,8 @@
           }
         }
         Object.assign(it, patch);
-        renderItem(it);
+        if (it.type === 'comment') cmDirty = true;
+        else renderItem(it);
       } else if (op.t === 'del') {
         for (const id of op.ids) removeItem(id);
       } else if (op.t === 'meta') {
@@ -670,6 +690,10 @@
 
   function afterChange() {
     $('hint').hidden = items.size > 0;
+    if (cmDirty) {
+      cmDirty = false;
+      syncComments();
+    }
     updateFrameCounts();
     updateOverlay();
     scheduleSettle();
@@ -683,11 +707,11 @@
         inverse.unshift({ t: 'del', ids: [op.item.id] });
       } else if (op.t === 'del') {
         for (const id of op.ids) {
-          const it = items.get(id);
+          const it = items.get(id) || comments.get(id);
           if (it) inverse.unshift({ t: 'add', item: { ...it } });
         }
       } else if (op.t === 'set') {
-        const it = items.get(op.id);
+        const it = items.get(op.id) || comments.get(op.id);
         if (!it) continue;
         const patch = {};
         for (const k of Object.keys(op.patch)) patch[k] = it[k] ?? null;
@@ -1195,6 +1219,9 @@
   function delOps(ids) {
     const all = new Set(ids);
     for (const it of items.values()) if (it.pid && all.has(it.pid)) all.add(it.id);
+    // Comments left on something go when it goes, replies included.
+    for (const c of comments.values()) if (c.on && all.has(c.on)) all.add(c.id);
+    for (const c of comments.values()) if (c.re && all.has(c.re)) all.add(c.id);
     const frames = [...all].map((id) => items.get(id)).filter((it) => it && it.fid).map((it) => it.fid);
     return [{ t: 'del', ids: [...all] }, ...refitOps(frames, { excl: all })];
   }
@@ -1250,7 +1277,7 @@
     return rest;
   }
 
-  // Dropping an item onto a frame adds it; dragging it well clear of the frame takes it out.
+  // Dropping an item mostly onto a frame adds it; it stays until it is completely outside the frame.
   function updateFrameMembership(g) {
     if (!g.rest.size || !g.items.length) return;
     const touched = new Set();
@@ -1259,19 +1286,18 @@
       const b = bounds(it);
       const cur = frameOf(it);
       const curId = cur && g.rest.has(cur.id) ? cur.id : null;
-      // The frame grows to take an item in, so bringing one close is enough to join; leaving
-      // takes a deliberate pull, about half the item's own size clear of what stays.
-      const joinGap = 80 / cam.z;
-      const leaveGap = Math.max(160 / cam.z, 0.5 * Math.max(b.w, b.h));
+      // Joining is deliberate: more than half of the item has to be over a frame. Once it is in it stays
+      // in, and only lets go when it is completely clear of what the frame holds.
       let next = null;
-      if (curId && rectGap(b, g.rest.get(curId).r) <= leaveGap) {
+      const held = curId && g.rest.get(curId);
+      if (held && (overlapArea(b, held.home) > 0 || overlapArea(b, held.r) > 0)) {
         next = curId;
       } else {
-        let best = Infinity;
+        let best = 0;
         for (const [fid, { r }] of g.rest) {
-          const gap = rectGap(b, r);
-          if (gap <= joinGap && gap < best) {
-            best = gap;
+          const over = overlapArea(b, r);
+          if (over > 0.5 * area(b) && over > best) {
+            best = over;
             next = fid;
           }
         }
@@ -1387,6 +1413,7 @@
   }
 
   function activateFrame() {
+    if (focusId) return;
     if (!frameSelection()) setTool('frame');
   }
 
@@ -1529,18 +1556,23 @@
     const it = items.get(id);
     if (!it || (it.type !== 'image' && it.type !== 'video')) return;
     finishEdit();
-    if (!focusId) focusReturn = { x: cam.x, y: cam.y, z: cam.z };
+    if (!focusId) {
+      focusReturn = { x: cam.x, y: cam.y, z: cam.z };
+      // Annotating is fine work, so the brush starts at its smallest; the usual size comes back afterwards.
+      penBeforeFocus = pen.size;
+      pen.size = PEN_SIZES[0];
+    }
     focusId = id;
     document.body.classList.add('focus');
     $('focusname').textContent = it.name || 'Image';
     $('focusbar').hidden = false;
     for (const [nid, node] of els) node.classList.toggle('dim', nid !== id && items.get(nid).pid !== id);
-    $('focushint').textContent = it.type === 'image' ? 'Draw to annotate' : 'Pick a tool to annotate';
+    $('focushint').textContent = it.type === 'image' ? 'Draw, write notes or comment' : 'Pick a tool to annotate';
     userMovedView();
     // A video starts on the select tool so its play button still works.
     setTool(it.type === 'image' ? 'pen' : 'select');
     if (it.type === 'video') setSel([id]);
-    fitRect(bounds(it), { inset: { t: 100, r: 48, b: presenting ? 96 : 56, l: presenting ? 48 : 100 }, dur: 520 });
+    fitRect(bounds(it), { inset: { t: 100, r: 48, b: presenting ? 96 : 56, l: presenting ? 48 : 160 }, dur: 520 });
   }
 
   function exitFocus() {
@@ -1549,6 +1581,10 @@
     document.body.classList.remove('focus');
     $('focusbar').hidden = true;
     for (const node of els.values()) node.classList.remove('dim');
+    if (penBeforeFocus !== null) {
+      pen.size = penBeforeFocus;
+      penBeforeFocus = null;
+    }
     if (tool === 'pen' || tool === 'arrow') setTool('select');
     if (focusReturn) {
       animateCam(focusReturn, 520);
@@ -1636,8 +1672,10 @@
 
   function createTextItem(type, p, text = '') {
     const base = { id: uid(), type, x: round(p.x), y: round(p.y), text, z: topZ() + 1 };
-    const frame = frameAt(p);
+    // While an image is open, what you write goes with the image, like a drawing does.
+    const frame = focusId ? null : frameAt(p);
     if (frame) base.fid = frame.id;
+    if (focusId) base.pid = focusId;
     const item = type === 'note'
       ? { ...base, w: NOTE_W, h: 0, fs: NOTE_FS, color: NOTE_FILLS[0] }
       : { ...base, fs: levelSize(textPref.lvl), lvl: textPref.lvl, color: INK[0] };
@@ -2038,7 +2076,8 @@
   }
 
   vp.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.vbar, a')) return;
+    if (e.target.closest('.vbar, a, .pin')) return;
+    closeThread();
     if (editing) {
       if (editing.node.contains(e.target)) return;
       finishEdit();
@@ -2305,6 +2344,7 @@
       } else {
         for (const id of g.moving) {
           const st = items.get(id);
+          if (st && st.type !== 'stroke' && st.pid && !focusId && !g.moving.includes(st.pid)) liveSet(id, { pid: null });
           if (!st || st.type !== 'stroke' || g.moving.includes(st.pid)) continue;
           const host = hostFor(st);
           const pid = host ? host.id : null;
@@ -2449,6 +2489,373 @@
     e.target.value = '';
   });
 
+  // ------------------------------------------------------------- comments
+
+  // A comment is a pin on the board, fixed to a point on something (an image, a video, a note, a frame)
+  // or to a spot on the bare canvas. The first message starts a thread and replies hang off it. They are
+  // shared, saved and undone like everything else, but kept apart from the items so they never take part
+  // in layout, snapping or fitting.
+
+  let showPins = store('wb:pins') !== false;
+  let openThread = null;   // { id } for a thread, { draft } while a new comment is being written
+  let hideDone = false;
+  let pinsQueued = false;
+  const pinNodes = new Map();
+  const draftPin = el('div', { class: 'pin draft', html: ICON.comment, hidden: true });
+  pinsLayer.append(draftPin);
+  const threadBox = $('thread');
+  const panel = $('commentpanel');
+
+  const rootsInOrder = () => [...comments.values()].filter((c) => !c.re).sort((a, b) => (a.t || 0) - (b.t || 0) || (a.id < b.id ? -1 : 1));
+  const repliesOf = (id) => [...comments.values()].filter((c) => c.re === id).sort((a, b) => (a.t || 0) - (b.t || 0));
+  const hexOk = (c) => /^#[0-9a-f]{6}$/i.test(c || '');
+  const pinInk = (c) => (hexOk(c) && luminance(c) > 0.6 ? '#1b1b1c' : '#ffffff');
+
+  function hostLabel(c) {
+    const h = items.get(c.on);
+    if (!h) return 'something removed';
+    const first = (t) => (t || '').split('\n')[0].trim().slice(0, 32);
+    const named = h.type === 'frame' ? h.title : h.type === 'image' || h.type === 'video' ? h.name : first(h.text);
+    return named || { image: 'an image', video: 'a video', frame: 'a frame', note: 'a note', text: 'a heading', block: 'a block' }[h.type] || 'an item';
+  }
+
+  function ago(t) {
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 45) return 'just now';
+    if (s < 3600) return `${Math.round(s / 60)}m ago`;
+    if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+    if (s < 86400 * 7) return `${Math.round(s / 86400)}d ago`;
+    return new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  }
+
+  // Where a comment sits on the board, which follows the thing it was left on.
+  function anchorOf(c) {
+    const host = items.get(c.on);
+    if (!host) return null;
+    const r = bounds(host);
+    return { x: r.x + c.rx * r.w, y: r.y + c.ry * r.h };
+  }
+
+  // ---- pins on the board
+
+  function syncComments() {
+    const roots = rootsInOrder();
+    const live = new Set(roots.map((c) => c.id));
+    roots.forEach((c) => {
+      let node = pinNodes.get(c.id);
+      if (!node) {
+        node = el('button', { class: 'pin', onclick: (e) => { e.stopPropagation(); toggleThread(c.id); } });
+        pinsLayer.append(node);
+        pinNodes.set(c.id, node);
+      }
+      node.classList.toggle('done', !!c.done);
+      node.innerHTML = c.done ? ICON.check : ICON.comment;
+      node.title = `${c.name}: ${c.text.slice(0, 80)}`;
+    });
+    for (const [id, node] of pinNodes) {
+      if (live.has(id)) continue;
+      node.remove();
+      pinNodes.delete(id);
+    }
+    updateCommentUI();
+    placePins();
+  }
+
+  function queuePins() {
+    if (pinsQueued) return;
+    pinsQueued = true;
+    queueMicrotask(placePins);
+  }
+
+  function placePins() {
+    pinsQueued = false;
+    const w = vp.clientWidth;
+    const h = vp.clientHeight;
+    for (const c of comments.values()) {
+      if (c.re) continue;
+      const node = pinNodes.get(c.id);
+      if (!node) continue;
+      const pos = anchorOf(c);
+      const s = pos && w2s(pos.x, pos.y);
+      // While something is open only its own comments are shown.
+      const hide = !s || !showPins || (focusId && c.on !== focusId) || s.x < -40 || s.y < -10 || s.x > w + 40 || s.y > h + 40;
+      node.hidden = !!hide;
+      // The pin is part of the board, so it grows and shrinks with the zoom and its tip stays on its point.
+      if (!hide) node.style.transform = `translate(${s.x}px, ${s.y}px) scale(${cam.z})`;
+    }
+    const d = openThread && openThread.draft;
+    const dp = d && anchorOf(d);
+    draftPin.hidden = !dp;
+    if (dp) {
+      const s = w2s(dp.x, dp.y);
+      draftPin.style.transform = `translate(${s.x}px, ${s.y}px) scale(${cam.z})`;
+    }
+    placeThread();
+  }
+
+  // ---- the thread box
+
+  function openThreadFor(id) {
+    openThread = { id };
+    renderThread();
+    syncOpenPin();
+  }
+
+  function toggleThread(id) {
+    if (openThread && openThread.id === id) closeThread();
+    else openThreadFor(id);
+  }
+
+  function closeThread() {
+    if (!openThread) return;
+    openThread = null;
+    threadBox.hidden = true;
+    threadBox.dataset.key = '';
+    threadBox.replaceChildren();
+    draftPin.hidden = true;
+    syncOpenPin();
+  }
+
+  function syncOpenPin() {
+    for (const [id, node] of pinNodes) node.classList.toggle('open', !!openThread && openThread.id === id);
+  }
+
+  function renderThread() {
+    const t = openThread;
+    if (!t) return;
+    const root = t.id ? comments.get(t.id) : null;
+    if (t.id && !root) return closeThread();
+    const key = t.id || 'draft';
+    if (threadBox.dataset.key !== key) buildThreadShell(key, !!root);
+    fillThread(root);
+    threadBox.hidden = false;
+    placeThread();
+  }
+
+  // The box around a thread is built once per thread, so a reply that is half written survives
+  // other people's comments arriving.
+  function buildThreadShell(key, isThread) {
+    threadBox.dataset.key = key;
+    const input = el('textarea', { rows: 1, maxlength: 2000, placeholder: isThread ? 'Reply…' : 'Write a comment…', 'aria-label': 'Comment' });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitComment();
+      } else if (e.key === 'Escape') {
+        e.stopPropagation();
+        closeThread();
+      }
+    });
+    input.addEventListener('input', () => {
+      input.style.height = 'auto';
+      input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+      placeThread();
+    });
+    threadBox.replaceChildren(
+      el('div', { class: 'th-head' }),
+      el('div', { class: 'th-msgs' }),
+      el('div', { class: 'th-compose' }, input, el('button', { class: 'btn small primary', text: isThread ? 'Reply' : 'Comment', onclick: submitComment })));
+    if (!isThread) setTimeout(() => input.focus({ preventScroll: true }), 0);
+  }
+
+  function timeChip(c) {
+    const chip = el('button', { class: 'tchip', title: 'Jump to this moment in the video', onclick: () => seekTo(c) }, el('span', { html: ICON.play }), fmtTime(c.at));
+    return chip;
+  }
+
+  function fillThread(root) {
+    const head = threadBox.querySelector('.th-head');
+    const msgs = threadBox.querySelector('.th-msgs');
+    const close = el('button', { class: 'iconbtn', html: ICON.close, title: 'Close (Esc)', onclick: closeThread });
+    if (!root) {
+      const d = openThread.draft;
+      head.replaceChildren(el('span', { class: 'th-title', text: `New comment on ${hostLabel(d)}` }), close);
+      msgs.replaceChildren(...(d.at != null ? [el('div', { class: 'th-at' }, el('span', { text: 'At' }), timeChip({ on: d.on, at: d.at }))] : []));
+      msgs.hidden = d.at == null;
+      return;
+    }
+    msgs.hidden = false;
+    const list = [root, ...repliesOf(root.id)];
+    const mine = (c) => c.name === me.name;
+    const canDelete = (c) => mine(c) && (c.re || repliesOf(c.id).every(mine));
+    head.replaceChildren(
+      el('span', { class: 'th-title', text: `On ${hostLabel(root)}` }),
+      el('button', {
+        class: 'btn small ghost', html: `${ICON.check}${root.done ? 'Reopen' : 'Resolve'}`,
+        title: root.done ? 'Mark as open again' : 'Mark as dealt with',
+        onclick: () => exec([{ t: 'set', id: root.id, patch: { done: !root.done } }]),
+      }),
+      close);
+    const grew = Number(msgs.dataset.n || 0) < list.length;
+    msgs.dataset.n = list.length;
+    msgs.replaceChildren(...list.map((c, i) => el('div', { class: 'msg' },
+      el('span', { class: 'avatar sm', style: { background: hexOk(c.color) ? c.color : '#8a8a93' }, text: WB.initials(c.name) }),
+      el('div', { class: 'msg-main' },
+        el('div', { class: 'msg-top' },
+          el('strong', { text: c.name }),
+          el('span', { class: 'msg-time', text: ago(c.t), title: new Date(c.t).toLocaleString() }),
+          canDelete(c) && el('button', { class: 'iconbtn mini', html: ICON.trash, title: 'Delete', onclick: () => removeComment(c) })),
+        i === 0 && c.at != null && timeChip(c),
+        el('div', { class: 'msg-text', text: c.text })))));
+    if (grew) msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function placeThread() {
+    if (!openThread || threadBox.hidden) return;
+    const a = openThread.id ? comments.get(openThread.id) : openThread.draft;
+    const pos = a && anchorOf(a);
+    if (!pos) return closeThread();
+    const s = w2s(pos.x, pos.y);
+    const w = threadBox.offsetWidth;
+    const h = threadBox.offsetHeight;
+    threadBox.style.visibility = s.x < -60 || s.y < -60 || s.x > innerWidth + 60 || s.y > innerHeight + 60 ? 'hidden' : '';
+    const pinW = 28 * cam.z;
+    let x = s.x + pinW + 10;
+    if (x + w > innerWidth - 12) x = Math.max(12, s.x - w - 10);
+    threadBox.style.left = `${x}px`;
+    threadBox.style.top = `${clamp(s.y - pinW - 6, 64, Math.max(64, innerHeight - h - 12))}px`;
+  }
+
+  // ---- writing, resolving, deleting
+
+  function submitComment() {
+    const t = openThread;
+    const input = threadBox.querySelector('textarea');
+    const text = input ? input.value.trim() : '';
+    if (!t || !text) return;
+    const item = { id: uid(), type: 'comment', text: text.slice(0, 2000), name: me.name, color: me.color, t: Date.now(), done: false };
+    if (t.id) {
+      const root = comments.get(t.id);
+      if (!root) return;
+      item.re = root.id;
+      item.on = root.on;
+      input.value = '';
+      input.style.height = 'auto';
+      exec([{ t: 'add', item }]);
+    } else {
+      Object.assign(item, t.draft);
+      exec([{ t: 'add', item }]);
+      openThreadFor(item.id);
+    }
+  }
+
+  function removeComment(c) {
+    const ids = c.re ? [c.id] : [c.id, ...repliesOf(c.id).map((r) => r.id)];
+    exec([{ t: 'del', ids }]);
+  }
+
+  function seekTo(c) {
+    if (!c.on || c.at == null) return;
+    const video = videoOf(c.on);
+    if (!video) return;
+    video.pause();
+    video.currentTime = c.at;
+    sendMedia(c.on);
+  }
+
+  // A comment belongs to one piece of content: drag the Comment tool from the strip onto an image,
+  // video, note or heading and drop it where on it the comment goes.
+  const COMMENTABLE = new Set(['image', 'video', 'note', 'text']);
+
+  // The piece of content under a screen point that can take a comment, if any.
+  function contentAt(x, y) {
+    const t = document.elementFromPoint(x, y);
+    const node = t && t.closest ? t.closest('.item') : null;
+    let host = node ? items.get(node.dataset.id) : null;
+    if (host && host.type === 'stroke') host = host.pid ? items.get(host.pid) : null;
+    if (!host || !COMMENTABLE.has(host.type)) return null;
+    if (focusId && host.id !== focusId) return null;
+    return host;
+  }
+
+  function commentOn(host, p) {
+    const r = bounds(host);
+    const frac = (v) => Math.round(clamp(v, 0, 1) * 10000) / 10000;
+    const draft = { on: host.id, rx: frac((p.x - r.x) / (r.w || 1)), ry: frac((p.y - r.y) / (r.h || 1)) };
+    // A comment on a video remembers the moment it was left on.
+    const video = host.type === 'video' ? videoOf(host.id) : null;
+    if (video && isFinite(video.currentTime)) draft.at = Math.round(video.currentTime * 100) / 100;
+    closeThread();
+    openThread = { draft };
+    renderThread();
+    syncOpenPin();
+    placePins();
+  }
+
+  // ---- the list of every comment
+
+  function updateCommentUI() {
+    const open = [...comments.values()].filter((c) => !c.re && !c.done).length;
+    const badge = $('commentcount');
+    badge.hidden = !open;
+    badge.textContent = String(open);
+    renderPanel();
+    if (openThread) renderThread();
+    syncOpenPin();
+  }
+
+  function togglePanel() {
+    panel.hidden = !panel.hidden;
+    $('comments').classList.toggle('active', !panel.hidden);
+    if (panel.hidden) return;
+    $('helppanel').hidden = true;
+    panel.dataset.n = '';
+    renderPanel();
+  }
+
+  // Every message on the board in the order it was written, replies included, newest at the bottom.
+  function renderPanel() {
+    if (panel.hidden) return;
+    const all = [...comments.values()].sort((a, b) => (a.t || 0) - (b.t || 0) || (a.id < b.id ? -1 : 1));
+    const feed = all.filter((c) => comments.get(c.re || c.id) && !(hideDone && comments.get(c.re || c.id).done));
+    const toggle = (label, title, checked, onchange) => {
+      const box = el('input', { type: 'checkbox' });
+      box.checked = checked;
+      box.addEventListener('change', () => onchange(box.checked));
+      return el('label', { class: 'cp-show', title }, box, label);
+    };
+    const row = (c) => {
+      const root = comments.get(c.re || c.id);
+      const color = mute(hexOk(c.color) ? c.color : '#8a8a93');
+      const where = c.re ? `Reply on ${hostLabel(root)}` : `On ${hostLabel(c)}${c.at != null ? ` · ${fmtTime(c.at)}` : ''}`;
+      return el('button', { class: `cp-row${c.re ? ' reply' : ''}${root.done ? ' done' : ''}`, onclick: () => goToComment(root.id) },
+        el('span', { class: 'cp-num', style: { background: color, color: pinInk(color) }, text: WB.initials(c.name) }),
+        el('span', { class: 'cp-body' },
+          el('span', { class: 'cp-top' }, el('strong', { text: c.name }), el('span', { class: 'msg-time', text: ago(c.t), title: new Date(c.t).toLocaleString() }), root.done && el('span', { class: 'cp-done', html: ICON.check, title: 'Resolved' })),
+          el('span', { class: 'cp-text', text: c.text }),
+          el('span', { class: 'cp-meta', text: where })));
+    };
+    const list = el('div', { class: 'cp-list' }, ...(feed.length
+      ? feed.map(row)
+      : [el('p', { class: 'cp-empty', text: comments.size ? 'Everything has been resolved.' : 'No comments yet. Select an image or video and press Comment in the bar above it.' })]));
+    const keep = panel.querySelector('.cp-list');
+    const grew = Number(panel.dataset.n || 0) < feed.length;
+    const top = keep ? keep.scrollTop : 0;
+    panel.dataset.n = feed.length;
+    panel.replaceChildren(
+      el('div', { class: 'cp-head' },
+        el('h2', { text: 'Comments' }),
+        el('button', { class: 'iconbtn', html: ICON.close, title: 'Close (Shift+C)', onclick: togglePanel })),
+      el('div', { class: 'cp-opts' },
+        toggle('Show pins', 'Show or hide the pins on the board', showPins, (v) => { showPins = v; store('wb:pins', v); placePins(); }),
+        toggle('Hide resolved', 'Leave out threads that have been resolved', hideDone, (v) => { hideDone = v; renderPanel(); })),
+      list);
+    list.scrollTop = grew ? list.scrollHeight : top;
+  }
+
+  // Flies to where a comment was left, opens it, and for a video jumps to the moment it is about.
+  function goToComment(id) {
+    const c = comments.get(id);
+    if (!c) return;
+    const host = items.get(c.on);
+    if (!host) return;
+    if (focusId && focusId !== c.on) exitFocus();
+    userMovedView();
+    fitRect(bounds(host), { dur: 420, maxZ: 1.5 });
+    seekTo(c);
+    openThreadFor(id);
+  }
+
   // ------------------------------------------------------------- tools and keyboard
 
   const TOOLS = [
@@ -2464,13 +2871,15 @@
     ['pen', 'Draw. Right-drag to erase (P)', ICON.pen],
     ['arrow', 'Arrow (A)', ICON.arrow],
     ['laser', 'Laser pointer, visible to everyone (L)', ICON.laser],
+    null,
+    ['comment', 'Comment. Drag it onto an image, video or note and drop it where the comment belongs', ICON.comment],
   ];
 
-  const TOOL_LABELS = { select: 'Select', pan: 'Pan', upload: 'Image', note: 'Note', text: 'Heading', block: 'Block', frame: 'Frame', pen: 'Draw', arrow: 'Arrow', laser: 'Laser' };
+  const TOOL_LABELS = { select: 'Select', pan: 'Pan', upload: 'Image', note: 'Note', text: 'Heading', block: 'Block', frame: 'Frame', pen: 'Draw', arrow: 'Arrow', laser: 'Laser', comment: 'Comment' };
 
   // Drag a note, heading, block or frame out of the strip and drop it where you want it, instead of
   // choosing the tool and then clicking. A plain click on the tool still works as before.
-  const DRAGGABLE_TOOLS = new Set(['note', 'text', 'block', 'frame']);
+  const DRAGGABLE_TOOLS = new Set(['note', 'text', 'block', 'frame', 'comment']);
   let toolDrag = null;
   let suppressToolClick = false;
 
@@ -2480,6 +2889,14 @@
   }
 
   function makeToolGhost(name) {
+    if (name === 'comment') {
+      const pin = el('div', { class: 'tool-ghost comment', html: ICON.comment });
+      const k = cam.z;
+      Object.assign(pin.style, { width: `${28 * k}px`, height: `${28 * k}px`, margin: `${-28 * k}px 0 0` });
+      pin.firstChild.style.width = pin.firstChild.style.height = `${14 * k}px`;
+      document.body.append(pin);
+      return pin;
+    }
     const size = {
       note: [NOTE_W, NOTE_W * 0.45],
       text: [levelSize(textPref.lvl) * 4.5, levelSize(textPref.lvl) * 1.35],
@@ -2495,7 +2912,18 @@
     return ghost;
   }
 
+  function markDropTarget(host) {
+    const id = host ? host.id : null;
+    if (!toolDrag || toolDrag.target === id) return;
+    const old = toolDrag.target && els.get(toolDrag.target);
+    if (old) old.classList.remove('drop-target');
+    const node = id && els.get(id);
+    if (node) node.classList.add('drop-target');
+    toolDrag.target = id;
+  }
+
   function endToolDrag() {
+    markDropTarget(null);
     if (toolDrag && toolDrag.ghost) toolDrag.ghost.remove();
     document.body.classList.remove('dragging-tool');
     toolDrag = null;
@@ -2511,7 +2939,8 @@
 
   $('toolbar').addEventListener('pointerdown', (e) => {
     const btn = e.target.closest('[data-tool]');
-    if (!btn || e.button !== 0 || e.pointerType === 'touch' || focusId || !DRAGGABLE_TOOLS.has(btn.dataset.tool)) return;
+    if (!btn || e.button !== 0 || e.pointerType === 'touch' || !DRAGGABLE_TOOLS.has(btn.dataset.tool)) return;
+    if (focusId && !['note', 'text', 'comment'].includes(btn.dataset.tool)) return;
     toolDrag = { tool: btn.dataset.tool, x0: e.clientX, y0: e.clientY, ghost: null };
   });
   window.addEventListener('pointermove', (e) => {
@@ -2521,19 +2950,31 @@
       toolDrag.ghost = makeToolGhost(toolDrag.tool);
       document.body.classList.add('dragging-tool');
     }
-    toolDrag.ghost.style.transform = `translate(${e.clientX}px, ${e.clientY}px) translate(-50%, -50%)`;
-    toolDrag.ghost.classList.toggle('off', !overBoard(e.clientX, e.clientY));
+    toolDrag.ghost.style.transform = `translate(${e.clientX}px, ${e.clientY}px)${toolDrag.tool === 'comment' ? '' : ' translate(-50%, -50%)'}`;
+    if (toolDrag.tool === 'comment') {
+      const host = overBoard(e.clientX, e.clientY) ? contentAt(e.clientX, e.clientY) : null;
+      markDropTarget(host);
+      toolDrag.ghost.classList.toggle('off', !host);
+    } else {
+      toolDrag.ghost.classList.toggle('off', !overBoard(e.clientX, e.clientY));
+    }
   });
   window.addEventListener('pointerup', (e) => {
     if (!toolDrag) return;
     const drag = toolDrag;
     const dragged = !!drag.ghost;
     const drop = dragged && overBoard(e.clientX, e.clientY);
+    const host = drag.tool === 'comment' && drop ? contentAt(e.clientX, e.clientY) : null;
     endToolDrag();
     if (!dragged) return;
     suppressToolClick = true;
     setTimeout(() => { suppressToolClick = false; }, 0);
-    if (drop) dropTool(drag.tool, s2w(e.clientX, e.clientY));
+    if (drag.tool === 'comment') {
+      if (host) commentOn(host, s2w(e.clientX, e.clientY));
+      else if (drop) toast('Drop the comment onto an image, video or note');
+    } else if (drop) {
+      dropTool(drag.tool, s2w(e.clientX, e.clientY));
+    }
   });
   window.addEventListener('keydown', (e) => {
     if (toolDrag && e.key === 'Escape') {
@@ -2548,7 +2989,7 @@
       const [name, title, html] = t;
       return el('button', {
         class: 'iconbtn', 'data-tool': name, title, html,
-        onclick: () => (suppressToolClick ? null : name === 'upload' ? $('filepick').click() : name === 'frame' ? activateFrame() : setTool(name)),
+        onclick: () => (suppressToolClick ? null : name === 'upload' ? $('filepick').click() : name === 'frame' ? activateFrame() : name === 'comment' ? toast('Drag the comment onto an image, video or note') : setTool(name)),
       }, el('span', { class: 'tl', text: TOOL_LABELS[name] }));
     }));
     $('back').innerHTML = ICON.boards;
@@ -2583,7 +3024,7 @@
 
   function setTool(name) {
     // While an image is open there is nothing to place notes or frames on.
-    if (focusId && (name === 'note' || name === 'text' || name === 'frame' || name === 'block')) return;
+    if (focusId && (name === 'frame' || name === 'block')) return;
     tool = name;
     document.body.dataset.tool = name;
     for (const b of $('toolbar').querySelectorAll('[data-tool]')) b.classList.toggle('active', b.dataset.tool === name);
@@ -2634,9 +3075,12 @@
     else if (k === '?') toggleHelp();
     else if (k === 's' && !e.shiftKey) toggleSnap();
     else if (k === 'f' && !e.shiftKey) activateFrame();
+    else if (k === 'c' && e.shiftKey) togglePanel();
     else if (k === 'delete' || k === 'backspace') deleteSel();
     else if (k === 'escape') {
       if (!$('helppanel').hidden) toggleHelp();
+      else if (openThread) closeThread();
+      else if (!$('commentpanel').hidden) togglePanel();
       else if (focusId) exitFocus();
       else if (tool !== 'select') setTool('select');
       else setSel([]);
@@ -2680,6 +3124,8 @@
     ['Frame the selection, or draw a frame', 'F'],
     ['Change heading level', 'Select it, then H1 / H2 / H3 / Text'],
     ['Draw / Arrow / Laser', 'P / A / L'],
+    ['Comment on an image, video, note or heading', 'Drag the Comment tool onto it'],
+    ['All comments, oldest first', 'Shift+C'],
     ['Erase drawings', 'Right-drag while drawing'],
     ['Edit text', 'Double-click or Enter'],
     ['Duplicate', 'Ctrl+D, or Alt + drag'],
@@ -2699,6 +3145,10 @@
         el('dl', {}, HELP.flatMap(([what, keys]) => [el('dt', { text: what }), el('dd', { text: keys })])));
     }
     panel.hidden = !panel.hidden;
+    if (!panel.hidden) {
+      $('commentpanel').hidden = true;
+      $('comments').classList.remove('active');
+    }
   }
   $('help').addEventListener('click', toggleHelp);
   // A focused button would swallow Space and Enter, which are canvas shortcuts here.
@@ -3049,10 +3499,16 @@
       els.delete(id);
     }
     items.clear();
+    comments.clear();
     for (const it of msg.items) {
+      if (it.type === 'comment') {
+        comments.set(it.id, it);
+        continue;
+      }
       items.set(it.id, it);
       renderItem(it);
     }
+    cmDirty = true;
     setBoardName(msg.board.name);
 
     for (const id of [...peers.keys()]) dropPeer(id);
@@ -3159,7 +3615,10 @@
     seltools.dataset.sig = '';
     buildToolOptions();
     updateOverlay();
+    syncComments();
   });
+  $('commentsicon').innerHTML = ICON.comment;
+  $('comments').addEventListener('click', togglePanel);
   $('snap').innerHTML = ICON.snap;
   $('snap').classList.toggle('active', snapOn);
   $('snap').addEventListener('click', toggleSnap);

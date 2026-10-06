@@ -282,10 +282,14 @@
   }
 
   // The dashed first tile, as on Milanote: a board is always one click away.
+  // The dashed first tile, as on Milanote: a board is always one click away. It is built like a board
+  // card (picture area, then a name and a line) so it is exactly the same size in any folder.
   function newBoardTile() {
     return el('button', { class: 'card new', onclick: newBoard },
-      el('span', { class: 'plus', html: svg('<path d="M12 5v14M5 12h14"/>', 22) }),
-      el('span', { text: 'New board' }));
+      el('span', { class: 'new-thumb' }, el('span', { class: 'plus', html: svg('<path d="M12 5v14M5 12h14"/>', 22) })),
+      el('span', { class: 'card-body' },
+        el('span', { class: 'card-name', text: 'New board' }),
+        el('span', { class: 'card-meta', text: 'Start from a blank canvas' })));
   }
 
   function crumb(folder) {
@@ -302,13 +306,18 @@
     crumbs[crumbs.length - 1].classList.add('current');
     document.title = `${trail.length ? trail[trail.length - 1].name : 'All boards'} · Wipboard`;
 
-    const subs = childrenOf(cur);
-    const boards = boardsIn(cur);
+    // A search looks through every folder; without one you see the folder you are in.
+    const q = $('q').value.trim().toLowerCase();
+    const matches = (name) => name.toLowerCase().includes(q);
+    const subs = q ? lib.folders.filter((f) => matches(f.name)).sort(byName) : childrenOf(cur);
+    const boards = q ? lib.boards.filter((b) => matches(b.name)) : boardsIn(cur);
+    const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'count', text: String(n) }));
     $('content').replaceChildren(...[
-      subs.length > 0 && el('div', { class: 'section-label', text: 'Folders' }),
+      subs.length > 0 && label('Folders', subs.length),
       subs.length > 0 && el('div', { class: 'folder-grid' }, subs.map(folderCard)),
-      boards.length > 0 && subs.length > 0 && el('div', { class: 'section-label', text: 'Boards' }),
-      el('div', { class: 'board-grid' }, [newBoardTile(), ...boards.map(boardCard)]),
+      (subs.length > 0 || q) && label('Boards', boards.length),
+      el('div', { class: 'board-grid' }, [...(q ? [] : [newBoardTile()]), ...boards.map(boardCard)]),
+      q && !subs.length && !boards.length && el('p', { class: 'home-empty', text: `Nothing matches "${$('q').value.trim()}".` }),
     ].filter(Boolean));
     $('empty').hidden = true;
   }
@@ -338,6 +347,17 @@
     }
   });
 
+  $('q').addEventListener('input', render);
+  window.addEventListener('keydown', (e) => {
+    if (e.key === '/' && document.activeElement !== $('q') && !document.querySelector('dialog[open]')) {
+      e.preventDefault();
+      $('q').focus();
+    } else if (e.key === 'Escape' && document.activeElement === $('q')) {
+      $('q').value = '';
+      $('q').blur();
+      render();
+    }
+  });
   window.addEventListener('hashchange', () => { if (lib.folders) render(); });
   await refresh();
   setInterval(() => { if (!document.hidden && !dragging && !document.querySelector('dialog[open], .menu')) refresh(); }, 15000);

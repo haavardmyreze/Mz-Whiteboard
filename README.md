@@ -38,7 +38,7 @@ private networks, otherwise only the host machine can connect.
   you can annotate it with the brush or arrows. The drawing belongs to the image, so it
   moves and scales with it, and everyone sees it live. Esc or Done closes it and the view returns to where it was.
 - **Uniform sizes.** New images come in at the same width, notes and headings at fixed sizes
-  and the brush at a fixed width, whatever the zoom was when you made them. Text is sized
+  and the brush at a fixed width (small while an image is open, so annotating stays fine), whatever the zoom was when you made them. Text is sized
   by its level (H1, H2, H3, Text), not by dragging.
 - **Headings and notes.** Pick H1, H2, H3 or plain text before placing, or change the
   level of selected text from the floating toolbar.
@@ -51,10 +51,17 @@ private networks, otherwise only the host machine can connect.
   frame and its header band takes the colour while the card stays neutral. Colour blocks (B) are
   free-standing banners for headings, resizable and left- or centre-aligned.
 - **Frames that fit their contents.** Drag an item onto a frame and the frame wraps it;
-  an item joins as soon as you bring it close, and the frame grows to wrap it. It only leaves
-  when you pull it well clear, and the frame closes up again. Drawing a frame around
+  an item joins once more than half of it is over the frame, and the frame grows to wrap it.
+  Once in, it stays in until it has been pulled completely out of the frame, and the frame closes up again. Drawing a frame around
   loose items gathers them. Resizing a frame by hand switches its fit-to-content button
   off; the toolbar button turns it back on.
+- **Comments.** Drag the Comment tool from the strip onto an image, video, note or heading and
+  drop it where on it the comment belongs (it also works on an opened image). Comments are
+  always on one piece of content, show as numbered pins that follow it, and start a thread that
+  anyone can reply to or resolve. On a video the comment remembers the moment it was left on,
+  and clicking it jumps there. The Comments button in the top bar (Shift+C) lists every message
+  oldest first. Who wrote a comment comes from the sign-in, not from the browser. Comments go
+  when the thing they are on is deleted, and come back with it on undo.
 - **Smart snapping.** Dragged items snap to the edges and centres of their neighbours and
   to equal gaps, with guide lines. Toggle with S, hold Ctrl while dragging to bypass.
 - **Live collaboration.** Everyone sees edits, cursors and selections as they happen.

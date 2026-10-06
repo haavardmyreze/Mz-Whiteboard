@@ -3,19 +3,36 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0e0e10">
+  <script>try { document.documentElement.dataset.theme = JSON.parse(localStorage.getItem('wb:theme')) || 'dark'; } catch (e) { document.documentElement.dataset.theme = 'dark'; }</script>
   <title>Wipboard</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body class="home">
-  <header class="home-head">
-    <h1>Wipboard</h1>
-    <div class="spacer"></div>
-    <button id="me" class="btn ghost" title="Change your name"></button>
-    <button id="new" class="btn primary">New board</button>
+  <header class="home-bar">
+    <div class="home-head">
+      <a class="brand" href="#/" aria-label="All boards">
+        <img src="/favicon.svg" alt="" width="28" height="28">
+        <span>Wipboard</span>
+      </a>
+      <div class="spacer"></div>
+      <span id="themeslot"></span>
+      <button id="me" class="chip" title="Change your name"></button>
+      <button id="newfolder" class="btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>
+        New folder
+      </button>
+      <button id="new" class="btn primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        New board
+      </button>
+    </div>
   </header>
   <main>
-    <div id="boards" class="board-grid"></div>
-    <p id="empty" class="home-empty" hidden>No boards yet. Create one to start pinning up work for the next standup.</p>
+    <nav id="crumbs" class="crumbs" aria-label="Folder path"></nav>
+    <div id="content"></div>
+    <p id="empty" class="home-empty" hidden></p>
   </main>
   <script src="/common.js"></script>
   <script src="/home.js"></script>

@@ -61,6 +61,7 @@ function loadBoards() {
       boards.set(raw.id, {
         id: raw.id,
         name: raw.name || 'Untitled',
+        folderId: raw.folderId || null,
         createdAt: raw.createdAt || Date.now(),
         updatedAt: raw.updatedAt || Date.now(),
         items,
@@ -75,10 +76,11 @@ function loadBoards() {
   }
 }
 
-function createBoard(name) {
+function createBoard(name, folderId) {
   const board = {
     id: newId(),
     name: String(name || 'Untitled board').slice(0, 120),
+    folderId: folderId || null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     items: new Map(),
@@ -100,14 +102,15 @@ function serialize(board) {
   return JSON.stringify({
     id: board.id,
     name: board.name,
+    folderId: board.folderId || null,
     createdAt: board.createdAt,
     updatedAt: board.updatedAt,
     items: [...board.items.values()],
   });
 }
 
-function scheduleSave(board) {
-  board.updatedAt = Date.now();
+function scheduleSave(board, touch = true) {
+  if (touch) board.updatedAt = Date.now();
   if (board.saveTimer) return;
   board.saveTimer = setTimeout(() => {
     board.saveTimer = null;
@@ -157,6 +160,7 @@ function boardMeta(board) {
   return {
     id: board.id,
     name: board.name,
+    folderId: board.folderId || null,
     createdAt: board.createdAt,
     updatedAt: board.updatedAt,
     count: board.items.size,
@@ -198,6 +202,52 @@ function applyOps(board, ops) {
   }
   if (applied.length) scheduleSave(board);
   return applied;
+}
+
+// ---------------------------------------------------------------- folders
+
+const FOLDER_FILE = path.join(DATA_DIR, 'folders.json');
+const folders = new Map();
+
+function loadFolders() {
+  try {
+    for (const f of JSON.parse(fs.readFileSync(FOLDER_FILE, 'utf8'))) {
+      if (!f || !ID_RE.test(f.id)) continue;
+      folders.set(f.id, {
+        id: f.id,
+        name: String(f.name || 'Folder').slice(0, 120),
+        parentId: f.parentId || null,
+        createdAt: f.createdAt || Date.now(),
+      });
+    }
+  } catch (err) {
+    if (err.code !== 'ENOENT') console.error(`Could not read folders.json: ${err.message}`);
+  }
+  for (const f of folders.values()) if (f.parentId && !folders.has(f.parentId)) f.parentId = null;
+  for (const board of boards.values()) if (board.folderId && !folders.has(board.folderId)) board.folderId = null;
+}
+
+function saveFolders() {
+  const tmp = `${FOLDER_FILE}.tmp`;
+  const data = JSON.stringify([...folders.values()]);
+  try {
+    fs.writeFileSync(tmp, data);
+    fs.renameSync(tmp, FOLDER_FILE);
+  } catch {
+    fs.writeFileSync(FOLDER_FILE, data);
+  }
+}
+
+// True when `folderId` is `ancestorId` or sits anywhere below it.
+function isWithin(folderId, ancestorId) {
+  for (let id = folderId, hops = 0; id && hops < 1000; id = folders.get(id)?.parentId, hops++) {
+    if (id === ancestorId) return true;
+  }
+  return false;
+}
+
+function cleanName(value, fallback) {
+  return String(value ?? '').trim().slice(0, 120) || fallback;
 }
 
 // ---------------------------------------------------------------- http
@@ -319,6 +369,51 @@ function handleUpload(req, res, url) {
 
 async function handleApi(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean); // ['api', ...]
+  if (parts[1] === 'library' && req.method === 'GET') {
+    return sendJson(res, 200, {
+      folders: [...folders.values()],
+      boards: [...boards.values()].map(boardMeta).sort((a, b) => b.updatedAt - a.updatedAt),
+    });
+  }
+  if (parts[1] === 'folders') {
+    if (parts.length === 2 && req.method === 'POST') {
+      const body = await readJson(req);
+      const parentId = body.parentId || null;
+      if (parentId && !folders.has(parentId)) return sendJson(res, 400, { error: 'Parent folder not found' });
+      const folder = { id: newId(), name: cleanName(body.name, 'New folder'), parentId, createdAt: Date.now() };
+      folders.set(folder.id, folder);
+      saveFolders();
+      return sendJson(res, 201, folder);
+    }
+    const folder = folders.get(parts[2]);
+    if (parts.length === 3 && folder) {
+      if (req.method === 'PATCH') {
+        const body = await readJson(req);
+        if ('parentId' in body) {
+          const parentId = body.parentId || null;
+          if (parentId && !folders.has(parentId)) return sendJson(res, 400, { error: 'Folder not found' });
+          if (parentId && isWithin(parentId, folder.id)) return sendJson(res, 400, { error: 'A folder cannot be moved into itself' });
+          folder.parentId = parentId;
+        }
+        if ('name' in body) folder.name = cleanName(body.name, folder.name);
+        saveFolders();
+        return sendJson(res, 200, folder);
+      }
+      if (req.method === 'DELETE') {
+        // Nothing inside is deleted: boards and subfolders move up one level.
+        for (const f of folders.values()) if (f.parentId === folder.id) f.parentId = folder.parentId;
+        for (const board of boards.values()) {
+          if (board.folderId !== folder.id) continue;
+          board.folderId = folder.parentId;
+          scheduleSave(board, false);
+        }
+        folders.delete(folder.id);
+        saveFolders();
+        return sendJson(res, 200, { ok: true });
+      }
+    }
+    return sendJson(res, 404, { error: 'Folder not found' });
+  }
   if (parts[1] === 'boards' && parts.length === 2) {
     if (req.method === 'GET') {
       const list = [...boards.values()].map(boardMeta).sort((a, b) => b.updatedAt - a.updatedAt);
@@ -326,7 +421,8 @@ async function handleApi(req, res, url) {
     }
     if (req.method === 'POST') {
       const body = await readJson(req);
-      return sendJson(res, 201, boardMeta(createBoard(body.name)));
+      const folderId = folders.has(body.folderId) ? body.folderId : null;
+      return sendJson(res, 201, boardMeta(createBoard(body.name, folderId)));
     }
   }
   if (parts[1] === 'boards' && parts.length === 3) {
@@ -335,6 +431,11 @@ async function handleApi(req, res, url) {
     if (req.method === 'GET') return sendJson(res, 200, boardMeta(board));
     if (req.method === 'PATCH') {
       const body = await readJson(req);
+      if ('folderId' in body) {
+        if (body.folderId && !folders.has(body.folderId)) return sendJson(res, 400, { error: 'Folder not found' });
+        board.folderId = body.folderId || null;
+        scheduleSave(board, false);
+      }
       const applied = applyOps(board, [{ t: 'meta', patch: { name: body.name } }]);
       if (applied.length) broadcast(board, { t: 'op', ops: applied, from: null });
       return sendJson(res, 200, boardMeta(board));
@@ -465,6 +566,10 @@ function onConnect(ws, board) {
       else if (board.presenter === peer.id) board.presenter = null;
       else return;
       broadcast(board, { t: 'presenter', id: board.presenter });
+    } else if (msg.t === 'laser') {
+      if (!Array.isArray(msg.pts)) return;
+      const pts = msg.pts.slice(0, 200).filter((n) => Number.isFinite(n));
+      if (pts.length >= 2) broadcast(board, { t: 'laser', id: peer.id, pts: pts.slice(0, pts.length - (pts.length % 2)) }, peer);
     } else if (msg.t === 'media') {
       broadcast(board, { t: 'media', from: peer.id, id: msg.id, playing: !!msg.playing, time: Number(msg.time) || 0 }, peer);
     }
@@ -495,6 +600,7 @@ setInterval(() => {
 // ---------------------------------------------------------------- start
 
 loadBoards();
+loadFolders();
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {

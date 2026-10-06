@@ -25,12 +25,34 @@ private networks, otherwise only the host machine can connect.
 
 ## What it does
 
-- **Infinite canvas.** Wheel to zoom, Space-drag or middle/right-drag to pan.
+- **Dark by default, light on request.** The sun/moon button in the header switches theme and is
+  remembered per browser. Headings and notes are set in a serif face.
+- **Infinite canvas.** Wheel to zoom, Space-drag or middle-drag to pan.
 - **Images and video.** Drop files on the board, paste screenshots from the clipboard, or
   paste an image URL. Large images get a 2K preview so heavy boards stay fast; the
-  original loads when you zoom in past the preview's resolution.
-- **Notes, headings, frames, pen, arrows.** Frames are named sections; dragging one
-  carries its contents.
+  original loads when you zoom in past the preview's resolution. Videos have a play
+  button in the middle and a scrub bar on hover.
+- **Open an image and draw on it.** Double-click an image: the rest of the board dims and
+  you can annotate it with the brush or arrows. The drawing belongs to the image, so it
+  moves and scales with it, and everyone sees it live. Esc or Done closes it and the view returns to where it was.
+- **Uniform sizes.** New images come in at the same width, notes and headings at fixed sizes
+  and the brush at a fixed width, whatever the zoom was when you made them. Text is sized
+  by its level (H1, H2, H3, Text), not by dragging.
+- **Headings and notes.** Pick H1, H2, H3 or plain text before placing, or change the
+  level of selected text from the floating toolbar.
+- **Brush.** The pen is pressure sensitive on a tablet and speed sensitive with a mouse:
+  slow strokes are thick, quick flicks thin out, and strokes taper at the end. Right-drag
+  while drawing to erase: every drawing the stroke touches is removed.
+- **Headers and colour blocks.** Every frame has a header with its title and an item count; colour a
+  frame and its header band takes the colour while the card stays neutral. Colour blocks (B) are
+  free-standing banners for headings, resizable and left- or centre-aligned.
+- **Frames that fit their contents.** Drag an item onto a frame and the frame wraps it;
+  an item joins as soon as you bring it close, and the frame grows to wrap it. It only leaves
+  when you pull it well clear, and the frame closes up again. Drawing a frame around
+  loose items gathers them. Resizing a frame by hand switches its fit-to-content button
+  off; the toolbar button turns it back on.
+- **Smart snapping.** Dragged items snap to the edges and centres of their neighbours and
+  to equal gaps, with guide lines. Toggle with S, hold Ctrl while dragging to bypass.
 - **Live collaboration.** Everyone sees edits, cursors and selections as they happen.
 - **Present mode.** Press *Present* and everyone on the board follows your view. Arrow
   keys step through frames in reading order (or through the media if there are no
@@ -38,10 +60,18 @@ private networks, otherwise only the host machine can connect.
   everyone following you.
 - **Follow anyone.** Click a teammate's avatar to follow their view outside a
   presentation. Pan or zoom yourself to stop.
-- **Tidy.** Select a pile of images and press Ctrl+P to pack them into a neat grid.
+- **Tidy.** Select some images and press Ctrl+P. A vertical line becomes an evenly sized
+  column, a horizontal line a row, and a grid keeps its number of columns.
 - **Undo / redo** per person, copy and paste between boards, duplicate with Alt-drag.
 
 Press `?` on a board for the full shortcut list.
+
+## Folders
+
+The board list is organised in folders. Drag a board or folder onto a folder, or onto a
+name in the path above the list, to move it; the `...` menu on each card has Rename,
+"Move to..." and Delete. Deleting a folder only removes the folder: its boards and
+subfolders move up one level.
 
 ## Data and backup
 
@@ -50,6 +80,7 @@ Everything lives in `data/` next to the server:
 | Path            | Contents                                                        |
 | --------------- | --------------------------------------------------------------- |
 | `data/boards/`  | One JSON file per board                                         |
+| `data/folders.json` | The folder tree for the board list                          |
 | `data/uploads/` | Uploaded media, named by content hash (duplicates stored once)  |
 | `data/trash/`   | Boards deleted from the board list, kept for manual recovery    |
 

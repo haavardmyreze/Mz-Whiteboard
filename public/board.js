@@ -17,12 +17,82 @@
   const MIN_Z = 0.02;
   const MAX_Z = 16;
   const PREVIEW_MAX = 2048;
-  const LASER_LIFE = 900;
-  const INK = ['#f2f2f3', '#f2545b', '#f5b83d', '#4fbf73', '#3d9df2', '#a78bfa'];
-  const NOTE_FILLS = ['#2f2f33', '#f4d35e', '#f28b82', '#81c995', '#8ab4f8', '#c58af9'];
-  const FRAME_COLORS = ['#8a8a93', ...INK.slice(1)];
-  const PEN_SIZES = [3, 6, 12];
-  const COLORABLE = new Set(['note', 'text', 'frame', 'stroke']);
+  const LASER_LIFE = 450;
+  const INK = ['ink', '#e5484d', '#f59e0b', '#16a34a', '#2f7df6', '#8b5cf6'];
+  const NOTE_FILLS = ['note', '#fff2a8', '#ffd3d1', '#d4f1d2', '#d0e6ff', '#e7dbff'];
+  // 'ink' and 'note' stand for the theme's own text and note colours, so a board reads well in either
+  // theme. The literal greys and whites earlier versions stored are treated the same way.
+  const isLight = () => document.documentElement.dataset.theme === 'light';
+  const INK_DEFAULTS = new Set(['ink', '#f2f2f3', '#f5f5f6', '#1f1f23']);
+  const NOTE_DEFAULTS = new Set(['note', '#2f2f33', '#2c2c31', '#ffffff']);
+  const inkColor = (c) => (!c || INK_DEFAULTS.has(c) ? (isLight() ? '#1f1f23' : '#f2f2f3') : c);
+  const noteColor = (c) => (!c || NOTE_DEFAULTS.has(c) ? (isLight() ? '#ffffff' : '#2c2c31') : c);
+  // Colours are stored vivid and shown a little softer, more so in the dark theme, so headings and
+  // notes sit calmly beside the artwork instead of competing with it.
+  const mutedCache = new Map();
+  function mute(hex) {
+    if (!/^#[0-9a-f]{6}$/i.test(hex || '')) return hex;
+    const dark = !isLight();
+    const key = `${dark ? 'd' : 'l'}${hex}`;
+    if (mutedCache.has(key)) return mutedCache.get(key);
+    const n = parseInt(hex.slice(1), 16);
+    const r = (n >> 16) / 255;
+    const g = ((n >> 8) & 255) / 255;
+    const bl = (n & 255) / 255;
+    const max = Math.max(r, g, bl);
+    const min = Math.min(r, g, bl);
+    const l = (max + min) / 2;
+    let h = 0;
+    let s = 0;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      h = max === r ? (g - bl) / d + (g < bl ? 6 : 0) : max === g ? (bl - r) / d + 2 : (r - g) / d + 4;
+      h /= 6;
+    }
+    s *= dark ? 0.55 : 0.78;
+    const nl = dark ? l * 0.82 : l;
+    const q = nl < 0.5 ? nl * (1 + s) : nl + s - nl * s;
+    const p = 2 * nl - q;
+    const chan = (t) => {
+      const u = (t + 1) % 1;
+      const v = u < 1 / 6 ? p + (q - p) * 6 * u : u < 1 / 2 ? q : u < 2 / 3 ? p + (q - p) * (2 / 3 - u) * 6 : p;
+      return Math.round(v * 255).toString(16).padStart(2, '0');
+    };
+    const grey = [nl, nl, nl].map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
+    const out = s === 0 ? grey : chan(h + 1 / 3) + chan(h) + chan(h - 1 / 3);
+    const hexOut = `#${out}`;
+    mutedCache.set(key, hexOut);
+    return hexOut;
+  }
+  const swatchColor = (c) => (c === 'ink' ? inkColor(c) : c === 'note' ? noteColor(c) : c);
+  // Vivid header colours for frames and the free-standing heading blocks.
+  const BLOCK_COLORS = ['#ff6bd6', '#7ed957', '#4d7cff', '#ffd43b', '#ff9a3c', '#b388ff', '#2dd4bf', '#f4f4f5'];
+  const FRAME_COLORS = ['#8a8a93', ...BLOCK_COLORS.slice(0, 7)];
+  const PEN_SIZES = [4, 8, 16];
+  const FRAME_PAD = 28;
+  // World-unit sizes for new items: what you get does not depend on how far you are zoomed in.
+  const IMG_W = 480;
+  const IMG_MAX_H = 720;
+  const NOTE_W = 260;
+  const NOTE_FS = 16;
+  const FRAME_W = 800;
+  const FRAME_H = 500;
+  // Every frame has a header band for its title and a count; blocks are free-standing coloured headings.
+  const FRAME_HEAD = 112;
+  const BLOCK_W = 480;
+  const BLOCK_H = 104;
+  const BLOCK_FS = 56;
+  const SNAP_PX = 7;
+  // Sizes are screen pixels at the zoom the text was created at.
+  const TEXT_LEVELS = [
+    { lvl: 1, label: 'H1', size: 56, title: 'Heading 1' },
+    { lvl: 2, label: 'H2', size: 36, title: 'Heading 2' },
+    { lvl: 3, label: 'H3', size: 24, title: 'Heading 3' },
+    { lvl: 0, label: 'Text', size: 18, title: 'Plain text' },
+  ];
+  const levelSize = (lvl) => (TEXT_LEVELS.find((l) => l.lvl === lvl) || TEXT_LEVELS[1]).size;
+  const COLORABLE = new Set(['note', 'text', 'frame', 'block', 'stroke']);
   const IMG_EXT = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
   const VID_EXT = /\.(mp4|m4v|webm|mov)$/i;
   const EXT_BY_TYPE = {
@@ -30,11 +100,11 @@
     'image/bmp': '.bmp', 'image/svg+xml': '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov',
   };
 
-  const icon = (d) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+  const icon = (d) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
   const ICON = {
     select: icon('<path d="M5 3l5.5 16 2.5-6.5L19.5 10z"/>'),
     pan: icon('<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>'),
-    upload: icon('<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 15l-5-5-8 9"/>'),
+    upload: icon('<rect x="3" y="5" width="18" height="14"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 15l-5-5-8 9"/>'),
     note: icon('<path d="M5 4h14v10l-5 6H5z"/><path d="M14 20v-6h5"/>'),
     text: icon('<path d="M5 7V4h14v3M12 4v16M9 20h6"/>'),
     frame: icon('<path d="M7 3v18M17 3v18M3 7h18M3 17h18"/>'),
@@ -44,16 +114,22 @@
     boards: icon('<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>'),
     prev: icon('<path d="M15 5l-7 7 7 7"/>'),
     next: icon('<path d="M9 5l7 7-7 7"/>'),
-    front: icon('<rect x="8" y="8" width="12" height="12" rx="1.5" fill="currentColor"/><path d="M4 14V5a1 1 0 0 1 1-1h9"/>'),
-    back: icon('<rect x="4" y="4" width="12" height="12" rx="1.5"/><path d="M20 10v9a1 1 0 0 1-1 1h-9" stroke-dasharray="2 3"/>'),
-    tidy: icon('<rect x="3" y="4" width="8" height="7" rx="1"/><rect x="13" y="4" width="8" height="7" rx="1"/><rect x="3" y="13" width="5" height="7" rx="1"/><rect x="10" y="13" width="11" height="7" rx="1"/>'),
-    dup: icon('<rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>'),
+    front: icon('<rect x="8" y="8" width="12" height="12" fill="currentColor"/><path d="M4 14V5a1 1 0 0 1 1-1h9"/>'),
+    back: icon('<rect x="4" y="4" width="12" height="12"/><path d="M20 10v9a1 1 0 0 1-1 1h-9" stroke-dasharray="2 3"/>'),
+    tidy: icon('<rect x="3" y="4" width="8" height="7"/><rect x="13" y="4" width="8" height="7"/><rect x="3" y="13" width="5" height="7"/><rect x="10" y="13" width="11" height="7"/>'),
+    dup: icon('<rect x="8" y="8" width="12" height="12"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>'),
     open: icon('<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>'),
     trash: icon('<path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v5M14 11v5"/>'),
     play: icon('<path d="M7 4l13 8-13 8z" fill="currentColor"/>'),
     pause: icon('<path d="M7 4v16M17 4v16" stroke-width="3.5"/>'),
     muted: icon('<path d="M4 9v6h4l5 4V5L8 9zM17 9l5 6M22 9l-5 6"/>'),
     sound: icon('<path d="M4 9v6h4l5 4V5L8 9zM17 8a5 5 0 0 1 0 8"/>'),
+    focus: icon('<path d="M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4"/><circle cx="12" cy="12" r="2.5"/>'),
+    block: icon('<rect x="3" y="7" width="18" height="10"/><path d="M8 12h8"/>'),
+    alignL: icon('<path d="M4 6h16M4 10h10M4 14h16M4 18h10"/>'),
+    alignC: icon('<path d="M4 6h16M7 10h10M4 14h16M7 18h10"/>'),
+    snap: icon('<path d="M6 3v8a6 6 0 0 0 12 0V3h-4v8a2 2 0 0 1-4 0V3z"/><path d="M6 7h4M14 7h4"/>'),
+    fit: icon('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><rect x="9" y="9" width="6" height="6"/>'),
   };
   const CURSOR_SVG = '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M1 1l4.5 13 2.2-5.3L13 6.5z" fill="var(--c)" stroke="#fff" stroke-width="1"/></svg>';
 
@@ -72,6 +148,8 @@
   const cam = { x: 0, y: 0, z: 1 };
   const pointer = { sx: innerWidth / 2, sy: innerHeight / 2, inside: false };
   const pen = store('wb:pen') || { color: INK[1], size: PEN_SIZES[1] };
+  const textPref = store('wb:text') || { lvl: 2 };
+  if (!PEN_SIZES.includes(pen.size)) pen.size = PEN_SIZES.reduce((a, b) => (Math.abs(b - pen.size) < Math.abs(a - pen.size) ? b : a));
 
   let me = null;
   let ws = null;
@@ -90,6 +168,9 @@
   let liveTimer = 0;
   let camAnim = 0;
   let camTimer = 0;
+  let snapOn = store('wb:snap') !== false;
+  let focusId = null;
+  let focusReturn = null;
 
   // ------------------------------------------------------------- helpers
 
@@ -184,6 +265,7 @@
     const v = viewRect();
     sendP({ v: [round(v.x), round(v.y), round(v.w), round(v.h)] });
     scheduleSettle();
+    if (laserActive()) requestLaser();
   }
 
   let settleTimer = 0;
@@ -230,8 +312,12 @@
       const k = Math.min(1, (now - t0) / dur);
       const e = linear ? k : k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
       cam.z = z0 * Math.pow(to.z / z0, e);
-      cam.x = c0.x + (c1.x - c0.x) * e - vw / 2 / cam.z;
-      cam.y = c0.y + (c1.y - c0.y) * e - vh / 2 / cam.z;
+      // Moving the centre in step with the visible size, not with time, keeps every point on a
+      // straight line across the screen while the view zooms.
+      const span = 1 / to.z - 1 / z0;
+      const u = Math.abs(span) < 1e-9 ? e : (1 / cam.z - 1 / z0) / span;
+      cam.x = c0.x + (c1.x - c0.x) * u - vw / 2 / cam.z;
+      cam.y = c0.y + (c1.y - c0.y) * u - vh / 2 / cam.z;
       applyCam();
       if (k < 1) camAnim = requestAnimationFrame(tick);
       else clearTimeout(camTimer);
@@ -310,6 +396,50 @@
     return d;
   }
 
+  // Outline of a brush stroke whose width follows `ws` (a 0..1 multiplier of `size` per point).
+  function outlinePath(pts, ws, sx, sy, size) {
+    const n = pts.length / 2;
+    const f = (v) => v.toFixed(2);
+    const P = [];
+    const R = [];
+    for (let i = 0; i < n; i++) {
+      P.push([pts[i * 2] * sx, pts[i * 2 + 1] * sy]);
+      R.push(Math.max(0.15, size * (ws[i] ?? 1)) / 2);
+    }
+    if (n === 1) {
+      const [x, y] = P[0];
+      return `M${f(x - R[0])} ${f(y)}a${f(R[0])} ${f(R[0])} 0 1 0 ${f(2 * R[0])} 0a${f(R[0])} ${f(R[0])} 0 1 0 ${f(-2 * R[0])} 0z`;
+    }
+    const A = [];
+    const B = [];
+    let tx = 1;
+    let ty = 0;
+    for (let i = 0; i < n; i++) {
+      const a = P[Math.max(0, i - 1)];
+      const b = P[Math.min(n - 1, i + 1)];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len > 1e-6) {
+        tx = (b[0] - a[0]) / len;
+        ty = (b[1] - a[1]) / len;
+      }
+      A.push([P[i][0] - ty * R[i], P[i][1] + tx * R[i]]);
+      B.push([P[i][0] + ty * R[i], P[i][1] - tx * R[i]]);
+    }
+    const side = (S) => {
+      let d = '';
+      for (let i = 1; i < S.length - 1; i++) {
+        d += `Q${f(S[i][0])} ${f(S[i][1])} ${f((S[i][0] + S[i + 1][0]) / 2)} ${f((S[i][1] + S[i + 1][1]) / 2)}`;
+      }
+      return `${d}L${f(S[S.length - 1][0])} ${f(S[S.length - 1][1])}`;
+    };
+    const last = n - 1;
+    let d = `M${f(A[0][0])} ${f(A[0][1])}${side(A)}`;
+    d += `A${f(R[last])} ${f(R[last])} 0 0 0 ${f(B[last][0])} ${f(B[last][1])}`;
+    d += side(B.slice().reverse());
+    d += `A${f(R[0])} ${f(R[0])} 0 0 0 ${f(A[0][0])} ${f(A[0][1])}Z`;
+    return d;
+  }
+
   function fmtTime(s) {
     if (!isFinite(s)) return '0:00';
     return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -336,13 +466,16 @@
     });
     video.addEventListener('timeupdate', tick);
     video.addEventListener('loadedmetadata', tick);
+    // Clicks on the big button are handled by the pointer gesture so the video can still be dragged by it.
+    const center = el('div', { class: 'vplay', html: ICON.play, 'aria-hidden': 'true' });
     for (const type of ['play', 'pause']) {
       video.addEventListener(type, () => {
         play.innerHTML = video.paused ? ICON.play : ICON.pause;
+        center.innerHTML = video.paused ? ICON.play : ICON.pause;
         node.classList.toggle('playing', !video.paused);
       });
     }
-    node.append(video, el('div', { class: 'vbar' }, play, seek, time, mute));
+    node.append(video, center, el('div', { class: 'vbar' }, play, seek, time, mute));
   }
 
   function createNode(it) {
@@ -351,10 +484,11 @@
       node.append(el('img', { alt: it.name || '', draggable: 'false', decoding: 'async' }));
     } else if (it.type === 'video') {
       buildVideo(it, node);
-    } else if (it.type === 'note' || it.type === 'text') {
+    } else if (it.type === 'note' || it.type === 'text' || it.type === 'block') {
       node.append(el('div', { class: 'txt', spellcheck: 'false' }));
     } else if (it.type === 'frame') {
-      node.append(el('div', { class: 'frame-title txt', spellcheck: 'false' }),
+      node.append(
+        el('div', { class: 'frame-head' }, el('div', { class: 'frame-title txt', spellcheck: 'false' }), el('div', { class: 'frame-sub' })),
         el('i', { class: 'edge t' }), el('i', { class: 'edge r' }), el('i', { class: 'edge b' }), el('i', { class: 'edge l' }));
     } else if (it.type === 'stroke') {
       const svg = svgEl('svg');
@@ -375,6 +509,7 @@
     st.transform = `translate(${it.x}px, ${it.y}px)`;
     st.zIndex = it.z || 0;
     const isEditing = editing && editing.id === it.id;
+    node.classList.toggle('dim', !!focusId && it.id !== focusId && it.pid !== focusId);
 
     if (it.type === 'image') {
       st.width = `${it.w}px`;
@@ -394,7 +529,7 @@
         video.src = it.src;
       }
     } else if (it.type === 'note') {
-      const fill = it.color || NOTE_FILLS[0];
+      const fill = mute(noteColor(it.color));
       st.width = `${it.w}px`;
       st.minHeight = `${it.h || 0}px`;
       st.fontSize = `${it.fs}px`;
@@ -402,14 +537,28 @@
       st.color = luminance(fill) > 0.55 ? '#1b1b1c' : '#f2f2f3';
       if (!isEditing) fillText(node.firstChild, it.text);
     } else if (it.type === 'text') {
+      node.dataset.lvl = it.lvl ?? 2;
       st.fontSize = `${it.fs}px`;
-      st.color = it.color || INK[0];
+      st.color = inkColor(it.color);
       if (!isEditing) fillText(node.firstChild, it.text);
     } else if (it.type === 'frame') {
       st.width = `${it.w}px`;
       st.height = `${it.h}px`;
-      st.setProperty('--c', it.color || FRAME_COLORS[0]);
-      if (!isEditing) node.firstChild.textContent = it.title || '';
+      const tinted = !!it.color && it.color !== FRAME_COLORS[0];
+      const headColor = tinted ? mute(it.color) : FRAME_COLORS[0];
+      st.setProperty('--c', headColor);
+      node.dataset.tint = tinted ? '1' : '';
+      st.setProperty('--head-ink', tinted && luminance(headColor) > 0.55 ? '#1b1b1c' : '#fff');
+      if (!isEditing) node.firstChild.firstChild.textContent = it.title || '';
+    } else if (it.type === 'block') {
+      const fill = mute(it.color || BLOCK_COLORS[0]);
+      st.width = `${it.w}px`;
+      st.height = `${it.h}px`;
+      st.fontSize = `${BLOCK_FS}px`;
+      st.background = fill;
+      st.color = luminance(fill) > 0.55 ? '#1b1b1c' : '#ffffff';
+      node.dataset.align = it.align || 'center';
+      if (!isEditing) fillText(node.firstChild, it.text);
     } else if (it.type === 'stroke') {
       st.width = `${it.w}px`;
       st.height = `${it.h}px`;
@@ -417,13 +566,23 @@
       const d = pathData(it.pts, it.w, it.h, it.arrow, it.size);
       hit.setAttribute('d', d);
       hit.style.strokeWidth = `calc(${it.size}px + 14px * var(--inv))`;
-      ink.setAttribute('d', d);
-      ink.style.stroke = it.color || INK[0];
-      ink.style.strokeWidth = `${it.size}px`;
+      const color = inkColor(it.color);
+      if (it.ws) {
+        // Brush strokes are a filled outline so their width can vary along the line.
+        ink.setAttribute('d', outlinePath(it.pts, it.ws, it.w, it.h, it.size));
+        ink.style.fill = color;
+        ink.style.stroke = 'none';
+      } else {
+        ink.setAttribute('d', d);
+        ink.style.fill = 'none';
+        ink.style.stroke = color;
+        ink.style.strokeWidth = `${it.size}px`;
+      }
     }
   }
 
   function removeItem(id) {
+    if (focusId === id) exitFocus();
     if (editing && editing.id === id) editing = null;
     items.delete(id);
     sel.delete(id);
@@ -506,6 +665,7 @@
 
   function afterChange() {
     $('hint').hidden = items.size > 0;
+    updateFrameCounts();
     updateOverlay();
     scheduleSettle();
     if (presenting) updatePresentBar();
@@ -556,6 +716,7 @@
     applyOps(ops);
     sendOps(ops);
     if (inverse.length) to.push(inverse);
+    refitLive(frameIds());
     selChanged();
   }
 
@@ -591,7 +752,7 @@
   }
 
   // Turns everything a gesture changed since `snap` into a single undo step.
-  function recordSince(snap) {
+  function recordSince(snap, extra = []) {
     flushLive();
     const inverse = [];
     for (const [id, before] of snap) {
@@ -603,7 +764,7 @@
       }
       if (Object.keys(patch).length) inverse.push({ t: 'set', id, patch });
     }
-    pushUndo(inverse);
+    pushUndo([...extra, ...inverse]);
   }
 
   // ------------------------------------------------------------- selection
@@ -647,6 +808,7 @@
     const w = r.w * cam.z;
     const h = r.h * cam.z;
     selbox.hidden = false;
+    selbox.classList.toggle('noresize', [...sel].some((id) => items.get(id)?.type === 'text'));
     selbox.style.transform = `translate(${a.x}px, ${a.y}px)`;
     selbox.style.width = `${w}px`;
     selbox.style.height = `${h}px`;
@@ -666,7 +828,8 @@
   function buildSelTools() {
     const list = [...sel].map((id) => items.get(id)).filter(Boolean);
     const types = new Set(list.map((it) => it.type));
-    const sig = `${[...types].sort().join()}|${Math.min(list.length, 2)}`;
+    const one = list.length === 1 ? list[0] : null;
+    const sig = `${[...types].sort().join()}|${Math.min(list.length, 2)}|${one ? `${one.lvl ?? ''}${one.auto ?? ''}${one.align ?? ''}` : ''}`;
     if (seltools.dataset.sig === sig) return;
     seltools.dataset.sig = sig;
 
@@ -674,15 +837,34 @@
     const kids = [];
     if (list.some((it) => COLORABLE.has(it.type))) {
       const only = types.size === 1 ? [...types][0] : null;
-      const palette = only === 'note' ? NOTE_FILLS : only === 'frame' ? FRAME_COLORS : INK;
+      const palette = only === 'note' ? NOTE_FILLS : only === 'frame' ? FRAME_COLORS : only === 'block' ? BLOCK_COLORS : INK;
       for (const c of palette) {
-        kids.push(el('button', { class: 'swatch', style: { background: c }, title: 'Set colour', onclick: () => colorSel(c) }));
+        kids.push(el('button', { class: 'swatch', style: { background: only === 'note' ? mute(noteColor(c)) : only === 'block' || only === 'frame' ? mute(c) : swatchColor(c) }, title: 'Set colour', onclick: () => colorSel(c) }));
       }
       kids.push(el('span', { class: 'sep' }));
+    }
+    if (types.has('text')) {
+      for (const l of TEXT_LEVELS) {
+        kids.push(el('button', { class: `lvl${one && (one.lvl ?? 2) === l.lvl ? ' active' : ''}`, title: l.title, text: l.label, onclick: () => setLevel(l.lvl) }));
+      }
+      kids.push(el('span', { class: 'sep' }));
+    }
+    if (one && one.type === 'block') {
+      for (const [a, html, title] of [['left', ICON.alignL, 'Align left'], ['center', ICON.alignC, 'Centre']]) {
+        kids.push(el('button', { class: `iconbtn${(one.align || 'center') === a ? ' active' : ''}`, html, title, onclick: () => exec([{ t: 'set', id: one.id, patch: { align: a } }]) }));
+      }
+      kids.push(el('span', { class: 'sep' }));
+    }
+    if (one && one.type === 'frame') {
+      kids.push(el('button', {
+        class: `iconbtn${one.auto === false ? '' : ' active'}`, html: ICON.fit, onclick: toggleAutoFit,
+        title: one.auto === false ? 'Fit to content: off. Click to make the frame wrap what is inside it' : 'Fit to content: on. The frame follows what is inside it',
+      }), el('span', { class: 'sep' }));
     }
     kids.push(btn(ICON.front, 'Bring to front ( ] or PgUp )', () => reorder(1)), btn(ICON.back, 'Send to back ( [ or PgDn )', () => reorder(-1)));
     if (list.length > 1) kids.push(btn(ICON.tidy, 'Tidy into a grid (Ctrl+P)', packSelection));
     kids.push(btn(ICON.dup, 'Duplicate (Ctrl+D)', duplicate));
+    if (one && (one.type === 'image' || one.type === 'video')) kids.push(btn(ICON.focus, 'Open it and draw on it (double-click)', () => enterFocus(one.id)));
     if (list.length === 1 && (types.has('image') || types.has('video'))) {
       kids.push(btn(ICON.open, 'Open the original file in a new tab', () => window.open(list[0].src, '_blank', 'noopener')));
     }
@@ -714,22 +896,25 @@
     }
   }
 
+  // Copies of the items plus whatever travels with them (frame contents, drawings on images).
   function cloneItems(ids, offset) {
     let z = topZ();
-    return ids.map((id) => items.get(id)).filter(Boolean)
-      .sort((a, b) => (a.z || 0) - (b.z || 0))
-      .map((it) => ({ ...it, id: uid(), x: round(it.x + offset), y: round(it.y + offset), z: ++z }));
+    const list = [...withDependents(ids)].map((id) => items.get(id)).filter(Boolean)
+      .sort((a, b) => (a.z || 0) - (b.z || 0));
+    const picked = new Set(ids);
+    const copies = reid(list).map((it) => ({ ...it, x: round(it.x + offset), y: round(it.y + offset), z: ++z }));
+    return { all: copies, primary: copies.filter((_, i) => picked.has(list[i].id)).map((c) => c.id) };
   }
 
   function duplicate() {
     if (!sel.size) return;
-    const clones = cloneItems([...sel], 24 / cam.z);
-    exec(clones.map((item) => ({ t: 'add', item })));
-    setSel(clones.map((c) => c.id));
+    const { all, primary } = cloneItems([...sel], 24 / cam.z);
+    exec(addOps(all));
+    setSel(primary);
   }
 
   function deleteSel() {
-    if (sel.size) exec([{ t: 'del', ids: [...sel] }]);
+    if (sel.size) exec(delOps(sel));
   }
 
   // Rows first, then left to right: the order people read a board in.
@@ -744,7 +929,40 @@
     return rows.flatMap((row) => row.list.sort((a, b) => a.b.x - b.b.x)).map((o) => o.it);
   }
 
-  // PureRef-style pack: media is normalised to one height and flowed into rows.
+  // Groups rects that share a lane along one axis: each group is a row (or a column).
+  function lanes(boxed, lo, len) {
+    const groups = [];
+    for (const o of boxed.slice().sort((p, q) => lo(p.b) - lo(q.b))) {
+      const a0 = lo(o.b);
+      const a1 = a0 + len(o.b);
+      const g = groups.find((x) => Math.min(x.hi, a1) - Math.max(x.lo, a0) >= 0.4 * Math.min(x.hi - x.lo, len(o.b)));
+      if (g) {
+        g.n++;
+        g.lo = Math.min(g.lo, a0);
+        g.hi = Math.max(g.hi, a1);
+      } else {
+        groups.push({ lo: a0, hi: a1, n: 1 });
+      }
+    }
+    return groups;
+  }
+
+  // Reads the current arrangement: a vertical line stays a column, a horizontal one stays a row,
+  // and a grid keeps the number of columns it already has.
+  function detectShape(boxed) {
+    const n = boxed.length;
+    const columns = lanes(boxed, (r) => r.x, (r) => r.w);
+    const rows = lanes(boxed, (r) => r.y, (r) => r.h);
+    const perRow = Math.max(...rows.map((g) => g.n));
+    if (columns.length === 1 && rows.length > 1) return { cols: 1 };
+    if (rows.length === 1 && columns.length > 1) return { cols: n };
+    if (perRow <= 1) return { cols: 1 };
+    // A heap with no structure gets a roughly square grid.
+    if (columns.length === 1 && rows.length === 1) return { cols: Math.ceil(Math.sqrt(n * 1.6)) };
+    return { cols: Math.min(n, perRow) };
+  }
+
+  // PureRef-style pack: media is normalised to one size and laid out in the shape it already has.
   // Frames and drawn annotations stay put; moving them would change what they mean.
   function packSelection() {
     const list = readingOrder([...sel].map((id) => items.get(id))
@@ -753,37 +971,39 @@
     const isMedia = (it) => it.type === 'image' || it.type === 'video';
     const boxed = list.map((it) => ({ it, b: bounds(it) }));
     const origin = boxed.reduce((r, o) => union(r, o.b), null);
-    const heights = (boxed.some((o) => isMedia(o.it)) ? boxed.filter((o) => isMedia(o.it)) : boxed)
-      .map((o) => o.b.h).sort((a, b) => a - b);
-    const rowH = heights[Math.floor(heights.length / 2)];
-    const gap = Math.max(4, Math.round(rowH * 0.05));
-    let area = 0;
-    let widest = 0;
+    const { cols } = detectShape(boxed);
+    const median = (values) => values.slice().sort((p, q) => p - q)[Math.floor(values.length / 2)];
+    const refs = boxed.some((o) => isMedia(o.it)) ? boxed.filter((o) => isMedia(o.it)) : boxed;
+    // A column shares one width; rows share one height.
+    const colW = median(refs.map((o) => o.b.w));
+    const rowH = median(refs.map((o) => o.b.h));
+    const gap = Math.max(8, Math.round((cols === 1 ? colW : rowH) * 0.05));
     for (const o of boxed) {
-      o.s = isMedia(o.it) ? rowH / o.b.h : 1;
+      o.s = isMedia(o.it) ? (cols === 1 ? colW / o.b.w : rowH / o.b.h) : 1;
       o.w = o.b.w * o.s;
       o.h = o.b.h * o.s;
-      area += (o.w + gap) * (o.h + gap);
-      widest = Math.max(widest, o.w);
     }
-    const maxRow = Math.max(widest, Math.sqrt(area * 1.7));
     const ops = [];
     let x = 0;
     let y = 0;
     let tallest = 0;
+    let inRow = 0;
     for (const o of boxed) {
-      if (x > 0 && x + o.w > maxRow) {
+      if (inRow === cols) {
         x = 0;
         y += tallest + gap;
         tallest = 0;
+        inRow = 0;
       }
       const patch = { x: round(origin.x + x), y: round(origin.y + y) };
       if (o.s !== 1) Object.assign(patch, { w: round(o.w), h: round(o.h) });
       ops.push({ t: 'set', id: o.it.id, patch });
       x += o.w + gap;
       tallest = Math.max(tallest, o.h);
+      inRow++;
     }
     exec(ops);
+    refitLive(boxed.map((o) => o.it.fid).filter(Boolean));
   }
 
   function nudge(dx, dy) {
@@ -795,22 +1015,427 @@
     exec(ops);
   }
 
-  // Dragging a frame carries along whatever sits inside it.
-  function movingIds() {
-    const ids = new Set(sel);
-    for (const id of sel) {
-      const frame = items.get(id);
-      if (!frame || frame.type !== 'frame') continue;
-      for (const it of items.values()) {
-        if (ids.has(it.id)) continue;
-        const b = bounds(it);
-        const inside = it.type === 'frame'
-          ? contains(frame, b)
-          : contains(frame, { x: b.x + b.w / 2, y: b.y + b.h / 2, w: 0, h: 0 });
-        if (inside) ids.add(it.id);
+  // ------------------------------------------------------------- frames, drawings, snapping
+
+  const center = (r) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
+  const hasPoint = (r, p) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+  const grow = (r, m) => ({ x: r.x - m, y: r.y - m, w: r.w + 2 * m, h: r.h + 2 * m });
+  const area = (r) => r.w * r.h;
+  const overlapArea = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x))
+    * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+  // Distance between two rects: 0 when they touch or overlap.
+  const rectGap = (a, b) => Math.hypot(
+    Math.max(0, b.x - (a.x + a.w), a.x - (b.x + b.w)),
+    Math.max(0, b.y - (a.y + a.h), a.y - (b.y + b.h)),
+  );
+
+  // True when at least half of the item's bounding box is over the rect.
+  const halfIn = (it, r) => {
+    const b = bounds(it);
+    return overlapArea(b, r) >= 0.5 * area(b);
+  };
+  const rectDiffers = (a, b) => Math.abs(a.x - b.x) > 0.05 || Math.abs(a.y - b.y) > 0.05
+    || Math.abs(a.w - b.w) > 0.05 || Math.abs(a.h - b.h) > 0.05;
+
+  function frameOf(it) {
+    const f = it.fid && items.get(it.fid);
+    return f && f.type === 'frame' ? f : null;
+  }
+
+  // While an image is open, only it and its drawings take part in anything.
+  function selectable(it) {
+    return !focusId || it.id === focusId || it.pid === focusId;
+  }
+
+  function frameIds() {
+    return [...items.values()].filter((it) => it.type === 'frame').map((it) => it.id);
+  }
+
+  // Everything that travels with the given items: frame contents and the drawings on images.
+  function withDependents(ids) {
+    const out = new Set(ids);
+    for (const id of ids) {
+      const it = items.get(id);
+      if (it && it.type === 'frame') for (const m of membersOf(id)) out.add(m.id);
+    }
+    for (const it of items.values()) if (it.pid && out.has(it.pid)) out.add(it.id);
+    return out;
+  }
+
+  const movingIds = () => withDependents(sel);
+
+  function hugRect(list) {
+    let r = null;
+    for (const it of list) r = union(r, bounds(it));
+    return r && { x: round(r.x - FRAME_PAD), y: round(r.y - FRAME_PAD - FRAME_HEAD), w: round(r.w + 2 * FRAME_PAD), h: round(r.h + 2 * FRAME_PAD + FRAME_HEAD) };
+  }
+
+  function membersOf(frameId, { extra = [], excl = null } = {}) {
+    const list = [];
+    for (const it of items.values()) {
+      if (it.fid === frameId && it.type !== 'frame' && it.type !== 'block' && !(excl && excl.has(it.id))) list.push(it);
+    }
+    for (const it of extra) if (it.fid === frameId && it.type !== 'block') list.push(it);
+    return list;
+  }
+
+  // Ops that resize auto-fit frames so they wrap what they hold.
+  function refitOps(frameIdList, opts = {}) {
+    const ops = [];
+    for (const id of new Set(frameIdList)) {
+      const f = items.get(id);
+      if (!f || f.type !== 'frame' || f.auto === false || (opts.excl && opts.excl.has(id))) continue;
+      const r = hugRect(membersOf(id, opts));
+      if (r && rectDiffers(f, r)) ops.push({ t: 'set', id, patch: r });
+    }
+    return ops;
+  }
+
+  function refitLive(frameIdList) {
+    for (const op of refitOps(frameIdList)) liveSet(op.id, op.patch);
+  }
+
+  // The smallest frame that contains the point.
+  function frameAt(p) {
+    let best = null;
+    for (const it of items.values()) {
+      if (it.type === 'frame' && hasPoint(it, p) && (!best || area(it) < area(best))) best = it;
+    }
+    return best;
+  }
+
+  // Copies items under fresh ids, keeping frame and drawing links between the copies.
+  function reid(list) {
+    const map = new Map(list.map((it) => [it.id, uid()]));
+    return list.map((it) => {
+      const c = { ...it, id: map.get(it.id) };
+      for (const key of ['fid', 'pid']) {
+        if (!c[key]) continue;
+        if (map.has(c[key])) c[key] = map.get(c[key]);
+        else delete c[key];
+      }
+      return c;
+    });
+  }
+
+  // The smallest frame that has at least half of the item over it.
+  function frameHolding(it) {
+    let best = null;
+    for (const fr of items.values()) {
+      if (fr.type === 'frame' && halfIn(it, fr) && (!best || area(fr) < area(best))) best = fr;
+    }
+    return best;
+  }
+
+  // Loose items that land inside a frame become part of it.
+  function autoJoin(list) {
+    for (const it of list) {
+      if (it.type === 'frame' || it.type === 'block' || it.pid || it.fid) continue;
+      const f = frameHolding(it);
+      if (f) it.fid = f.id;
+    }
+  }
+
+  function addOps(list) {
+    autoJoin(list);
+    return [
+      ...list.map((item) => ({ t: 'add', item })),
+      ...refitOps(list.map((it) => it.fid).filter(Boolean), { extra: list }),
+    ];
+  }
+
+  function delOps(ids) {
+    const all = new Set(ids);
+    for (const it of items.values()) if (it.pid && all.has(it.pid)) all.add(it.id);
+    const frames = [...all].map((id) => items.get(id)).filter((it) => it && it.fid).map((it) => it.fid);
+    return [{ t: 'del', ids: [...all] }, ...refitOps(frames, { excl: all })];
+  }
+
+  // Runs live edits and records everything they changed as one undo step.
+  function transact(fn) {
+    flushLive();
+    const snap = snapshot(items.keys());
+    fn();
+    recordSince(snap);
+  }
+
+  // Claims the loose items inside a frame's outline and releases members that are now outside it.
+  function adoptInside(frameId) {
+    const f = items.get(frameId);
+    for (const it of items.values()) {
+      if (it.type === 'frame' || it.type === 'block' || it.pid) continue;
+      const inside = halfIn(it, f);
+      const cur = frameOf(it);
+      if (cur && cur.id === frameId && !inside) liveSet(it.id, { fid: null });
+      else if (!cur && inside) liveSet(it.id, { fid: frameId });
+    }
+  }
+
+  function toggleAutoFit() {
+    const f = sel.size === 1 ? items.get([...sel][0]) : null;
+    if (!f || f.type !== 'frame') return;
+    if (f.auto === false) {
+      transact(() => {
+        liveSet(f.id, { auto: true });
+        adoptInside(f.id);
+        refitLive([f.id]);
+      });
+    } else {
+      exec([{ t: 'set', id: f.id, patch: { auto: false } }]);
+    }
+  }
+
+  // Where each frame's own area is while its dragged members are away: the outline of the
+  // members that stay, or the frame as it was when none do.
+  function restRects(moving, dragSet) {
+    const rest = new Map();
+    for (const f of items.values()) {
+      if (f.type !== 'frame' || moving.has(f.id)) continue;
+      const home = { x: f.x, y: f.y, w: f.w, h: f.h };
+      let r = home;
+      if (f.auto !== false) {
+        const others = membersOf(f.id, { excl: dragSet });
+        if (others.length) r = hugRect(others);
+      }
+      rest.set(f.id, { r, home });
+    }
+    return rest;
+  }
+
+  // Dropping an item onto a frame adds it; dragging it well clear of the frame takes it out.
+  function updateFrameMembership(g) {
+    if (!g.rest.size || !g.items.length) return;
+    const touched = new Set();
+    for (const id of g.items) {
+      const it = items.get(id);
+      const b = bounds(it);
+      const cur = frameOf(it);
+      const curId = cur && g.rest.has(cur.id) ? cur.id : null;
+      // The frame grows to take an item in, so bringing one close is enough to join; leaving
+      // takes a deliberate pull, about half the item's own size clear of what stays.
+      const joinGap = 80 / cam.z;
+      const leaveGap = Math.max(160 / cam.z, 0.5 * Math.max(b.w, b.h));
+      let next = null;
+      if (curId && rectGap(b, g.rest.get(curId).r) <= leaveGap) {
+        next = curId;
+      } else {
+        let best = Infinity;
+        for (const [fid, { r }] of g.rest) {
+          const gap = rectGap(b, r);
+          if (gap <= joinGap && gap < best) {
+            best = gap;
+            next = fid;
+          }
+        }
+      }
+      if (next !== curId) {
+        liveSet(id, { fid: next });
+        updateFrameCounts();
+      }
+      if (curId) touched.add(curId);
+      if (next) touched.add(next);
+    }
+    for (const fid of touched) {
+      const f = items.get(fid);
+      if (!f || f.auto === false) continue;
+      const members = membersOf(fid);
+      const r = members.length ? hugRect(members) : g.rest.get(fid).home;
+      if (rectDiffers(f, r)) liveSet(fid, { x: r.x, y: r.y, w: r.w, h: r.h });
+    }
+  }
+
+  // The small line under a frame's title counts what is in it.
+  function updateFrameCounts() {
+    const n = new Map();
+    for (const it of items.values()) if (it.fid && it.type !== 'frame' && it.type !== 'block') n.set(it.fid, (n.get(it.fid) || 0) + 1);
+    for (const it of items.values()) {
+      if (it.type !== 'frame') continue;
+      const sub = els.get(it.id) && els.get(it.id).querySelector('.frame-sub');
+      if (!sub) continue;
+      const c = n.get(it.id) || 0;
+      sub.textContent = c ? `${c} ${c === 1 ? 'item' : 'items'}` : 'Empty';
+    }
+  }
+
+  // With items selected the frame button wraps them; otherwise it is the draw-a-frame tool.
+  function frameSelection() {
+    if (focusId) return false;
+    const members = [...sel].map((id) => items.get(id)).filter((it) => it && it.type !== 'frame' && it.type !== 'block' && !it.pid);
+    if (!members.length) return false;
+    const previous = members.map((it) => it.fid).filter(Boolean);
+    const box = hugRect(members);
+    const item = { id: uid(), type: 'frame', x: box.x, y: box.y, w: box.w, h: box.h, title: '', color: FRAME_COLORS[0], z: 0, auto: true };
+    exec([{ t: 'add', item }, ...members.map((it) => ({ t: 'set', id: it.id, patch: { fid: item.id } }))]);
+    refitLive(previous);
+    setSel([item.id]);
+    startEdit(item.id);
+    return true;
+  }
+
+  function activateFrame() {
+    if (!frameSelection()) setTool('frame');
+  }
+
+  // ---- smart snapping
+
+  const guidePath = $('guidepath');
+
+  function toggleSnap() {
+    snapOn = !snapOn;
+    store('wb:snap', snapOn);
+    $('snap').classList.toggle('active', snapOn);
+    if (!snapOn) clearGuides();
+    toast(snapOn ? 'Snapping on' : 'Snapping off', { ms: 1200 });
+  }
+
+  function snapTargets(exclude) {
+    const view = grow(viewRect(), 400 / cam.z);
+    const out = [];
+    for (const it of items.values()) {
+      if (exclude.has(it.id) || it.type === 'stroke' || !selectable(it)) continue;
+      // Auto-fit frames hug their contents, so their edges are not something to line up with.
+      if (it.type === 'frame' && it.auto !== false) continue;
+      const b = bounds(it);
+      if (intersects(view, b)) out.push(b);
+    }
+    return out;
+  }
+
+  const spanOverlap = (a0, a1, b0, b1) => Math.min(a1, b1) - Math.max(a0, b0) > 0;
+  const spanMid = (a0, a1, b0, b1) => (Math.max(a0, b0) + Math.min(a1, b1)) / 2;
+
+  // Nearest alignment or equal-spacing position along one axis. Rects arrive as
+  // { p, s, q, c }: position and size along the axis, position and size across it.
+  function snapAxis(m, ts, thr, spacing) {
+    const cands = [];
+    const lines = (t) => [t.p, t.p + t.s / 2, t.p + t.s];
+    const mLines = lines(m);
+    const across = (a, b) => spanMid(a.q, a.q + a.c, b.q, b.q + b.c);
+    const seg = (p0, p1, q) => ({ p0, p1, q });
+    for (const t of ts) {
+      for (const a of lines(t)) {
+        for (const b of mLines) {
+          const d = a - b;
+          if (Math.abs(d) <= thr) cands.push({ d, draw: (f) => [{ p: a, q0: Math.min(f.q, t.q), q1: Math.max(f.q + f.c, t.q + t.c) }] });
+        }
       }
     }
-    return ids;
+    if (spacing && ts.length <= 120) {
+      for (const A of ts) {
+        for (const B of ts) {
+          const gap = B.p - (A.p + A.s);
+          if (A === B || gap < 1 || !spanOverlap(A.q, A.q + A.c, B.q, B.q + B.c)) continue;
+          const ab = seg(A.p + A.s, B.p, across(A, B));
+          const nearA = spanOverlap(m.q, m.q + m.c, A.q, A.q + A.c);
+          const nearB = spanOverlap(m.q, m.q + m.c, B.q, B.q + B.c);
+          let d = B.p + B.s + gap - m.p;
+          if (nearB && Math.abs(d) <= thr) cands.push({ d, draw: (f) => [ab, seg(B.p + B.s, f.p, across(B, f))] });
+          d = A.p - gap - m.s - m.p;
+          if (nearA && Math.abs(d) <= thr) cands.push({ d, draw: (f) => [ab, seg(f.p + f.s, A.p, across(f, A))] });
+          d = A.p + A.s + (gap - m.s) / 2 - m.p;
+          if (nearA && nearB && gap > m.s && Math.abs(d) <= thr) {
+            cands.push({ d, draw: (f) => [seg(A.p + A.s, f.p, across(A, f)), seg(f.p + f.s, B.p, across(f, B))] });
+          }
+        }
+      }
+    }
+    if (!cands.length) return null;
+    let d = 0;
+    let best = Infinity;
+    for (const c of cands) {
+      if (Math.abs(c.d) < best) {
+        best = Math.abs(c.d);
+        d = c.d;
+      }
+    }
+    const fin = { ...m, p: m.p + d };
+    return { d, guides: cands.filter((c) => Math.abs(c.d - d) < 0.01).flatMap((c) => c.draw(fin)) };
+  }
+
+  // Nudges a rect onto nearby edges, centres and equal gaps. Returns the offset and what to draw.
+  function snapMove(r, targets, spacing = true) {
+    const thr = SNAP_PX / cam.z;
+    const ax = (t) => ({ p: t.x, s: t.w, q: t.y, c: t.h });
+    const ay = (t) => ({ p: t.y, s: t.h, q: t.x, c: t.w });
+    const sx = snapAxis(ax(r), targets.map(ax), thr, spacing);
+    const sy = snapAxis(ay(r), targets.map(ay), thr, spacing);
+    const guides = [];
+    for (const g of sx ? sx.guides : []) {
+      guides.push('q0' in g ? { x1: g.p, y1: g.q0, x2: g.p, y2: g.q1 } : { x1: g.p0, y1: g.q, x2: g.p1, y2: g.q, gap: true });
+    }
+    for (const g of sy ? sy.guides : []) {
+      guides.push('q0' in g ? { x1: g.q0, y1: g.p, x2: g.q1, y2: g.p } : { x1: g.q, y1: g.p0, x2: g.q, y2: g.p1, gap: true });
+    }
+    return { dx: sx ? sx.d : 0, dy: sy ? sy.d : 0, guides };
+  }
+
+  function drawGuides(list) {
+    let d = '';
+    for (const g of list) {
+      const a = w2s(g.x1, g.y1);
+      const b = w2s(g.x2, g.y2);
+      d += `M${a.x.toFixed(1)} ${a.y.toFixed(1)}L${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+      if (!g.gap) continue;
+      d += g.y1 === g.y2
+        ? `M${a.x.toFixed(1)} ${(a.y - 5).toFixed(1)}v10M${b.x.toFixed(1)} ${(b.y - 5).toFixed(1)}v10`
+        : `M${(a.x - 5).toFixed(1)} ${a.y.toFixed(1)}h10M${(b.x - 5).toFixed(1)} ${b.y.toFixed(1)}h10`;
+    }
+    guidePath.setAttribute('d', d);
+  }
+
+  function clearGuides() {
+    guidePath.setAttribute('d', '');
+  }
+
+  // ---- opening an image to draw on it
+
+  function enterFocus(id) {
+    const it = items.get(id);
+    if (!it || (it.type !== 'image' && it.type !== 'video')) return;
+    finishEdit();
+    if (!focusId) focusReturn = { x: cam.x, y: cam.y, z: cam.z };
+    focusId = id;
+    document.body.classList.add('focus');
+    $('focusname').textContent = it.name || 'Image';
+    $('focusbar').hidden = false;
+    for (const [nid, node] of els) node.classList.toggle('dim', nid !== id && items.get(nid).pid !== id);
+    $('focushint').textContent = it.type === 'image' ? 'Draw to annotate' : 'Pick a tool to annotate';
+    userMovedView();
+    // A video starts on the select tool so its play button still works.
+    setTool(it.type === 'image' ? 'pen' : 'select');
+    if (it.type === 'video') setSel([id]);
+    fitRect(bounds(it), { inset: { t: 100, r: 48, b: presenting ? 96 : 56, l: presenting ? 48 : 100 }, dur: 520 });
+  }
+
+  function exitFocus() {
+    if (!focusId) return;
+    focusId = null;
+    document.body.classList.remove('focus');
+    $('focusbar').hidden = true;
+    for (const node of els.values()) node.classList.remove('dim');
+    if (tool === 'pen' || tool === 'arrow') setTool('select');
+    if (focusReturn) {
+      animateCam(focusReturn, 520);
+      focusReturn = null;
+    }
+  }
+
+  function clearDrawing() {
+    const ids = [...items.values()].filter((it) => it.pid === focusId).map((it) => it.id);
+    if (ids.length) exec([{ t: 'del', ids }]);
+  }
+
+  function setLevel(lvl) {
+    const ops = [];
+    for (const id of sel) {
+      const it = items.get(id);
+      if (it && it.type === 'text') {
+        ops.push({ t: 'set', id, patch: { lvl, fs: round(it.fs * (levelSize(lvl) / levelSize(it.lvl ?? 2))) } });
+      }
+    }
+    if (!ops.length) return;
+    exec(ops);
+    refitLive(ops.map((op) => items.get(op.id).fid).filter(Boolean));
   }
 
   // ------------------------------------------------------------- text editing
@@ -827,7 +1452,7 @@
     } catch {
       node.contentEditable = 'true';
     }
-    node.focus();
+    node.focus({ preventScroll: true });
     const range = document.createRange();
     range.selectNodeContents(node);
     const selection = getSelection();
@@ -836,6 +1461,7 @@
 
     node.oninput = () => {
       liveSet(id, { [key]: node.innerText.replace(/\n$/, '') });
+      if (it.fid) refitLive([it.fid]);
     };
     node.onkeydown = (e) => {
       e.stopPropagation();
@@ -859,25 +1485,28 @@
     const it = items.get(id);
     if (!it) return;
     const after = it[key] || '';
-    if (it.type !== 'frame' && !after.trim()) {
+    if (it.type !== 'frame' && it.type !== 'block' && !after.trim()) {
       // An emptied note is removed; undo restores it with the text it had.
       it[key] = before;
-      exec([{ t: 'del', ids: [id] }], !isNew);
+      exec(delOps([id]), !isNew);
       return;
     }
     if (isNew) pushUndo([{ t: 'del', ids: [id] }]);
     else if (after !== before) pushUndo([{ t: 'set', id, patch: { [key]: before } }]);
     renderItem(it);
+    if (it.fid) refitLive([it.fid]);
     updateOverlay();
   }
 
   function createTextItem(type, p, text = '') {
     const base = { id: uid(), type, x: round(p.x), y: round(p.y), text, z: topZ() + 1 };
+    const frame = frameAt(p);
+    if (frame) base.fid = frame.id;
     const item = type === 'note'
-      ? { ...base, w: round(240 / cam.z), h: 0, fs: round(15 / cam.z), color: NOTE_FILLS[0] }
-      : { ...base, fs: round(32 / cam.z), color: INK[0] };
+      ? { ...base, w: NOTE_W, h: 0, fs: NOTE_FS, color: NOTE_FILLS[0] }
+      : { ...base, fs: levelSize(textPref.lvl), lvl: textPref.lvl, color: INK[0] };
     if (text) {
-      exec([{ t: 'add', item }]);
+      exec(addOps([item]));
       setSel([item.id]);
       return;
     }
@@ -1009,18 +1638,21 @@
     }
   }
 
-  // Lays new media out in rows starting at `at`, sized to read well at the current zoom.
+  // Lays new media out in rows starting at `at`. Everything comes in at the same width.
   function placeMedia(made, at) {
-    const target = Math.min(vp.clientHeight * 0.4, 420) / cam.z;
-    const gap = 16 / cam.z;
-    const maxRow = (vp.clientWidth * 0.9) / cam.z;
+    const gap = 24;
+    const maxRow = clamp((vp.clientWidth * 0.9) / cam.z, IMG_W, 4 * (IMG_W + gap));
     let z = topZ();
     let x = 0;
     let y = 0;
     let tallest = 0;
     const list = made.map((m) => {
-      const h = Math.min(target, m.nh / cam.z);
-      const w = h * (m.nw / m.nh);
+      let w = IMG_W;
+      let h = IMG_W * (m.nh / m.nw);
+      if (h > IMG_MAX_H) {
+        h = IMG_MAX_H;
+        w = h * (m.nw / m.nh);
+      }
       if (x > 0 && x + w > maxRow) {
         x = 0;
         y += tallest + gap;
@@ -1039,7 +1671,7 @@
       item.x = round(item.x);
       item.y = round(item.y);
     }
-    exec(list.map((item) => ({ t: 'add', item })));
+    exec(addOps(list));
     setSel(list.map((item) => item.id));
   }
 
@@ -1081,9 +1713,9 @@
     const dx = at.x - (box.x + box.w / 2);
     const dy = at.y - (box.y + box.h / 2);
     let z = topZ();
-    const clones = list.filter((it) => it && typeof it.type === 'string')
-      .map((it) => ({ ...it, id: uid(), x: round(it.x + dx), y: round(it.y + dy), z: ++z }));
-    exec(clones.map((item) => ({ t: 'add', item })));
+    const clones = reid(list.filter((it) => it && typeof it.type === 'string'))
+      .map((it) => ({ ...it, x: round(it.x + dx), y: round(it.y + dy), z: ++z }));
+    exec(addOps(clones));
     setSel(clones.map((c) => c.id));
   }
 
@@ -1103,6 +1735,53 @@
   }
 
   // ------------------------------------------------------------- pointer input
+
+  // ---- eraser: right-drag while drawing removes every drawing the stroke touches
+
+  const eraserRing = $('eraser');
+  const ERASER_R = 12; // screen pixels
+
+  function pointSegDist(p, a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const l2 = dx * dx + dy * dy;
+    const t = l2 ? clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / l2, 0, 1) : 0;
+    return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+  }
+
+  function segmentsCross(a, b, c, d) {
+    const side = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+    return side(a, b, c) * side(a, b, d) < 0 && side(c, d, a) * side(c, d, b) < 0;
+  }
+
+  function segSegDist(a, b, c, d) {
+    if (segmentsCross(a, b, c, d)) return 0;
+    return Math.min(pointSegDist(a, c, d), pointSegDist(b, c, d), pointSegDist(c, a, b), pointSegDist(d, a, b));
+  }
+
+  // Does the eraser's path from a to b come within `reach` of the drawn line?
+  function strokeTouched(it, a, b, reach) {
+    const half = it.size / 2 + reach;
+    if (Math.max(a.x, b.x) < it.x - half || Math.min(a.x, b.x) > it.x + it.w + half
+      || Math.max(a.y, b.y) < it.y - half || Math.min(a.y, b.y) > it.y + it.h + half) return false;
+    const n = it.pts.length / 2;
+    const P = (i) => ({ x: it.x + it.pts[i * 2] * it.w, y: it.y + it.pts[i * 2 + 1] * it.h });
+    if (n === 1) return pointSegDist(P(0), a, b) <= half;
+    for (let i = 0; i < n - 1; i++) {
+      if (segSegDist(a, b, P(i), P(i + 1)) <= half) return true;
+    }
+    return false;
+  }
+
+  function eraseSegment(g, a, b) {
+    const reach = ERASER_R / cam.z;
+    for (const it of items.values()) {
+      if (it.type !== 'stroke' || g.hit.has(it.id) || !selectable(it)) continue;
+      if (!strokeTouched(it, a, b, reach)) continue;
+      g.hit.add(it.id);
+      els.get(it.id).classList.add('erased');
+    }
+  }
 
   function begin(g, e) {
     gesture = g;
@@ -1134,6 +1813,14 @@
     const pan = e.button === 1 || e.button === 2 || (e.button === 0 && (spaceDown || tool === 'pan' || tool === 'laser'));
     e.preventDefault();
     if (gesture) return;
+    if (e.button === 2 && (tool === 'pen' || tool === 'arrow')) {
+      const g = { type: 'erase', last: p, hit: new Set() };
+      begin(g, e);
+      eraserRing.hidden = false;
+      eraserRing.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
+      eraseSegment(g, p, p);
+      return;
+    }
     if (pan) {
       userMovedView();
       begin({ type: 'pan', sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y }, e);
@@ -1154,7 +1841,7 @@
       } else if (id) {
         const wasSelected = sel.has(id);
         if (!wasSelected) setSel([id]);
-        begin({ type: 'move', p0: p, sx: e.clientX, sy: e.clientY, started: false, id, wasSelected, alt: e.altKey }, e);
+        begin({ type: 'move', p0: p, sx: e.clientX, sy: e.clientY, started: false, id, wasSelected, alt: e.altKey, playBtn: !!e.target.closest('.vplay') }, e);
       } else {
         const base = e.shiftKey ? new Set(sel) : new Set();
         if (!e.shiftKey) setSel([]);
@@ -1163,29 +1850,41 @@
     } else if (tool === 'note' || tool === 'text') {
       createTextItem(tool, p);
       setTool('select');
-    } else if (tool === 'frame') {
-      begin({ type: 'frame', p0: p, p1: p }, e);
+    } else if (tool === 'frame' || tool === 'block') {
+      begin({ type: 'frame', kind: tool, p0: p, p1: p }, e);
     } else if (tool === 'pen' || tool === 'arrow') {
-      const size = pen.size / cam.z;
-      const path = svgEl('path', { fill: 'none', stroke: pen.color, 'stroke-width': size, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+      const arrow = tool === 'arrow';
+      const size = pen.size;
+      const path = svgEl('path', arrow
+        ? { fill: 'none', stroke: inkColor(pen.color), 'stroke-width': size, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }
+        : { fill: inkColor(pen.color) });
       const svg = svgEl('svg', { class: 'drawing' });
       svg.append(path);
       itemsLayer.append(svg);
-      begin({ type: 'draw', arrow: tool === 'arrow', pts: [p.x, p.y], svg, path, size }, e);
+      // Brush width follows pen pressure when there is any, otherwise how fast the stroke moves.
+      const w0 = e.pointerType === 'pen' && e.pressure > 0 ? 0.25 + 0.75 * e.pressure : 0.5;
+      const g = { type: 'draw', arrow, pts: [p.x, p.y], ws: [w0], lt: e.timeStamp, svg, path, size };
+      begin(g, e);
+      if (!arrow) path.setAttribute('d', outlinePath(g.pts, g.ws, 1, 1, size));
     }
   });
 
   function beginResize(h, e) {
     const r = selBounds();
     const ids = [...sel];
-    const single = ids.length === 1 ? items.get(ids[0]) : null;
+    // Drawings on a scaled image scale with it.
+    for (const it of items.values()) if (it.pid && sel.has(it.pid)) ids.push(it.id);
+    const single = sel.size === 1 ? items.get([...sel][0]) : null;
     // Frames and notes reshape freely; everything else keeps its proportions.
-    const free = !!single && (single.type === 'frame' || single.type === 'note') && !e.shiftKey;
+    const free = !!single && (single.type === 'frame' || single.type === 'note' || single.type === 'block') && !e.shiftKey;
     begin({
-      type: 'resize', h, r, free,
+      type: 'resize', h, r, free, ids,
+      single: single ? single.id : null,
+      frameId: free && single.type === 'frame' ? single.id : null,
       ax: h.includes('w') ? r.x + r.w : r.x,
       ay: h.includes('n') ? r.y + r.h : r.y,
-      snap: snapshot(ids),
+      snap: snapshot(items.keys()),
+      targets: snapTargets(new Set(ids)),
       rects: new Map(ids.map((id) => [id, bounds(items.get(id))])),
     }, e);
   }
@@ -1194,36 +1893,68 @@
     if (!g.started) {
       if (Math.hypot(e.clientX - g.sx, e.clientY - g.sy) < 4) return;
       g.started = true;
+      g.snap = snapshot(items.keys());
       if (g.alt) {
-        const clones = cloneItems([...sel], 0);
-        const ops = clones.map((item) => ({ t: 'add', item }));
+        const { all, primary } = cloneItems([...sel], 0);
+        const ops = all.map((item) => ({ t: 'add', item }));
         applyOps(ops);
         sendOps(ops);
-        g.clones = clones.map((c) => c.id);
-        setSel(g.clones);
+        g.clones = all.map((c) => c.id);
+        setSel(primary);
       }
-      g.snap = snapshot(movingIds());
+      const moving = movingIds();
+      g.moving = [...moving];
+      g.start = new Map(g.moving.map((id) => [id, { x: items.get(id).x, y: items.get(id).y }]));
+      g.box = g.moving.reduce((r, id) => union(r, bounds(items.get(id))), null);
+      g.targets = snapTargets(moving);
+      // Loose items being dragged on their own may join or leave frames; frames' own contents just ride along.
+      g.items = [...sel].filter((id) => {
+        const it = items.get(id);
+        return it.type !== 'frame' && it.type !== 'block' && !it.pid && !(it.fid && moving.has(it.fid));
+      });
+      g.rest = restRects(moving, new Set(g.items));
     }
-    const dx = p.x - g.p0.x;
-    const dy = p.y - g.p0.y;
-    for (const [id, before] of g.snap) liveSet(id, { x: round(before.x + dx), y: round(before.y + dy) });
+    let dx = p.x - g.p0.x;
+    let dy = p.y - g.p0.y;
+    if (snapOn && !(e.ctrlKey || e.metaKey) && g.targets.length) {
+      const s = snapMove({ x: g.box.x + dx, y: g.box.y + dy, w: g.box.w, h: g.box.h }, g.targets);
+      dx += s.dx;
+      dy += s.dy;
+      drawGuides(s.guides);
+    } else {
+      clearGuides();
+    }
+    for (const id of g.moving) {
+      const o = g.start.get(id);
+      liveSet(id, { x: round(o.x + dx), y: round(o.y + dy) });
+    }
+    updateFrameMembership(g);
     updateOverlay();
   }
 
-  function dragResize(g, p) {
+  function dragResize(g, p, e) {
+    if (snapOn && !(e.ctrlKey || e.metaKey) && g.targets.length) {
+      const s = snapMove({ x: p.x, y: p.y, w: 0, h: 0 }, g.targets, false);
+      p = { x: p.x + s.dx, y: p.y + s.dy };
+      drawGuides(s.guides);
+    } else {
+      clearGuides();
+    }
     const west = g.h.includes('w');
     const north = g.h.includes('n');
     if (g.free) {
-      const [id] = g.snap.keys();
+      const id = g.single;
       const min = 40 / cam.z;
       const w = Math.max(min, west ? g.ax - p.x : p.x - g.ax);
       const h = Math.max(min, north ? g.ay - p.y : p.y - g.ay);
       liveSet(id, { x: round(west ? g.ax - w : g.ax), y: round(north ? g.ay - h : g.ay), w: round(w), h: round(h) });
+      if (items.get(id).fid) refitLive([items.get(id).fid]);
     } else {
       const sx = (west ? g.ax - p.x : p.x - g.ax) / g.r.w;
       const sy = (north ? g.ay - p.y : p.y - g.ay) / g.r.h;
       const s = Math.max(sx, sy, 16 / (Math.max(g.r.w, g.r.h) * cam.z));
-      for (const [id, before] of g.snap) {
+      for (const id of g.ids) {
+        const before = g.snap.get(id);
         const b = g.rects.get(id);
         const patch = { x: round(g.ax + (b.x - g.ax) * s), y: round(g.ay + (b.y - g.ay) * s) };
         if (before.type === 'text') {
@@ -1236,6 +1967,7 @@
         }
         liveSet(id, patch);
       }
+      refitLive(g.ids.map((id) => items.get(id).fid).filter(Boolean));
     }
     updateOverlay();
   }
@@ -1246,21 +1978,38 @@
     pointer.inside = true;
     const p = s2w(e.clientX, e.clientY);
     sendP({ c: [round(p.x), round(p.y)] });
-    if (tool === 'laser') addLaserPoint('me', me.color, p);
+    if (tool === 'laser') {
+      const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+      for (const ev of events.length ? events : [e]) {
+        const q = s2w(ev.clientX, ev.clientY);
+        addLaserPoint('me', me.color, q);
+        laserOut.push(Math.round(q.x * 100) / 100, Math.round(q.y * 100) / 100);
+      }
+      scheduleLaserSend();
+    }
 
     const g = gesture;
     if (!g || e.pointerId !== g.pid) return;
-    if (g.type === 'pan') {
+    if (g.type === 'erase') {
+      const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+      for (const ev of events.length ? events : [e]) {
+        const q = s2w(ev.clientX, ev.clientY);
+        eraseSegment(g, g.last, q);
+        g.last = q;
+      }
+      eraserRing.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
+    } else if (g.type === 'pan') {
       setCam(g.cx - (e.clientX - g.sx) / cam.z, g.cy - (e.clientY - g.sy) / cam.z, cam.z);
     } else if (g.type === 'move') {
       dragMove(g, e, p);
     } else if (g.type === 'resize') {
-      dragResize(g, p);
+      dragResize(g, p, e);
     } else if (g.type === 'marquee') {
       showMarquee(g.p0, p);
       const r = { x: Math.min(g.p0.x, p.x), y: Math.min(g.p0.y, p.y), w: Math.abs(p.x - g.p0.x), h: Math.abs(p.y - g.p0.y) };
       const ids = new Set(g.base);
       for (const it of items.values()) {
+        if (!selectable(it) || (it.pid && !focusId)) continue;
         const b = bounds(it);
         if (it.type === 'frame' ? contains(r, b) : intersects(r, b)) ids.add(it.id);
       }
@@ -1271,15 +2020,25 @@
     } else if (g.type === 'draw') {
       if (g.arrow) {
         g.pts = [g.pts[0], g.pts[1], p.x, p.y];
+        g.path.setAttribute('d', pathData(g.pts, 1, 1, true, g.size));
       } else {
         const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
         for (const ev of events.length ? events : [e]) {
           const q = s2w(ev.clientX, ev.clientY);
           const n = g.pts.length;
-          if (Math.hypot(q.x - g.pts[n - 2], q.y - g.pts[n - 1]) >= 1.5 / cam.z) g.pts.push(q.x, q.y);
+          const dist = Math.hypot(q.x - g.pts[n - 2], q.y - g.pts[n - 1]);
+          if (dist < 1.5 / cam.z) continue;
+          // Slow, deliberate strokes lay down more ink; quick flicks thin out.
+          const speed = (dist * cam.z) / Math.max(1, ev.timeStamp - g.lt);
+          const target = ev.pointerType === 'pen' && ev.pressure > 0
+            ? 0.25 + 0.75 * ev.pressure
+            : 0.18 + 0.82 * Math.exp(-speed * 0.45);
+          g.ws.push(g.ws[g.ws.length - 1] * 0.6 + target * 0.4);
+          g.pts.push(q.x, q.y);
+          g.lt = ev.timeStamp;
         }
+        g.path.setAttribute('d', outlinePath(g.pts, g.ws, 1, 1, g.size));
       }
-      g.path.setAttribute('d', pathData(g.pts, 1, 1, g.arrow, g.size));
     }
   });
 
@@ -1290,29 +2049,53 @@
     marquee.hidden = true;
     document.body.classList.remove('panning');
 
-    if (g.type === 'move') {
+    if (g.type === 'erase') {
+      eraserRing.hidden = true;
+      // Everything the stroke touched goes in one undo step.
+      if (g.hit.size) exec(delOps([...g.hit]));
+    } else if (g.type === 'move') {
+      clearGuides();
       if (!g.started) {
-        if (g.wasSelected && sel.size > 1) setSel([g.id]);
+        if (g.playBtn) toggleVideo(g.id);
+        else if (g.wasSelected && sel.size > 1) setSel([g.id]);
       } else if (g.clones) {
-        flushLive();
-        pushUndo([{ t: 'del', ids: g.clones }]);
+        recordSince(g.snap, [{ t: 'del', ids: g.clones }]);
       } else {
         recordSince(g.snap);
       }
     } else if (g.type === 'resize') {
+      clearGuides();
+      if (g.frameId) {
+        // A frame sized by hand stops following its contents; what it holds follows its new outline.
+        liveSet(g.frameId, { auto: false });
+        adoptInside(g.frameId);
+      }
       recordSince(g.snap);
     } else if (g.type === 'frame') {
+      const isBlock = g.kind === 'block';
+      const defW = isBlock ? BLOCK_W : FRAME_W;
+      const defH = isBlock ? BLOCK_H : FRAME_H;
       let r = { x: Math.min(g.p0.x, g.p1.x), y: Math.min(g.p0.y, g.p1.y), w: Math.abs(g.p1.x - g.p0.x), h: Math.abs(g.p1.y - g.p0.y) };
       if (r.w < 24 / cam.z || r.h < 24 / cam.z) {
-        const w = 960 / cam.z;
-        const h = 540 / cam.z;
-        r = { x: g.p0.x - w / 2, y: g.p0.y - h / 2, w, h };
+        r = { x: g.p0.x - defW / 2, y: g.p0.y - defH / 2, w: defW, h: defH };
       }
-      const item = { id: uid(), type: 'frame', x: round(r.x), y: round(r.y), w: round(r.w), h: round(r.h), title: '', color: FRAME_COLORS[0], z: 0 };
-      exec([{ t: 'add', item }]);
-      setTool('select');
-      setSel([item.id]);
-      startEdit(item.id);
+      if (isBlock) {
+        const block = { id: uid(), type: 'block', x: round(r.x), y: round(r.y), w: round(r.w), h: round(r.h), text: '', color: BLOCK_COLORS[0], fs: BLOCK_FS, align: 'center', z: topZ() + 1 };
+        exec(addOps([block]));
+        setTool('select');
+        setSel([block.id]);
+        startEdit(block.id);
+      } else {
+        // Drawing a frame around loose items gathers them, and the frame closes in on them.
+        const gathered = [...items.values()].filter((it) => it.type !== 'frame' && it.type !== 'block' && !it.pid && !frameOf(it) && selectable(it) && halfIn(it, r));
+        const hug = hugRect(gathered);
+        const box = hug || r;
+        const item = { id: uid(), type: 'frame', x: round(box.x), y: round(box.y), w: round(box.w), h: round(box.h), title: '', color: FRAME_COLORS[0], z: 0, auto: true };
+        exec([{ t: 'add', item }, ...gathered.map((it) => ({ t: 'set', id: it.id, patch: { fid: item.id } }))]);
+        setTool('select');
+        setSel([item.id]);
+        startEdit(item.id);
+      }
     } else if (g.type === 'draw') {
       g.svg.remove();
       const pts = g.pts;
@@ -1330,10 +2113,15 @@
       const h = Math.max(y1 - y0, 1);
       if (!g.arrow || Math.hypot(x1 - x0, y1 - y0) > 8 / cam.z) {
         const norm = pts.map((v, i) => Math.round((i % 2 ? (v - y0) / h : (v - x0) / w) * 10000) / 10000);
-        exec([{
-          t: 'add',
-          item: { id: uid(), type: 'stroke', x: round(x0), y: round(y0), w: round(w), h: round(h), pts: norm, color: pen.color, size: round(g.size), arrow: g.arrow, z: topZ() + 1 },
-        }]);
+        const item = { id: uid(), type: 'stroke', x: round(x0), y: round(y0), w: round(w), h: round(h), pts: norm, color: pen.color, size: round(g.size), arrow: g.arrow, z: topZ() + 1 };
+        if (!g.arrow) {
+          // The stroke ends in a flick: the last few points taper off.
+          const ws = g.ws.slice();
+          if (ws.length > 4) [0.8, 0.6, 0.4].forEach((k, i) => { ws[ws.length - 1 - i] *= k; });
+          item.ws = ws.map((v) => Math.round(v * 100) / 100);
+        }
+        if (focusId) item.pid = focusId;
+        exec(addOps([item]));
       }
     }
     updateOverlay();
@@ -1344,8 +2132,14 @@
   vp.addEventListener('pointerleave', () => {
     pointer.inside = false;
     sendP({ c: null });
+    requestLaser();
   });
   vp.addEventListener('contextmenu', (e) => e.preventDefault());
+  // Focusing text that sits off-screen would scroll the canvas element itself; the camera is the only thing that moves.
+  vp.addEventListener('scroll', () => {
+    vp.scrollLeft = 0;
+    vp.scrollTop = 0;
+  });
 
   vp.addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -1354,14 +2148,18 @@
     zoomAt(e.clientX, e.clientY, Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)));
   }, { passive: false });
 
+  // The canvas holds the pointer while a button is down, so the event's target is the canvas
+  // itself; the item has to be found from where the cursor is.
   vp.addEventListener('dblclick', (e) => {
     if (tool !== 'select' || editing) return;
-    const node = e.target.closest('.item');
-    const it = node && items.get(node.dataset.id);
+    const hit = document.elementFromPoint(e.clientX, e.clientY);
+    const node = hit && hit.closest('.item');
+    let it = node && items.get(node.dataset.id);
+    if (it && it.type === 'stroke' && it.pid) it = items.get(it.pid);
     if (!it) return;
-    if (it.type === 'note' || it.type === 'text' || it.type === 'frame') startEdit(it.id);
-    else if (it.type === 'video') toggleVideo(it.id);
-    else if (it.type === 'image') fitRect(bounds(it), { inset: { t: 64, r: 24, b: 24, l: presenting ? 24 : 80 } });
+    if (it.type === 'note' || it.type === 'text' || it.type === 'block') startEdit(it.id);
+    else if (it.type === 'frame') { if (hit.closest('.frame-head')) startEdit(it.id); }
+    else if (it.type === 'video' || it.type === 'image') enterFocus(it.id);
   });
 
   // ------------------------------------------------------------- drop, paste, copy
@@ -1399,7 +2197,7 @@
 
   function copySel(e) {
     if (isTyping(e.target) || !sel.size) return false;
-    e.clipboardData.setData('text/plain', JSON.stringify({ wipboard: 1, items: [...sel].map((id) => items.get(id)) }));
+    e.clipboardData.setData('text/plain', JSON.stringify({ wipboard: 1, items: [...withDependents(sel)].map((id) => items.get(id)) }));
     e.preventDefault();
     return true;
   }
@@ -1417,17 +2215,20 @@
 
   const TOOLS = [
     ['select', 'Select and move (V)', ICON.select],
-    ['pan', 'Pan (H, hold Space, or drag with the middle or right button)', ICON.pan],
+    ['pan', 'Pan. Or hold Space and drag (H)', ICON.pan],
     null,
     ['upload', 'Add images or video (or just drop or paste them)', ICON.upload],
     ['note', 'Note (N)', ICON.note],
-    ['text', 'Heading text (T)', ICON.text],
-    ['frame', 'Frame, a named section and a stop when presenting (F)', ICON.frame],
+    ['text', 'Heading or text. Pick the level first (T)', ICON.text],
+    ['block', 'Coloured heading block (B)', ICON.block],
+    ['frame', 'Frame the selection, or draw a frame (F)', ICON.frame],
     null,
-    ['pen', 'Draw (P)', ICON.pen],
+    ['pen', 'Draw. Right-drag to erase (P)', ICON.pen],
     ['arrow', 'Arrow (A)', ICON.arrow],
     ['laser', 'Laser pointer, visible to everyone (L)', ICON.laser],
   ];
+
+  const TOOL_LABELS = { select: 'Select', pan: 'Pan', upload: 'Image', note: 'Note', text: 'Heading', block: 'Block', frame: 'Frame', pen: 'Draw', arrow: 'Arrow', laser: 'Laser' };
 
   function buildToolbar() {
     $('toolbar').replaceChildren(...TOOLS.map((t) => {
@@ -1435,8 +2236,8 @@
       const [name, title, html] = t;
       return el('button', {
         class: 'iconbtn', 'data-tool': name, title, html,
-        onclick: () => (name === 'upload' ? $('filepick').click() : setTool(name)),
-      });
+        onclick: () => (name === 'upload' ? $('filepick').click() : name === 'frame' ? activateFrame() : setTool(name)),
+      }, el('span', { class: 'tl', text: TOOL_LABELS[name] }));
     }));
     $('back').innerHTML = ICON.boards;
     $('pprev').innerHTML = ICON.prev;
@@ -1445,13 +2246,20 @@
   }
 
   function buildToolOptions() {
+    if (tool === 'text') {
+      $('tooloptions').replaceChildren(...TEXT_LEVELS.map((l) => el('button', {
+        class: `lvl${l.lvl === textPref.lvl ? ' active' : ''}`, title: l.title, text: l.label,
+        onclick: () => { textPref.lvl = l.lvl; store('wb:text', textPref); buildToolOptions(); },
+      })));
+      return;
+    }
     const savePen = () => {
       store('wb:pen', pen);
       buildToolOptions();
     };
     $('tooloptions').replaceChildren(
       ...INK.map((c) => el('button', {
-        class: `swatch${c === pen.color ? ' active' : ''}`, style: { background: c }, title: 'Ink colour',
+        class: `swatch${c === pen.color ? ' active' : ''}`, style: { background: swatchColor(c) }, title: 'Ink colour',
         onclick: () => { pen.color = c; savePen(); },
       })),
       el('span', { class: 'sep' }),
@@ -1462,16 +2270,20 @@
   }
 
   function setTool(name) {
+    // While an image is open there is nothing to place notes or frames on.
+    if (focusId && (name === 'note' || name === 'text' || name === 'frame' || name === 'block')) return;
     tool = name;
     document.body.dataset.tool = name;
     for (const b of $('toolbar').querySelectorAll('[data-tool]')) b.classList.toggle('active', b.dataset.tool === name);
-    $('tooloptions').hidden = name !== 'pen' && name !== 'arrow';
+    $('tooloptions').hidden = name !== 'pen' && name !== 'arrow' && name !== 'text';
+    buildToolOptions();
     $('plaser').classList.toggle('active', name === 'laser');
     if (name !== 'select') setSel([]);
     sendP({ l: name === 'laser' ? 1 : 0 });
+    requestLaser();
   }
 
-  const TOOL_KEYS = { v: 'select', h: 'pan', n: 'note', t: 'text', f: 'frame', p: 'pen', a: 'arrow', l: 'laser' };
+  const TOOL_KEYS = { v: 'select', h: 'pan', n: 'note', t: 'text', b: 'block', f: 'frame', p: 'pen', a: 'arrow', l: 'laser' };
 
   window.addEventListener('keydown', (e) => {
     if (isTyping(e.target)) return;
@@ -1486,7 +2298,7 @@
     if ((e.ctrlKey || e.metaKey) && !altGr) {
       if (k === 'z') e.shiftKey ? stepHistory(redoStack, undoStack) : stepHistory(undoStack, redoStack);
       else if (k === 'y') stepHistory(redoStack, undoStack);
-      else if (k === 'a') { setTool('select'); setSel([...items.keys()]); }
+      else if (k === 'a') { setTool('select'); setSel([...items.values()].filter((it) => selectable(it) && (focusId || !it.pid)).map((it) => it.id)); }
       else if (k === 'd') duplicate();
       else if (k === 'p') packSelection();
       else if (k === '0') { userMovedView(); zoomAt(vp.clientWidth / 2, vp.clientHeight / 2, 1 / cam.z); }
@@ -1499,7 +2311,7 @@
     if (presenting) {
       if (k === 'arrowright' || k === 'arrowdown' || k === 'pagedown') return void (e.preventDefault(), moveStep(1));
       if (k === 'arrowleft' || k === 'arrowup' || k === 'pageup') return void (e.preventDefault(), moveStep(-1));
-      if (k === 'escape') return void stopPresenting();
+      if (k === 'escape') return void (focusId ? exitFocus() : stopPresenting());
       if (k === 'l') return void setTool(tool === 'laser' ? 'select' : 'laser');
     }
 
@@ -1508,9 +2320,12 @@
     else if (e.shiftKey && e.code === 'Digit2') { const r = selBounds(); if (r) { userMovedView(); fitRect(r); } }
     else if (k === 'home') { userMovedView(); fitAll(); }
     else if (k === '?') toggleHelp();
+    else if (k === 's' && !e.shiftKey) toggleSnap();
+    else if (k === 'f' && !e.shiftKey) activateFrame();
     else if (k === 'delete' || k === 'backspace') deleteSel();
     else if (k === 'escape') {
       if (!$('helppanel').hidden) toggleHelp();
+      else if (focusId) exitFocus();
       else if (tool !== 'select') setTool('select');
       else setSel([]);
     }
@@ -1541,19 +2356,23 @@
   window.addEventListener('resize', applyCam);
 
   const HELP = [
-    ['Pan', 'Space + drag, middle or right drag'],
+    ['Pan', 'Space + drag, or middle drag'],
     ['Zoom', 'Mouse wheel'],
     ['Fit everything / selection', 'Shift+1 / Shift+2'],
-    ['Focus an image', 'Double-click it'],
+    ['Open an image or video and draw on it', 'Double-click it, Esc to close'],
+    ['Smart snapping on / off', 'S, hold Ctrl to bypass'],
     ['Add media', 'Drop files, or paste from the clipboard'],
-    ['Note / Heading / Frame', 'N / T / F'],
+    ['Note / Heading / Colour block', 'N / T / B'],
+    ['Frame the selection, or draw a frame', 'F'],
+    ['Change heading level', 'Select it, then H1 / H2 / H3 / Text'],
     ['Draw / Arrow / Laser', 'P / A / L'],
+    ['Erase drawings', 'Right-drag while drawing'],
     ['Edit text', 'Double-click or Enter'],
     ['Duplicate', 'Ctrl+D, or Alt + drag'],
     ['Tidy selection into a grid', 'Ctrl+P'],
     ['Bring to front / send to back', '] / [  or  PgUp / PgDn'],
     ['Scale a note with its text', 'Shift + drag a corner'],
-    ['Play or pause video', 'Double-click or K'],
+    ['Play or pause video', 'Click the play button, or K'],
     ['Step video one frame', ', and .'],
     ['Undo / redo', 'Ctrl+Z / Ctrl+Shift+Z'],
     ['Presenting: next / previous', '→ / ←'],
@@ -1609,7 +2428,7 @@
     const list = steps();
     const i = list.findIndex((it) => it.id === presentId);
     const it = list[i];
-    const label = it ? it.title || (it.type === 'frame' ? 'Untitled frame' : it.name) || '' : '';
+    const label = it && it.type !== 'frame' ? it.name || '' : '';
     $('pstep').textContent = list.length
       ? `${i < 0 ? '–' : i + 1} / ${list.length}${label ? `  ·  ${label}` : ''}`
       : 'Nothing to step through yet';
@@ -1764,17 +2583,43 @@
     if (peer.cur) peer.cur.remove();
     peers.delete(id);
     trails.delete(id);
+    requestLaser();
   }
 
   const trails = new Map();
   const laserCanvas = $('laser');
+  const laserOut = [];
   let laserRaf = 0;
+  let laserSend = 0;
 
-  function addLaserPoint(key, color, p) {
+  const laserActive = () => tool === 'laser' || trails.size > 0 || [...peers.values()].some((peer) => peer.p.l);
+
+  function requestLaser() {
+    if (!laserRaf) laserRaf = requestAnimationFrame(drawLaser);
+  }
+
+  function scheduleLaserSend() {
+    if (laserSend) return;
+    laserSend = setTimeout(() => {
+      laserSend = 0;
+      if (laserOut.length) wsSend({ t: 'laser', pts: laserOut.splice(0) });
+    }, 25);
+  }
+
+  function addLaserPoint(key, color, p, t = performance.now()) {
     let trail = trails.get(key);
     if (!trail) trails.set(key, (trail = { color, pts: [] }));
-    trail.pts.push({ x: p.x, y: p.y, t: performance.now() });
-    if (!laserRaf) laserRaf = requestAnimationFrame(drawLaser);
+    trail.pts.push({ x: p.x, y: p.y, t });
+    requestLaser();
+  }
+
+  // A remote pointer's points arrive in batches; spread them over the interval they covered.
+  function addRemoteLaser(peer, flat) {
+    const n = flat.length / 2;
+    const now = performance.now();
+    for (let i = 0; i < n; i++) {
+      addLaserPoint(peer.id, peer.color, { x: flat[i * 2], y: flat[i * 2 + 1] }, now - (n - 1 - i) * (25 / n));
+    }
   }
 
   function drawLaser() {
@@ -1790,36 +2635,54 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     const now = performance.now();
+    const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
     for (const [key, trail] of trails) {
       while (trail.pts.length && now - trail.pts[0].t > LASER_LIFE) trail.pts.shift();
       if (!trail.pts.length) {
         trails.delete(key);
         continue;
       }
+      const P = trail.pts.map((q) => {
+        const sp = w2s(q.x, q.y);
+        return { x: sp.x, y: sp.y, k: Math.max(0, 1 - (now - q.t) / LASER_LIFE) };
+      });
       ctx.strokeStyle = trail.color;
       ctx.shadowColor = trail.color;
-      ctx.shadowBlur = 14;
-      for (let i = 1; i < trail.pts.length; i++) {
-        const a = w2s(trail.pts[i - 1].x, trail.pts[i - 1].y);
-        const b = w2s(trail.pts[i].x, trail.pts[i].y);
-        const k = 1 - (now - trail.pts[i].t) / LASER_LIFE;
-        ctx.globalAlpha = k;
-        ctx.lineWidth = 2 + 5 * k;
+      ctx.shadowBlur = 6;
+      // Curves through the midpoints keep the trail smooth however sparse the samples are.
+      for (let i = 1; i < P.length; i++) {
+        const a = i === 1 ? P[0] : mid(P[i - 1], P[i]);
+        const b = i === P.length - 1 ? P[i] : mid(P[i], P[i + 1]);
+        ctx.globalAlpha = P[i].k;
+        ctx.lineWidth = 1 + 2.2 * P[i].k;
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
+        ctx.quadraticCurveTo(P[i].x, P[i].y, b.x, b.y);
         ctx.stroke();
       }
-      const last = trail.pts[trail.pts.length - 1];
-      const head = w2s(last.x, last.y);
-      ctx.globalAlpha = Math.min(1, (1 - (now - last.t) / LASER_LIFE) * 2);
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.arc(head.x, head.y, 5, 0, Math.PI * 2);
-      ctx.fill();
+    }
+    // The dot stays put while the pointer rests; only the trail fades.
+    const heads = [];
+    if (tool === 'laser' && pointer.inside) heads.push({ x: pointer.sx, y: pointer.sy, color: me.color });
+    for (const peer of peers.values()) {
+      if (!peer.p.l || !peer.p.c) continue;
+      const sp = w2s(peer.p.c[0], peer.p.c[1]);
+      heads.push({ x: sp.x, y: sp.y, color: peer.color });
     }
     ctx.globalAlpha = 1;
+    for (const head of heads) {
+      ctx.shadowColor = head.color;
+      ctx.shadowBlur = 9;
+      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = head.color;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(head.x, head.y, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
     ctx.shadowBlur = 0;
     if (trails.size) laserRaf = requestAnimationFrame(drawLaser);
   }
@@ -1892,6 +2755,8 @@
 
     if (firstInit) {
       firstInit = false;
+      // Frames made before they had headers close up around their contents again, headers included.
+      refitLive(frameIds());
       const saved = store(`wb:cam:${boardId}`);
       if (saved && isFinite(saved.x) && isFinite(saved.y) && saved.z > 0) setCam(saved.x, saved.y, saved.z);
       else fitAll(0);
@@ -1927,10 +2792,13 @@
       Object.assign(peer.p, msg.p);
       if ('c' in msg.p || 'l' in msg.p) {
         placeCursor(peer);
-        if (peer.p.l && peer.p.c && 'c' in msg.p) addLaserPoint(peer.id, peer.color, { x: peer.p.c[0], y: peer.p.c[1] });
+        requestLaser();
       }
       if ('s' in msg.p) refreshPeerSel();
       if ('v' in msg.p && following === peer.id && !gesture) followView(peer.p.v);
+    } else if (msg.t === 'laser') {
+      const peer = peers.get(msg.id);
+      if (peer) addRemoteLaser(peer, msg.pts);
     } else if (msg.t === 'media') {
       if (following !== msg.from) return;
       const video = videoOf(msg.id);
@@ -1963,11 +2831,25 @@
   // ------------------------------------------------------------- start
 
   me = await WB.askName();
+  let meta;
   try {
-    await WB.api('GET', `/api/boards/${boardId}`);
+    meta = await WB.api('GET', `/api/boards/${boardId}`);
   } catch {
     return fatal('This board does not exist.');
   }
+  $('back').href = meta.folderId ? `/#/f/${meta.folderId}` : '/';
+  $('themeslot').replaceWith(WB.themeButton());
+  window.addEventListener('wb:theme', () => {
+    for (const it of items.values()) renderItem(it);
+    seltools.dataset.sig = '';
+    buildToolOptions();
+    updateOverlay();
+  });
+  $('snap').innerHTML = ICON.snap;
+  $('snap').classList.toggle('active', snapOn);
+  $('snap').addEventListener('click', toggleSnap);
+  $('focusdone').addEventListener('click', exitFocus);
+  $('focusclear').addEventListener('click', clearDrawing);
   buildToolbar();
   setTool('select');
   applyCam();

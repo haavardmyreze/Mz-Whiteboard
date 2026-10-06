@@ -3,7 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#0e0e10">
+  <script>try { document.documentElement.dataset.theme = JSON.parse(localStorage.getItem('wb:theme')) || 'dark'; } catch (e) { document.documentElement.dataset.theme = 'dark'; }</script>
   <title>Wipboard</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body class="board">
@@ -22,6 +25,8 @@
       <i class="handle sw" data-h="sw"></i><i class="handle se" data-h="se"></i>
     </div>
     <canvas id="laser"></canvas>
+    <svg id="guides" aria-hidden="true"><path id="guidepath"/></svg>
+    <div id="eraser" hidden></div>
     <div id="cursors"></div>
     <div id="followring" hidden></div>
     <div id="dropzone" hidden><span>Drop to add to the board</span></div>
@@ -33,8 +38,12 @@
     <span id="conn" hidden>Reconnecting…</span>
     <div class="spacer"></div>
     <div id="peers"></div>
+    <span class="sep"></span>
+    <button id="snap" class="iconbtn" title="Smart snapping. Hold Ctrl while dragging to bypass (S)"></button>
     <button id="zoom" class="btn ghost" title="Fit everything (Shift+1)">100%</button>
+    <span id="themeslot"></span>
     <button id="help" class="iconbtn" title="Keyboard shortcuts (?)">?</button>
+    <span class="sep"></span>
     <button id="present" class="btn primary" title="Present this board to everyone on it">Present</button>
   </header>
 
@@ -43,6 +52,12 @@
   <div id="seltools" hidden></div>
 
   <div id="followpill" hidden></div>
+  <div id="focusbar" hidden>
+    <span id="focusname"></span>
+    <span class="hint" id="focushint">Draw to annotate</span>
+    <button class="btn small" id="focusclear" title="Delete everything drawn on this image">Clear drawing</button>
+    <button class="btn small primary" id="focusdone" title="Close (Esc)">Done</button>
+  </div>
   <div id="presentbar" hidden>
     <button class="iconbtn" id="pprev" title="Previous (←)"></button>
     <div id="pstep"></div>

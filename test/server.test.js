@@ -150,3 +150,13 @@ test('without sign-in /api/me reports no user', async (t) => {
   await s.ready;
   assert.deepEqual(await (await fetch(`${s.base}/api/me`)).json(), { auth: 'none', user: null });
 });
+
+test('the in-browser video encoder is served as a module', async (t) => {
+  const s = start(4795);
+  t.after(s.stop);
+  await s.ready;
+  const res = await fetch(`${s.base}/vendor/mediabunny.mjs`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /javascript/);
+  assert.match(await res.text(), /Conversion/);
+});

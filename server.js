@@ -16,7 +16,7 @@ const BOARD_DIR = path.join(DATA_DIR, 'boards');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const TRASH_DIR = path.join(DATA_DIR, 'trash');
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const MAX_UPLOAD = (Number(process.env.WIPBOARD_MAX_UPLOAD_MB) || 2048) * 1024 * 1024;
+const MAX_UPLOAD = (Number(process.env.WIPBOARD_MAX_UPLOAD_MB) || 1024) * 1024 * 1024;
 // Uploads arrive in pieces, so a single request never needs to be large (hosting front ends cap it).
 const MAX_PART = 64 * 1024 * 1024;
 
@@ -37,6 +37,7 @@ const SAVE_DELAY = 800;
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
@@ -344,14 +345,18 @@ function sendFile(req, res, file, headers = {}) {
 const PARTS_PREFIX = '.parts-';
 
 function handleUpload(req, res, url) {
+  const refuse = (status, error) => {
+    req.resume();
+    return sendJson(res, status, { error });
+  };
   const ext = path.extname(url.searchParams.get('name') || '').toLowerCase();
-  if (!UPLOAD_EXTS.has(ext)) return sendJson(res, 415, { error: `Unsupported file type ${ext || '(none)'}` });
+  if (!UPLOAD_EXTS.has(ext)) return refuse(415, `Unsupported file type ${ext || '(none)'}`);
   const uid = url.searchParams.get('uid') || newId(9);
-  if (!/^[\w-]{6,40}$/.test(uid)) return sendJson(res, 400, { error: 'Bad upload id' });
+  if (!/^[\w-]{6,40}$/.test(uid)) return refuse(400, 'Bad upload id');
   const offset = Number(url.searchParams.get('offset') || 0);
-  if (!Number.isSafeInteger(offset) || offset < 0 || offset > MAX_UPLOAD) return sendJson(res, 400, { error: 'Bad offset' });
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > MAX_UPLOAD) return refuse(400, 'Bad offset');
   const done = url.searchParams.get('done') !== '0';
-  if (Number(req.headers['content-length']) > MAX_PART) return sendJson(res, 413, { error: 'Piece too large' });
+  if (Number(req.headers['content-length']) > MAX_PART) return refuse(413, 'Piece too large');
 
   const partsDir = path.join(UPLOAD_DIR, PARTS_PREFIX + uid);
   fs.mkdirSync(partsDir, { recursive: true });
@@ -414,11 +419,21 @@ async function assembleUpload(partsDir, ext) {
     return finish(only);
   }
 
+  // Check the pieces line up end to end before anything is written.
+  let expected = 0;
+  for (const name of names) {
+    if (Number(name) !== expected) throw Object.assign(new Error('A piece of the upload is missing'), { status: 409 });
+    expected += (await fsp.stat(path.join(partsDir, name))).size;
+    if (expected > MAX_UPLOAD) throw Object.assign(new Error('File too large'), { status: 413 });
+  }
+
   const tmp = path.join(UPLOAD_DIR, `.upload-${newId(9)}`);
   const out = fs.createWriteStream(tmp);
+  // A failed write is reported through the awaited calls below; this keeps it from escaping as an
+  // unhandled event that would take the whole server down.
+  out.on('error', () => {});
   try {
     for (const name of names) {
-      if (Number(name) !== total) throw Object.assign(new Error('A piece of the upload is missing'), { status: 409 });
       for await (const chunk of fs.createReadStream(path.join(partsDir, name))) {
         total += chunk.length;
         if (total > MAX_UPLOAD) throw Object.assign(new Error('File too large'), { status: 413 });
@@ -579,6 +594,11 @@ const server = http.createServer(async (req, res) => {
       'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
       'X-Content-Type-Options': 'nosniff',
     });
+  }
+
+  // The in-browser video encoder, served from the installed package so there is no build step.
+  if (pathname === '/vendor/mediabunny.mjs') {
+    return sendFile(req, res, path.join(__dirname, 'node_modules', 'mediabunny', 'dist', 'bundles', 'mediabunny.min.mjs'), { 'Cache-Control': 'public, max-age=86400' });
   }
 
   let file;

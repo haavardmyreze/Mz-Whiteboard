@@ -1632,14 +1632,80 @@
     });
   }
 
-  async function ingest(file, onProgress) {
+  // Heavy video is re-encoded here, on the uploader's own machine, before it goes anywhere: H.264 in an
+  // MP4, at most 1080p, about 8 Mbps, audio kept. Light files go up untouched (encoding twice only loses
+  // quality), and anything this browser cannot decode or encode falls back to uploading as it is.
+  const VIDEO_BITRATE = 8e6;
+  const VIDEO_LIGHT_BITRATE = 12e6;
+  const VIDEO_SMALL = 40 * 1024 * 1024;
+  const VIDEO_LONG_SIDE = 1920;
+  const VIDEO_SHORT_SIDE = 1080;
+  let mediabunny;
+
+  const fmtSize = (bytes) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`);
+
+  async function optimiseVideo(file, report, note) {
+    if (file.size < VIDEO_SMALL) return file;
+    let mb;
+    try {
+      mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
+    } catch {
+      return file;
+    }
+    const input = new mb.Input({ source: new mb.BlobSource(file), formats: mb.ALL_FORMATS });
+    try {
+      const track = await input.getPrimaryVideoTrack();
+      if (!track || !(await track.canDecode())) return file;
+      const w = track.displayWidth;
+      const h = track.displayHeight;
+      const duration = await input.computeDuration();
+      const bitrate = duration > 0 ? (file.size * 8) / duration : 0;
+      const oversized = Math.max(w, h) > VIDEO_LONG_SIDE || Math.min(w, h) > VIDEO_SHORT_SIDE;
+      if (!oversized && bitrate <= VIDEO_LIGHT_BITRATE) return file;
+
+      // Fit inside 1920x1080 (or 1080x1920), keeping the shape; encoders want even sizes.
+      const k = Math.min(1, VIDEO_LONG_SIDE / Math.max(w, h), VIDEO_SHORT_SIDE / Math.min(w, h));
+      const width = Math.max(2, Math.round((w * k) / 2) * 2);
+      const height = Math.max(2, Math.round((h * k) / 2) * 2);
+      const target = Math.min(VIDEO_BITRATE, bitrate || VIDEO_BITRATE);
+      if (!(await mb.canEncodeVideo('avc', { width, height, bitrate: target }))) {
+        note('This browser cannot compress video, so it is uploaded as it is.');
+        return file;
+      }
+
+      const output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new mb.BufferTarget() });
+      const conversion = await mb.Conversion.init({ input, output, video: { codec: 'avc', width, height, fit: 'contain', bitrate: target } });
+      if (!conversion.isValid) return file;
+      conversion.onProgress = (p) => report(p);
+      await conversion.execute();
+
+      const out = new File([output.target.buffer], `${file.name.replace(/\.[^.]+$/, '')}.mp4`, { type: 'video/mp4' });
+      if (out.size >= file.size) return file;
+      note(`Video compressed from ${fmtSize(file.size)} to ${fmtSize(out.size)}.`);
+      return out;
+    } catch (err) {
+      console.warn('Video compression failed, uploading the original:', err);
+      note('Could not compress this video, so it is uploaded as it is.');
+      return file;
+    } finally {
+      input.dispose();
+    }
+  }
+
+  async function ingest(file, onProgress, { original = false, onPhase = () => {}, note = () => {} } = {}) {
     const ext = fileExt(file);
     const url = URL.createObjectURL(file);
     try {
       if (VID_EXT.test(ext)) {
-        const { w, h } = await probeVideo(url);
-        const up = await upload(file, ext, onProgress);
-        return { type: 'video', src: up.url, nw: w, nh: h, name: file.name };
+        const prepared = original ? file : await optimiseVideo(file, onPhase, note);
+        const preparedUrl = prepared === file ? url : URL.createObjectURL(prepared);
+        try {
+          const { w, h } = await probeVideo(preparedUrl);
+          const up = await upload(prepared, fileExt(prepared), onProgress);
+          return { type: 'video', src: up.url, nw: w, nh: h, name: file.name };
+        } finally {
+          if (preparedUrl !== url) URL.revokeObjectURL(preparedUrl);
+        }
       }
       const img = await loadImage(url);
       const nw = img.naturalWidth || 512;
@@ -1703,7 +1769,8 @@
     setSel(list.map((item) => item.id));
   }
 
-  async function addFiles(fileList, at) {
+  // Hold Shift while dropping to upload video exactly as it is, without compressing it first.
+  async function addFiles(fileList, at, { original = false } = {}) {
     const files = [...fileList].filter(fileExt);
     if (!files.length) {
       toast('Only images and MP4, WebM or MOV video can be added.');
@@ -1715,7 +1782,11 @@
     for (const [i, file] of files.entries()) {
       const label = files.length > 1 ? `Uploading ${i + 1} of ${files.length}` : 'Uploading';
       try {
-        made.push(await ingest(file, (k) => status.set(`${label} · ${Math.round(k * 100)}%`)));
+        made.push(await ingest(file, (k) => status.set(`${label} · ${Math.round(k * 100)}%`), {
+          original,
+          onPhase: (k) => status.set(`${files.length > 1 ? `File ${i + 1} of ${files.length}: ` : ''}Compressing video · ${Math.round(k * 100)}%`),
+          note: (text) => toast(text, { ms: 6000 }),
+        }));
       } catch (err) {
         errors.push(`${file.name}: ${err.message}`);
       }
@@ -2210,7 +2281,7 @@
     dragDepth = 0;
     $('dropzone').hidden = true;
     const at = s2w(e.clientX, e.clientY);
-    if (e.dataTransfer.files.length) return addFiles(e.dataTransfer.files, at);
+    if (e.dataTransfer.files.length) return addFiles(e.dataTransfer.files, at, { original: e.shiftKey });
     const text = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
     if (text) pasteText(text.split('\n')[0], at);
   });
@@ -2390,6 +2461,7 @@
     ['Open an image or video and draw on it', 'Double-click it, Esc to close'],
     ['Smart snapping on / off', 'S, hold Ctrl to bypass'],
     ['Add media', 'Drop files, or paste from the clipboard'],
+    ['Upload video without compressing', 'Hold Shift while dropping'],
     ['Note / Heading / Colour block', 'N / T / B'],
     ['Frame the selection, or draw a frame', 'F'],
     ['Change heading level', 'Select it, then H1 / H2 / H3 / Text'],

@@ -12,6 +12,7 @@
     "node": ">=18"
   },
   "dependencies": {
+    "mediabunny": "^1.61.3",
     "ws": "^8.18.0"
   }
 }

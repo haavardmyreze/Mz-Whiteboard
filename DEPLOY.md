@@ -16,6 +16,7 @@ stores things.
 | Long-lived connections | Live cursors and edits are WebSockets | Supported; set the request timeout to the maximum (60 min). Browsers reconnect by themselves when a connection ends |
 | **Exactly one instance** | The open board lives in that process's memory. Two instances would each hold a different copy | `--max-instances 1` |
 | A folder that survives restarts | `data/boards`, `data/uploads`, `data/folders.json` | A Cloud Storage bucket mounted at `/data` |
+| Light uploads | Heavy video is compressed on the uploader's own machine (H.264, 1080p, about 8 Mbps) before it is sent, so the server never encodes anything | Nothing to configure; the bucket only ever holds light files |
 | Requests under the front end's size cap | Cloud Run limits a request body (32 MiB over HTTP/1 at the time of writing) | The app already uploads files in 8 MB pieces and joins them on the server |
 | Clean shutdown | Edits are saved 0.8 s after the last change | On SIGTERM the app saves everything before it exits |
 | A health check | | `GET /healthz` answers `ok` without a login |
@@ -75,7 +76,7 @@ All optional locally; the ones in bold matter when deployed.
 | `PORT` | `4680` (`8080` in the container) | Cloud Run sets this itself |
 | `HOST` | `0.0.0.0` | Interface to listen on |
 | **`WIPBOARD_DATA`** | `./data` (`/data` in the container) | Where boards and uploads are saved |
-| `WIPBOARD_MAX_UPLOAD_MB` | `2048` | Largest accepted file |
+| `WIPBOARD_MAX_UPLOAD_MB` | `1024` | Largest accepted file |
 | **`AUTH_MODE`** | `none` | `none` (everyone, picks a display name) or `iap` (Google sign-in) |
 | **`IAP_AUDIENCE`** | | Required with `iap`: `/projects/PROJECT_NUMBER/locations/REGION/services/SERVICE_NAME` |
 | `ALLOWED_EMAILS` | | Optional extra list, comma separated, narrower than who IAP admits |

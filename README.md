@@ -31,7 +31,9 @@ private networks, otherwise only the host machine can connect.
 - **Images and video.** Drop files on the board, paste screenshots from the clipboard, or
   paste an image URL. Large images get a 2K preview so heavy boards stay fast; the
   original loads when you zoom in past the preview's resolution. Videos have a play
-  button in the middle and a scrub bar on hover.
+  button in the middle and a scrub bar on hover. Heavy video is compressed in the browser before
+  upload (H.264 MP4, 1080p at most, about 8 Mbps, audio kept) so nobody uploads gigabytes; light
+  files go up untouched, and holding Shift while dropping uploads the original as it is.
 - **Open an image and draw on it.** Double-click an image: the rest of the board dims and
   you can annotate it with the brush or arrows. The drawing belongs to the image, so it
   moves and scales with it, and everyone sees it live. Esc or Done closes it and the view returns to where it was.
@@ -103,7 +105,7 @@ Environment variables, all optional:
 | `PORT`                   | `4680`   | Port to listen on                        |
 | `HOST`                   | `0.0.0.0`| Interface to bind (`127.0.0.1` = local only) |
 | `WIPBOARD_DATA`          | `./data` | Where boards and uploads are stored      |
-| `WIPBOARD_MAX_UPLOAD_MB` | `2048`   | Largest accepted file                    |
+| `WIPBOARD_MAX_UPLOAD_MB` | `1024`   | Largest accepted file                    |
 
 ## Good to know
 
@@ -111,7 +113,8 @@ Environment variables, all optional:
   and delete every board. Run it on a trusted studio network or behind a VPN, not on the
   open internet.
 - **Video must be browser-playable**: H.264 MP4 or WebM. ProRes and DNxHD `.mov` files are
-  rejected with a message; export an H.264 review copy instead.
+  rejected with a message; export an H.264 review copy instead. Compression runs in the browser
+  (Chrome, Edge and Safari do it well); where a browser cannot, the file is uploaded as it is.
 - **Images must be browser formats**: PNG, JPEG, WebP, GIF, AVIF, BMP, SVG. EXR, TIFF and
   PSD are not supported.
 - Two people editing the same property of the same item at the same moment: the last

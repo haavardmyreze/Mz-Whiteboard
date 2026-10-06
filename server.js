@@ -53,6 +53,7 @@ const MIME = {
   '.webm': 'video/webm',
   '.mov': 'video/quicktime',
   '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
 };
 const UPLOAD_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp', '.svg', '.mp4', '.m4v', '.webm', '.mov']);
 
@@ -646,7 +647,8 @@ const server = http.createServer(async (req, res) => {
   else file = pathname.slice(1);
   const full = path.join(PUBLIC_DIR, file);
   if (!full.startsWith(PUBLIC_DIR + path.sep)) return sendJson(res, 404, { error: 'Not found' });
-  sendFile(req, res, full, { 'Cache-Control': 'no-cache' });
+  // The typeface never changes under the same name, so browsers may keep it.
+  sendFile(req, res, full, { 'Cache-Control': file.startsWith('fonts/') ? 'public, max-age=31536000, immutable' : 'no-cache' });
 });
 
 // Behind a load balancer, keep connections open longer than the balancer does, and let big uploads take their time.

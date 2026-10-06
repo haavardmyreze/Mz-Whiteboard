@@ -26,7 +26,9 @@ private networks, otherwise only the host machine can connect.
 ## What it does
 
 - **Dark by default, light on request.** The sun/moon button in the header switches theme and is
-  remembered per browser. Headings and notes are set in a serif face.
+  remembered per browser. Everything is set in Inter, served from this machine (`public/fonts`), so text
+  measures the same on every screen and nothing is fetched from the internet. The greys carry no hue in
+  either theme, so the interface never tints how the artwork reads.
 - **Infinite canvas.** Wheel to zoom, Space-drag or middle-drag to pan.
 - **Images and video.** Drop files on the board, paste screenshots from the clipboard, or
   paste an image URL. Large images get a 2K preview so heavy boards stay fast; the
@@ -37,7 +39,10 @@ private networks, otherwise only the host machine can connect.
 - **Open an image and draw on it.** Double-click an image: the rest of the board dims and
   you can annotate it with the brush or arrows. The drawing belongs to the image, so it
   moves and scales with it, and everyone sees it live. Esc or Done closes it and the view returns to where it was.
-- **Uniform sizes.** New images come in at the same width, notes and headings at fixed sizes
+  While one is open, the arrow keys (or the arrows in the bar above it) go to the next or previous image or video,
+  in the order the board reads: frame by frame, rows first and then left to right, with loose media taking its place among the frames.
+- **Uniform sizes.** New images come in at the same width, a new frame starts at the width it
+  needs to hold one such image and a new colour block at the same width as a frame, so it sits flush above one as its header, notes and headings at fixed sizes
   and the brush at a fixed width (small while an image is open, so annotating stays fine), whatever the zoom was when you made them. Text is sized
   by its level (H1, H2, H3, Text), not by dragging.
 - **Headings and notes.** Pick H1, H2, H3 or plain text before placing, or change the

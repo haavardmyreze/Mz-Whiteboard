@@ -6,7 +6,7 @@
 
   const svg = (d, size = 20) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
   const FOLDER = '<path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>';
-  const ICON_FOLDER = svg(FOLDER, 30);
+  const ICON_FOLDER = svg(FOLDER, 20);
   const ICON_FOLDER_SM = svg(FOLDER, 16);
   const ICON_MORE = svg('<circle cx="5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/>', 18);
 
@@ -281,12 +281,11 @@
     return card;
   }
 
-  // The dashed first tile, as on Milanote: a board is always one click away.
   // The dashed first tile, as on Milanote: a board is always one click away. It is built like a board
   // card (picture area, then a name and a line) so it is exactly the same size in any folder.
   function newBoardTile() {
     return el('button', { class: 'card new', onclick: newBoard },
-      el('span', { class: 'new-thumb' }, el('span', { class: 'plus', html: svg('<path d="M12 5v14M5 12h14"/>', 22) })),
+      el('span', { class: 'new-thumb' }, el('span', { class: 'plus', html: svg('<path d="M12 5v14M5 12h14"/>', 18) })),
       el('span', { class: 'card-body' },
         el('span', { class: 'card-name', text: 'New board' }),
         el('span', { class: 'card-meta', text: 'Start from a blank canvas' })));
@@ -311,7 +310,7 @@
     const matches = (name) => name.toLowerCase().includes(q);
     const subs = q ? lib.folders.filter((f) => matches(f.name)).sort(byName) : childrenOf(cur);
     const boards = q ? lib.boards.filter((b) => matches(b.name)) : boardsIn(cur);
-    const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'count', text: String(n) }));
+    const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
     $('content').replaceChildren(...[
       subs.length > 0 && label('Folders', subs.length),
       subs.length > 0 && el('div', { class: 'folder-grid' }, subs.map(folderCard)),

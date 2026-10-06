@@ -27,50 +27,75 @@
   const isLight = () => document.documentElement.dataset.theme === 'light';
   const INK_DEFAULTS = new Set(['ink', '#f2f2f3', '#f5f5f6', '#1f1f23']);
   const NOTE_DEFAULTS = new Set(['note', '#2f2f33', '#2c2c31', '#ffffff']);
-  const inkColor = (c) => (!c || INK_DEFAULTS.has(c) ? (isLight() ? '#1f1f23' : '#f2f2f3') : c);
-  const noteColor = (c) => (!c || NOTE_DEFAULTS.has(c) ? (isLight() ? '#ffffff' : '#2c2c31') : c);
-  // Colours are stored vivid and shown a little softer, more so in the dark theme, so headings and
-  // notes sit calmly beside the artwork instead of competing with it.
-  const shadeCache = new Map();
-  // Moves a #rrggbb colour in HSL: saturation and lightness are scaled by the given factors.
-  function shade(hex, satK, lightK) {
-    if (!/^#[0-9a-f]{6}$/i.test(hex || '')) return hex;
-    const key = `${hex}|${satK}|${lightK}`;
-    if (shadeCache.has(key)) return shadeCache.get(key);
+  const inkColor = (c) => (!c || INK_DEFAULTS.has(c) ? (isLight() ? '#171717' : '#ededed') : c);
+  const isPlainNote = (c) => !c || NOTE_DEFAULTS.has(c);
+  const noteColor = (c) => (isPlainNote(c) ? (isLight() ? '#ffffff' : '#2a2a2a') : c);
+  const NOTE_INK = { light: '#1a1a1a', dark: '#f0f0f0' };
+
+  // Colours are stored as they were picked and shown through OKLCH, where equal numbers look equally
+  // light. Every block is set to one lightness, every frame header to another and every note to a
+  // third, so a row of colours reads as one family, white headings are as legible on yellow as on
+  // blue, and nothing shouts over the artwork. Only the hue, and how grey it is, comes from the
+  // stored colour.
+  const toLinear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const fromLinear = (c) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
+  function oklchOf(hex) {
     const n = parseInt(hex.slice(1), 16);
-    const r = (n >> 16) / 255;
-    const g = ((n >> 8) & 255) / 255;
-    const bl = (n & 255) / 255;
-    const max = Math.max(r, g, bl);
-    const min = Math.min(r, g, bl);
-    const l = (max + min) / 2;
-    let h = 0;
-    let s = 0;
-    if (max !== min) {
-      const d = max - min;
-      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-      h = max === r ? (g - bl) / d + (g < bl ? 6 : 0) : max === g ? (bl - r) / d + 2 : (r - g) / d + 4;
-      h /= 6;
+    const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255].map((v) => toLinear(v / 255));
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    const A = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
+    const B = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
+    return { l: 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, c: Math.hypot(A, B), h: Math.atan2(B, A) };
+  }
+  function linearRgb(L, C, h) {
+    const a = C * Math.cos(h);
+    const b = C * Math.sin(h);
+    const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+    const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+    const s = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+    return [
+      4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+      -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+      -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+    ];
+  }
+  const toneCache = new Map();
+  // The stored colour's hue at the given lightness, with its chroma capped. Greys keep to a range of
+  // lightness instead, so black stays darker than grey.
+  function tone(hex, L, maxC, grey) {
+    if (!/^#[0-9a-f]{6}$/i.test(hex || '')) return hex;
+    const key = `${hex}|${L}|${maxC}|${grey}`;
+    if (toneCache.has(key)) return toneCache.get(key);
+    const from = oklchOf(hex);
+    let l = L;
+    let c = Math.min(from.c, maxC);
+    let h = from.h;
+    if (from.c < 0.03) {
+      c = 0;
+      l = Math.min(grey[1], Math.max(grey[0], from.l));
+    } else if (L < 0.7 && h > 1.4 && h < 1.92) {
+      // A yellow turned down this far goes olive; leaning it towards orange keeps it golden.
+      h -= 0.19;
     }
-    s = Math.min(1, s * satK);
-    const nl = Math.min(1, l * lightK);
-    const q = nl < 0.5 ? nl * (1 + s) : nl + s - nl * s;
-    const p = 2 * nl - q;
-    const chan = (t) => {
-      const u = (t + 1) % 1;
-      const v = u < 1 / 6 ? p + (q - p) * 6 * u : u < 1 / 2 ? q : u < 2 / 3 ? p + (q - p) * (2 / 3 - u) * 6 : p;
-      return Math.round(v * 255).toString(16).padStart(2, '0');
-    };
-    const grey = [nl, nl, nl].map((v) => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
-    const out = `#${s === 0 ? grey : chan(h + 1 / 3) + chan(h) + chan(h - 1 / 3)}`;
-    shadeCache.set(key, out);
+    let rgb = linearRgb(l, c, h);
+    // Step the chroma down until the colour fits in sRGB, rather than clipping it to a different hue.
+    while (c > 0 && rgb.some((v) => v < -0.0005 || v > 1.0005)) {
+      c = Math.max(0, c - 0.004);
+      rgb = linearRgb(l, c, h);
+    }
+    const out = `#${rgb.map((v) => Math.round(Math.min(1, Math.max(0, fromLinear(Math.min(1, Math.max(0, v))))) * 255).toString(16).padStart(2, '0')).join('')}`;
+    toneCache.set(key, out);
     return out;
   }
-  // Colours are stored vivid and shown a little softer, more so in the dark theme, so headings and
-  // notes sit calmly beside the artwork instead of competing with it.
-  const mute = (hex) => (isLight() ? shade(hex, 0.78, 1) : shade(hex, 0.55, 0.82));
+  // Heading blocks: mid-toned, so a white heading always reads.
+  const mute = (hex) => (isLight() ? tone(hex, 0.57, 0.16, [0.22, 0.52]) : tone(hex, 0.53, 0.135, [0.27, 0.46]));
   // Frames sit a rung below blocks in the hierarchy: the same hues, set deeper.
-  const deepen = (hex) => shade(mute(hex), 0.9, 0.62);
+  const deepen = (hex) => (isLight() ? tone(hex, 0.47, 0.13, [0.2, 0.42]) : tone(hex, 0.4, 0.1, [0.24, 0.36]));
+  // Notes take the theme's side: pale paper with dark writing on light, a tinted slate with light
+  // writing on dark, so a coloured note is no brighter than a plain one.
+  const noteFill = (c) => (isPlainNote(c) ? noteColor(c) : isLight() ? tone(c, 0.94, 0.06, [0.9, 0.97]) : tone(c, 0.42, 0.075, [0.26, 0.4]));
   const swatchColor = (c) => (c === 'ink' ? inkColor(c) : c === 'note' ? noteColor(c) : c);
   // Vivid header colours for frames and the free-standing heading blocks.
   const BLOCK_COLORS = ['#ff6bd6', '#7ed957', '#4d7cff', '#ffd43b', '#ff9a3c', '#b388ff', '#2dd4bf', '#6b6b73', '#17171a'];
@@ -85,11 +110,13 @@
   const IMG_MAX_H = 720;
   const NOTE_W = 260;
   const NOTE_FS = 16;
-  const FRAME_W = 800;
+  // A frame starts at the width it needs to hold one piece of media at its imported width, and a block
+  // at the same width as a frame, since it usually sits above one as its header.
+  const FRAME_W = IMG_W + 2 * FRAME_PAD;
   const FRAME_H = 500;
   // Every frame has a header band for its title and a count; blocks are free-standing coloured headings.
   const FRAME_HEAD = 80;
-  const BLOCK_W = 480;
+  const BLOCK_W = FRAME_W;
   const BLOCK_H = 104;
   const BLOCK_FS = 56;
   const SNAP_PX = 7;
@@ -288,7 +315,8 @@
   function scheduleSettle() {
     clearTimeout(settleTimer);
     settleTimer = setTimeout(() => {
-      store(`wb:cam:${boardId}`, { x: cam.x, y: cam.y, z: cam.z });
+      // Not before the board has loaded: the view remembered from last time is still waiting to be read.
+      if (!firstInit) store(`wb:cam:${boardId}`, { x: cam.x, y: cam.y, z: cam.z });
       checkRes();
     }, 200);
   }
@@ -343,7 +371,7 @@
 
   // Space kept clear of the floating chrome when framing something.
   function insets() {
-    return presenting ? { t: 56, r: 24, b: 84, l: 24 } : { t: 92, r: 24, b: 24, l: 80 };
+    return presenting ? { t: 48, r: 32, b: 88, l: 32 } : { t: 80, r: 32, b: 32, l: 110 };
   }
 
   function fitRect(r, { inset = insets(), dur = 380, linear = false, maxZ = MAX_Z } = {}) {
@@ -473,11 +501,13 @@
     });
     const tick = () => {
       if (video.duration && !seek.matches(':active')) seek.value = Math.round((video.currentTime / video.duration) * 1000);
+      seek.style.setProperty('--p', `${seek.value / 10}%`);
       time.textContent = `${fmtTime(video.currentTime)} / ${fmtTime(video.duration)}`;
     };
     seek.addEventListener('input', () => {
       if (!video.duration) return;
       video.currentTime = (seek.value / 1000) * video.duration;
+      seek.style.setProperty('--p', `${seek.value / 10}%`);
       sendMedia(it.id);
     });
     video.addEventListener('timeupdate', tick);
@@ -546,12 +576,11 @@
         video.src = it.src;
       }
     } else if (it.type === 'note') {
-      const fill = mute(noteColor(it.color));
       st.width = `${it.w}px`;
       st.minHeight = `${it.h || 0}px`;
       st.fontSize = `${it.fs}px`;
-      st.background = fill;
-      st.color = luminance(fill) > 0.55 ? '#1b1b1c' : '#f2f2f3';
+      st.background = noteFill(it.color);
+      st.color = isLight() ? NOTE_INK.light : NOTE_INK.dark;
       if (!isEditing) fillText(node.firstChild, it.text);
     } else if (it.type === 'text') {
       node.dataset.lvl = it.lvl ?? 2;
@@ -568,7 +597,7 @@
       st.setProperty('--head-ink', '#fff');
       if (!isEditing) node.firstChild.firstChild.textContent = it.title || '';
     } else if (it.type === 'block') {
-      const fill = mute(!it.color ? BLOCK_COLORS[0] : it.color === LEGACY_LIGHT ? '#6b6b73' : it.color);
+      const fill = mute(!it.color ? BLOCK_COLORS[0] : it.color === LEGACY_LIGHT ? '#6b6b6b' : it.color);
       st.width = `${it.w}px`;
       st.height = `${it.h}px`;
       st.fontSize = `${BLOCK_FS}px`;
@@ -851,10 +880,10 @@
     buildSelTools();
     const tw = seltools.offsetWidth;
     const th = seltools.offsetHeight;
-    let ty = a.y - th - 14;
-    if (ty < 64) ty = Math.min(a.y + h + 14, vp.clientHeight - th - 12);
-    seltools.style.left = `${clamp(a.x + w / 2 - tw / 2, 72, Math.max(72, vp.clientWidth - tw - 12))}px`;
-    seltools.style.top = `${Math.max(64, ty)}px`;
+    let ty = a.y - th - 12;
+    if (ty < 56) ty = Math.min(a.y + h + 12, vp.clientHeight - th - 12);
+    seltools.style.left = `${clamp(a.x + w / 2 - tw / 2, 90, Math.max(90, vp.clientWidth - tw - 12))}px`;
+    seltools.style.top = `${Math.max(56, ty)}px`;
   }
 
   function buildSelTools() {
@@ -871,7 +900,7 @@
       const only = types.size === 1 ? [...types][0] : null;
       const palette = only === 'note' ? NOTE_FILLS : only === 'frame' ? FRAME_COLORS : only === 'block' ? BLOCK_COLORS : INK;
       for (const c of palette) {
-        kids.push(el('button', { class: 'swatch', style: { background: only === 'note' ? mute(noteColor(c)) : only === 'block' ? mute(c) : only === 'frame' ? (c === FRAME_COLORS[0] ? c : deepen(c)) : swatchColor(c) }, title: 'Set colour', onclick: () => colorSel(c) }));
+        kids.push(el('button', { class: 'swatch', style: { background: only === 'note' ? noteFill(c) : only === 'block' ? mute(c) : only === 'frame' ? (c === FRAME_COLORS[0] ? c : deepen(c)) : swatchColor(c) }, title: 'Set colour', onclick: () => colorSel(c) }));
       }
       kids.push(el('span', { class: 'sep' }));
     }
@@ -1555,7 +1584,35 @@
 
   // ---- opening an image to draw on it
 
-  function enterFocus(id) {
+  // Every image and video in the order the board reads. A frame counts as one piece, placed among the
+  // loose media by where it sits (rows first, then left to right), and what it holds is read through
+  // in the same way before moving on to the next piece.
+  function mediaOrder() {
+    const held = new Map();
+    const pieces = [];
+    for (const it of items.values()) {
+      if ((it.type !== 'image' && it.type !== 'video') || it.pid) continue;
+      const frame = frameOf(it);
+      if (!frame) pieces.push(it);
+      else if (held.has(frame.id)) held.get(frame.id).push(it);
+      else {
+        held.set(frame.id, [it]);
+        pieces.push(frame);
+      }
+    }
+    return readingOrder(pieces).flatMap((p) => (p.type === 'frame' ? readingOrder(held.get(p.id)) : [p]));
+  }
+
+  // Moves on to the next or previous piece of media while one is open, going round at the ends.
+  function stepFocus(dir) {
+    const list = mediaOrder();
+    const i = list.findIndex((it) => it.id === focusId);
+    if (i < 0 || list.length < 2) return;
+    closeThread();
+    enterFocus(list[(i + dir + list.length) % list.length].id, 380);
+  }
+
+  function enterFocus(id, dur = 520) {
     const it = items.get(id);
     if (!it || (it.type !== 'image' && it.type !== 'video')) return;
     finishEdit();
@@ -1568,6 +1625,9 @@
     focusId = id;
     document.body.classList.add('focus');
     $('focusname').textContent = it.name || 'Image';
+    const order = mediaOrder();
+    $('focuspos').textContent = `${order.findIndex((m) => m.id === id) + 1} / ${order.length}`;
+    $('focusprev').disabled = $('focusnext').disabled = order.length < 2;
     $('focusbar').hidden = false;
     for (const [nid, node] of els) node.classList.toggle('dim', nid !== id && items.get(nid).pid !== id);
     $('focushint').textContent = it.type === 'image' ? 'Draw, write notes or comment' : 'Pick a tool to annotate';
@@ -1575,7 +1635,7 @@
     // A video starts on the select tool so its play button still works.
     setTool(it.type === 'image' ? 'pen' : 'select');
     if (it.type === 'video') setSel([id]);
-    fitRect(bounds(it), { inset: { t: 100, r: 48, b: presenting ? 96 : 56, l: presenting ? 48 : 160 }, dur: 520 });
+    fitRect(bounds(it), { inset: { t: 112, r: 48, b: presenting ? 96 : 48, l: presenting ? 48 : 160 }, dur });
   }
 
   function exitFocus() {
@@ -2512,7 +2572,7 @@
   const rootsInOrder = () => [...comments.values()].filter((c) => !c.re).sort((a, b) => (a.t || 0) - (b.t || 0) || (a.id < b.id ? -1 : 1));
   const repliesOf = (id) => [...comments.values()].filter((c) => c.re === id).sort((a, b) => (a.t || 0) - (b.t || 0));
   const hexOk = (c) => /^#[0-9a-f]{6}$/i.test(c || '');
-  const pinInk = (c) => (hexOk(c) && luminance(c) > 0.6 ? '#1b1b1c' : '#ffffff');
+  const pinInk = (c) => (hexOk(c) && luminance(c) > 0.6 ? '#1a1a1a' : '#ffffff');
 
   function hostLabel(c) {
     const h = items.get(c.on);
@@ -2692,7 +2752,7 @@
     const grew = Number(msgs.dataset.n || 0) < list.length;
     msgs.dataset.n = list.length;
     msgs.replaceChildren(...list.map((c, i) => el('div', { class: 'msg' },
-      el('span', { class: 'avatar sm', style: { background: hexOk(c.color) ? c.color : '#8a8a93' }, text: WB.initials(c.name) }),
+      el('span', { class: 'avatar sm', style: { background: hexOk(c.color) ? c.color : '#8a8a8a' }, text: WB.initials(c.name) }),
       el('div', { class: 'msg-main' },
         el('div', { class: 'msg-top' },
           el('strong', { text: c.name }),
@@ -2716,7 +2776,7 @@
     let x = s.x + pinW + 10;
     if (x + w > innerWidth - 12) x = Math.max(12, s.x - w - 10);
     threadBox.style.left = `${x}px`;
-    threadBox.style.top = `${clamp(s.y - pinW - 6, 64, Math.max(64, innerHeight - h - 12))}px`;
+    threadBox.style.top = `${clamp(s.y - pinW - 6, 60, Math.max(60, innerHeight - h - 12))}px`;
   }
 
   // ---- writing, resolving, deleting
@@ -2819,7 +2879,7 @@
     };
     const row = (c) => {
       const root = comments.get(c.re || c.id);
-      const color = mute(hexOk(c.color) ? c.color : '#8a8a93');
+      const color = hexOk(c.color) ? c.color : '#8a8a8a';
       const where = c.re ? `Reply on ${hostLabel(root)}` : `On ${hostLabel(c)}${c.at != null ? ` · ${fmtTime(c.at)}` : ''}`;
       return el('button', { class: `cp-row${c.re ? ' reply' : ''}${root.done ? ' done' : ''}`, onclick: () => goToComment(root.id) },
         el('span', { class: 'cp-num', style: { background: color, color: pinInk(color) }, text: WB.initials(c.name) }),
@@ -3064,6 +3124,13 @@
     }
     if (e.altKey && !altGr) return;
 
+    // With an image or video open the arrows go through the media. A note or drawing selected on it
+    // is still nudged by them.
+    if (focusId && [...sel].every((id) => id === focusId)) {
+      if (k === 'arrowright' || k === 'arrowdown') return void (e.preventDefault(), stepFocus(1));
+      if (k === 'arrowleft' || k === 'arrowup') return void (e.preventDefault(), stepFocus(-1));
+    }
+
     if (presenting) {
       if (k === 'arrowright' || k === 'arrowdown' || k === 'pagedown') return void (e.preventDefault(), moveStep(1));
       if (k === 'arrowleft' || k === 'arrowup' || k === 'pageup') return void (e.preventDefault(), moveStep(-1));
@@ -3119,6 +3186,7 @@
     ['Zoom', 'Mouse wheel'],
     ['Fit everything / selection', 'Shift+1 / Shift+2'],
     ['Open an image or video and draw on it', 'Double-click it, Esc to close'],
+    ['Next / previous image or video while one is open', '→ / ←'],
     ['Smart snapping on / off', 'S, hold Ctrl to bypass'],
     ['Add media', 'Drop files, or paste from the clipboard'],
     ['Place a note, heading, block or frame', 'Drag it out of the tool strip'],
@@ -3626,9 +3694,15 @@
   $('snap').classList.toggle('active', snapOn);
   $('snap').addEventListener('click', toggleSnap);
   $('focusdone').addEventListener('click', exitFocus);
+  $('focusprev').innerHTML = ICON.prev;
+  $('focusnext').innerHTML = ICON.next;
+  $('focusprev').addEventListener('click', () => stepFocus(-1));
+  $('focusnext').addEventListener('click', () => stepFocus(1));
   $('focusclear').addEventListener('click', clearDrawing);
   buildToolbar();
   setTool('select');
   applyCam();
   connect();
+  // Text is measured from the page, so measure again once the typeface has arrived.
+  if (document.fonts) document.fonts.ready.then(() => { updateOverlay(); queuePins(); });
 })();

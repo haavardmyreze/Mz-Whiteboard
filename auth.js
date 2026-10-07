@@ -39,7 +39,8 @@ function createAuth(options = {}) {
   const mode = options.mode || 'none';
   if (mode === 'none') return { mode, authenticate: async () => ({ user: null }) };
   if (mode === 'google') return createGoogleAuth(options);
-  if (mode !== 'iap') throw new Error(`Unknown AUTH_MODE "${mode}". Use "none", "google" or "iap".`);
+  if (mode === 'password') return createPasswordAuth(options);
+  if (mode !== 'iap') throw new Error(`Unknown AUTH_MODE "${mode}". Use "none", "password", "google" or "iap".`);
   if (!options.audience) {
     throw new Error('AUTH_MODE=iap needs IAP_AUDIENCE, e.g. /projects/PROJECT_NUMBER/locations/REGION/services/SERVICE_NAME');
   }
@@ -102,7 +103,7 @@ function createAuth(options = {}) {
       const domain = email.split('@')[1];
       if (!allowedEmails.includes(email) && !allowedDomains.includes(domain)) return deny(403);
     }
-    return { user: { email, name: nameFromEmail(email), color: colorFor(email) } };
+    return { user: { id: email, email, name: nameFromEmail(email), color: colorFor(email) } };
   }
 
   return { mode, authenticate };
@@ -204,7 +205,7 @@ function createGoogleAuth(options) {
     const s = unsign(parseCookies(req.headers.cookie)[SESSION_COOKIE]);
     if (!s || !(s.exp > now()) || typeof s.e !== 'string') return deny(401);
     if (!allowed(s.e)) return deny(403);
-    return { user: { email: s.e, name: String(s.n || nameFromEmail(s.e)).slice(0, 32), color: colorFor(s.e) } };
+    return { user: { id: s.e, email: s.e, name: String(s.n || nameFromEmail(s.e)).slice(0, 32), color: colorFor(s.e) } };
   }
 
   function redirect(res, to, cookies = []) {
@@ -214,6 +215,11 @@ function createGoogleAuth(options) {
 
   // /auth/google, /auth/callback and /auth/logout. Returns true when it answered the request.
   async function handle(req, res, url) {
+    if (url.pathname === '/auth/info') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ mode: 'google' }));
+      return true;
+    }
     if (url.pathname === '/auth/google') {
       const state = crypto.randomBytes(18).toString('base64url');
       const q = new URLSearchParams({
@@ -256,7 +262,138 @@ function createGoogleAuth(options) {
     return false;
   }
 
-  return { mode: 'google', authenticate, handle, publicUrl, sessionCookie };
+  return { mode: 'google', interactive: true, authenticate, handle, publicUrl, sessionCookie };
+}
+
+// ---------------------------------------------------------------- shared password
+
+// Everyone who knows the one password gets in and says who they are. The name is only a label, so two
+// people can type the same name and then share a personal workspace; nobody is vouching for anyone.
+function createPasswordAuth(options) {
+  const password = String(options.password || '');
+  if (!password) throw new Error('AUTH_MODE=password needs SITE_PASSWORD, the one password everybody uses.');
+  if (!options.sessionSecret) throw new Error('AUTH_MODE=password needs a session secret.');
+  const now = options.now || (() => Math.floor(Date.now() / 1000));
+  const publicUrl = String(options.publicUrl || '').replace(/\/+$/, '');
+  const digest = (text) => crypto.createHash('sha256').update(text).digest();
+  const passwordHash = digest(password);
+  // Changing the password signs everybody out: the sessions are signed with a key that includes it.
+  const key = `${options.sessionSecret}:${passwordHash.toString('hex')}`;
+  const mac = (text) => crypto.createHmac('sha256', key).update(text).digest('base64url');
+  const deny = (status) => ({ user: null, status });
+
+  const sign = (obj) => {
+    const body = Buffer.from(JSON.stringify(obj)).toString('base64url');
+    return `${body}.${mac(body)}`;
+  };
+  function unsign(value) {
+    const [body, sig] = String(value || '').split('.');
+    if (!body || !sig) return null;
+    const want = Buffer.from(mac(body));
+    const got = Buffer.from(sig);
+    if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) return null;
+    try {
+      return JSON.parse(b64(body));
+    } catch {
+      return null;
+    }
+  }
+
+  const cleanName = (value) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, 32);
+  const idOf = (name) => `name:${name.toLowerCase()}`;
+  const isHttps = (req) => publicUrl.startsWith('https://') || req.headers['x-forwarded-proto'] === 'https';
+  const cookie = (req, value, maxAge) =>
+    `${SESSION_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${isHttps(req) ? '; Secure' : ''}`;
+
+  // Guessing is slowed: a few wrong tries from one address, then a wait.
+  const misses = new Map();
+  const WINDOW = 10 * 60;
+  const MAX_MISSES = 8;
+  const who = (req) => String(req.headers['cf-connecting-ip'] || String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '');
+  const fresh = (m) => m && now() - m.t <= WINDOW;
+  const blocked = (ip) => {
+    const m = misses.get(ip);
+    if (m && !fresh(m)) misses.delete(ip);
+    return (misses.get(ip)?.n || 0) >= MAX_MISSES;
+  };
+  const miss = (ip) => {
+    const m = misses.get(ip);
+    misses.set(ip, fresh(m) ? { n: m.n + 1, t: m.t } : { n: 1, t: now() });
+    if (misses.size > 5000) misses.clear();
+  };
+
+  async function authenticate(req) {
+    const s = unsign(parseCookies(req.headers.cookie)[SESSION_COOKIE]);
+    if (!s || !(s.exp > now()) || typeof s.n !== 'string' || !cleanName(s.n)) return deny(401);
+    const name = cleanName(s.n);
+    return { user: { id: idOf(name), email: null, name, color: colorFor(idOf(name)) } };
+  }
+
+  const json = (res, status, body, headers = {}) => {
+    res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers });
+    res.end(JSON.stringify(body));
+  };
+
+  function readBody(req) {
+    return new Promise((resolve) => {
+      let size = 0;
+      const chunks = [];
+      req.on('data', (c) => {
+        size += c.length;
+        if (size > 4096) req.destroy();
+        else chunks.push(c);
+      });
+      req.on('end', () => {
+        try {
+          resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        } catch {
+          resolve({});
+        }
+      });
+      req.on('error', () => resolve({}));
+    });
+  }
+
+  async function handle(req, res, url) {
+    if (url.pathname === '/auth/info') {
+      json(res, 200, { mode: 'password' });
+      return true;
+    }
+    if (url.pathname === '/auth/password' && req.method === 'POST') {
+      const ip = who(req);
+      if (blocked(ip)) {
+        json(res, 429, { error: 'Too many wrong tries. Wait a few minutes and try again.' });
+        return true;
+      }
+      const body = await readBody(req);
+      const name = cleanName(body.name);
+      if (!name) {
+        json(res, 400, { error: 'Please enter your name.' });
+        return true;
+      }
+      if (!crypto.timingSafeEqual(digest(String(body.password || '')), passwordHash)) {
+        miss(ip);
+        json(res, 401, { error: 'That password is not right.' });
+        return true;
+      }
+      misses.delete(ip);
+      const maxAge = SESSION_DAYS * 86400;
+      json(res, 200, { ok: true }, { 'Set-Cookie': cookie(req, sign({ n: name, exp: now() + maxAge }), maxAge) });
+      return true;
+    }
+    if (url.pathname === '/auth/logout') {
+      res.writeHead(302, { Location: '/auth/login', 'Set-Cookie': cookie(req, '', 0), 'Cache-Control': 'no-store' });
+      res.end();
+      return true;
+    }
+    return false;
+  }
+
+  function sessionCookie(user, req = { headers: {} }) {
+    return cookie(req, sign({ n: user.name, exp: now() + SESSION_DAYS * 86400 }), SESSION_DAYS * 86400);
+  }
+
+  return { mode: 'password', interactive: true, authenticate, handle, publicUrl: publicUrl || null, sessionCookie };
 }
 
 module.exports = { createAuth, nameFromEmail, colorFor, parseCookies, safeNext };

@@ -480,3 +480,88 @@ test('without sign-in there is only the shared workspace', async (t) => {
   const moved = await fetch(`${s.base}/api/boards/${board.id}`, { method: 'PATCH', headers: json, body: JSON.stringify({ workspace: 'personal' }) });
   assert.equal(moved.status, 400);
 });
+
+// ---------------------------------------------------------------- shared password
+
+const passwordAuth = (extra = {}) => createAuth({ mode: 'password', password: 'team-secret', sessionSecret: 'sess', ...extra });
+
+function fakeReq(body, headers = {}) {
+  const { Readable } = require('node:stream');
+  const req = Readable.from([Buffer.from(JSON.stringify(body))]);
+  req.headers = headers;
+  req.method = 'POST';
+  req.socket = { remoteAddress: '1.2.3.4' };
+  return req;
+}
+
+function jsonRes() {
+  const res = { status: 0, headers: {}, body: '', writeHead(s, h) { res.status = s; res.headers = h; }, end(b) { res.body = b || ''; } };
+  return res;
+}
+
+test('password sign-in needs a password to start with', () => {
+  assert.throws(() => createAuth({ mode: 'password', sessionSecret: 'x' }), /SITE_PASSWORD/);
+});
+
+test('the shared password plus a name signs someone in, and nothing else does', async () => {
+  const auth = passwordAuth();
+  const attempt = async (body, headers) => {
+    const res = jsonRes();
+    await auth.handle(fakeReq(body, headers), res, new URL('http://x/auth/password'));
+    return res;
+  };
+
+  const ok = await attempt({ name: '  Anna   Berg ', password: 'team-secret' }, { 'x-forwarded-proto': 'https' });
+  assert.equal(ok.status, 200);
+  assert.match(ok.headers['Set-Cookie'], /HttpOnly; SameSite=Lax.*Secure/);
+  const cookie = ok.headers['Set-Cookie'].split(';')[0];
+  const { user } = await auth.authenticate({ headers: { cookie } });
+  assert.equal(user.name, 'Anna Berg');
+  assert.equal(user.id, 'name:anna berg');
+
+  assert.equal((await attempt({ name: 'Anna', password: 'wrong' })).status, 401);
+  assert.equal((await attempt({ name: '', password: 'team-secret' })).status, 400);
+  assert.equal((await auth.authenticate({ headers: {} })).status, 401);
+  assert.equal((await auth.authenticate({ headers: { cookie: cookie.slice(0, -2) + 'xx' } })).status, 401);
+  // changing the password signs everybody out
+  assert.equal((await passwordAuth({ password: 'new-secret' }).authenticate({ headers: { cookie } })).status, 401);
+  // a session does not outlive its time
+  assert.equal((await passwordAuth({ now: () => Math.floor(Date.now() / 1000) + 15 * 86400 }).authenticate({ headers: { cookie } })).status, 401);
+});
+
+test('too many wrong passwords from one address are turned away', async () => {
+  const auth = passwordAuth();
+  const attempt = async (password) => {
+    const res = jsonRes();
+    await auth.handle(fakeReq({ name: 'Eve', password }, { 'cf-connecting-ip': '9.9.9.9' }), res, new URL('http://x/auth/password'));
+    return res.status;
+  };
+  for (let i = 0; i < 8; i++) assert.equal(await attempt('nope'), 401);
+  assert.equal(await attempt('nope'), 429);
+  assert.equal(await attempt('team-secret'), 429);
+});
+
+test('with a shared password strangers see the sign-in page, and each name has its own personal workspace', async (t) => {
+  const s = start(4812, { AUTH_MODE: 'password', SITE_PASSWORD: 'team-secret' });
+  t.after(s.stop);
+  await s.ready;
+  const get = (p, opts) => fetch(s.base + p, { redirect: 'manual', ...opts });
+  assert.equal((await get('/')).status, 302);
+  assert.equal((await get('/api/boards')).status, 401);
+  assert.deepEqual(await (await get('/auth/info')).json(), { mode: 'password' });
+
+  const login = async (name) => {
+    const res = await fetch(`${s.base}/auth/password`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, password: 'team-secret' }) });
+    assert.equal(res.status, 200);
+    return res.headers.get('set-cookie').split(';')[0];
+  };
+  const anna = await login('Anna');
+  const ben = await login('Ben');
+  const call = async (cookie, method, p, body) => (await fetch(s.base + p, { method, headers: { cookie, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })).json();
+
+  assert.equal((await call(anna, 'GET', '/api/me')).user.name, 'Anna');
+  await call(anna, 'POST', '/api/boards', { name: 'Anna private', workspace: 'personal' });
+  await call(anna, 'POST', '/api/boards', { name: 'Everyone' });
+  assert.deepEqual((await call(anna, 'GET', '/api/library')).boards.map((b) => b.name).sort(), ['Anna private', 'Everyone']);
+  assert.deepEqual((await call(ben, 'GET', '/api/library')).boards.map((b) => b.name), ['Everyone']);
+});

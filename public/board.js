@@ -3881,7 +3881,11 @@
 
   function openShare(board) {
     // Never a localhost address: it would only open on this computer.
-    const bases = (WB.info().shareBases || []).length ? WB.info().shareBases : [location.origin];
+    // A configured public address first, then the address this page was opened from (a tunnel, say), then this computer's network addresses.
+    const served = WB.info().shareBases || [];
+    const here = /^(localhost$|127\.|\[::1\])/.test(location.hostname) ? [] : [location.origin];
+    const bases = [...new Set([...served.filter((b) => b.startsWith('https:')), ...here, ...served])];
+    if (!bases.length) bases.push(location.origin);
     let base = bases.includes(store('wb:sharebase')) ? store('wb:sharebase') : bases[0];
     const dlg = el('dialog', { class: 'dlg' });
     const close = () => dlg.close();

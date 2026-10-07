@@ -54,7 +54,8 @@ try {
     clientId: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     publicUrl: process.env.PUBLIC_URL,
-    sessionSecret: process.env.AUTH_MODE === 'google' ? sessionSecret() : null,
+    password: process.env.SITE_PASSWORD,
+    sessionSecret: ['google', 'password'].includes(process.env.AUTH_MODE) ? sessionSecret() : null,
   });
 } catch (err) {
   console.error(err.message);
@@ -98,9 +99,9 @@ const boards = new Map();
 // Stored with the full key, but people only ever see "myreze" and "personal", and only their own.
 const PERSONAL = 'u:';
 const validSpace = (key) => key === 'myreze' || (typeof key === 'string' && key.startsWith(PERSONAL) && key.length > 3);
-const spaceKey = (name, user) => (name === 'personal' && user ? PERSONAL + user.email : 'myreze');
+const spaceKey = (name, user) => (name === 'personal' && user ? PERSONAL + user.id : 'myreze');
 const spaceName = (key) => (key === 'myreze' ? 'myreze' : 'personal');
-const canSee = (user, key) => key === 'myreze' || (!!user && key === PERSONAL + user.email);
+const canSee = (user, key) => key === 'myreze' || (!!user && key === PERSONAL + user.id);
 const visible = (user, board) => !!board && canSee(user, board.workspace);
 
 // Read-only links: the secret in /s/<token> -> the board it opens.
@@ -590,7 +591,7 @@ function revokeShare(board) {
 }
 
 const VIEW_COOKIE = 'wb_view';
-const SECURE_COOKIE = auth.publicUrl && auth.publicUrl.startsWith('https://') ? '; Secure' : '';
+const secureCookie = (req) => ((auth.publicUrl && auth.publicUrl.startsWith('https://')) || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '');
 // Someone who opened a live read-only link may load the files on that board without being signed in.
 const viewingShare = (req) => SHARING && shares.has(parseCookies(req.headers.cookie)[VIEW_COOKIE]);
 
@@ -609,7 +610,7 @@ function shareBases() {
 async function handleApi(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean); // ['api', ...]
   if (parts[1] === 'me') {
-    return sendJson(res, 200, { auth: auth.mode, user: req.user || null, canShare: SHARING, publicUrl: auth.publicUrl || null, shareBases: shareBases(), signOut: auth.mode === 'google' });
+    return sendJson(res, 200, { auth: auth.mode, user: req.user || null, canShare: SHARING, publicUrl: auth.publicUrl || null, shareBases: shareBases(), signOut: !!auth.interactive });
   }
   if (parts[1] === 'library' && req.method === 'GET') {
     return sendJson(res, 200, {
@@ -766,7 +767,7 @@ const server = http.createServer(async (req, res) => {
     const link = /^\/s\/([\w-]{16,64})\/?$/.exec(pathname);
     if (link) {
       const headers = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
-      if (shares.has(link[1])) headers['Set-Cookie'] = `${VIEW_COOKIE}=${link[1]}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${SECURE_COOKIE}`;
+      if (shares.has(link[1])) headers['Set-Cookie'] = `${VIEW_COOKIE}=${link[1]}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureCookie(req)}`;
       return sendFile(req, res, path.join(PUBLIC_DIR, 'board.html'), headers);
     }
     const shared = /^\/api\/shared\/([\w-]{16,64})$/.exec(pathname);
@@ -783,7 +784,7 @@ const server = http.createServer(async (req, res) => {
   if (guarded) {
     const who = await auth.authenticate(req);
     if (who.status && !(pathname.startsWith('/uploads/') && viewingShare(req))) {
-      if (auth.mode === 'google' && isPage) {
+      if (auth.interactive && isPage) {
         res.writeHead(302, { Location: who.status === 403 ? '/auth/login?error=not-allowed' : `/auth/login?next=${encodeURIComponent(url.pathname + url.search)}`, 'Cache-Control': 'no-store' });
         return res.end();
       }
@@ -849,9 +850,9 @@ server.on('upgrade', async (req, socket, head) => {
     const board = boards.get(url.searchParams.get('board'));
     if (!board) return socket.destroy();
     // A page on another site must not be able to open a signed-in visitor's session as a board connection.
-    if (auth.mode === 'google' && req.headers.origin) {
+    if (auth.interactive && req.headers.origin) {
       const origin = new URL(req.headers.origin).host;
-      if (origin !== req.headers.host && origin !== new URL(auth.publicUrl).host) return socket.destroy();
+      if (origin !== req.headers.host && !(auth.publicUrl && origin === new URL(auth.publicUrl).host)) return socket.destroy();
     }
     const who = await auth.authenticate(req);
     if (who.status) {

@@ -77,10 +77,11 @@ All optional locally; the ones in bold matter when deployed.
 | `HOST` | `0.0.0.0` | Interface to listen on |
 | **`WIPBOARD_DATA`** | `./data` (`/data` in the container) | Where boards and uploads are saved |
 | `WIPBOARD_MAX_UPLOAD_MB` | `1024` | Largest accepted file |
-| **`AUTH_MODE`** | `none` | `none` (everyone, picks a display name), `google` (Google accounts on an allow list, own PC) or `iap` (Google Cloud IAP) |
+| **`AUTH_MODE`** | `none` | `none` (everyone, picks a display name), `password` (name plus one shared password), `google` (Google accounts on an allow list, own PC) or `iap` (Google Cloud IAP) |
 | **`IAP_AUDIENCE`** | | Required with `iap`: `/projects/PROJECT_NUMBER/locations/REGION/services/SERVICE_NAME` |
 | `ALLOWED_EMAILS` | | Optional extra list, comma separated, narrower than who IAP admits |
 | `ALLOWED_DOMAINS` | | Same, by domain, e.g. `myreze.com` |
+| `SITE_PASSWORD` | | With `AUTH_MODE=password`: the one password everybody types with their name |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | | With `AUTH_MODE=google`: the OAuth client from Google Cloud Console |
 | `PUBLIC_URL` | | With `AUTH_MODE=google`: the address people use, no trailing slash. Also used for share links |
 | `SESSION_SECRET` | made once, kept in `data/.session-secret` | Signs sign-in cookies; set it only to share sessions between restarts of different data folders |
@@ -89,7 +90,22 @@ With `AUTH_MODE=iap` the app checks the signed token Google adds to every reques
 without a valid one. People are then named from their Google account (cursor labels, presence), and
 the name prompt disappears. The check is in `auth.js` and covered by `npm test`.
 
-## Running it from your own PC, for people outside
+## Running it from your own PC with one shared password (simplest)
+
+No Google, no domain, no cloud account. Everyone types their **name** and **one password** you choose.
+
+1. In `.env` set `AUTH_MODE=password` and `SITE_PASSWORD=<the password>` (see `.env.example`), then run `start.bat`.
+2. Install Cloudflare's tunnel program once: `winget install Cloudflare.cloudflared`.
+3. Run `tunnel.bat`. Among its output is an address like `https://something-random.trycloudflare.com`.
+   Share that address and the password. It works for anyone, anywhere, with nothing opened on your router.
+4. The address changes every time `tunnel.bat` is started, and stops working when its window is closed.
+   Read-only links made from that address stop working with it. A fixed address needs a domain (see below).
+
+Good to know: the name is only a label. Anyone who knows the password can type any name, and two people who type the
+same name share one Personal workspace. Wrong passwords are slowed down (8 tries per 10 minutes per address), and changing
+`SITE_PASSWORD` signs everybody out. Cloudflare's free quick tunnels are meant for testing, with no uptime promise.
+
+## Running it from your own PC, for people outside (Google sign-in)
 
 No cloud account needed for the app itself. Three parts: Google sign-in, a public address, and a
 tunnel to this PC.

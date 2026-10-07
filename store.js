@@ -293,42 +293,6 @@ function openStore(dataDir) {
     return rows.length;
   }
 
-  // Boards and folders from before the database, data/boards/*.json and data/folders.json, are read in
-  // once and their files moved to data/legacy, where they stay as they were.
-  function importLegacy({ boardDir, folderFile, legacyDir, clean }) {
-    let imported = 0;
-    const files = fs.existsSync(boardDir) ? fs.readdirSync(boardDir).filter((f) => f.endsWith('.json')) : [];
-    const hasFolders = fs.existsSync(folderFile);
-    if (!files.length && !hasFolders) return 0;
-    fs.mkdirSync(path.join(legacyDir, 'boards'), { recursive: true });
-    const known = db.prepare('SELECT 1 FROM boards WHERE id = ?');
-    for (const name of files) {
-      const from = path.join(boardDir, name);
-      let board;
-      try {
-        board = clean.board(JSON.parse(fs.readFileSync(from, 'utf8')));
-      } catch (err) {
-        console.error(`Skipping unreadable board file ${name}: ${err.message}`);
-        continue;
-      }
-      if (!board) continue;
-      if (!known.get(board.id)) {
-        saveBoard(board, board.items);
-        imported++;
-      }
-      fs.renameSync(from, path.join(legacyDir, 'boards', name));
-    }
-    if (hasFolders) {
-      try {
-        if (!folders().length) saveFolders(clean.folders(JSON.parse(fs.readFileSync(folderFile, 'utf8'))));
-        fs.renameSync(folderFile, path.join(legacyDir, 'folders.json'));
-      } catch (err) {
-        console.error(`Could not read folders.json: ${err.message}`);
-      }
-    }
-    return imported;
-  }
-
   // ---------------------------------------------------------------- catalogue
 
   // Items across every board someone can see, narrowed by any of:
@@ -434,7 +398,7 @@ function openStore(dataDir) {
 
   return {
     file, saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media,
-    catalogueUploads, importLegacy, find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
+    catalogueUploads, find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
   };
 }
 

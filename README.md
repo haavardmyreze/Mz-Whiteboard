@@ -3,7 +3,7 @@
 Shared reference and work-in-progress boards for a creative team, in the spirit of
 Milanote and PureRef. One machine runs the server; everyone else opens a board in their
 browser. Built for standup reviews: pin up stills and playblasts, group them into frames,
-then present the board while everyone's view follows yours.
+open them in a viewer that steps frame by frame, and comment where it matters.
 
 All media stays on the machine that runs the server. Nothing is sent to a cloud service.
 
@@ -35,22 +35,28 @@ private networks, otherwise only the host machine can connect.
 - **Images and video.** Drop files on the board, paste screenshots from the clipboard, or
   paste an image URL. Large images get a 2K preview so heavy boards stay fast; the
   original loads when you zoom in past the preview's resolution. Videos have a play
-  button in the middle and a scrub bar on hover. Heavy video is compressed in the browser before
-  upload (H.264 MP4, 1080p at most, about 8 Mbps, audio kept) so nobody uploads gigabytes; light
-  files go up untouched, and holding Shift while dropping uploads the original as it is.
-- **Frame-accurate video.** Each video knows its frame rate, read from the file when it is added (videos
-  added before that learn it the first time someone opens or plays them). `,` and `.` step one frame,
+  button in the middle and a scrub bar on hover, and show a still until they are played, so a board
+  never opens on black rectangles.
+- **Review copies of video.** Every video is re-encoded in the browser before it is uploaded: H.264
+  MP4 (VP9 WebM where the browser cannot encode H.264), 1080p at most, about 10 Mbps, audio kept, and a
+  key frame every half second. A browser can only show a frame by decoding from the key frame before
+  it, and renders and camera files often have one every few seconds, so stepping or scrubbing
+  backwards through them stalls; through the review copy it is instant in both directions. Holding
+  Shift while dropping uploads the file exactly as it is.
+- **Frame-accurate video.** Each video knows its frame rate, read from the file when it is added. `,` and `.` step one frame,
   and scrubbing lands on whole frames. Click the time on a video to switch between minutes and seconds,
   the frame number and a timecode; the choice is remembered per browser. Open a video, pause on a frame
   and draw or write on it: what you make belongs to that frame and only shows when the video is stopped
   there, like frame annotations in a review tool. Starting to draw or comment on a playing video stops
   it on the frame showing. The timeline shows a mark for every comment and every drawn-on frame; click
-  one to go there. When presenting, the people following see exactly the frame you stop on.
-- **Open an image and draw on it.** Double-click an image: the rest of the board dims and
-  you can annotate it with the brush or arrows. The drawing belongs to the image, so it
-  moves and scales with it, and everyone sees it live. Esc or Done closes it and the view returns to where it was.
-  While one is open, the arrow keys (or the arrows in the bar above it) go to the next or previous image or video,
-  in the order the board reads: frame by frame, rows first and then left to right, with loose media taking its place among the frames.
+  one to go there. Whoever follows you sees exactly the frame you stop on.
+- **The viewer.** Double-click an image or video (or tap it on a phone) and it opens on its own: the
+  rest of the board is hidden behind a plain backdrop and the view stays put, it cannot be panned or
+  zoomed away, until Esc or Done closes it and the board comes back where it was. Annotate with the
+  brush or arrows; the drawing belongs to the image, so it moves and scales with it on the board, and
+  everyone sees it live. The arrow keys (or the arrows in the bar, or a swipe) go to the next or previous
+  image or video, in the order the board reads: frame by frame, rows first and then left to right, with
+  loose media taking its place among the frames.
 - **Uniform sizes.** New images come in at the same width, a new frame starts at the width it
   needs to hold one such image and a new colour block at the same width as a frame, so it sits flush above one as its header, notes and headings at fixed sizes
   and the brush at a fixed width (small while an image is open, so annotating stays fine), whatever the zoom was when you made them. Text is sized
@@ -81,12 +87,15 @@ private networks, otherwise only the host machine can connect.
 - **Smart snapping.** Dragged items snap to the edges and centres of their neighbours and
   to equal gaps, with guide lines. Toggle with S, hold Ctrl while dragging to bypass.
 - **Live collaboration.** Everyone sees edits, cursors and selections as they happen.
-- **Present mode.** Press *Present* and everyone on the board follows your view. Arrow
-  keys step through frames in reading order (or through the media if there are no
-  frames). The laser pointer (L) is visible to everyone. Video you play or scrub plays for
-  everyone following you.
-- **Follow anyone.** Click a teammate's avatar to follow their view outside a
-  presentation. Pan or zoom yourself to stop.
+- **Follow anyone.** Click a teammate's picture to follow their view, into the viewer and back
+  out with them, with their video playing, pausing and stepping on your screen as on theirs. Pan,
+  zoom or open something yourself to stop. The laser pointer (L) is visible to everyone.
+- **Notifications.** The bell on the board list collects what concerns you from every board: replies
+  in threads you wrote in, comments on what you added and on boards you made, and comments that
+  @mention your name. Opening one goes straight to the comment. What you have read is remembered
+  for you, on any device.
+- **Phones.** One finger moves the board, two zoom, a tap opens an image or video and a swipe goes
+  to the next. The tools sit along the bottom and comments open as a sheet from the bottom.
 - **Tidy.** Select some images and press Ctrl+P. A vertical line becomes an evenly sized
   column, a horizontal line a row, and a grid keeps its number of columns. Select two or more
   frames and the same shortcut tidies the frames themselves, each as one piece with its contents and
@@ -108,7 +117,13 @@ board, which suits a trusted studio network. Set `AUTH_MODE` to change that:
 | `iap`       | Whoever Google Cloud's Identity-Aware Proxy lets through |
 
 Signed in, everybody shares the **Myreze** workspace and each person also has a **Personal** one that
-only they can see. On a board, **Share** makes a view-only link that needs no sign-in. The settings,
+only they can see.
+
+On a board, **Share** turns on a link that needs no sign-in, and sets what its holders can do: only
+look, also read the team's comments, or also comment (under a name they type, without resolving or
+deleting anything). A link can end after a day, a week or a month, can be replaced by a new one
+that stops the old one at once, and can be turned off. Changing any of it applies to whoever is
+watching straight away. The settings,
 and how to reach the server from outside the building, are in [DEPLOY.md](DEPLOY.md); copy
 `.env.example` to `.env` to set them.
 
@@ -149,12 +164,13 @@ through a write; the files in `data/backups/` are always whole.
 
 **Deleted boards** are kept, only hidden. To bring one back, stop the server and run
 `node scripts/restore-board.js` to list them, then `node scripts/restore-board.js <board id>`. It
-comes back at the top level of its workspace. Boards deleted before the database are still in
-`data/trash/` as JSON files: to bring one back, stop the server, copy it into `data/boards/` named
-`<board id>.json` and start the server, which reads it in.
+comes back at the top level of its workspace.
 
-**Upgrading from the JSON files.** The first start of this version reads `data/boards/*.json` and
-`data/folders.json` into the database and moves the files to `data/legacy/`. Nothing else is needed.
+**Upgrading from the JSON files.** Versions before the database kept each board in
+`data/boards/*.json` and the folders in `data/folders.json`. Stop the server and run
+`node scripts/import-json.js` once: it reads them into the database and moves the files to
+`data/legacy/`. The server says so at startup if it finds any. A board deleted back then is still a
+JSON file in `data/trash/`; copy it into `data/boards/` as `<board id>.json` and run the script again.
 
 ## The catalogue
 
@@ -196,9 +212,10 @@ Environment variables, or lines in a `.env` file next to `server.js`. All option
 - **Without `AUTH_MODE` there are no accounts or passwords.** Anyone who can reach the server can
   open, edit and delete every board. Run it that way on a trusted studio network or behind a VPN,
   never on the open internet; for anything else pick a sign-in mode.
-- **Video must be browser-playable**: H.264 MP4 or WebM. ProRes and DNxHD `.mov` files are
-  rejected with a message; export an H.264 review copy instead. Compression runs in the browser
-  (Chrome, Edge and Safari do it well); where a browser cannot, the file is uploaded as it is.
+- **Video must be something the browser can decode**: H.264 or HEVC MP4/MOV, or WebM. ProRes and
+  DNxHD are rejected with a message; export an H.264 file instead. The review copy is made in the
+  browser (Chrome, Edge and Safari do it well); where a browser cannot, the file is uploaded as it is
+  and scrubbing backwards through it may be slow.
 - **Images must be browser formats**: PNG, JPEG, WebP, GIF, AVIF, BMP, SVG. EXR, TIFF and
   PSD are not supported.
 - Two people editing the same property of the same item at the same moment: the last
@@ -211,12 +228,13 @@ Environment variables, or lines in a `.env` file next to `server.js`. All option
 ```
 server.js          HTTP + WebSocket server, boards in memory
 store.js           The database: boards, items, folders and the catalogue
+notifications.js   What each person is told about, worked out from the comments
 auth.js            Who is asking: the four sign-in modes
-public/board.js    The canvas: rendering, input, sync, presenting
+public/board.js    The canvas: rendering, input, sync, the viewer, following
 public/home.js     Board list
 public/common.js   Shared helpers
 public/login.html  Sign-in page (password and Google modes)
 public/style.css   All styling
-scripts/           restore-board.js: bring back a deleted board
-test/              npm test: sign-in, uploads, live sync, workspaces, read-only links, the database and catalogue
+scripts/           restore-board.js: bring back a deleted board; import-json.js: boards from before the database
+test/              npm test: sign-in, uploads, live sync, workspaces, links, the database, catalogue and notifications
 ```

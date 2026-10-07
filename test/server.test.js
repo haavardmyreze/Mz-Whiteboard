@@ -8,6 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { createAuth } = require('../auth');
+const { openStore } = require('../store');
 
 // ---------------------------------------------------------------- sign-in
 
@@ -308,8 +309,9 @@ test('with google sign-in nothing is served to strangers except the sign-in page
     AUTH_MODE: 'google', GOOGLE_CLIENT_ID: 'client-1', GOOGLE_CLIENT_SECRET: 'shh',
     PUBLIC_URL: 'http://localhost:4797', ALLOWED_EMAILS: 'anna@example.com',
   }, (data) => {
-    fs.mkdirSync(path.join(data, 'boards'), { recursive: true });
-    fs.writeFileSync(path.join(data, 'boards', 'boardone1.json'), JSON.stringify({ id: 'boardone1', name: 'Secret plans', shareToken, items: [] }));
+    const store = openStore(data);
+    store.saveBoard({ id: 'boardone1', name: 'Secret plans', workspace: 'myreze', shareToken, createdAt: 1, updatedAt: 1 });
+    store.close();
   });
   t.after(s.stop);
   await s.ready;
@@ -784,7 +786,7 @@ test('moving a board to a personal workspace shows everybody else on it the door
 
 // ---------------------------------------------------------------- the database and the catalogue
 
-test('boards and folders kept as JSON files are moved into the database once, and the files kept aside', async (t) => {
+test('the import script reads boards and folders kept as JSON files into the database once, and keeps the files aside', async (t) => {
   const s = start(4820, {}, (data) => {
     fs.mkdirSync(path.join(data, 'boards'));
     fs.writeFileSync(path.join(data, 'folders.json'), JSON.stringify([{ id: 'folderone', name: 'Studio', parentId: null, workspace: 'myreze', createdAt: 1 }]));
@@ -796,6 +798,13 @@ test('boards and folders kept as JSON files are moved into the database once, an
       ],
     }));
     fs.writeFileSync(path.join(data, 'boards', 'broken.json'), '{nope');
+    const run = () => require('node:child_process').execFileSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'import-json.js')], { env: { ...process.env, WIPBOARD_DATA: data }, stdio: 'pipe' });
+    run();
+    assert.ok(fs.existsSync(path.join(data, 'legacy', 'boards', 'oldboard1.json')));
+    assert.ok(fs.existsSync(path.join(data, 'legacy', 'folders.json')));
+    assert.ok(!fs.existsSync(path.join(data, 'boards', 'oldboard1.json')));
+    // a second run finds nothing more to do
+    assert.match(run().toString(), /Read 0 board/);
   });
   t.after(s.stop);
   await s.ready;

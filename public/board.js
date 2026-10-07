@@ -115,9 +115,6 @@
   // Vivid header colours for frames and the free-standing heading blocks.
   const BLOCK_COLORS = ['#ff6bd6', '#7ed957', '#4d7cff', '#ffd43b', '#ff9a3c', '#b388ff', '#2dd4bf', '#6b6b73', '#17171a'];
   const FRAME_COLORS = ['#8a8a93', ...BLOCK_COLORS];
-  // Headings on blocks and frames are always white, so the old light block colour, which white could not
-  // be read on, is shown as the mid grey.
-  const LEGACY_LIGHT = '#f4f4f5';
   const PEN_SIZES = [4, 8, 16];
   const FRAME_PAD = 28;
   // World-unit sizes for new items: what you get does not depend on how far you are zoomed in.
@@ -686,7 +683,7 @@
       st.setProperty('--head-ink', '#fff');
       if (!isEditing) node.firstChild.firstChild.textContent = it.title || '';
     } else if (it.type === 'block') {
-      const fill = mute(!it.color ? BLOCK_COLORS[0] : it.color === LEGACY_LIGHT ? '#6b6b6b' : it.color);
+      const fill = mute(it.color || BLOCK_COLORS[0]);
       st.width = `${it.w}px`;
       st.height = `${it.h}px`;
       st.fontSize = `${BLOCK_FS}px`;
@@ -1605,15 +1602,6 @@
     startEdit(item.id);
   }
 
-  // Drawings made before they could attach are matched up once, the first time a board is opened.
-  function attachLegacyStrokes() {
-    for (const st of items.values()) {
-      if (st.type !== 'stroke' || st.pid !== undefined) continue;
-      const host = hostFor(st);
-      liveSet(st.id, { pid: host ? host.id : null });
-    }
-  }
-
   // The small line under a frame's title counts what is in it.
   function updateFrameCounts() {
     const n = new Map();
@@ -2273,26 +2261,6 @@
       return blob ? (await upload(blob, EXT_BY_TYPE[blob.type] || '.webp')).url : null;
     } catch {
       return null;
-    }
-  }
-
-  // Boards from before thumbnails existed: the few stills the board list shows get theirs made now, the
-  // first time somebody opens the board, so the list stops fetching originals for it.
-  async function backfillThumbs() {
-    const shown = [...items.values()].filter((it) => it.type === 'image').slice(0, 4);
-    for (const { id } of shown) {
-      const it = items.get(id);
-      if (!it || it.th || Math.max(it.nw || 0, it.nh || 0) <= THUMB_MAX * 1.5) continue;
-      try {
-        const img = await loadImage(it.prev || it.src);
-        const th = await makeThumb(img, img.naturalWidth, img.naturalHeight);
-        if (!th || !items.has(id) || items.get(id).th) continue;
-        const ops = [{ t: 'set', id, patch: { th } }];
-        applyOps(ops);
-        sendOps(ops, true);
-      } catch {
-        // an image that cannot be read here keeps what it had
-      }
     }
   }
 
@@ -4110,14 +4078,10 @@
 
     if (firstInit) {
       firstInit = false;
-      // Frames made before they had headers close up around their contents again, headers included.
-      // Notes and headings are measured from the page, so this waits for the typeface: measured in a
-      // fallback face, every frame holding text would come out a little wrong, for everyone.
-      typeface.then(() => {
-        refitLive(frameIds());
-        attachLegacyStrokes();
-      });
-      if (!viewOnly) backfillThumbs();
+      // Frames close up around their contents as this page measures them. Notes and headings are
+      // measured from the page, so this waits for the typeface: measured in a fallback face, every
+      // frame holding text would come out a little wrong, for everyone.
+      typeface.then(() => refitLive(frameIds()));
       frameFirst();
       // Opened from a notification: straight to the comment.
       const asked = /^#c=([\w-]+)$/.exec(location.hash);

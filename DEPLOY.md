@@ -137,15 +137,18 @@ the app does its own sign-in, and read-only links must stay reachable without on
 
 **3. Keep it up.** The PC must stay awake and on. Back up the `data` folder; it holds every board and upload.
 
-### Read-only links
+### Links
 
-On a board, **Share** makes a link such as `PUBLIC_URL/s/<secret>`. Anyone holding it can watch the
-board live and open images and videos, with no sign-in. They cannot change anything (the server ignores
-anything they send, not just the buttons being hidden) and they do not see comments. They give a name when
-they open the link and show to the team as a pointer carrying it, with a laser if they use one; nobody
-vouches for that name, and they never appear among the people on the board. **Stop sharing** kills the link
-at once and disconnects whoever is watching. Treat a link like a password: whoever has it can view the
-board. The links work in `none`, `password` and `google` modes, not behind IAP.
+On a board, **Share** turns on a link such as `PUBLIC_URL/s/<secret>`. Anyone holding it can watch the
+board live and open images and videos, with no sign-in. What else they may do is set in the same dialog:
+nothing more, read the team's comments, or also comment. They can never change the board: the server
+accepts nothing from them but a pointer, the laser and, when allowed, new comments and replies; it ignores
+the rest, not just the buttons being hidden. They give a name when they open the link and show to the team
+as a pointer carrying it; nobody vouches for that name, so their comments are marked as from a guest. A
+link can end after a set time, **New link** replaces it and stops the old one at once, and turning it off
+kills it and disconnects whoever is watching; any change to it reaches people already watching straight
+away. Treat a link like a password: whoever has it can see the board. Links work in `none`, `password`
+and `google` modes, not behind IAP.
 
 Uploaded files are served under hard-to-guess names. They load for signed-in people, and for a browser that has
 just opened a live read-only link, and for nobody else.

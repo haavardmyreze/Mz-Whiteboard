@@ -118,7 +118,6 @@ const canSee = (user, key) => key === 'myreze' || (!!user && key === PERSONAL + 
 const visible = (user, board) => !!board && canSee(user, board.workspace);
 
 // Read-only links: the secret in /s/<token> -> the board it opens.
-const SHARE_RE = /^[\w-]{16,64}$/;
 const shares = new Map();
 
 function newId(bytes = 6) {
@@ -149,29 +148,7 @@ function boardRecord(saved, items = null) {
   };
 }
 
-// What a stored board (an old JSON file, or anything else read back) may hold, and nothing else.
-function cleanBoard(raw) {
-  if (!raw || !ID_RE.test(raw.id)) return null;
-  const items = [];
-  const seen = new Set();
-  for (const it of raw.items || []) {
-    if (!it || !ID_RE.test(it.id) || typeof it.type !== 'string' || seen.has(it.id)) continue;
-    seen.add(it.id);
-    items.push(it);
-  }
-  return {
-    id: raw.id,
-    name: raw.name || 'Untitled',
-    folderId: raw.folderId || null,
-    workspace: validSpace(raw.workspace) ? raw.workspace : 'myreze',
-    shareToken: typeof raw.shareToken === 'string' && SHARE_RE.test(raw.shareToken) ? raw.shareToken : null,
-    createdAt: raw.createdAt || Date.now(),
-    createdBy: typeof raw.createdBy === 'string' ? raw.createdBy : null,
-    updatedAt: raw.updatedAt || Date.now(),
-    items,
-  };
-}
-
+// What a stored folder may hold, and nothing else.
 function cleanFolders(list) {
   return (Array.isArray(list) ? list : []).filter((f) => f && ID_RE.test(f.id)).map((f) => ({
     id: f.id,
@@ -183,13 +160,6 @@ function cleanFolders(list) {
 }
 
 function loadBoards() {
-  const imported = store.importLegacy({
-    boardDir: path.join(DATA_DIR, 'boards'),
-    folderFile: path.join(DATA_DIR, 'folders.json'),
-    legacyDir: path.join(DATA_DIR, 'legacy'),
-    clean: { board: cleanBoard, folders: cleanFolders },
-  });
-  if (imported) console.log(`Moved ${imported} board(s) from JSON files into ${store.file}. The files are kept in data/legacy.`);
   const summaries = store.summaries();
   for (const saved of store.boards()) {
     const board = boardRecord({ ...saved, workspace: validSpace(saved.workspace) ? saved.workspace : 'myreze' });
@@ -284,7 +254,7 @@ function summarize(board) {
     // What somebody would call an item: not the comments on it, nor each stroke of a drawing.
     if (it.type !== 'comment' && it.type !== 'stroke') count++;
     if (thumbs.length === 4) continue;
-    // The small still made when it was uploaded; images from before those existed show their preview or original.
+    // The small still made when it was uploaded; an image small enough to have none shows its preview or itself.
     const still = it.th || (it.type === 'image' ? it.prev || it.src : null);
     if (typeof still === 'string') thumbs.push(still);
   }
@@ -1214,6 +1184,9 @@ setInterval(() => {
 
 loadBoards();
 loadFolders();
+if (fs.existsSync(path.join(DATA_DIR, 'boards')) && fs.readdirSync(path.join(DATA_DIR, 'boards')).some((f) => f.endsWith('.json'))) {
+  console.log('There are boards kept as JSON files from an older version. Stop the server and run: node scripts/import-json.js');
+}
 cleanStaleUploads();
 setInterval(cleanStaleUploads, 3600e3).unref();
 setInterval(unloadIdle, Math.min(60e3, IDLE_UNLOAD)).unref();

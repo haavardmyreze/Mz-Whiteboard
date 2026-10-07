@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f0f0f">
+  <script>try { document.documentElement.dataset.theme = JSON.parse(localStorage.getItem('wb:theme')) || 'dark'; } catch (e) { document.documentElement.dataset.theme = 'dark'; }</script>
+  <title>Sign in · Wipboard</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    body.login { display: grid; place-items: center; min-height: 100vh; margin: 0; padding: 24px; }
+    .login-card { width: min(380px, 100%); display: grid; gap: 16px; justify-items: center; text-align: center; }
+    .login-card .brand { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 600; }
+    .login-card p { margin: 0; color: var(--muted, inherit); line-height: 1.5; }
+    .login-card .btn { width: 100%; justify-content: center; height: 40px; }
+    .login-logo { width: 96px; height: auto; fill: currentColor; color: var(--text); animation: rise 0.5s var(--ease); }
+    .login-error { color: var(--brand); }
+  </style>
+</head>
+<body class="login">
+  <main class="login-card">
+    <svg class="login-logo" viewBox="0 0 1024 1024" aria-label="Myreze"><path d="M989.01,478.72L769.07,223.08c-9.26-10.58-22.48-16.31-36.14-16.31h-116.8c-10.14,0-18.95,6.17-22.48,15.87l-72.73,189.97c-1.32,4.41-5.29,6.61-8.82,6.61c-3.53,0-7.49-2.2-9.26-6.61l-72.28-189.97c-3.53-9.7-12.34-15.87-22.48-15.87H290.84c-14.1,0-26.89,5.73-36.14,16.31L35.2,478.28c-15.43,17.63-18.07,48.48,7.49,67L323.9,750.23c3.97,3.09,10.58,2.2,13.22-2.2c14.1-21.6,8.82-42.31-1.32-55.1c0-0.44-121.21-163.96-121.21-163.96c-8.82-10.58-8.82-26.45,0.44-37.02l66.11-74.49c9.7-11.46,26.45-7.49,30.85,5.29l149.86,379.49c3.09,9.26,11.9,14.99,21.6,14.99h29.09l29.97-0.44c9.7,0,18.07-6.17,21.6-14.99l149.86-379.05c4.85-13.22,21.6-16.31,30.85-5.29l65.67,74.05c9.26,10.58,9.26,26.45,0.44,37.02L689.73,692.49c-10.14,12.78-15.87,33.5-1.76,55.54c3.09,4.41,9.26,5.29,13.22,2.2L982.4,545.28C997.82,533.38,1010.61,505.17,989.01,478.72z"/></svg>
+    <div class="brand"><span>Wipboard</span></div>
+    <p id="msg">Sign in with your Google account to open the boards.</p>
+    <a id="go" class="btn primary" href="/auth/google">Sign in with Google</a>
+  </main>
+  <script>
+    const q = new URLSearchParams(location.search);
+    const messages = {
+      'not-allowed': 'That Google account is not on the list for these boards. Ask whoever runs Wipboard to add it, or try another account.',
+      denied: 'Sign-in was cancelled.',
+      failed: 'Sign-in did not work. Please try again.',
+    };
+    const error = q.get('error');
+    if (messages[error]) {
+      const msg = document.getElementById('msg');
+      msg.textContent = messages[error];
+      msg.className = 'login-error';
+    }
+    if (q.get('next')) document.getElementById('go').href = '/auth/google?next=' + encodeURIComponent(q.get('next'));
+  </script>
+</body>
+</html>

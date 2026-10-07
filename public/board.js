@@ -4,6 +4,9 @@
   const { el, store } = WB;
   const $ = (id) => document.getElementById(id);
 
+  // /s/<secret> is a read-only link: anyone holding it can watch the board and nothing else.
+  const viewOnly = location.pathname.startsWith('/s/');
+  document.body.classList.toggle('viewonly', viewOnly);
   const boardId = location.pathname.split('/').filter(Boolean)[1];
   const vp = $('viewport');
   const world = $('world');
@@ -700,7 +703,7 @@
   }
 
   function sendOps(ops) {
-    if (!ops.length) return;
+    if (!ops.length || viewOnly) return;
     const batch = { ops, keys: keysOf(ops) };
     for (const k of batch.keys) pendingKeys.set(k, (pendingKeys.get(k) || 0) + 1);
     outbox.push(batch);
@@ -1761,7 +1764,7 @@
     $('focushint').textContent = it.type === 'image' ? 'Draw, write notes or comment' : 'Pick a tool to annotate';
     userMovedView();
     // A video starts on the select tool so its play button still works.
-    setTool(it.type === 'image' ? 'pen' : 'select');
+    setTool(it.type === 'image' && !viewOnly ? 'pen' : 'select');
     if (it.type === 'video') setSel([id]);
     fitRect(bounds(it), { inset: { t: 112, r: 48, b: presenting ? 96 : 48, l: presenting ? 48 : 160 }, dur });
   }
@@ -2275,12 +2278,12 @@
     }
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     const p = s2w(e.clientX, e.clientY);
-    const pan = e.button === 1 || e.button === 2 || (e.button === 0 && (spaceDown || tool === 'pan' || tool === 'laser'));
+    const pan = e.button === 1 || e.button === 2 || (e.button === 0 && (viewOnly || spaceDown || tool === 'pan' || tool === 'laser'));
     e.preventDefault();
     if (gesture) return;
     // Touching the board catches it.
     if (coasting) stopCamAnim();
-    if (e.button === 2 && (tool === 'pen' || tool === 'arrow')) {
+    if (e.button === 2 && !viewOnly && (tool === 'pen' || tool === 'arrow')) {
       const g = { type: 'erase', last: p, hit: new Set() };
       begin(g, e);
       eraserRing.hidden = false;
@@ -2642,16 +2645,38 @@
     let it = node && items.get(node.dataset.id);
     if (it && it.type === 'stroke' && it.pid) it = items.get(it.pid);
     if (!it) return;
+    if (viewOnly && it.type !== 'video' && it.type !== 'image') return;
     if (it.type === 'note' || it.type === 'text' || it.type === 'block') startEdit(it.id);
     else if (it.type === 'frame') { if (hit.closest('.frame-head')) startEdit(it.id); }
     else if (it.type === 'video' || it.type === 'image') enterFocus(it.id);
   });
+
+  // Read-only: a plain click on an image or video opens it, since looking closer is the one thing to do.
+  if (viewOnly) {
+    let down = null;
+    vp.addEventListener('pointerdown', (e) => {
+      down = e.button === 0 ? { x: e.clientX, y: e.clientY, skip: !!e.target.closest('.vbar, a'), play: !!e.target.closest('.vplay') } : null;
+    }, true);
+    vp.addEventListener('pointerup', (e) => {
+      const start = down;
+      down = null;
+      if (!start || start.skip || Math.hypot(e.clientX - start.x, e.clientY - start.y) > 5) return;
+      const hit = document.elementFromPoint(e.clientX, e.clientY);
+      const node = hit && hit.closest('.item');
+      const it = node && items.get(node.dataset.id);
+      if (!it) return;
+      // The big play button plays; anywhere else on an image or video opens it.
+      if (it.type === 'video' && start.play) toggleVideo(it.id);
+      else if (!focusId && (it.type === 'image' || it.type === 'video')) enterFocus(it.id);
+    });
+  }
 
   // ------------------------------------------------------------- drop, paste, copy
 
   let dragDepth = 0;
   window.addEventListener('dragenter', (e) => {
     e.preventDefault();
+    if (viewOnly) return;
     dragDepth++;
     if ([...e.dataTransfer.types].includes('Files')) $('dropzone').hidden = false;
   });
@@ -2664,6 +2689,7 @@
   window.addEventListener('dragover', (e) => e.preventDefault());
   window.addEventListener('drop', (e) => {
     e.preventDefault();
+    if (viewOnly) return;
     dragDepth = 0;
     $('dropzone').hidden = true;
     const at = s2w(e.clientX, e.clientY);
@@ -2673,7 +2699,7 @@
   });
 
   document.addEventListener('paste', (e) => {
-    if (isTyping(e.target) || !e.clipboardData) return;
+    if (viewOnly || isTyping(e.target) || !e.clipboardData) return;
     e.preventDefault();
     const at = pointer.inside ? s2w(pointer.sx, pointer.sy) : viewCenter();
     if (e.clipboardData.files.length) return addFiles(e.clipboardData.files, at);
@@ -3191,7 +3217,7 @@
   }, true);
 
   function buildToolbar() {
-    $('toolbar').replaceChildren(...TOOLS.map((t) => {
+    $('toolbar').replaceChildren(...TOOLS.filter((t) => !viewOnly || (t && (t[0] === 'pan' || t[0] === 'laser'))).map((t) => {
       if (!t) return el('span', { class: 'sep' });
       const [name, title, html] = t;
       return el('button', {
@@ -3199,7 +3225,6 @@
         onclick: () => (suppressToolClick ? null : name === 'upload' ? $('filepick').click() : name === 'frame' ? activateFrame() : name === 'comment' ? toast('Drag the comment onto an image, video or note') : setTool(name)),
       }, el('span', { class: 'tl', text: TOOL_LABELS[name] }));
     }));
-    $('back').innerHTML = ICON.boards;
     $('pprev').innerHTML = ICON.prev;
     $('pnext').innerHTML = ICON.next;
     buildToolOptions();
@@ -3230,6 +3255,8 @@
   }
 
   function setTool(name) {
+    // The only tools a read-only link has are the hand and the laser.
+    if (viewOnly && name !== 'laser') name = 'pan';
     // While an image is open there is nothing to place notes or frames on.
     if (focusId && (name === 'frame' || name === 'block')) return;
     tool = name;
@@ -3248,6 +3275,12 @@
   window.addEventListener('keydown', (e) => {
     if (isTyping(e.target)) return;
     const k = e.key.toLowerCase();
+    // Looking around is all a read-only link allows.
+    if (viewOnly) {
+      const look = e.code === 'Space' || k === 'escape' || k === 'home' || k === '?' || k === 'h' || (k === 'l' && !e.shiftKey && !e.ctrlKey && !e.metaKey) || (focusId && k.startsWith('arrow'))
+        || (e.shiftKey && e.code === 'Digit1') || ((e.ctrlKey || e.metaKey) && k === '0');
+      if (!look) return;
+    }
     if (e.code === 'Space') {
       e.preventDefault();
       spaceDown = true;
@@ -3501,7 +3534,8 @@
   // ------------------------------------------------------------- peers, cursors, laser
 
   function renderPeers() {
-    const list = [...peers.values()];
+    // People watching through a read-only link show as pointers on the board, not as avatars up here.
+    const list = [...peers.values()].filter((peer) => !peer.viewer);
     const nodes = [
       ...list.slice(0, 8).map((peer) => el('button', {
         class: `avatar${following === peer.id ? ' following' : ''}${presenter === peer.id ? ' presenting' : ''}`,
@@ -3511,7 +3545,7 @@
         onclick: () => (following === peer.id ? userMovedView() : follow(peer.id)),
       })),
       list.length > 8 && el('span', { class: 'avatar more', text: `+${list.length - 8}` }),
-      el('button', { class: 'avatar me', style: { background: me.color }, title: `${me.name} (you). Click to change your name`, text: WB.initials(me.name), onclick: rename }),
+      !viewOnly && el('button', { class: 'avatar me', style: { background: me.color }, title: `${me.name} (you). Click to change your name`, text: WB.initials(me.name), onclick: rename }),
     ];
     $('peers').replaceChildren(...nodes.filter(Boolean));
   }
@@ -3552,7 +3586,7 @@
   }
 
   function addPeer(data) {
-    peers.set(data.id, { id: data.id, name: data.name, color: data.color, p: data.p || {}, cur: null });
+    peers.set(data.id, { id: data.id, name: data.name, color: data.color, p: data.p || {}, cur: null, viewer: !!data.viewer });
     placeCursor(peers.get(data.id));
   }
 
@@ -3708,6 +3742,7 @@
     online = true;
     retry = 500;
     $('conn').hidden = true;
+    WB.offline(false);
 
     for (const id of [...els.keys()]) {
       els.get(id).remove();
@@ -3746,6 +3781,9 @@
       const saved = store(`wb:cam:${boardId}`);
       if (saved && isFinite(saved.x) && isFinite(saved.y) && saved.z > 0) setCam(saved.x, saved.y, saved.z);
       else fitAll(0);
+      if (viewOnly && [...items.values()].some((it) => it.type === 'image' || it.type === 'video')) {
+        toast('Click an image or video to look closer', { ms: 7000 });
+      }
     } else {
       applyCam();
     }
@@ -3796,13 +3834,15 @@
   }
 
   function connect() {
-    ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?board=${boardId}`);
+    ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?${viewOnly ? 'share' : 'board'}=${boardId}`);
     ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', name: me.name, color: me.color }));
     ws.onmessage = (e) => onMessage(JSON.parse(e.data));
     ws.onclose = (e) => {
       online = false;
       if (e.code === 4004) return fatal('This board was deleted.');
+      if (e.code === 4005) return fatal('This link is not shared any more.');
       $('conn').hidden = false;
+      WB.offline(true);
       setTimeout(connect, retry);
       retry = Math.min(retry * 1.6, 8000);
     };
@@ -3811,7 +3851,7 @@
   function fatal(text) {
     document.body.replaceChildren(el('div', { class: 'fatal' },
       el('h1', { text }),
-      el('a', { class: 'btn primary', href: '/', text: 'Back to all boards' })));
+      !viewOnly && el('a', { class: 'btn primary', href: '/', text: 'Back to all boards' })));
   }
 
   // ------------------------------------------------------------- start
@@ -3819,11 +3859,73 @@
   me = await WB.askName();
   let meta;
   try {
-    meta = await WB.api('GET', `/api/boards/${boardId}`);
+    meta = await WB.api('GET', viewOnly ? `/api/shared/${boardId}` : `/api/boards/${boardId}`);
   } catch {
-    return fatal('This board does not exist.');
+    return fatal(viewOnly ? 'This link is not shared any more.' : 'This board does not exist.');
   }
-  $('back').href = meta.folderId ? `/#/f/${meta.folderId}` : '/';
+  // Home opens on the workspace this board lives in.
+  if (!viewOnly && meta.workspace) store('wb:workspace', meta.workspace);
+  if (viewOnly) {
+    $('boardname').readOnly = true;
+    // The corner logo is not a way back to the team's boards for someone holding a link.
+    $('back').removeAttribute('href');
+    $('back').removeAttribute('title');
+  }
+  else $('back').href = meta.folderId ? `/#/f/${meta.folderId}` : '/';
+
+  // ---- read-only link for this board
+  if (!viewOnly && WB.info().canShare) {
+    $('share').hidden = false;
+    $('share').addEventListener('click', () => openShare(meta));
+  }
+
+  function openShare(board) {
+    // Never a localhost address: it would only open on this computer.
+    const bases = (WB.info().shareBases || []).length ? WB.info().shareBases : [location.origin];
+    let base = bases.includes(store('wb:sharebase')) ? store('wb:sharebase') : bases[0];
+    const dlg = el('dialog', { class: 'dlg' });
+    const close = () => dlg.close();
+    const request = async (method) => {
+      try {
+        const res = await WB.api(method, `/api/boards/${boardId}/share`);
+        board.shareToken = method === 'POST' ? res.token : null;
+      } catch (err) {
+        toast(err.message);
+      }
+      paint();
+    };
+    function paint() {
+      const link = board.shareToken && `${base}/s/${board.shareToken}`;
+      const input = link && el('input', { type: 'text', readonly: true, value: link, 'aria-label': 'View-only link', onfocus: (e) => e.target.select() });
+      const copy = async () => {
+        try {
+          await navigator.clipboard.writeText(link);
+        } catch {
+          input.select();
+          document.execCommand('copy');
+        }
+        toast('Link copied');
+      };
+      dlg.replaceChildren(el('form', { method: 'dialog', onsubmit: (e) => e.preventDefault() },
+        el('h2', { text: 'Share a view-only link' }),
+        el('p', { text: link
+          ? 'Anyone with this link can watch the board live, without signing in. They cannot change anything, and they do not see comments. Stop sharing to make the link stop working.'
+          : 'Make a link that lets anyone watch this board without signing in. They can look around and open images and videos, but cannot change anything.' }),
+        input,
+        link && bases.length > 1 && el('label', { class: 'share-base' }, 'Address ',
+          el('select', { onchange: (e) => { base = e.target.value; store('wb:sharebase', base); paint(); } },
+            bases.map((b) => el('option', { value: b, text: b, selected: b === base })))),
+        link && !/^https:/.test(base) && el('p', { class: 'share-note', text: 'This address only works for people on the same network as this computer. For people elsewhere, set up a public address (see DEPLOY.md).' }),
+        el('div', { class: 'dlg-actions' },
+          link && el('button', { type: 'button', class: 'btn danger', text: 'Stop sharing', onclick: () => request('DELETE') }),
+          el('button', { type: 'button', class: 'btn', text: 'Close', onclick: close }),
+          link ? el('button', { type: 'button', class: 'btn primary', text: 'Copy link', onclick: copy }) : el('button', { type: 'button', class: 'btn primary', text: 'Create link', onclick: () => request('POST') }))));
+    }
+    dlg.addEventListener('close', () => dlg.remove());
+    paint();
+    document.body.append(dlg);
+    dlg.showModal();
+  }
   $('themeslot').replaceWith(WB.themeButton());
   window.addEventListener('wb:theme', () => {
     for (const it of items.values()) renderItem(it);

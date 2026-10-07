@@ -78,11 +78,13 @@ const WB = (() => {
   // Resolves with the user, asking for a name first when there is none yet.
   // Behind a login (see DEPLOY.md) the server knows who you are; nobody has to type a name.
   let signedIn;
+  let session = {};
   async function identity() {
     if (signedIn !== undefined) return signedIn;
     try {
       const res = await fetch('/api/me');
       const data = await res.json();
+      session = data;
       signedIn = data.user || null;
     } catch {
       signedIn = null;
@@ -211,5 +213,90 @@ const WB = (() => {
     return btn;
   }
 
-  return { el, store, user, dialog, askName, initials, ago, api, theme, setTheme, themeButton };
+  // What /api/me said (after identity() or askName() has run): whether read-only links, a public address and sign-out exist here.
+  const info = () => session;
+
+  // ---- Myreze logo: a welcome when the app opens, and an idle state while the server cannot be reached
+  const LOGO = '<svg viewBox="0 0 1024 1024" aria-hidden="true"><path pathLength="1" d="M989.01,478.72L769.07,223.08c-9.26-10.58-22.48-16.31-36.14-16.31h-116.8c-10.14,0-18.95,6.17-22.48,15.87l-72.73,189.97c-1.32,4.41-5.29,6.61-8.82,6.61c-3.53,0-7.49-2.2-9.26-6.61l-72.28-189.97c-3.53-9.7-12.34-15.87-22.48-15.87H290.84c-14.1,0-26.89,5.73-36.14,16.31L35.2,478.28c-15.43,17.63-18.07,48.48,7.49,67L323.9,750.23c3.97,3.09,10.58,2.2,13.22-2.2c14.1-21.6,8.82-42.31-1.32-55.1c0-0.44-121.21-163.96-121.21-163.96c-8.82-10.58-8.82-26.45,0.44-37.02l66.11-74.49c9.7-11.46,26.45-7.49,30.85,5.29l149.86,379.49c3.09,9.26,11.9,14.99,21.6,14.99h29.09l29.97-0.44c9.7,0,18.07-6.17,21.6-14.99l149.86-379.05c4.85-13.22,21.6-16.31,30.85-5.29l65.67,74.05c9.26,10.58,9.26,26.45,0.44,37.02L689.73,692.49c-10.14,12.78-15.87,33.5-1.76,55.54c3.09,4.41,9.26,5.29,13.22,2.2L982.4,545.28C997.82,533.38,1010.61,505.17,989.01,478.72z"/></svg>';
+
+  // The logo that sits in the top left corner of every page. It is filled in here so the welcome can fly into it.
+  const slot = document.querySelector('[data-logo-slot]');
+  if (slot) slot.innerHTML = LOGO;
+
+  function splash(kind, message) {
+    const node = el('div', { id: 'splash', class: kind, role: kind === 'idle' ? 'status' : 'presentation' },
+      el('div', { class: 'splash-bg' }),
+      el('div', { class: 'splash-logo', html: LOGO }),
+      message && el('div', { class: 'splash-msg', text: message }));
+    document.body.append(node);
+    return node;
+  }
+
+  function dismiss(node, ms = 450) {
+    node.classList.add('out');
+    setTimeout(() => node.remove(), ms);
+  }
+
+  function welcome() {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    // Opening the app or refreshing it, not moving around inside it (home to a board and back).
+    const nav = performance.getEntriesByType('navigation')[0];
+    const type = nav ? nav.type : 'navigate';
+    let inside = false;
+    try {
+      inside = !!document.referrer && new URL(document.referrer).origin === location.origin;
+    } catch {
+      // an odd referrer counts as coming from outside
+    }
+    if (type === 'back_forward' || (type === 'navigate' && inside)) return;
+    const node = splash('welcome');
+    const target = slot && slot.querySelector('svg');
+    if (!target) return setTimeout(() => dismiss(node), 1500);
+    // The logo draws itself in the middle and flies to its place in the corner while the cover fades away a moment later.
+    document.body.classList.add('welcoming');
+    const logo = node.querySelector('.splash-logo');
+    setTimeout(() => {
+      const from = logo.getBoundingClientRect();
+      const to = target.getBoundingClientRect();
+      logo.style.transformOrigin = '0 0';
+      logo.style.transform = `translate(${to.left - from.left}px, ${to.top - from.top}px) scale(${to.width / from.width})`;
+      node.classList.add('fly');
+    }, 950);
+    // The flying logo stays above the cover until it has landed, then the real one takes over from exactly where it rests.
+    setTimeout(() => {
+      document.body.classList.remove('welcoming');
+      node.remove();
+    }, 2050);
+  }
+
+  // Called with true when the server stops answering and false when it is back. A short blip never shows it.
+  let idle = null;
+  let idleTimer = 0;
+  function offline(on) {
+    clearTimeout(idleTimer);
+    if (on) {
+      if (!idle) idleTimer = setTimeout(() => { idle = splash('idle', 'Connection lost. Reconnecting…'); }, 1200);
+    } else if (idle) {
+      dismiss(idle);
+      idle = null;
+    }
+  }
+
+  // For pages without a live connection: ask the server now and then, and reload once it is back.
+  function watchServer() {
+    let misses = 0;
+    setInterval(async () => {
+      try {
+        if (!(await fetch('/healthz', { cache: 'no-store' })).ok) throw new Error('down');
+        if (idle) return location.reload();
+        misses = 0;
+      } catch {
+        if (++misses >= 2) offline(true);
+      }
+    }, 4000);
+  }
+
+  welcome();
+
+  return { el, store, user, dialog, askName, info, offline, watchServer, initials, ago, api, theme, setTheme, themeButton };
 })();

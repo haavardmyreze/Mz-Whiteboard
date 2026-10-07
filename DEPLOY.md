@@ -77,14 +77,51 @@ All optional locally; the ones in bold matter when deployed.
 | `HOST` | `0.0.0.0` | Interface to listen on |
 | **`WIPBOARD_DATA`** | `./data` (`/data` in the container) | Where boards and uploads are saved |
 | `WIPBOARD_MAX_UPLOAD_MB` | `1024` | Largest accepted file |
-| **`AUTH_MODE`** | `none` | `none` (everyone, picks a display name) or `iap` (Google sign-in) |
+| **`AUTH_MODE`** | `none` | `none` (everyone, picks a display name), `google` (Google accounts on an allow list, own PC) or `iap` (Google Cloud IAP) |
 | **`IAP_AUDIENCE`** | | Required with `iap`: `/projects/PROJECT_NUMBER/locations/REGION/services/SERVICE_NAME` |
 | `ALLOWED_EMAILS` | | Optional extra list, comma separated, narrower than who IAP admits |
 | `ALLOWED_DOMAINS` | | Same, by domain, e.g. `myreze.com` |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | | With `AUTH_MODE=google`: the OAuth client from Google Cloud Console |
+| `PUBLIC_URL` | | With `AUTH_MODE=google`: the address people use, no trailing slash. Also used for share links |
+| `SESSION_SECRET` | made once, kept in `data/.session-secret` | Signs sign-in cookies; set it only to share sessions between restarts of different data folders |
 
 With `AUTH_MODE=iap` the app checks the signed token Google adds to every request and refuses anything
 without a valid one. People are then named from their Google account (cursor labels, presence), and
 the name prompt disappears. The check is in `auth.js` and covered by `npm test`.
+
+## Running it from your own PC, for people outside
+
+No cloud account needed for the app itself. Three parts: Google sign-in, a public address, and a
+tunnel to this PC.
+
+**1. Google sign-in.** In the [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+(any project, free) create an *OAuth client ID* of type *Web application*. Under *Authorised redirect
+URIs* add `PUBLIC_URL/auth/callback` (for example `https://boards.example.com/auth/callback`; add
+`http://localhost:4680/auth/callback` as well to try it on this PC). Copy `.env.example` to `.env` and fill in
+the client ID and secret, `PUBLIC_URL`, and who may sign in (`ALLOWED_EMAILS`, `ALLOWED_DOMAINS`).
+Restart with `start.bat`. Strangers are sent to a sign-in page; a Google account not on the list is refused.
+Changes to the list take effect on restart.
+
+**2. A public address and tunnel.** The simplest safe route is a
+[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/):
+a domain on Cloudflare (about $10 a year), `cloudflared` installed on this PC as a service, and a
+tunnel that sends `boards.example.com` to `http://localhost:4680`. It makes only an outbound
+connection, so no router ports are opened, and it provides HTTPS. Do not add Cloudflare Access in front:
+the app does its own sign-in, and read-only links must stay reachable without one. Set `HOST=127.0.0.1` in
+`.env` so the tunnel is the only way in from outside (people on your own network then use the public address too).
+
+**3. Keep it up.** The PC must stay awake and on. Back up the `data` folder; it holds every board and upload.
+
+### Read-only links
+
+On a board, **Share** makes a link such as `PUBLIC_URL/s/<secret>`. Anyone holding it can watch the
+board live and open images and videos, with no sign-in. They cannot change anything (the server ignores
+anything they send, not just the buttons being hidden), they do not appear to the team, and they do not see
+comments. **Stop sharing** kills the link at once and disconnects whoever is watching. Treat a link like a
+password: whoever has it can view the board. The links work in `none` and `google` modes, not behind IAP.
+
+Uploaded files are served under hard-to-guess names. They load for signed-in people, and for a browser that has
+just opened a live read-only link, and for nobody else.
 
 ## Using Vercel and Next.js instead
 

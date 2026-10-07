@@ -1012,3 +1012,59 @@ body.presenting #followpill, body.presenting #focusbar { top: 16px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* Read-only link: only looking around is left. */
+body.viewonly #tooloptions, body.viewonly #seltools, body.viewonly #selbox,
+body.viewonly #present, body.viewonly #comments, body.viewonly #share,
+body.viewonly #pins, body.viewonly #thread, body.viewonly #commentpanel, body.viewonly #snap,
+body.viewonly #focusclear, body.viewonly #focushint { display: none !important; }
+body.viewonly #boardname, body.viewonly #back { pointer-events: none; }
+body.viewonly .item { cursor: grab; }
+/* What can be opened says so: a zoom cursor, a ring and an expand badge on hover. */
+body.viewonly:not(.focus) .item.image, body.viewonly:not(.focus) .item.video { cursor: zoom-in; }
+body.viewonly:not(.focus) .item.image:hover, body.viewonly:not(.focus) .item.video:hover { outline: calc(2px * var(--inv)) solid var(--accent); outline-offset: calc(2px * var(--inv)); }
+body.viewonly:not(.focus) .item.image:hover::after, body.viewonly:not(.focus) .item.video:hover::after {
+  content: ''; position: absolute; right: calc(8px * var(--inv)); top: calc(8px * var(--inv)); width: calc(30px * var(--inv)); height: calc(30px * var(--inv));
+  border-radius: calc(8px * var(--inv)); pointer-events: none; background-color: rgba(0, 0, 0, 0.62);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7'/%3E%3C/svg%3E");
+  background-size: 62% 62%; background-position: center; background-repeat: no-repeat;
+}
+
+/* Myreze logo: the welcome when the app opens, and the idle state while the server is unreachable. */
+#splash {
+  position: fixed; inset: 0; z-index: 2000;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+  color: var(--text);
+  transition: opacity 0.4s var(--ease);
+}
+.splash-bg { position: absolute; inset: 0; background: var(--bg); transition: opacity 0.6s ease 0.4s; }
+#splash.fly .splash-bg { opacity: 0; }
+.splash-logo { position: relative; width: min(150px, 32vw); transition: transform 0.6s cubic-bezier(0.7, 0, 0.2, 1); }
+#splash.fly { pointer-events: none; }
+#splash.out { opacity: 0; pointer-events: none; }
+#splash svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+[data-logo-slot] > svg { display: block; width: 24px; height: 24px; fill: currentColor; }
+.logomark { display: inline-flex; }
+body.welcoming [data-logo-slot] > svg { visibility: hidden; }
+#splash path { fill: currentColor; fill-opacity: 0; stroke: currentColor; stroke-width: 9; stroke-linejoin: round; }
+#splash.welcome path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: logo-draw 0.75s cubic-bezier(0.6, 0, 0.2, 1) forwards, logo-fill 0.35s 0.55s ease forwards; }
+#splash.idle .splash-bg { background: color-mix(in srgb, var(--bg) 84%, transparent); backdrop-filter: blur(8px); }
+#splash.idle path { stroke-dasharray: 0.22 0.78; animation: logo-trace 2.6s linear infinite, logo-breathe 2.6s ease-in-out infinite; }
+#splash .splash-msg { position: relative; font-size: 13px; color: var(--muted); letter-spacing: 0.01em; }
+@keyframes logo-draw { to { stroke-dashoffset: 0; } }
+@keyframes logo-fill { to { fill-opacity: 1; } }
+@keyframes logo-trace { to { stroke-dashoffset: -1; } }
+@keyframes logo-breathe { 0%, 100% { fill-opacity: 0.04; } 50% { fill-opacity: 0.22; } }
+
+/* Workspaces: Myreze (shared) and Personal. */
+.spaces { display: flex; gap: 4px; margin: -16px 0 22px -14px; }
+.space { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 14px; border: 1px solid transparent; border-radius: var(--r-2, 8px); background: none; color: var(--text-2); font: inherit; font-weight: 600; cursor: pointer; }
+.space:hover { background: var(--hover); color: var(--text); }
+.space.current { background: var(--surface-2); color: var(--text); border-color: var(--line-strong); }
+.space.drop { border-color: var(--accent, var(--brand)); background: var(--hover); }
+.space .tally { font-weight: 500; color: var(--muted); }
+
+.share-base { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--text-2); font-size: 13px; }
+.share-base select { flex: 1; height: 30px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-2); color: var(--text); font: inherit; padding: 0 8px; }
+.share-note { margin: 10px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }

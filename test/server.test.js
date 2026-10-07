@@ -69,10 +69,11 @@ test('a misconfigured sign-in refuses to start', () => {
 
 // ---------------------------------------------------------------- the running server
 
-function start(port, env = {}) {
+function start(port, env = {}, seed) {
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'wipboard-test-'));
+  if (seed) seed(data);
   const child = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', WIPBOARD_DATA: data, ...env },
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', WIPBOARD_DATA: data, WIPBOARD_ENV_FILE: path.join(data, 'no.env'), ...env },
     stdio: 'ignore',
   });
   const base = `http://127.0.0.1:${port}`;
@@ -148,7 +149,10 @@ test('without sign-in /api/me reports no user', async (t) => {
   const s = start(4794);
   t.after(s.stop);
   await s.ready;
-  assert.deepEqual(await (await fetch(`${s.base}/api/me`)).json(), { auth: 'none', user: null });
+  const { shareBases, ...me } = await (await fetch(`${s.base}/api/me`)).json();
+  assert.deepEqual(me, { auth: 'none', user: null, canShare: true, publicUrl: null, signOut: false });
+  // share links never point at localhost: only at addresses other computers can reach
+  assert.ok(shareBases.every((b) => /^http:\/\/\d+\.\d+\.\d+\.\d+:4794$/.test(b) && !b.includes('127.0.0.1')));
 });
 
 test('the in-browser video encoder is served as a module', async (t) => {
@@ -211,4 +215,268 @@ test('comments are stamped with who wrote them, and only ever sit on a piece of 
   assert.equal(stored.text, 'Lovely');
   assert.equal(stored.name, 'Anna');
   assert.equal(stored.done, true);
+});
+
+// ---------------------------------------------------------------- google sign-in
+
+const googleOptions = (extra = {}) => ({
+  mode: 'google', clientId: 'client-1', clientSecret: 'shh', publicUrl: 'https://boards.example.com',
+  sessionSecret: 'a-long-secret', allowedDomains: 'myreze.com', allowedEmails: 'guest@gmail.com', ...extra,
+});
+
+function idToken(claims = {}) {
+  const enc = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const body = { iss: 'https://accounts.google.com', aud: 'client-1', exp: Math.floor(Date.now() / 1000) + 600, email: 'anna@myreze.com', email_verified: true, name: 'Anna Berg', ...claims };
+  return `${enc({ alg: 'RS256' })}.${enc(body)}.sig`;
+}
+
+function fakeRes() {
+  const res = { status: 0, headers: {}, writeHead(s, h) { res.status = s; res.headers = h; }, end() {} };
+  return res;
+}
+
+test('google sign-in refuses to start without what it needs', () => {
+  assert.throws(() => createAuth(googleOptions({ clientId: '' })), /GOOGLE_CLIENT_ID/);
+  assert.throws(() => createAuth(googleOptions({ allowedDomains: '', allowedEmails: '' })), /ALLOWED_EMAILS/);
+  assert.throws(() => createAuth(googleOptions({ sessionSecret: '' })), /session secret/);
+  assert.throws(() => createAuth(googleOptions({ publicUrl: 'boards.example.com' })), /PUBLIC_URL/);
+});
+
+test('a google session cookie is a user, until it is forged, expired or not on the list any more', async () => {
+  const auth = createAuth(googleOptions());
+  const cookieOf = (a, user) => a.sessionCookie(user).split(';')[0];
+  const ask = (a, cookie) => a.authenticate({ headers: { cookie } });
+  const good = cookieOf(auth, { email: 'anna@myreze.com', name: 'Anna Berg' });
+  const { user } = await ask(auth, good);
+  assert.equal(user.email, 'anna@myreze.com');
+  assert.equal(user.name, 'Anna Berg');
+
+  assert.equal((await ask(auth, undefined)).status, 401);
+  assert.equal((await ask(auth, good.slice(0, -2) + 'xx')).status, 401);
+  assert.equal((await ask(createAuth(googleOptions({ sessionSecret: 'another' })), good)).status, 401);
+  assert.equal((await ask(createAuth(googleOptions({ now: () => Math.floor(Date.now() / 1000) + 15 * 86400 })), good)).status, 401);
+  assert.equal((await ask(createAuth(googleOptions({ allowedDomains: 'other.com' })), good)).status, 403);
+  assert.match(auth.sessionCookie({ email: 'a@myreze.com', name: 'A' }), /HttpOnly; SameSite=Lax.*Secure/);
+});
+
+function pendingNext(setCookie) {
+  const body = setCookie.split(';')[0].split('=')[1].split('.')[0];
+  return JSON.parse(Buffer.from(body, 'base64url')).next;
+}
+
+test('the google callback checks state, token and allow list before it signs anyone in', async () => {
+  let token = idToken();
+  const auth = createAuth(googleOptions({ exchange: async () => token }));
+
+  const begin = fakeRes();
+  await auth.handle({ headers: {} }, begin, new URL('http://x/auth/google?next=/b/abcd1234'));
+  assert.equal(begin.status, 302);
+  const to = new URL(begin.headers.Location);
+  assert.equal(to.origin + to.pathname, 'https://accounts.google.com/o/oauth2/v2/auth');
+  assert.equal(to.searchParams.get('redirect_uri'), 'https://boards.example.com/auth/callback');
+  const pending = begin.headers['Set-Cookie'][0].split(';')[0];
+  const state = to.searchParams.get('state');
+
+  const callback = async (query, cookie = pending) => {
+    const res = fakeRes();
+    await auth.handle({ headers: { cookie } }, res, new URL(`http://x/auth/callback?${query}`));
+    return res;
+  };
+  const ok = await callback(`code=c&state=${state}`);
+  assert.equal(ok.headers.Location, '/b/abcd1234');
+  assert.ok(ok.headers['Set-Cookie'].some((c) => c.startsWith('wb_session=') && !c.includes('Max-Age=0')));
+
+  assert.match((await callback('code=c&state=wrong')).headers.Location, /error=failed/);
+  assert.match((await callback(`code=c&state=${state}`, '')).headers.Location, /error=failed/);
+  assert.match((await callback('error=access_denied')).headers.Location, /error=denied/);
+  token = idToken({ email: 'stranger@gmail.com' });
+  assert.match((await callback(`code=c&state=${state}`)).headers.Location, /error=not-allowed/);
+  token = idToken({ aud: 'someone-elses-app' });
+  assert.match((await callback(`code=c&state=${state}`)).headers.Location, /error=failed/);
+  token = idToken({ email_verified: false });
+  assert.match((await callback(`code=c&state=${state}`)).headers.Location, /error=failed/);
+
+  // people are only ever sent back to a page of this app
+  const evil = fakeRes();
+  await auth.handle({ headers: {} }, evil, new URL('http://x/auth/google?next=//evil.example'));
+  assert.equal(pendingNext(evil.headers['Set-Cookie'][0]), '/');
+});
+
+test('with google sign-in nothing is served to strangers except the sign-in page and read-only links', async (t) => {
+  const shareToken = 'sharedlinktoken123456';
+  const s = start(4797, {
+    AUTH_MODE: 'google', GOOGLE_CLIENT_ID: 'client-1', GOOGLE_CLIENT_SECRET: 'shh',
+    PUBLIC_URL: 'http://localhost:4797', ALLOWED_EMAILS: 'anna@example.com',
+  }, (data) => {
+    fs.mkdirSync(path.join(data, 'boards'), { recursive: true });
+    fs.writeFileSync(path.join(data, 'boards', 'boardone1.json'), JSON.stringify({ id: 'boardone1', name: 'Secret plans', shareToken, items: [] }));
+  });
+  t.after(s.stop);
+  await s.ready;
+  const get = (p, opts) => fetch(s.base + p, { redirect: 'manual', ...opts });
+
+  const home = await get('/');
+  assert.equal(home.status, 302);
+  assert.match(home.headers.get('location'), /^\/auth\/login\?next=%2F$/);
+  assert.equal((await get('/b/boardone1')).status, 302);
+  assert.equal((await get('/api/boards')).status, 401);
+  assert.equal((await get('/api/library')).status, 401);
+  assert.equal((await get('/uploads/abc.png')).status, 401);
+  assert.equal((await get('/auth/login')).status, 200);
+  assert.equal((await get('/style.css')).status, 200);
+  assert.equal((await get('/auth/google')).status, 302);
+
+  // a read-only link needs nothing, tells nothing but the name, and cannot reach the editable board
+  assert.equal((await get(`/s/${shareToken}`)).status, 200);
+  assert.deepEqual(await (await get(`/api/shared/${shareToken}`)).json(), { name: 'Secret plans' });
+  assert.equal((await get('/api/shared/notarealtokenvalue000')).status, 404);
+  assert.equal((await get('/api/boards/boardone1')).status, 401);
+  // opening it lets that browser load the board's files, which a stranger still cannot
+  const page = await get(`/s/${shareToken}`);
+  assert.match(page.headers.get('set-cookie'), /wb_view=/);
+  assert.notEqual((await get('/uploads/abc.png', { headers: { cookie: `wb_view=${shareToken}` } })).status, 401);
+  assert.equal((await get('/uploads/abc.png', { headers: { cookie: 'wb_view=wrongtoken00000000000' } })).status, 401);
+});
+
+// ---------------------------------------------------------------- read-only links
+
+test('a read-only link shows the board live, hides comments, accepts no changes and stops when revoked', async (t) => {
+  const WebSocket = require('ws');
+  const s = start(4798);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const board = await (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: json, body: JSON.stringify({ name: 'Review' }) })).json();
+  const { token } = await (await fetch(`${s.base}/api/boards/${board.id}/share`, { method: 'POST' })).json();
+  assert.match(token, /^[\w-]{16,}$/);
+  assert.equal((await (await fetch(`${s.base}/api/boards/${board.id}/share`, { method: 'POST' })).json()).token, token);
+
+  const open = (query, name) => new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:4798/ws?${query}`);
+    const conn = { ws, seen: [], closed: null };
+    ws.on('open', () => ws.send(JSON.stringify({ t: 'hello', name, color: '#336699' })));
+    ws.on('message', (raw) => {
+      const msg = JSON.parse(raw);
+      conn.seen.push(msg);
+      if (msg.t === 'init') resolve(conn);
+    });
+    ws.on('error', reject);
+    ws.on('close', (code) => { conn.closed = code; });
+  });
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  const editor = await open(`board=${board.id}`, 'Anna');
+  editor.ws.send(JSON.stringify({ t: 'op', ops: [
+    { t: 'add', item: { id: 'imageone1', type: 'image', x: 0, y: 0, w: 100, h: 100, src: '/x.png' } },
+    { t: 'add', item: { id: 'comment01', type: 'comment', on: 'imageone1', text: 'internal note' } },
+  ] }));
+  await wait(200);
+
+  const viewer = await open(`share=${token}`, 'Eve');
+  t.after(() => { editor.ws.close(); viewer.ws.close(); });
+  const init = viewer.seen.find((m) => m.t === 'init');
+  assert.deepEqual(init.items.map((i) => i.id), ['imageone1']);
+  assert.equal(init.board.id, undefined);
+  assert.deepEqual(init.peers.map((p) => p.name), ['Anna']);
+  // the editors see the viewer arrive as a pointer carrying the name they gave
+  await wait(150);
+  const arrival = editor.seen.find((m) => m.t === 'join');
+  assert.equal(arrival.peer.name, 'Eve');
+  assert.equal(arrival.peer.viewer, true);
+
+  // live changes arrive, minus comments
+  editor.ws.send(JSON.stringify({ t: 'op', ops: [
+    { t: 'add', item: { id: 'noteone01', type: 'note', x: 5, y: 5, w: 50, h: 50, text: 'hi' } },
+    { t: 'add', item: { id: 'comment02', type: 'comment', on: 'imageone1', text: 'second' } },
+  ] }));
+  await wait(200);
+  const live = viewer.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops);
+  assert.deepEqual(live.map((o) => o.item.id), ['noteone01']);
+
+  // whatever a viewer sends is ignored
+  viewer.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'vandal001', type: 'note', x: 0, y: 0, w: 1, h: 1 } }, { t: 'del', ids: ['imageone1'] }, { t: 'meta', patch: { name: 'Hacked' } }] }));
+  viewer.ws.send(JSON.stringify({ t: 'present', on: true }));
+  // ...except a pointer and the laser, which reach the editors without anything else the viewer claims
+  viewer.ws.send(JSON.stringify({ t: 'p', p: { c: [10, 20], l: 1, s: ['imageone1'], v: [0, 0, 1], name: 'Boss' } }));
+  viewer.ws.send(JSON.stringify({ t: 'laser', pts: [1, 2, 3, 4] }));
+  await wait(250);
+  assert.ok(!editor.seen.some((m) => m.t === 'op' && m.from));
+  assert.ok(!editor.seen.some((m) => m.t === 'presenter'));
+  const pointer = editor.seen.find((m) => m.t === 'p' && m.id === arrival.peer.id);
+  assert.deepEqual(pointer.p, { c: [10, 20], l: 1 });
+  assert.deepEqual(editor.seen.find((m) => m.t === 'laser' && m.id === arrival.peer.id).pts, [1, 2, 3, 4]);
+  const meta = await (await fetch(`${s.base}/api/boards/${board.id}`)).json();
+  assert.equal(meta.name, 'Review');
+  assert.equal(meta.online, 1);
+
+  // a wrong link opens nothing; revoking closes the live view and kills the link
+  await assert.rejects(open('share=notarealtokenvalue000', 'Mallory'));
+  assert.equal((await fetch(`${s.base}/api/boards/${board.id}/share`, { method: 'DELETE' })).status, 200);
+  await wait(200);
+  assert.equal(viewer.closed, 4005);
+  assert.equal((await fetch(`${s.base}/api/shared/${token}`)).status, 404);
+});
+
+// ---------------------------------------------------------------- workspaces
+
+test('the Myreze workspace is shared and a personal one is private to its owner', async (t) => {
+  const secret = 'workspace-test-secret';
+  const mk = createAuth(googleOptions({ sessionSecret: secret, allowedDomains: 'x.com', allowedEmails: '', publicUrl: 'http://localhost:4799' }));
+  const cookie = (email, name) => mk.sessionCookie({ email, name }).split(';')[0];
+  const anna = cookie('anna@x.com', 'Anna');
+  const ben = cookie('ben@x.com', 'Ben');
+  const s = start(4799, {
+    AUTH_MODE: 'google', GOOGLE_CLIENT_ID: 'client-1', GOOGLE_CLIENT_SECRET: 'shh', PUBLIC_URL: 'http://localhost:4799',
+    ALLOWED_DOMAINS: 'x.com', SESSION_SECRET: secret,
+  });
+  t.after(s.stop);
+  await s.ready;
+  const call = async (who, method, p, body) => {
+    const res = await fetch(s.base + p, { method, headers: { cookie: who, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  };
+
+  const shared = (await call(anna, 'POST', '/api/boards', { name: 'Team board' })).body;
+  const mine = (await call(anna, 'POST', '/api/boards', { name: 'Anna private', workspace: 'personal' })).body;
+  assert.equal(shared.workspace, 'myreze');
+  assert.equal(mine.workspace, 'personal');
+
+  const names = async (who) => (await call(who, 'GET', '/api/library')).body.boards.map((b) => b.name).sort();
+  assert.deepEqual(await names(anna), ['Anna private', 'Team board']);
+  assert.deepEqual(await names(ben), ['Team board']);
+  assert.equal((await call(ben, 'GET', `/api/boards/${mine.id}`)).status, 404);
+  assert.equal((await call(ben, 'PATCH', `/api/boards/${mine.id}`, { name: 'mine now' })).status, 404);
+  assert.equal((await call(ben, 'DELETE', `/api/boards/${mine.id}`)).status, 404);
+  assert.equal((await call(ben, 'POST', `/api/boards/${mine.id}/share`)).status, 404);
+  assert.equal((await call(ben, 'GET', `/api/boards/${shared.id}`)).status, 200);
+
+  // folders follow the workspace they are made in, and carry their boards with them when moved
+  const folder = (await call(anna, 'POST', '/api/folders', { name: 'Ideas', workspace: 'personal' })).body;
+  assert.equal(folder.workspace, 'personal');
+  assert.equal((await call(ben, 'PATCH', `/api/folders/${folder.id}`, { name: 'x' })).status, 404);
+  const inside = (await call(anna, 'POST', '/api/boards', { name: 'Inside', folderId: folder.id })).body;
+  assert.equal(inside.workspace, 'personal');
+  assert.equal((await call(anna, 'PATCH', `/api/boards/${shared.id}`, { folderId: folder.id })).status, 400);
+  assert.equal((await call(anna, 'POST', '/api/folders', { name: 'Sub', parentId: folder.id })).body.workspace, 'personal');
+
+  assert.equal((await call(anna, 'PATCH', `/api/folders/${folder.id}`, { workspace: 'myreze' })).body.workspace, 'myreze');
+  assert.deepEqual(await names(ben), ['Inside', 'Team board']);
+  assert.ok((await call(ben, 'GET', '/api/library')).body.folders.some((f) => f.name === 'Ideas' && f.workspace === 'myreze'));
+
+  // a board moved across lands at the top level of the other workspace
+  assert.equal((await call(anna, 'PATCH', `/api/boards/${mine.id}`, { workspace: 'myreze' })).body.workspace, 'myreze');
+  assert.deepEqual(await names(ben), ['Anna private', 'Inside', 'Team board']);
+  assert.equal((await call(anna, 'PATCH', `/api/boards/${shared.id}`, { workspace: 'personal' })).body.workspace, 'personal');
+  assert.deepEqual(await names(ben), ['Anna private', 'Inside']);
+});
+
+test('without sign-in there is only the shared workspace', async (t) => {
+  const s = start(4800);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const board = await (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: json, body: JSON.stringify({ name: 'A', workspace: 'personal' }) })).json();
+  assert.equal(board.workspace, 'myreze');
+  const moved = await fetch(`${s.base}/api/boards/${board.id}`, { method: 'PATCH', headers: json, body: JSON.stringify({ workspace: 'personal' }) });
+  assert.equal(moved.status, 400);
 });

@@ -1,7 +1,7 @@
 'use strict';
 
 (async () => {
-  const { el, api, ago } = WB;
+  const { el, api, ago, store } = WB;
   const $ = (id) => document.getElementById(id);
 
   const svg = (d, size = 20) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
@@ -10,19 +10,32 @@
   const ICON_FOLDER_SM = svg(FOLDER, 16);
   const ICON_MORE = svg('<circle cx="5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/>', 18);
 
-  let lib = { folders: [], boards: [] };
+  let everything = { folders: [], boards: [] }; // all you may see, in every workspace
+  let lib = { folders: [], boards: [] };       // the workspace being shown
+  const SPACES = { myreze: 'Myreze', personal: 'Personal' };
+  let space = 'myreze';
   let dragging = null; // { kind: 'board' | 'folder', id }
 
   $('themeslot').replaceWith(WB.themeButton());
+  WB.watchServer();
   let me = await WB.askName();
+  // Personal workspaces belong to a signed-in account, so without sign-in there is only the shared one.
+  const hasPersonal = !!WB.info().user;
+  if (hasPersonal && store('wb:workspace') === 'personal') space = 'personal';
   const paintMe = () => $('me').replaceChildren(
     el('span', { class: 'avatar sm', style: { background: me.color }, text: WB.initials(me.name) }),
     el('span', { text: me.name }));
   paintMe();
-  $('me').addEventListener('click', async () => {
-    me = await WB.askName(true);
-    paintMe();
-  });
+  if (WB.info().signOut) {
+    // Signed in with Google: the name comes from the account, so the chip is a sign-out instead.
+    $('me').title = 'Sign out';
+    $('me').addEventListener('click', () => { location.href = '/auth/logout'; });
+  } else {
+    $('me').addEventListener('click', async () => {
+      me = await WB.askName(true);
+      paintMe();
+    });
+  }
 
   // ------------------------------------------------------------- library helpers
 
@@ -51,12 +64,58 @@
 
   async function refresh() {
     try {
-      lib = await api('GET', '/api/library');
+      everything = await api('GET', '/api/library');
+      lib = {
+        folders: everything.folders.filter((f) => f.workspace === space),
+        boards: everything.boards.filter((b) => b.workspace === space),
+      };
       render();
     } catch (err) {
       $('empty').hidden = false;
       $('empty').textContent = `Could not load boards: ${err.message}`;
     }
+  }
+
+  const otherSpace = () => (space === 'myreze' ? 'personal' : 'myreze');
+
+  async function moveSpace(kind, thing) {
+    await api('PATCH', kind === 'board' ? `/api/boards/${thing.id}` : `/api/folders/${thing.id}`, { workspace: otherSpace() });
+    await refresh();
+  }
+
+  function switchSpace(next) {
+    if (next === space) return;
+    space = next;
+    store('wb:workspace', space);
+    $('q').value = '';
+    if (location.hash && location.hash !== '#/') location.hash = '#/';
+    refresh();
+  }
+
+  // The two tabs. Dropping a board or folder on the other one moves it there.
+  function renderSpaces() {
+    $('spaces').hidden = !hasPersonal;
+    if (!hasPersonal) return;
+    $('spaces').replaceChildren(...Object.keys(SPACES).map((name) => {
+      const count = everything.boards.filter((b) => b.workspace === name).length;
+      const tab = el('button', { class: `space${name === space ? ' current' : ''}`, type: 'button', onclick: () => switchSpace(name) },
+        SPACES[name], el('span', { class: 'tally', text: String(count) }));
+      tab.addEventListener('dragover', (e) => {
+        if (!dragging || name === space) return;
+        e.preventDefault();
+        tab.classList.add('drop');
+      });
+      tab.addEventListener('dragleave', () => tab.classList.remove('drop'));
+      tab.addEventListener('drop', (e) => {
+        tab.classList.remove('drop');
+        if (!dragging || name === space) return;
+        e.preventDefault();
+        const { kind, id } = dragging;
+        dragging = null;
+        api('PATCH', kind === 'board' ? `/api/boards/${id}` : `/api/folders/${id}`, { workspace: name }).then(refresh).catch(fail);
+      });
+      return tab;
+    }));
   }
 
   async function moveTo(kind, id, folderId) {
@@ -255,8 +314,9 @@
       menuButton([
         ['Rename', () => rename('folder', folder)],
         ['Move to…', () => moveDialog('folder', folder)],
+        hasPersonal && [`Move to ${SPACES[otherSpace()]} workspace`, () => moveSpace('folder', folder)],
         ['Delete folder', () => removeFolder(folder), true],
-      ]));
+      ].filter(Boolean)));
     draggable(card, 'folder', folder.id);
     dropTarget(card, folder.id);
     return card;
@@ -275,8 +335,9 @@
       menuButton([
         ['Rename', () => rename('board', board)],
         ['Move to…', () => moveDialog('board', board)],
+        hasPersonal && [`Move to ${SPACES[otherSpace()]} workspace`, () => moveSpace('board', board)],
         ['Delete board', () => removeBoard(board), true],
-      ]));
+      ].filter(Boolean)));
     draggable(card, 'board', board.id);
     return card;
   }
@@ -292,18 +353,19 @@
   }
 
   function crumb(folder) {
-    const node = el('a', { class: 'crumb', href: folder ? `#/f/${folder.id}` : '#/', text: folder ? folder.name : 'All boards' });
+    const node = el('a', { class: 'crumb', href: folder ? `#/f/${folder.id}` : '#/', text: folder ? folder.name : (hasPersonal ? SPACES[space] : 'All boards') });
     dropTarget(node, folder ? folder.id : null);
     return node;
   }
 
   function render() {
+    renderSpaces();
     const cur = currentFolder();
     const trail = trailTo(cur);
     const crumbs = [crumb(null), ...trail.map(crumb)];
     $('crumbs').replaceChildren(...crumbs.flatMap((node, i) => (i ? [el('span', { class: 'crumb-sep', text: '/' }), node] : [node])));
     crumbs[crumbs.length - 1].classList.add('current');
-    document.title = `${trail.length ? trail[trail.length - 1].name : 'All boards'} · Wipboard`;
+    document.title = `${trail.length ? trail[trail.length - 1].name : hasPersonal ? SPACES[space] : 'All boards'} · Wipboard`;
 
     // A search looks through every folder; without one you see the folder you are in.
     const q = $('q').value.trim().toLowerCase();
@@ -327,7 +389,7 @@
     const name = await WB.dialog({ title: 'New board', value: `Standup ${new Date().toLocaleDateString()}`, placeholder: 'Board name', ok: 'Create board' });
     if (!name) return;
     try {
-      const board = await api('POST', '/api/boards', { name, folderId: currentFolder() });
+      const board = await api('POST', '/api/boards', { name, folderId: currentFolder(), workspace: space });
       location.href = `/b/${board.id}`;
     } catch (err) {
       fail(err);
@@ -339,7 +401,7 @@
     const name = await WB.dialog({ title: 'New folder', value: '', placeholder: 'Folder name', ok: 'Create folder' });
     if (!name) return;
     try {
-      await api('POST', '/api/folders', { name, parentId: currentFolder() });
+      await api('POST', '/api/folders', { name, parentId: currentFolder(), workspace: space });
       refresh();
     } catch (err) {
       fail(err);

@@ -14,7 +14,7 @@
   <header class="home-bar">
     <div class="home-head">
       <a class="brand" href="#/" aria-label="All boards">
-        <img src="/favicon.svg" alt="" width="24" height="24">
+        <span class="logomark" data-logo-slot></span>
         <span>Wipboard</span>
       </a>
       <label class="search">
@@ -36,6 +36,7 @@
     </div>
   </header>
   <main>
+    <nav id="spaces" class="spaces" aria-label="Workspaces" hidden></nav>
     <nav id="crumbs" class="crumbs" aria-label="Folder path"></nav>
     <div id="content"></div>
     <p id="empty" class="home-empty" hidden></p>

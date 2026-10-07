@@ -424,7 +424,7 @@
 
   // Space kept clear of the floating chrome when framing something.
   function insets() {
-    return { t: 80, r: 32, b: 32, l: 110 };
+    return vp.clientWidth < 700 ? { t: 64, r: 16, b: 84, l: 16 } : { t: 80, r: 32, b: 32, l: 110 };
   }
 
   function fitRect(r, { inset = insets(), dur = 380, linear = false, maxZ = MAX_Z } = {}) {
@@ -1829,6 +1829,7 @@
       updateFollowUI();
     }
     stopCamAnim();
+    const wasOpen = !!focusId;
     if (!focusId) {
       focusReturn = { x: cam.x, y: cam.y, z: cam.z };
       // Annotating is fine work, so the brush starts at its smallest; the usual size comes back afterwards.
@@ -1846,8 +1847,10 @@
     $('focusbar').hidden = false;
     for (const [nid, node] of els) node.classList.toggle('dim', nid !== id && items.get(nid).pid !== id);
     $('focushint').textContent = it.type === 'image' ? 'Draw, write notes or comment' : 'Pause on a frame and draw: the drawing stays on that frame';
-    // A video starts on the select tool so its play button still works.
-    setTool(it.type === 'image' && !viewOnly ? 'pen' : 'select');
+    // Opening starts with the brush on an image, ready to mark it up, and the select tool on a video so
+    // its play button works. With a finger, one finger swipes between pieces, so it starts on select
+    // too. Going on to the next piece keeps whatever tool is in hand.
+    if (!wasOpen) setTool(it.type === 'image' && !viewOnly && !matchMedia('(pointer: coarse)').matches ? 'pen' : 'select');
     if (it.type === 'video') {
       setSel([id]);
       // Open, it is scrubbed and stepped through: worth having all of it rather than just its start.
@@ -1860,6 +1863,7 @@
 
   function exitFocus() {
     if (!focusId) return;
+    closeThread();
     focusId = null;
     document.body.classList.remove('focus');
     $('focusbar').hidden = true;
@@ -2611,6 +2615,7 @@
     }
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     const p = s2w(e.clientX, e.clientY);
+    if (e.pointerType === 'touch' && touchStart(e)) return;
     const pan = !focusId && (e.button === 1 || e.button === 2 || (e.button === 0 && ((viewOnly && tool !== 'comment') || spaceDown || tool === 'pan' || tool === 'laser')));
     e.preventDefault();
     if (gesture) return;
@@ -2680,6 +2685,68 @@
       if (!arrow) path.setAttribute('d', outlinePath(g.pts, g.ws, 1, 1, size));
     }
   });
+
+  // ---- touch: one finger looks around and opens things, two zoom. Drawing, commenting and placing
+  // things work with one finger as they do with a mouse, and so does moving something already selected.
+  const touches = new Map();
+  let pinch = null;
+  const midOf = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
+  function touchStart(e) {
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.size >= 2) {
+      // A second finger turns looking around into zooming; it leaves a drawing or a move alone.
+      if (gesture && (gesture.type === 'pan' || gesture.type === 'swipe')) {
+        gesture = null;
+        document.body.classList.remove('panning');
+      }
+      if (!gesture && !focusId && touches.size === 2) {
+        const [a, b] = [...touches.values()];
+        stopCamAnim();
+        userMovedView();
+        pinch = { d0: Math.hypot(b.x - a.x, b.y - a.y) || 1, m0: midOf(a, b), cam: { ...cam } };
+      }
+      return true;
+    }
+    if ((tool !== 'select' && tool !== 'pan') || e.target.closest('.handle')) return false;
+    if (focusId) {
+      begin({ type: 'swipe', sx: e.clientX, sy: e.clientY }, e);
+      return true;
+    }
+    const node = e.target.closest('.item');
+    const id = node ? node.dataset.id : null;
+    if (id && sel.has(id) && !viewOnly && tool === 'select') return false;
+    if (coasting) stopCamAnim();
+    userMovedView();
+    begin({ type: 'pan', touch: true, id, play: !!e.target.closest('.vplay'), moved: false, sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, lx: e.clientX, ly: e.clientY, t: performance.now(), vx: 0, vy: 0 }, e);
+    return true;
+  }
+
+  // A tap: an image or video opens (its play button plays it), anything else is selected.
+  function touchTap(g) {
+    let it = g.id && items.get(g.id);
+    if (it && it.type === 'stroke' && it.pid) it = items.get(it.pid);
+    if (it && it.type === 'video' && g.play) toggleVideo(it.id);
+    else if (it && (it.type === 'image' || it.type === 'video')) enterFocus(it.id);
+    else if (it && !viewOnly && selectable(it)) setSel([it.id]);
+    else if (!viewOnly) setSel([]);
+  }
+
+  vp.addEventListener('pointermove', (e) => {
+    if (e.pointerType !== 'touch' || !touches.has(e.pointerId)) return;
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!pinch || touches.size < 2) return;
+    const [a, b] = [...touches.values()];
+    const m = midOf(a, b);
+    const z = clamp((pinch.cam.z * Math.hypot(b.x - a.x, b.y - a.y)) / pinch.d0, MIN_Z, MAX_Z);
+    // The point of the board first under the fingers stays under them.
+    setCam(pinch.cam.x + pinch.m0.x / pinch.cam.z - m.x / z, pinch.cam.y + pinch.m0.y / pinch.cam.z - m.y / z, z);
+  }, true);
+  const lift = (e) => {
+    if (touches.delete(e.pointerId) && touches.size < 2) pinch = null;
+  };
+  vp.addEventListener('pointerup', lift, true);
+  vp.addEventListener('pointercancel', lift, true);
 
   function beginResize(h, e) {
     const r = selBounds();
@@ -2805,6 +2872,7 @@
       }
       eraserRing.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
     } else if (g.type === 'pan') {
+      if (g.touch && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) > 8) g.moved = true;
       setCam(g.cx - (e.clientX - g.sx) / cam.z, g.cy - (e.clientY - g.sy) / cam.z, cam.z);
       // How fast the hand is moving, smoothed over the last few moves so one jittery sample does not decide it.
       const now = performance.now();
@@ -2875,8 +2943,15 @@
       // Everything the stroke touched goes in one undo step.
       if (g.hit.size) exec(delOps([...g.hit]));
     } else if (g.type === 'pan') {
+      if (g.touch && !g.moved) {
+        if (e && e.type === 'pointerup') touchTap(g);
       // Only if the hand was still moving when it let go: a pan brought to rest stays where it was put.
-      if (e && e.type === 'pointerup' && performance.now() - g.t < 60) coast(g.vx, g.vy);
+      } else if (e && e.type === 'pointerup' && performance.now() - g.t < 60) coast(g.vx, g.vy);
+    } else if (g.type === 'swipe') {
+      // In the viewer a sideways swipe goes to the next or previous piece.
+      const dx = e ? e.clientX - g.sx : 0;
+      const dy = e ? e.clientY - g.sy : 0;
+      if (e && e.type === 'pointerup' && Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) stepFocus(dx < 0 ? 1 : -1);
     } else if (g.type === 'move') {
       clearGuides();
       if (!g.started) {

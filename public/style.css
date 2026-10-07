@@ -561,6 +561,19 @@ body.home { overflow-y: auto; }
   .crumb { font-size: 22px; }
   #newfolder { display: none; }
 }
+/* A phone: the header keeps its buttons as icons, boards sit two to a row, and the list of
+   notifications spans the screen. */
+@media (max-width: 560px) {
+  .home-head { gap: 4px; padding: 0 12px; }
+  .brand > span:last-child, #me > span:last-child, #new .lbl { display: none; }
+  #me { padding: 0 4px; }
+  #new { width: var(--h); padding: 0; justify-content: center; }
+  .home main { padding: 24px 12px 48px; }
+  .board-grid, .folder-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .card.new { display: none; }
+  .card-body { padding: 10px 12px 12px; }
+  .notices { position: fixed; top: 64px; left: 8px; right: 8px; width: auto; max-height: calc(100vh - 80px); }
+}
 
 /* ---------------------------------------------------------------- canvas */
 
@@ -890,6 +903,8 @@ body.focus .pin { transition: none; }
   #peers .avatar:not(.me) { display: none; }
 }
 
+}
+
 .count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--surface-3); color: var(--text); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0; }
 
 /* The tool strip: icons with small labels down the left edge. The tool in hand is the one solid thing in it. */
@@ -1157,3 +1172,22 @@ body.login { display: grid; place-items: center; min-height: 100%; padding: 24px
 .login-form input::placeholder { color: var(--muted); }
 .login-form input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .login-form .btn { margin-top: 8px; }
+
+/* A phone: the tools lie along the bottom where a thumb reaches them, a comment opens as a sheet from
+   the bottom, and the viewer's bar spans the top. One finger moves the board, so there is no hand tool. */
+@media (max-width: 700px) {
+  #toolbar { left: 50%; top: auto; bottom: calc(10px + env(safe-area-inset-bottom)); transform: translateX(-50%); flex-direction: row; max-width: calc(100vw - 16px); overflow-x: auto; scrollbar-width: none; }
+  #toolbar::-webkit-scrollbar { display: none; }
+  #toolbar .sep { display: none; }
+  #toolbar .iconbtn { width: 42px; height: 42px; }
+  #toolbar .tl { display: none; }
+  #toolbar [data-tool="pan"], #toolbar [data-tool="block"], #toolbar [data-tool="frame"], #toolbar [data-tool="laser"] { display: none; }
+  #tooloptions { left: 50%; top: auto; bottom: calc(70px + env(safe-area-inset-bottom)); transform: translateX(-50%); flex-direction: row; padding: 4px 8px; }
+  #tooloptions .swatch { margin: 0 3px; }
+  #tooloptions .sep { width: 1px; height: 20px; margin: 0 4px; }
+  #focusbar { left: 8px; right: 8px; transform: none; gap: 2px; }
+  #focusbar #focusname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #focusbar .hint, #focusbar .sep { display: none; }
+  #thread { left: 8px !important; right: 8px; top: auto !important; bottom: calc(8px + env(safe-area-inset-bottom)); width: auto; max-width: none; max-height: 62vh; }
+  #commentpanel { left: 8px; right: 8px; width: auto; max-width: none; }
+  #followpill { max-width: calc(100vw - 16px); }

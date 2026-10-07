@@ -551,24 +551,44 @@
     video.muted = true;
     const play = el('button', { class: 'vbtn', html: ICON.play, title: 'Play / pause (K)', onclick: () => toggleVideo(it.id) });
     const seek = el('input', { type: 'range', min: 0, max: 1000, step: 1, value: 0, 'aria-label': 'Seek' });
-    const time = el('span', { class: 'vtime', text: '0:00' });
+    // Where the video's comments and frame drawings are; filled in by placeMarks.
+    const marks = el('div', { class: 'vmarks' });
+    const time = el('button', { class: 'vtime', text: '0:00', title: 'Show minutes and seconds, frame number or timecode', onclick: cycleTimeMode });
     const sound = el('button', {
       class: 'vbtn', html: ICON.muted, title: 'Sound on / off',
       onclick: () => { video.muted = !video.muted; sound.innerHTML = video.muted ? ICON.muted : ICON.sound; },
     });
-    const tick = () => {
-      if (video.duration && !seek.matches(':active')) seek.value = Math.round((video.currentTime / video.duration) * 1000);
+    const tick = (at = video.currentTime) => {
+      if (video.duration && !seek.matches(':active')) seek.value = Math.round((at / video.duration) * 1000);
       seek.style.setProperty('--p', `${seek.value / 10}%`);
-      time.textContent = `${fmtTime(video.currentTime)} / ${fmtTime(video.duration)}`;
+      time.textContent = timeLabel(at, video.duration, fpsOf(it.id));
     };
+    video.wbTick = tick;
     seek.addEventListener('input', () => {
       if (!video.duration) return;
-      video.currentTime = (seek.value / 1000) * video.duration;
+      const fps = fpsOf(it.id);
+      const at = (seek.value / 1000) * video.duration;
+      // Scrubbing lands on whole frames when the frame rate is known.
+      video.currentTime = fps ? frameTime(Math.min(frameIndex(at, fps), lastFrame(video, fps)), fps) : at;
       seek.style.setProperty('--p', `${seek.value / 10}%`);
       sendMedia(it.id);
     });
-    video.addEventListener('timeupdate', tick);
-    video.addEventListener('loadedmetadata', tick);
+    video.addEventListener('timeupdate', () => tick());
+    video.addEventListener('loadedmetadata', () => {
+      tick();
+      queueMarks();
+      // Drawings that arrived before their video could not tell which frame it was on.
+      showFrameMarks(it.id);
+    });
+    // While it plays the counter follows each frame as it is shown, where the browser says which that is.
+    const onFrame = (now, meta) => {
+      tick(meta.mediaTime);
+      if (!video.paused) video.requestVideoFrameCallback(onFrame);
+    };
+    video.addEventListener('seeked', () => {
+      tick();
+      showFrameMarks(it.id);
+    });
     // Clicks on the big button are handled by the pointer gesture so the video can still be dragged by it.
     const center = el('div', { class: 'vplay', html: ICON.play, 'aria-hidden': 'true' });
     for (const type of ['play', 'pause']) {
@@ -576,9 +596,11 @@
         play.innerHTML = video.paused ? ICON.play : ICON.pause;
         center.innerHTML = video.paused ? ICON.play : ICON.pause;
         node.classList.toggle('playing', !video.paused);
+        showFrameMarks(it.id);
+        if (!video.paused && video.requestVideoFrameCallback) video.requestVideoFrameCallback(onFrame);
       });
     }
-    node.append(video, center, el('div', { class: 'vbar' }, play, seek, time, sound));
+    node.append(video, center, el('div', { class: 'vbar' }, play, el('div', { class: 'vseek' }, seek, marks), time, sound));
   }
 
   function createNode(it) {
@@ -614,6 +636,7 @@
     if (comments.size) queuePins();
     const isEditing = editing && editing.id === it.id;
     node.classList.toggle('dim', !!focusId && it.id !== focusId && it.pid !== focusId);
+    if (it.fr != null && it.pid) node.classList.toggle('offframe', !onShownFrame(it));
 
     if (it.type === 'image') {
       st.width = `${it.w}px`;
@@ -786,6 +809,7 @@
     }
     updateFrameCounts();
     updateOverlay();
+    queueMarks();
     scheduleSettle();
     if (presenting) updatePresentBar();
   }
@@ -1795,11 +1819,14 @@
     $('focusprev').disabled = $('focusnext').disabled = order.length < 2;
     $('focusbar').hidden = false;
     for (const [nid, node] of els) node.classList.toggle('dim', nid !== id && items.get(nid).pid !== id);
-    $('focushint').textContent = it.type === 'image' ? 'Draw, write notes or comment' : 'Pick a tool to annotate';
+    $('focushint').textContent = it.type === 'image' ? 'Draw, write notes or comment' : 'Pause on a frame and draw: the drawing stays on that frame';
     userMovedView();
     // A video starts on the select tool so its play button still works.
     setTool(it.type === 'image' && !viewOnly ? 'pen' : 'select');
-    if (it.type === 'video') setSel([id]);
+    if (it.type === 'video') {
+      setSel([id]);
+      learnRate(id);
+    }
     fitRect(bounds(it), { inset: { t: 112, r: 48, b: presenting ? 96 : 48, l: presenting ? 48 : 160 }, dur });
   }
 
@@ -1903,7 +1930,11 @@
     // While an image is open, what you write goes with the image, like a drawing does.
     const frame = focusId ? null : frameAt(p);
     if (frame) base.fid = frame.id;
-    if (focusId) base.pid = focusId;
+    if (focusId) {
+      base.pid = focusId;
+      holdFrame(focusId);
+      tagFrame(base);
+    }
     const item = type === 'note'
       ? { ...base, w: NOTE_W, h: 0, fs: NOTE_FS, color: NOTE_FILLS[0] }
       : { ...base, fs: levelSize(textPref.lvl), lvl: textPref.lvl, color: INK[0] };
@@ -1933,6 +1964,7 @@
   function toggleVideo(id) {
     const video = videoOf(id);
     if (!video) return;
+    learnRate(id);
     if (video.paused) video.play().catch(() => {});
     else video.pause();
     sendMedia(id);
@@ -1942,8 +1974,180 @@
     const video = videoOf(id);
     if (!video) return;
     video.pause();
-    video.currentTime = clamp(video.currentTime + dir / 24, 0, video.duration || 0);
+    const fps = fpsOf(id);
+    if (fps) {
+      const f = clamp(frameIndex(video.currentTime, fps) + dir, 0, lastFrame(video, fps));
+      video.currentTime = frameTime(f, fps);
+    } else {
+      // Until its frame rate is known, a step is a 24th of a second.
+      video.currentTime = clamp(video.currentTime + dir / 24, 0, video.duration || 0);
+      learnRate(id);
+    }
     sendMedia(id);
+  }
+
+  function seekVideo(id, at) {
+    const video = videoOf(id);
+    if (!video || at == null) return;
+    video.pause();
+    video.currentTime = at;
+    sendMedia(id);
+  }
+
+  // Stops a video on the frame it is showing, so what is made on it next belongs to that frame.
+  function holdFrame(id) {
+    const video = videoOf(id);
+    if (!video) return;
+    const fps = fpsOf(id);
+    if (video.paused && !fps) return;
+    video.pause();
+    if (fps) video.currentTime = frameTime(frameIndex(video.currentTime, fps), fps);
+    sendMedia(id);
+  }
+
+  // ------------------------------------------------------------- frames
+
+  // Rates as cameras and editors write them: a measured rate this close to one of them is that one.
+  const RATES = [23.976, 24, 25, 29.97, 30, 47.952, 48, 50, 59.94, 60, 100, 119.88, 120];
+  function snapRate(r) {
+    if (!(r > 0) || !isFinite(r)) return 0;
+    return RATES.find((s) => Math.abs(s - r) / s < 0.004) || Math.round(r * 1000) / 1000;
+  }
+  const fpsOf = (id) => items.get(id)?.fps || 0;
+  // A frame is on screen from its start until the next one's. Asking for its middle lands on it in every browser.
+  const frameTime = (f, fps) => (f + 0.5) / fps;
+  const frameIndex = (t, fps) => Math.max(0, Math.floor(t * fps + 1e-3));
+  const lastFrame = (video, fps) => Math.max(0, Math.ceil((video.duration || 0) * fps - 1e-3) - 1);
+  // The frame a video is stopped on; null while it plays or when its frame rate is not known.
+  function heldFrame(id) {
+    const video = videoOf(id);
+    const fps = fpsOf(id);
+    return video && fps && video.paused ? frameIndex(video.currentTime, fps) : null;
+  }
+  // Where a comment on a video was left: on its frame when that is known, otherwise at its time.
+  const momentOf = (c) => (c.fr != null && fpsOf(c.on) ? frameTime(c.fr, fpsOf(c.on)) : c.at);
+
+  // How many frames a second a video has, read from the file itself (a file, or the address of one).
+  async function readRate(source) {
+    let mb;
+    try {
+      mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
+    } catch {
+      return 0;
+    }
+    const input = new mb.Input({ source: typeof source === 'string' ? new mb.UrlSource(source) : new mb.BlobSource(source), formats: mb.ALL_FORMATS });
+    try {
+      const track = await input.getPrimaryVideoTrack();
+      if (!track) return 0;
+      return snapRate((await track.computePacketStats(120)).averagePacketRate);
+    } catch {
+      return 0;
+    } finally {
+      input.dispose();
+    }
+  }
+
+  // Videos added before frame rates were kept learn theirs the first time somebody opens, plays or steps one.
+  const rateAsked = new Set();
+  function learnRate(id) {
+    const it = items.get(id);
+    if (!it || it.type !== 'video' || it.fps || !it.src || rateAsked.has(id)) return;
+    rateAsked.add(id);
+    readRate(it.src).then((fps) => {
+      const cur = items.get(id);
+      if (!fps || !cur || cur.fps) return;
+      const ops = [{ t: 'set', id, patch: { fps } }];
+      applyOps(ops);
+      sendOps(ops, true);
+      const video = videoOf(id);
+      if (video && video.wbTick) video.wbTick();
+      showFrameMarks(id);
+    });
+  }
+
+  // How a moment in a video is written: minutes and seconds, the frame number, or a timecode. Frames are
+  // counted from 1 the way editors show them; underneath they are counted from 0.
+  const TIME_MODES = ['time', 'frame', 'tc'];
+  let timeMode = TIME_MODES.includes(store('wb:timemode')) ? store('wb:timemode') : 'time';
+  function fmtMoment(t, fps) {
+    if (!isFinite(t)) t = 0;
+    if (!fps || timeMode === 'time') return fmtTime(t);
+    const f = frameIndex(t, fps);
+    if (timeMode === 'frame') return `${f + 1}`;
+    const base = Math.round(fps);
+    const s = Math.floor(f / base);
+    const two = (n) => String(n).padStart(2, '0');
+    return `${two(Math.floor(s / 3600))}:${two(Math.floor(s / 60) % 60)}:${two(s % 60)}:${two(f % base)}`;
+  }
+  function timeLabel(at, dur, fps) {
+    if (!fps || timeMode === 'time') return `${fmtTime(at)} / ${fmtTime(dur)}`;
+    if (timeMode === 'frame') return `${fmtMoment(at, fps)} / ${isFinite(dur) ? Math.round(dur * fps) : '–'}`;
+    return fmtMoment(at, fps);
+  }
+  function cycleTimeMode() {
+    timeMode = TIME_MODES[(TIME_MODES.indexOf(timeMode) + 1) % TIME_MODES.length];
+    store('wb:timemode', timeMode);
+    for (const node of els.values()) if (node.classList.contains('video')) node.firstChild.wbTick();
+    cmDirty = true;
+    afterChange();
+    if (openThread) renderThread();
+  }
+
+  // Drawings and notes made on an open, paused video belong to the frame they were made on, and show on that frame only.
+  function onShownFrame(it) {
+    const f = heldFrame(it.pid);
+    return f !== null && f === it.fr;
+  }
+  function showFrameMarks(id) {
+    for (const it of items.values()) {
+      if (it.pid !== id || it.fr == null) continue;
+      const node = els.get(it.id);
+      if (node) node.classList.toggle('offframe', !onShownFrame(it));
+    }
+  }
+  function tagFrame(item) {
+    const host = items.get(item.pid);
+    if (!host || host.type !== 'video') return;
+    const f = heldFrame(host.id);
+    if (f !== null) item.fr = f;
+  }
+
+  // Marks on each video's timeline where its comments and frame drawings are; clicking one goes there.
+  let marksQueued = false;
+  function queueMarks() {
+    if (marksQueued) return;
+    marksQueued = true;
+    queueMicrotask(placeMarks);
+  }
+  function placeMarks() {
+    marksQueued = false;
+    const on = new Map();
+    const add = (id, mark) => (on.get(id) || on.set(id, []).get(id)).push(mark);
+    for (const c of comments.values()) {
+      const at = c.re ? null : momentOf(c);
+      if (at != null) add(c.on, { at, kind: 'comment', title: `${c.name}: ${c.text}` });
+    }
+    for (const it of items.values()) {
+      const fps = it.fr != null && it.pid ? fpsOf(it.pid) : 0;
+      if (fps) add(it.pid, { at: frameTime(it.fr, fps), kind: 'draw', title: 'Drawing on this frame' });
+    }
+    for (const [id, node] of els) {
+      if (!node.classList.contains('video')) continue;
+      const video = node.firstChild;
+      const dur = video.duration;
+      const seen = new Set();
+      const kids = [];
+      for (const m of isFinite(dur) && dur > 0 ? on.get(id) || [] : []) {
+        const key = `${m.kind}:${Math.round(m.at * 1000)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        kids.push(el('button', {
+          class: `vmark ${m.kind}`, title: m.title, style: { left: `${clamp(m.at / dur, 0, 1) * 100}%` },
+          onclick: () => seekVideo(id, m.at),
+        }));
+      }
+      node.querySelector('.vmarks').replaceChildren(...kids);
+    }
   }
 
   function selectedVideo() {
@@ -2154,8 +2358,10 @@
         try {
           const { w, h, video } = await probeVideo(preparedUrl);
           const th = await videoThumb(video);
+          const fps = await readRate(prepared);
+          const dur = isFinite(video.duration) ? Math.round(video.duration * 1000) / 1000 : 0;
           const up = await upload(prepared, fileExt(prepared), onProgress);
-          return { type: 'video', src: up.url, nw: w, nh: h, name: file.name, ...(th && { th }) };
+          return { type: 'video', src: up.url, nw: w, nh: h, name: file.name, ...(th && { th }), ...(fps && { fps }), ...(dur && { dur }) };
         } finally {
           if (preparedUrl !== url) URL.revokeObjectURL(preparedUrl);
         }
@@ -2422,6 +2628,8 @@
     } else if (tool === 'frame' || tool === 'block') {
       begin({ type: 'frame', kind: tool, p0: p, p1: p }, e);
     } else if (tool === 'pen' || tool === 'arrow') {
+      // Drawing on an open video stops it on a frame, and the drawing belongs to that frame.
+      if (focusId) holdFrame(focusId);
       const arrow = tool === 'arrow';
       const size = pen.size;
       const path = svgEl('path', arrow
@@ -2695,6 +2903,7 @@
         }
         if (focusId) {
           item.pid = focusId;
+          tagFrame(item);
         } else {
           const host = hostFor(item);
           item.pid = host ? host.id : null;
@@ -2979,7 +3188,7 @@
   }
 
   function timeChip(c) {
-    const chip = el('button', { class: 'tchip', title: 'Jump to this moment in the video', onclick: () => seekTo(c) }, el('span', { html: ICON.play }), fmtTime(c.at));
+    const chip = el('button', { class: 'tchip', title: 'Jump to this moment in the video', onclick: () => seekTo(c) }, el('span', { html: ICON.play }), fmtMoment(momentOf(c), fpsOf(c.on)));
     return chip;
   }
 
@@ -2990,7 +3199,7 @@
     if (!root) {
       const d = openThread.draft;
       head.replaceChildren(el('span', { class: 'th-title', text: `New comment on ${hostLabel(d)}` }), close);
-      msgs.replaceChildren(...(d.at != null ? [el('div', { class: 'th-at' }, el('span', { text: 'At' }), timeChip({ on: d.on, at: d.at }))] : []));
+      msgs.replaceChildren(...(d.at != null ? [el('div', { class: 'th-at' }, el('span', { text: 'At' }), timeChip({ on: d.on, at: d.at, fr: d.fr }))] : []));
       msgs.hidden = d.at == null;
       return;
     }
@@ -3065,12 +3274,7 @@
   }
 
   function seekTo(c) {
-    if (!c.on || c.at == null) return;
-    const video = videoOf(c.on);
-    if (!video) return;
-    video.pause();
-    video.currentTime = c.at;
-    sendMedia(c.on);
+    if (c.on) seekVideo(c.on, momentOf(c));
   }
 
   // A comment belongs to one piece of content: pick the Comment tool and click an image, video, note or
@@ -3092,9 +3296,12 @@
     const r = bounds(host);
     const frac = (v) => Math.round(clamp(v, 0, 1) * 10000) / 10000;
     const draft = { on: host.id, rx: frac((p.x - r.x) / (r.w || 1)), ry: frac((p.y - r.y) / (r.h || 1)) };
-    // A comment on a video remembers the moment it was left on.
+    // A comment on a video stops it, and remembers the moment it was left on: the exact frame when the rate is known.
     const video = host.type === 'video' ? videoOf(host.id) : null;
+    if (video) holdFrame(host.id);
     if (video && isFinite(video.currentTime)) draft.at = Math.round(video.currentTime * 100) / 100;
+    const fr = video ? heldFrame(host.id) : null;
+    if (fr !== null) draft.fr = fr;
     closeThread();
     openThread = { draft };
     renderThread();
@@ -3137,7 +3344,7 @@
     const row = (c) => {
       const root = comments.get(c.re || c.id);
       const color = hexOk(c.color) ? c.color : '#8a8a8a';
-      const where = c.re ? `Reply on ${hostLabel(root)}` : `On ${hostLabel(c)}${c.at != null ? ` · ${fmtTime(c.at)}` : ''}`;
+      const where = c.re ? `Reply on ${hostLabel(root)}` : `On ${hostLabel(c)}${c.at != null ? ` · ${fmtMoment(momentOf(c), fpsOf(c.on))}` : ''}`;
       return el('button', { class: `cp-row${c.re ? ' reply' : ''}${root.done ? ' done' : ''}`, onclick: () => goToComment(root.id) },
         el('span', { class: 'cp-num', style: { background: color, color: pinInk(color) }, text: WB.initials(c.name) }),
         el('span', { class: 'cp-body' },
@@ -3409,7 +3616,8 @@
       if (k === 'l') return void setTool(tool === 'laser' ? 'select' : 'laser');
     }
 
-    const video = selectedVideo();
+    // The selected video, or the open one: while a video is open its keys work whatever else is selected on it.
+    const video = selectedVideo() || (focusId && items.get(focusId)?.type === 'video' ? focusId : null);
     if (e.shiftKey && e.code === 'Digit1') { userMovedView(); fitAll(); }
     else if (e.shiftKey && e.code === 'Digit2') { const r = selBounds(); if (r) { userMovedView(); fitRect(r); } }
     else if (k === 'home') { userMovedView(); fitAll(); }
@@ -3476,6 +3684,8 @@
     ['Scale a note with its text', 'Shift + drag a corner'],
     ['Play or pause video', 'Click the play button, or K'],
     ['Step video one frame', ', and .'],
+    ['Show time, frame number or timecode', 'Click the time on a video'],
+    ['Draw on one frame of a video', 'Open it, pause, then draw'],
     ['Undo / redo', 'Ctrl+Z / Ctrl+Shift+Z'],
     ['Presenting: next / previous', '→ / ←'],
   ];
@@ -3933,7 +4143,8 @@
       if (following !== msg.from) return;
       const video = videoOf(msg.id);
       if (!video) return;
-      if (Math.abs(video.currentTime - msg.time) > 0.25) video.currentTime = msg.time;
+      // Stopped, it shows exactly the presenter's frame; playing, small drift is left alone rather than stutter.
+      if (Math.abs(video.currentTime - msg.time) > (msg.playing ? 0.25 : 0.001)) video.currentTime = msg.time;
       if (msg.playing) video.play().catch(() => {});
       else video.pause();
     }

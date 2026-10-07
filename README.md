@@ -9,7 +9,7 @@ All media stays on the machine that runs the server. Nothing is sent to a cloud 
 
 ## Run it
 
-Needs [Node.js](https://nodejs.org) 18 or newer.
+Needs [Node.js](https://nodejs.org) 22.13 or newer (the current LTS is fine).
 
 ```bash
 npm install
@@ -38,6 +38,14 @@ private networks, otherwise only the host machine can connect.
   button in the middle and a scrub bar on hover. Heavy video is compressed in the browser before
   upload (H.264 MP4, 1080p at most, about 8 Mbps, audio kept) so nobody uploads gigabytes; light
   files go up untouched, and holding Shift while dropping uploads the original as it is.
+- **Frame-accurate video.** Each video knows its frame rate, read from the file when it is added (videos
+  added before that learn it the first time someone opens or plays them). `,` and `.` step one frame,
+  and scrubbing lands on whole frames. Click the time on a video to switch between minutes and seconds,
+  the frame number and a timecode; the choice is remembered per browser. Open a video, pause on a frame
+  and draw or write on it: what you make belongs to that frame and only shows when the video is stopped
+  there, like frame annotations in a review tool. Starting to draw or comment on a playing video stops
+  it on the frame showing. The timeline shows a mark for every comment and every drawn-on frame; click
+  one to go there. When presenting, the people following see exactly the frame you stop on.
 - **Open an image and draw on it.** Double-click an image: the rest of the board dims and
   you can annotate it with the brush or arrows. The drawing belongs to the image, so it
   moves and scales with it, and everyone sees it live. Esc or Done closes it and the view returns to where it was.
@@ -65,7 +73,7 @@ private networks, otherwise only the host machine can connect.
 - **Comments.** Pick the Comment tool (C) and click an image, video, note or heading where the
   comment belongs, or drag the tool from the strip and drop it there (both also work on an opened image). Comments are
   always on one piece of content, show as numbered pins that follow it, and start a thread that
-  anyone can reply to or resolve. On a video the comment remembers the moment it was left on,
+  anyone can reply to or resolve. On a video the comment remembers the frame it was left on,
   and clicking it jumps there. The Comments button in the top bar (Shift+C) lists every message
   oldest first. Who wrote a comment comes from the sign-in, not from the browser. Comments go
   when the thing they are on is deleted, and come back with it on undo, still in their author's name
@@ -124,16 +132,52 @@ Everything lives in `data/` next to the server:
 
 | Path            | Contents                                                        |
 | --------------- | --------------------------------------------------------------- |
-| `data/boards/`  | One JSON file per board                                         |
-| `data/folders.json` | The folder tree for the board list                          |
+| `data/wipboard.db` | Boards, their items, folders and the catalogue, in one SQLite database (with `-wal` and `-shm` files beside it while the server runs) |
 | `data/uploads/` | Uploaded media, named by content hash (duplicates stored once)  |
-| `data/trash/`   | Boards deleted from the board list, kept for manual recovery    |
+| `data/backups/` | A copy of the database made each day the server runs; the last seven are kept |
+| `data/legacy/`  | Boards and folders from before the database, as they were. They were read in once and are no longer used |
 | `data/.session-secret` | Signs the sign-in cookies. Made on first start with a sign-in mode; keep it private |
 
-Boards are written 0.8 s after the last change, and everything still unsaved is written when the
-server is stopped (Ctrl+C, `stop.bat`, or the host shutting it down). Back up by copying the `data` folder. To restore a deleted board, stop the server, move
-its file from `data/trash/` to `data/boards/`, rename it to `<board id>.json` (the id is
-the part of the file name before the dash and timestamp) and start the server again.
+Changes are written 0.8 s after the last one, and only what changed is written. Everything still
+unsaved is written when the server is stopped (Ctrl+C, `stop.bat`, or the host shutting it down).
+A board nobody has had open for five minutes is let go of from memory and read back when someone
+opens it, so the number of old boards does not slow the server down.
+
+**Back up** by copying `data/uploads/` and the newest file in `data/backups/`, or stop the server
+and copy the whole `data` folder. Copying `wipboard.db` while the server runs can catch it halfway
+through a write; the files in `data/backups/` are always whole.
+
+**Deleted boards** are kept, only hidden. To bring one back, stop the server and run
+`node scripts/restore-board.js` to list them, then `node scripts/restore-board.js <board id>`. It
+comes back at the top level of its workspace. Boards deleted before the database are still in
+`data/trash/` as JSON files: to bring one back, stop the server, copy it into `data/boards/` named
+`<board id>.json` and start the server, which reads it in.
+
+**Upgrading from the JSON files.** The first start of this version reads `data/boards/*.json` and
+`data/folders.json` into the database and moves the files to `data/legacy/`. Nothing else is needed.
+
+## The catalogue
+
+Every item on every board is indexed by what it is, what it is called, which frame holds it and which
+uploaded file it shows, so questions across boards are quick. For now the catalogue is there for the
+features that will use it, and can be asked directly. `GET /api/catalog` takes any of:
+
+| Parameter | Finds |
+| --------- | ----- |
+| `type`    | `frame`, `image`, `video`, `note`, `text`, `block`, `comment`, `stroke`, or several: `image,video` |
+| `name`    | Items called exactly this, ignoring case and spacing: a frame's title, a file's name, a note's text |
+| `in`      | Items inside a frame called this |
+| `q`       | Words anywhere in what items are called or say; the last word may be the start of one |
+| `media`   | Items showing this uploaded file (its name in `data/uploads/`) |
+| `board`   | Items on this board |
+| `limit`   | At most this many (200 unless set, 1000 at most) |
+
+For example `/api/catalog?type=frame&name=desk` is every frame titled "Desk" on every board, and
+`/api/catalog?in=desk&type=image,video` is every image and video inside one. Each result has the
+item, its board, the frame it is in, when it was added and by whom. `GET /api/catalog/media/<file>`
+describes an uploaded file (its size, original name, size in pixels, length and frame rate, who
+uploaded it) and lists every board it is on. Only boards in workspaces the person asking can see are
+searched, and deleted boards never are.
 
 ## Settings
 
@@ -165,12 +209,14 @@ Environment variables, or lines in a `.env` file next to `server.js`. All option
 ## Layout
 
 ```
-server.js          HTTP + WebSocket server, persistence
+server.js          HTTP + WebSocket server, boards in memory
+store.js           The database: boards, items, folders and the catalogue
 auth.js            Who is asking: the four sign-in modes
 public/board.js    The canvas: rendering, input, sync, presenting
 public/home.js     Board list
 public/common.js   Shared helpers
 public/login.html  Sign-in page (password and Google modes)
 public/style.css   All styling
-test/              npm test: sign-in, uploads, live sync, workspaces, read-only links
+scripts/           restore-board.js: bring back a deleted board
+test/              npm test: sign-in, uploads, live sync, workspaces, read-only links, the database and catalogue
 ```

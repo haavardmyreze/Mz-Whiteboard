@@ -636,12 +636,13 @@ test('a change made just before shutdown is on disk when the server comes back',
   assert.equal((await fetch(`${base}/__shutdown`, { method: 'POST' })).status, 200);
   await gone;
 
-  const saved = JSON.parse(fs.readFileSync(path.join(data, 'boards', `${board.id}.json`), 'utf8'));
-  assert.deepEqual(saved.items.map((i) => i.text), ['said just in time']);
   const second = run();
   t.after(() => second.kill());
   await up();
   assert.equal((await (await fetch(`${base}/api/boards/${board.id}`)).json()).count, 1);
+  const again = await joiner(4814)(`board=${board.id}`, 'Anna');
+  again.ws.close();
+  assert.deepEqual(again.seen.find((m) => m.t === 'init').items.map((i) => i.text), ['said just in time']);
 });
 
 test('files the browser already has are not sent again', async (t) => {
@@ -779,4 +780,145 @@ test('moving a board to a personal workspace shows everybody else on it the door
   assert.equal(his.closed, 4003);
   assert.equal(hers.closed, null);
   await assert.rejects(open(`board=${board.id}`, 'Ben', { headers: { cookie: ben } }));
+});
+
+// ---------------------------------------------------------------- the database and the catalogue
+
+test('boards and folders kept as JSON files are moved into the database once, and the files kept aside', async (t) => {
+  const s = start(4820, {}, (data) => {
+    fs.mkdirSync(path.join(data, 'boards'));
+    fs.writeFileSync(path.join(data, 'folders.json'), JSON.stringify([{ id: 'folderone', name: 'Studio', parentId: null, workspace: 'myreze', createdAt: 1 }]));
+    fs.writeFileSync(path.join(data, 'boards', 'oldboard1.json'), JSON.stringify({
+      id: 'oldboard1', name: 'From before', folderId: 'folderone', workspace: 'myreze', createdAt: 1, updatedAt: 2,
+      items: [
+        { id: 'frameone1', type: 'frame', x: 0, y: 0, w: 400, h: 300, title: 'Desk' },
+        { id: 'imageone1', type: 'image', x: 10, y: 40, w: 200, h: 100, src: '/uploads/abc.png', name: 'desk_v001.png', fid: 'frameone1' },
+      ],
+    }));
+    fs.writeFileSync(path.join(data, 'boards', 'broken.json'), '{nope');
+  });
+  t.after(s.stop);
+  await s.ready;
+  const lib = await (await fetch(`${s.base}/api/library`)).json();
+  assert.deepEqual(lib.folders.map((f) => f.name), ['Studio']);
+  const board = lib.boards.find((b) => b.id === 'oldboard1');
+  assert.equal(board.name, 'From before');
+  assert.equal(board.folderId, 'folderone');
+  assert.equal(board.count, 2);
+  assert.deepEqual(board.thumbs, ['/uploads/abc.png']);
+  const found = await (await fetch(`${s.base}/api/catalog?type=frame&name=desk`)).json();
+  assert.deepEqual(found.items.map((r) => [r.board.name, r.item.title]), [['From before', 'Desk']]);
+});
+
+test('the catalogue finds frames by name across boards, what they hold, and words in anything', async (t) => {
+  const s = start(4821);
+  t.after(s.stop);
+  await s.ready;
+  const open = joiner(4821);
+  const mk = async (name) => (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) })).json();
+  const one = await mk('Monday review');
+  const two = await mk('Client round 2');
+  const anna = await open(`board=${one.id}`, 'Anna');
+  const ben = await open(`board=${two.id}`, 'Ben');
+  t.after(() => { anna.ws.close(); ben.ws.close(); });
+  anna.ws.send(JSON.stringify({ t: 'op', ops: [
+    { t: 'add', item: { id: 'framedesk1', type: 'frame', x: 0, y: 0, w: 400, h: 300, title: 'News desk' } },
+    { t: 'add', item: { id: 'imgdesk001', type: 'image', x: 10, y: 40, w: 200, h: 100, src: '/uploads/a1.png', name: 'desk_v001.png', fid: 'framedesk1' } },
+    { t: 'add', item: { id: 'framewall1', type: 'frame', x: 500, y: 0, w: 400, h: 300, title: 'Video wall' } },
+    { t: 'add', item: { id: 'notewall01', type: 'note', x: 510, y: 40, w: 200, h: 0, text: 'Brighter rim light on the anchor', fid: 'framewall1' } },
+  ] }));
+  ben.ws.send(JSON.stringify({ t: 'op', ops: [
+    { t: 'add', item: { id: 'framedesk2', type: 'frame', x: 0, y: 0, w: 400, h: 300, title: '  NEWS   Desk ' } },
+    { t: 'add', item: { id: 'viddesk002', type: 'video', x: 10, y: 40, w: 200, h: 100, src: '/uploads/b2.mp4', name: 'desk_v002.mp4', fid: 'framedesk2', fps: 25, dur: 4 } },
+  ] }));
+  await pause(200);
+  const get = async (query) => (await (await fetch(`${s.base}/api/catalog?${query}`)).json()).items;
+
+  // every frame called "news desk", however it was typed, on every board
+  const frames = await get('type=frame&name=News%20desk');
+  assert.deepEqual(frames.map((r) => r.board.name).sort(), ['Client round 2', 'Monday review']);
+  // what those frames hold, with the frame and board each one is on, and who put it there
+  const inside = await get('in=news%20desk&type=image,video');
+  assert.deepEqual(inside.map((r) => r.item.name).sort(), ['desk_v001.png', 'desk_v002.mp4']);
+  const v2 = inside.find((r) => r.item.id === 'viddesk002');
+  assert.equal(v2.frame.title, 'NEWS   Desk');
+  assert.equal(v2.createdBy, 'Ben');
+  // words anywhere, the last one as the start of a word
+  assert.deepEqual((await get('q=rim%20lig')).map((r) => r.item.id), ['notewall01']);
+  assert.deepEqual((await get('q=desk_v00')).map((r) => r.item.id).sort(), ['imgdesk001', 'viddesk002']);
+  // where one file is used
+  assert.deepEqual((await get('media=b2.mp4')).map((r) => r.board.id), [two.id]);
+
+  // a change is found straight away, and a deleted board is not found at all
+  ben.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'set', id: 'framedesk2', patch: { title: 'Desk B' } }] }));
+  await pause(100);
+  assert.equal((await get('type=frame&name=news%20desk')).length, 1);
+  assert.equal((await fetch(`${s.base}/api/boards/${one.id}`, { method: 'DELETE' })).status, 200);
+  assert.equal((await get('type=frame&name=news%20desk')).length, 0);
+});
+
+test('the catalogue only shows what the person asking can see', async (t) => {
+  const s = start(4822, { AUTH_MODE: 'password', SITE_PASSWORD: 'pw', SESSION_SECRET: 'catalogue-secret' });
+  t.after(s.stop);
+  await s.ready;
+  const signIn = async (name) => {
+    const res = await fetch(`${s.base}/auth/password`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, password: 'pw' }) });
+    return res.headers.get('set-cookie').split(';')[0];
+  };
+  const anna = await signIn('Anna');
+  const ben = await signIn('Ben');
+  const mine = await (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: { cookie: anna, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Private', workspace: 'personal' }) })).json();
+  const conn = await joiner(4822)(`board=${mine.id}`, 'Anna', { headers: { cookie: anna } });
+  conn.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'secretfr1', type: 'frame', x: 0, y: 0, w: 10, h: 10, title: 'Secret' } }] }));
+  await pause(150);
+  conn.ws.close();
+  const find = async (who) => (await (await fetch(`${s.base}/api/catalog?type=frame&name=secret`, { headers: { cookie: who } })).json()).items.length;
+  assert.equal(await find(anna), 1);
+  assert.equal(await find(ben), 0);
+  assert.equal((await fetch(`${s.base}/api/catalog?type=frame`)).status, 401);
+});
+
+test('every uploaded file is catalogued, with what the boards using it know about it', async (t) => {
+  const s = start(4823);
+  t.after(s.stop);
+  await s.ready;
+  const { url } = await (await fetch(`${s.base}/api/upload?name=file.mp4`, { method: 'POST', body: crypto.randomBytes(3000) })).json();
+  const file = url.split('/').pop();
+  const board = await (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Dailies' }) })).json();
+  const conn = await joiner(4823)(`board=${board.id}`, 'Anna');
+  t.after(() => conn.ws.close());
+  conn.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'clipone01', type: 'video', x: 0, y: 0, w: 192, h: 108, src: url, name: 'sh010_v003.mov', nw: 1920, nh: 1080, fps: 23.976, dur: 5.005 } }] }));
+  await pause(150);
+  const res = await (await fetch(`${s.base}/api/catalog/media/${file}`)).json();
+  assert.equal(res.media.kind, 'video');
+  assert.equal(res.media.size, 3000);
+  assert.equal(res.media.original_name, 'sh010_v003.mov');
+  assert.equal(res.media.fps, 23.976);
+  assert.equal(res.media.width, 1920);
+  assert.deepEqual(res.uses.map((r) => r.board.name), ['Dailies']);
+  assert.equal((await fetch(`${s.base}/api/catalog/media/nothing.png`)).status, 404);
+});
+
+test('a board nobody has open is let go of, and comes back whole when somebody opens it', async (t) => {
+  const s = start(4824, { WIPBOARD_IDLE_MS: '300' });
+  t.after(s.stop);
+  await s.ready;
+  const open = joiner(4824);
+  const board = await (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Quiet' }) })).json();
+  const first = await open(`board=${board.id}`, 'Anna');
+  first.ws.send(JSON.stringify({ t: 'op', ops: [
+    { t: 'add', item: { id: 'imageone1', type: 'image', x: 0, y: 0, w: 100, h: 100, src: '/uploads/one.png' } },
+    { t: 'add', item: { id: 'noteone01', type: 'note', x: 0, y: 0, w: 100, h: 0, text: 'still here' } },
+  ] }));
+  await pause(50);
+  // closed before the change has even been written
+  first.ws.close();
+  await pause(1500);
+  // the board list still knows what is on it
+  const meta = await (await fetch(`${s.base}/api/boards/${board.id}`)).json();
+  assert.equal(meta.count, 2);
+  assert.deepEqual(meta.thumbs, ['/uploads/one.png']);
+  const again = await open(`board=${board.id}`, 'Anna');
+  again.ws.close();
+  assert.deepEqual(again.seen.find((m) => m.t === 'init').items.map((i) => i.id), ['imageone1', 'noteone01']);
 });

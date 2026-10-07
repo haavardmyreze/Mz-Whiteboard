@@ -4,10 +4,15 @@ Wipboard is one Node process: it serves the pages, holds each open board in memo
 reach everyone instantly over WebSockets, and saves boards and uploads to a folder. That shape
 decides how it should be hosted.
 
-**Recommended: Google Cloud Run**, with a Cloud Storage bucket mounted as the data folder and Google
+> **Boards are now kept in a SQLite database (`data/wipboard.db`).** That suits running it from a PC
+> (the sections further down) as it is. The Cloud Run setup below mounts a Cloud Storage bucket as the
+> data folder, and a database cannot live on a bucket mount: it needs file locking, which a bucket does
+> not have. Until the Cloud Run setup keeps the database on the container's own disk and copies it to
+> the bucket as it changes (Litestream does this), use the PC setup.
+
+**Google Cloud Run**, with a Cloud Storage bucket mounted as the data folder and Google
 Identity-Aware Proxy (IAP) for sign-in. It matches the existing setup (Cloud Run server that wakes
-on request, Cloud Storage buckets, autodeploy from GitHub) and needs no changes to how the app
-stores things.
+on request, Cloud Storage buckets, autodeploy from GitHub). See the note above before using it.
 
 ## What the app expects from its host
 
@@ -15,7 +20,7 @@ stores things.
 | --- | --- | --- |
 | Long-lived connections | Live cursors and edits are WebSockets | Supported; set the request timeout to the maximum (60 min). Browsers reconnect by themselves when a connection ends |
 | **Exactly one instance** | The open board lives in that process's memory. Two instances would each hold a different copy | `--max-instances 1` |
-| A folder that survives restarts | `data/boards`, `data/uploads`, `data/folders.json` | A Cloud Storage bucket mounted at `/data` |
+| A folder that survives restarts | `data/wipboard.db`, `data/uploads` | A Cloud Storage bucket mounted at `/data` (see the note above) |
 | Light uploads | Heavy video is compressed on the uploader's own machine (H.264, 1080p, about 8 Mbps) before it is sent, so the server never encodes anything | Nothing to configure; the bucket only ever holds light files |
 | Requests under the front end's size cap | Cloud Run limits a request body (32 MiB over HTTP/1 at the time of writing) | The app already uploads files in 8 MB pieces and joins them on the server |
 | Clean shutdown | Edits are saved 0.8 s after the last change | On SIGTERM the app writes everything still unsaved, including a save it was in the middle of, before it exits |

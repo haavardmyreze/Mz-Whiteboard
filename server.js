@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const os = require('os');
 const { WebSocketServer } = require('ws');
 const { createAuth, parseCookies } = require('./auth');
+const { openStore } = require('./store');
 
 // Settings can live in a .env file next to this one (KEY=value per line); real environment variables win.
 try {
@@ -22,9 +23,8 @@ try {
 const PORT = Number(process.env.PORT) || 4680;
 const HOST = process.env.HOST || '0.0.0.0';
 const DATA_DIR = path.resolve(process.env.WIPBOARD_DATA || path.join(__dirname, 'data'));
-const BOARD_DIR = path.join(DATA_DIR, 'boards');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
-const TRASH_DIR = path.join(DATA_DIR, 'trash');
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const MAX_UPLOAD = (Number(process.env.WIPBOARD_MAX_UPLOAD_MB) || 1024) * 1024 * 1024;
 // Uploads arrive in pieces, so a single request never needs to be large (hosting front ends cap it).
@@ -67,6 +67,8 @@ try {
 const SHARING = auth.mode !== 'iap';
 const SAVE_DELAY = 800;
 const SAVE_RETRY = 5000;
+// A board nobody has had open for this long is let go of; its items are read back when somebody opens it.
+const IDLE_UNLOAD = Number(process.env.WIPBOARD_IDLE_MS) || 5 * 60 * 1000;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -91,7 +93,14 @@ const MIME = {
 };
 const UPLOAD_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp', '.svg', '.mp4', '.m4v', '.webm', '.mov']);
 
-for (const dir of [BOARD_DIR, UPLOAD_DIR, TRASH_DIR]) fs.mkdirSync(dir, { recursive: true });
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+let store;
+try {
+  store = openStore(DATA_DIR);
+} catch (err) {
+  console.error(err.message);
+  process.exit(1);
+}
 
 // ---------------------------------------------------------------- boards
 
@@ -119,44 +128,92 @@ function cleanName(value, fallback) {
   return String(value ?? '').trim().slice(0, 120) || fallback;
 }
 
-// A board as it is held in memory: what is saved, plus who is on it and where its saving stands.
-function boardRecord(saved) {
+// A board as it is held in memory: what is saved, plus who is on it and where its saving stands. Every
+// board's details are always here; its items only while somebody has it open (`items` is null otherwise).
+function boardRecord(saved, items = null) {
   return {
     ...saved,
+    items,
+    summary: null,
+    lastUsed: Date.now(),
     peers: new Map(),
     presenter: null,
     viewerSeq: 0,
     removedComments: new Map(),
+    // What has changed since the last write: items to write, items to remove, and who added each new one.
+    changed: new Set(),
+    removed: new Set(),
+    creators: new Map(),
     saveTimer: null,
-    saving: Promise.resolve(),
     dirty: false,
-    writing: false,
   };
 }
 
+// What a stored board (an old JSON file, or anything else read back) may hold, and nothing else.
+function cleanBoard(raw) {
+  if (!raw || !ID_RE.test(raw.id)) return null;
+  const items = [];
+  const seen = new Set();
+  for (const it of raw.items || []) {
+    if (!it || !ID_RE.test(it.id) || typeof it.type !== 'string' || seen.has(it.id)) continue;
+    seen.add(it.id);
+    items.push(it);
+  }
+  return {
+    id: raw.id,
+    name: raw.name || 'Untitled',
+    folderId: raw.folderId || null,
+    workspace: validSpace(raw.workspace) ? raw.workspace : 'myreze',
+    shareToken: typeof raw.shareToken === 'string' && SHARE_RE.test(raw.shareToken) ? raw.shareToken : null,
+    createdAt: raw.createdAt || Date.now(),
+    updatedAt: raw.updatedAt || Date.now(),
+    items,
+  };
+}
+
+function cleanFolders(list) {
+  return (Array.isArray(list) ? list : []).filter((f) => f && ID_RE.test(f.id)).map((f) => ({
+    id: f.id,
+    name: String(f.name || 'Folder').slice(0, 120),
+    parentId: f.parentId || null,
+    workspace: validSpace(f.workspace) ? f.workspace : 'myreze',
+    createdAt: f.createdAt || Date.now(),
+  }));
+}
+
 function loadBoards() {
-  for (const file of fs.readdirSync(BOARD_DIR)) {
-    if (!file.endsWith('.json')) continue;
-    try {
-      const raw = JSON.parse(fs.readFileSync(path.join(BOARD_DIR, file), 'utf8'));
-      if (!ID_RE.test(raw.id)) continue;
-      const items = new Map();
-      for (const it of raw.items || []) if (it && ID_RE.test(it.id)) items.set(it.id, it);
-      const loaded = boardRecord({
-        id: raw.id,
-        name: raw.name || 'Untitled',
-        folderId: raw.folderId || null,
-        workspace: validSpace(raw.workspace) ? raw.workspace : 'myreze',
-        shareToken: typeof raw.shareToken === 'string' && SHARE_RE.test(raw.shareToken) ? raw.shareToken : null,
-        createdAt: raw.createdAt || Date.now(),
-        updatedAt: raw.updatedAt || Date.now(),
-        items,
-      });
-      boards.set(loaded.id, loaded);
-      if (loaded.shareToken) shares.set(loaded.shareToken, loaded);
-    } catch (err) {
-      console.error(`Skipping unreadable board file ${file}: ${err.message}`);
-    }
+  const imported = store.importLegacy({
+    boardDir: path.join(DATA_DIR, 'boards'),
+    folderFile: path.join(DATA_DIR, 'folders.json'),
+    legacyDir: path.join(DATA_DIR, 'legacy'),
+    clean: { board: cleanBoard, folders: cleanFolders },
+  });
+  if (imported) console.log(`Moved ${imported} board(s) from JSON files into ${store.file}. The files are kept in data/legacy.`);
+  const summaries = store.summaries();
+  for (const saved of store.boards()) {
+    const board = boardRecord({ ...saved, workspace: validSpace(saved.workspace) ? saved.workspace : 'myreze' });
+    board.summary = summaries.get(board.id) || { count: 0, thumbs: [] };
+    boards.set(board.id, board);
+    if (board.shareToken) shares.set(board.shareToken, board);
+  }
+}
+
+// A board's items, read in when somebody opens it.
+function openItems(board) {
+  board.lastUsed = Date.now();
+  if (board.items) return board;
+  board.items = new Map(store.loadItems(board.id).map((it) => [it.id, it]));
+  return board;
+}
+
+// Boards nobody is on and nothing is waiting to be written for are let go of after a while.
+function unloadIdle() {
+  const cutoff = Date.now() - IDLE_UNLOAD;
+  for (const board of boards.values()) {
+    if (!board.items || board.peers.size || board.dirty || board.saveTimer || board.lastUsed > cutoff) continue;
+    board.summary = summarize(board);
+    board.items = null;
+    board.removedComments.clear();
   }
 }
 
@@ -169,99 +226,56 @@ function createBoard(name, folderId, workspace = 'myreze') {
     shareToken: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    items: new Map(),
-  });
+  }, new Map());
   boards.set(board.id, board);
   scheduleSave(board);
   return board;
 }
 
-function boardFile(board) {
-  return path.join(BOARD_DIR, `${board.id}.json`);
-}
-
-function serialize(board) {
-  return JSON.stringify({
-    id: board.id,
-    name: board.name,
-    folderId: board.folderId || null,
-    workspace: board.workspace,
-    shareToken: board.shareToken || null,
-    createdAt: board.createdAt,
-    updatedAt: board.updatedAt,
-    items: [...board.items.values()],
-  });
-}
-
-// `dirty` means memory holds something the file does not. It is set by every change and cleared when a
-// write begins, so a change that lands while a write is under way is picked up by the next one.
+// `dirty` means memory holds something the database does not. Writes are quick and happen in one go,
+// so a change can never land halfway through one.
 function scheduleSave(board, touch = true, delay = SAVE_DELAY) {
   if (touch) board.updatedAt = Date.now();
   board.dirty = true;
   if (board.saveTimer) return;
   board.saveTimer = setTimeout(() => {
     board.saveTimer = null;
-    board.saving = board.saving.then(() => writeBoard(board)).catch((err) => {
+    try {
+      writeBoard(board);
+    } catch (err) {
       console.error(`Failed to save board ${board.id}: ${err.message}. Trying again shortly.`);
       // The changes are still in memory: keep trying rather than wait for somebody's next edit.
       scheduleSave(board, false, SAVE_RETRY);
-    });
+    }
   }, delay);
 }
 
-// Write to a temp file and rename so a crash mid-write never truncates a board.
-async function writeBoard(board) {
-  if (!boards.has(board.id) || !board.dirty) return;
-  const file = boardFile(board);
-  const tmp = `${file}.tmp`;
-  const data = serialize(board);
+function writeBoard(board) {
+  if (!board.dirty || boards.get(board.id) !== board || !store.isOpen()) return;
+  const changed = board.items ? [...board.changed].map((id) => board.items.get(id)).filter(Boolean) : [];
+  store.saveBoard(board, changed, [...board.removed], board.creators);
   board.dirty = false;
-  board.writing = true;
-  try {
-    await fsp.writeFile(tmp, data);
-    try {
-      await fsp.rename(tmp, file);
-    } catch {
-      // Windows can refuse the rename while another process holds the target open.
-      await fsp.writeFile(file, data);
-      await fsp.rm(tmp, { force: true });
-    }
-  } catch (err) {
-    board.dirty = true;
-    throw err;
-  } finally {
-    board.writing = false;
-  }
+  board.changed.clear();
+  board.removed.clear();
+  board.creators.clear();
 }
 
-// On the way out: every board with unsaved changes, and every board whose save this exit is about
-// to cut short. It writes beside the file and renames, under its own temp name so it cannot collide
-// with a write that is still in flight.
-function flushAllSync() {
+// Everything still waiting, written now: before a search, so it sees the latest, and on the way out.
+function flushAll() {
   for (const board of boards.values()) {
     clearTimeout(board.saveTimer);
     board.saveTimer = null;
-    if (!board.dirty && !board.writing) continue;
-    board.dirty = false;
-    board.writing = false;
-    const file = boardFile(board);
-    const tmp = `${file}.exit.tmp`;
-    const data = serialize(board);
     try {
-      try {
-        fs.writeFileSync(tmp, data);
-        fs.renameSync(tmp, file);
-      } catch {
-        fs.writeFileSync(file, data);
-        fs.rmSync(tmp, { force: true });
-      }
+      writeBoard(board);
     } catch (err) {
       console.error(`Failed to save board ${board.id}: ${err.message}`);
+      scheduleSave(board, false, SAVE_RETRY);
     }
   }
 }
 
-function boardMeta(board) {
+function summarize(board) {
+  if (!board.items) return board.summary || { count: 0, thumbs: [] };
   const thumbs = [];
   let count = 0;
   for (const it of board.items.values()) {
@@ -272,6 +286,11 @@ function boardMeta(board) {
     const still = it.th || (it.type === 'image' ? it.prev || it.src : null);
     if (typeof still === 'string') thumbs.push(still);
   }
+  return { count, thumbs };
+}
+
+function boardMeta(board) {
+  const { count, thumbs } = summarize(board);
   return {
     id: board.id,
     name: board.name,
@@ -311,6 +330,8 @@ function cleanComment(it, peer) {
   clean.rx = Math.min(1, Math.max(0, num(it.rx) ?? 0.5));
   clean.ry = Math.min(1, Math.max(0, num(it.ry) ?? 0.5));
   if (num(it.at) !== null && it.at >= 0) clean.at = it.at;
+  // On a video whose frame rate is known, the exact frame as well.
+  if (Number.isSafeInteger(it.fr) && it.fr >= 0) clean.fr = it.fr;
   return clean;
 }
 
@@ -338,6 +359,9 @@ function applyOps(board, ops, peer, touch = true) {
         board.removedComments.delete(it.id);
       }
       board.items.set(it.id, it);
+      board.changed.add(it.id);
+      board.removed.delete(it.id);
+      if (peer && !board.creators.has(it.id)) board.creators.set(it.id, peer.name);
       applied.push({ t: 'add', item: it });
     } else if (op.t === 'set') {
       const it = board.items.get(op.id);
@@ -354,13 +378,18 @@ function applyOps(board, ops, peer, touch = true) {
         patch.done = !!patch.done;
       }
       Object.assign(it, patch);
+      board.changed.add(op.id);
       applied.push({ t: 'set', id: op.id, patch });
     } else if (op.t === 'del') {
       if (!Array.isArray(op.ids)) continue;
       const ids = op.ids.filter((id) => {
         const gone = board.items.get(id);
         if (gone && gone.type === 'comment') rememberComment(board, gone);
-        return board.items.delete(id);
+        if (!board.items.delete(id)) return false;
+        board.changed.delete(id);
+        board.removed.add(id);
+        board.creators.delete(id);
+        return true;
       });
       if (ids.length) applied.push({ t: 'del', ids });
     } else if (op.t === 'meta') {
@@ -375,37 +404,16 @@ function applyOps(board, ops, peer, touch = true) {
 
 // ---------------------------------------------------------------- folders
 
-const FOLDER_FILE = path.join(DATA_DIR, 'folders.json');
 const folders = new Map();
 
 function loadFolders() {
-  try {
-    for (const f of JSON.parse(fs.readFileSync(FOLDER_FILE, 'utf8'))) {
-      if (!f || !ID_RE.test(f.id)) continue;
-      folders.set(f.id, {
-        id: f.id,
-        name: String(f.name || 'Folder').slice(0, 120),
-        parentId: f.parentId || null,
-        workspace: validSpace(f.workspace) ? f.workspace : 'myreze',
-        createdAt: f.createdAt || Date.now(),
-      });
-    }
-  } catch (err) {
-    if (err.code !== 'ENOENT') console.error(`Could not read folders.json: ${err.message}`);
-  }
+  for (const f of cleanFolders(store.folders())) folders.set(f.id, f);
   for (const f of folders.values()) if (f.parentId && folders.get(f.parentId)?.workspace !== f.workspace) f.parentId = null;
   for (const board of boards.values()) if (board.folderId && folders.get(board.folderId)?.workspace !== board.workspace) board.folderId = null;
 }
 
 function saveFolders() {
-  const tmp = `${FOLDER_FILE}.tmp`;
-  const data = JSON.stringify([...folders.values()]);
-  try {
-    fs.writeFileSync(tmp, data);
-    fs.renameSync(tmp, FOLDER_FILE);
-  } catch {
-    fs.writeFileSync(FOLDER_FILE, data);
-  }
+  store.saveFolders([...folders.values()]);
 }
 
 // True when `folderId` is `ancestorId` or sits anywhere below it.
@@ -572,7 +580,7 @@ function handleUpload(req, res, url) {
     if (failed) return;
     try {
       if (!done) return sendJson(res, 200, { ok: true, received: offset + size });
-      sendJson(res, 200, await assembleUpload(partsDir, ext));
+      sendJson(res, 200, await assembleUpload(partsDir, ext, req.user));
     } catch (err) {
       sendJson(res, err.status || 500, { error: err.message });
     }
@@ -582,7 +590,7 @@ function handleUpload(req, res, url) {
 
 // Joins the pieces in order, checking none is missing, under a content-addressed name so that
 // re-uploading the same file reuses the stored copy.
-async function assembleUpload(partsDir, ext) {
+async function assembleUpload(partsDir, ext, user) {
   const names = (await fsp.readdir(partsDir)).sort();
   const hash = crypto.createHash('sha1');
   let total = 0;
@@ -592,6 +600,7 @@ async function assembleUpload(partsDir, ext) {
     if (fs.existsSync(dest)) await fsp.rm(tmp, { force: true });
     else await fsp.rename(tmp, dest);
     await fsp.rm(partsDir, { recursive: true, force: true });
+    store.addMedia({ name, size: total, by: user ? user.name : null });
     return { url: `/uploads/${name}`, size: total };
   };
 
@@ -798,17 +807,33 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, boardMeta(board));
     }
     if (req.method === 'DELETE') {
-      // Soft delete: the JSON is moved to data/trash so a mis-click is recoverable.
-      boards.delete(board.id);
-      if (board.shareToken) shares.delete(board.shareToken);
+      // Soft delete: whatever is unsaved is written first, then the board is only marked deleted, so a
+      // mis-click is recoverable (scripts/restore-board.js).
       clearTimeout(board.saveTimer);
       board.saveTimer = null;
-      await board.saving;
-      await fsp.writeFile(path.join(TRASH_DIR, `${board.id}-${Date.now()}.json`), serialize(board));
-      await fsp.rm(boardFile(board), { force: true });
+      writeBoard(board);
+      store.deleteBoard(board.id);
+      boards.delete(board.id);
+      if (board.shareToken) shares.delete(board.shareToken);
       for (const peer of board.peers.values()) peer.ws.close(4004, 'Board deleted');
       return sendJson(res, 200, { ok: true });
     }
+  }
+  // The catalogue: items across every board this person can see. See `find` in store.js for the filters.
+  if (parts[1] === 'catalog' && req.method === 'GET') {
+    flushAll();
+    const spaces = req.user ? ['myreze', PERSONAL + req.user.id] : ['myreze'];
+    if (parts[2] === 'media' && parts.length === 4) {
+      const media = store.media(parts[3]);
+      if (!media) return sendJson(res, 404, { error: 'No such file' });
+      return sendJson(res, 200, { media, uses: store.find({ spaces, media: parts[3] }) });
+    }
+    if (parts.length !== 2) return sendJson(res, 404, { error: 'Not found' });
+    const q = url.searchParams;
+    const found = store.find({
+      spaces, type: q.get('type'), name: q.get('name'), q: q.get('q'), inFrame: q.get('in'), media: q.get('media'), board: q.get('board'), limit: q.get('limit'),
+    });
+    return sendJson(res, 200, { items: found });
   }
   if (parts[1] === 'upload' && req.method === 'POST') return handleUpload(req, res, url);
   sendJson(res, 404, { error: 'Not found' });
@@ -1010,6 +1035,7 @@ function onConnect(ws, board, user, viewToken = null) {
       if (boards.get(board.id) !== board) return ws.close(4004, 'Board deleted');
       if (viewer && board.shareToken !== viewToken) return ws.close(4005, 'Link no longer shared');
       if (!viewer && !visible(user, board)) return ws.close(4003, 'Board moved');
+      openItems(board);
       peer.joined = true;
       if (viewer) {
         // Someone holding a read-only link: seen only as a pointer. They cannot change anything.
@@ -1121,14 +1147,37 @@ loadBoards();
 loadFolders();
 cleanStaleUploads();
 setInterval(cleanStaleUploads, 3600e3).unref();
+setInterval(unloadIdle, Math.min(60e3, IDLE_UNLOAD)).unref();
+try {
+  const added = store.catalogueUploads(UPLOAD_DIR);
+  if (added) console.log(`Catalogued ${added} uploaded file(s).`);
+} catch (err) {
+  console.error(`Could not catalogue the uploads: ${err.message}`);
+}
 
+// A copy of the database a day, the last week of them kept, in data/backups.
+function dailyBackup() {
+  try {
+    store.backup(BACKUP_DIR);
+  } catch (err) {
+    console.error(`Backup failed: ${err.message}`);
+  }
+}
+dailyBackup();
+setInterval(dailyBackup, 3 * 3600e3).unref();
+
+function shutdown() {
+  if (!store.isOpen()) return;
+  flushAll();
+  store.close();
+}
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
-    flushAllSync();
+    shutdown();
     process.exit(0);
   });
 }
-process.on('exit', flushAllSync);
+process.on('exit', shutdown);
 
 server.listen(PORT, HOST, () => {
   console.log(`Wipboard is running. ${boards.size} board(s) loaded from ${DATA_DIR}. Sign-in: ${auth.mode}`);

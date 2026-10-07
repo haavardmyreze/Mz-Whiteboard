@@ -1,12 +1,13 @@
 'use strict';
 
-// Who is asking? Three modes:
-//   none  Everyone is welcome and picks a display name (local use, a trusted studio network).
-//   google  People sign in with their Google account (OpenID Connect, done by this app) and only the
-//         emails and domains on the allow list get in. For running from your own machine.
-//   iap   The app sits behind Google Cloud's Identity-Aware Proxy. Google signs the user in and adds a
-//         signed token to every request; this module checks that token and turns it into a user.
-// All fail closed: with AUTH_MODE=iap a request without a valid token never gets through.
+// Who is asking? Four modes:
+//   none      Everyone is welcome and picks a display name (local use, a trusted studio network).
+//   password  Everyone types a name and the one shared password. The name is a label, not an identity.
+//   google    People sign in with their Google account (OpenID Connect, done by this app) and only the
+//             emails and domains on the allow list get in. For running from your own machine.
+//   iap       The app sits behind Google Cloud's Identity-Aware Proxy. Google signs the user in and adds
+//             a signed token to every request; this module checks that token and turns it into a user.
+// Every mode but `none` fails closed: a request without valid proof of who is asking never gets through.
 
 const crypto = require('crypto');
 
@@ -116,6 +117,7 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const SESSION_COOKIE = 'wb_session';
 const STATE_COOKIE = 'wb_oauth';
 const SESSION_DAYS = 14;
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 function parseCookies(header) {
   const out = {};
@@ -124,6 +126,29 @@ function parseCookies(header) {
     if (i > 0) out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
   }
   return out;
+}
+
+// Values this app hands to a browser and later takes at its word: the text, then a MAC of it under `key`.
+function signer(key) {
+  const mac = (text) => crypto.createHmac('sha256', key).update(text).digest('base64url');
+  const sign = (obj) => {
+    const body = Buffer.from(JSON.stringify(obj)).toString('base64url');
+    return `${body}.${mac(body)}`;
+  };
+  // What was signed, or null for anything that was not signed with this key.
+  const unsign = (value) => {
+    const [body, sig] = String(value || '').split('.');
+    if (!body || !sig) return null;
+    const want = Buffer.from(mac(body));
+    const got = Buffer.from(sig);
+    if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) return null;
+    try {
+      return JSON.parse(b64(body));
+    } catch {
+      return null;
+    }
+  };
+  return { sign, unsign };
 }
 
 // Only ever send people back to a page of this app.
@@ -144,29 +169,11 @@ function createGoogleAuth(options) {
     throw new Error('AUTH_MODE=google needs ALLOWED_EMAILS and/or ALLOWED_DOMAINS, otherwise nobody could sign in.');
   }
   if (!options.sessionSecret) throw new Error('AUTH_MODE=google needs a session secret.');
-  const secret = String(options.sessionSecret);
+  const { sign, unsign } = signer(String(options.sessionSecret));
   const secure = publicUrl.startsWith('https://');
   const redirectUri = `${publicUrl}/auth/callback`;
   const now = options.now || (() => Math.floor(Date.now() / 1000));
   const deny = (status) => ({ user: null, status });
-
-  const mac = (text) => crypto.createHmac('sha256', secret).update(text).digest('base64url');
-  const sign = (obj) => {
-    const body = Buffer.from(JSON.stringify(obj)).toString('base64url');
-    return `${body}.${mac(body)}`;
-  };
-  function unsign(value) {
-    const [body, sig] = String(value || '').split('.');
-    if (!body || !sig) return null;
-    const want = Buffer.from(mac(body));
-    const got = Buffer.from(sig);
-    if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) return null;
-    try {
-      return JSON.parse(b64(body));
-    } catch {
-      return null;
-    }
-  }
 
   const allowed = (email) => allowedEmails.includes(email) || allowedDomains.includes(email.split('@')[1]);
 
@@ -275,29 +282,12 @@ function createPasswordAuth(options) {
   if (!options.sessionSecret) throw new Error('AUTH_MODE=password needs a session secret.');
   const now = options.now || (() => Math.floor(Date.now() / 1000));
   const publicUrl = String(options.publicUrl || '').replace(/\/+$/, '');
+  if (publicUrl && !/^https?:\/\//.test(publicUrl)) throw new Error('PUBLIC_URL must start with http:// or https://');
   const digest = (text) => crypto.createHash('sha256').update(text).digest();
   const passwordHash = digest(password);
   // Changing the password signs everybody out: the sessions are signed with a key that includes it.
-  const key = `${options.sessionSecret}:${passwordHash.toString('hex')}`;
-  const mac = (text) => crypto.createHmac('sha256', key).update(text).digest('base64url');
+  const { sign, unsign } = signer(`${options.sessionSecret}:${passwordHash.toString('hex')}`);
   const deny = (status) => ({ user: null, status });
-
-  const sign = (obj) => {
-    const body = Buffer.from(JSON.stringify(obj)).toString('base64url');
-    return `${body}.${mac(body)}`;
-  };
-  function unsign(value) {
-    const [body, sig] = String(value || '').split('.');
-    if (!body || !sig) return null;
-    const want = Buffer.from(mac(body));
-    const got = Buffer.from(sig);
-    if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) return null;
-    try {
-      return JSON.parse(b64(body));
-    } catch {
-      return null;
-    }
-  }
 
   const cleanName = (value) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, 32);
   const idOf = (name) => `name:${name.toLowerCase()}`;
@@ -309,7 +299,13 @@ function createPasswordAuth(options) {
   const misses = new Map();
   const WINDOW = 10 * 60;
   const MAX_MISSES = 8;
-  const who = (req) => String(req.headers['cf-connecting-ip'] || String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '');
+  // A tunnel or proxy on this machine says who it is passing along, and is believed. Anyone connecting
+  // directly could write those headers themselves, so for them it is the connection's own address.
+  const who = (req) => {
+    const addr = String(req.socket.remoteAddress || '');
+    if (!LOOPBACK.has(addr)) return addr;
+    return String(req.headers['cf-connecting-ip'] || String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || addr);
+  };
   const fresh = (m) => m && now() - m.t <= WINDOW;
   const blocked = (ip) => {
     const m = misses.get(ip);
@@ -340,8 +336,9 @@ function createPasswordAuth(options) {
       const chunks = [];
       req.on('data', (c) => {
         size += c.length;
-        if (size > 4096) req.destroy();
-        else chunks.push(c);
+        if (size <= 4096) return chunks.push(c);
+        req.destroy();
+        resolve({});
       });
       req.on('end', () => {
         try {

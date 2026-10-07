@@ -32,17 +32,19 @@ const WB = (() => {
     return value ?? null;
   }
 
+  const anyColor = () => USER_COLORS[Math.floor(Math.random() * USER_COLORS.length)];
+
+  // The name and colour this browser goes by where nobody signs in. Always both, or nothing.
   function user() {
     const u = store('wb:user');
-    return u && typeof u.name === 'string' && u.name ? u : null;
+    if (!u || typeof u.name !== 'string' || !u.name) return null;
+    if (!/^#[0-9a-f]{6}$/i.test(u.color || '')) store('wb:user', Object.assign(u, { color: anyColor() }));
+    return u;
   }
 
   function saveUser(name) {
     const prev = user();
-    const u = {
-      name: name.trim().slice(0, 32),
-      color: (prev && prev.color) || USER_COLORS[Math.floor(Math.random() * USER_COLORS.length)],
-    };
+    const u = { name: name.trim().slice(0, 32), color: prev ? prev.color : anyColor() };
     store('wb:user', u);
     return u;
   }
@@ -117,15 +119,24 @@ const WB = (() => {
     return ((parts[0] || '?')[0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
   }
 
+  // How long ago, said the same way wherever a time is shown.
   function ago(ts) {
     const s = Math.max(0, (Date.now() - ts) / 1000);
     if (s < 60) return 'just now';
     if (s < 3600) return `${Math.floor(s / 60)} min ago`;
     if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
     if (s < 86400 * 7) return `${Math.floor(s / 86400)} d ago`;
-    return new Date(ts).toLocaleDateString();
+    const then = new Date(ts);
+    const sameYear = then.getFullYear() === new Date().getFullYear();
+    return then.toLocaleDateString(undefined, sameYear ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' });
   }
 
+  // A sign-in that ran out while the page was open: off to sign in again, and then back to this page.
+  function toSignIn() {
+    location.href = `/auth/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`;
+  }
+
+  // Errors carry the HTTP status, so a caller can tell "gone" from "not allowed" from "try again".
   async function api(method, url, body) {
     const res = await fetch(url, {
       method,
@@ -133,7 +144,10 @@ const WB = (() => {
       body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+    if (!res.ok) {
+      if (res.status === 401 && session.signOut) toSignIn();
+      throw Object.assign(new Error(data.error || `Request failed (${res.status})`), { status: res.status });
+    }
     return data;
   }
 
@@ -174,6 +188,11 @@ const WB = (() => {
       if (t.hasAttribute('title')) {
         t.dataset.tip = t.getAttribute('title');
         t.removeAttribute('title');
+        // For a control that is only an icon the title was also its name; it keeps one.
+        if (t.dataset.tipNamed || (!t.hasAttribute('aria-label') && !t.textContent.trim())) {
+          t.dataset.tipNamed = '1';
+          t.setAttribute('aria-label', t.dataset.tip);
+        }
       }
       if (t === target || !t.dataset.tip) return;
       target = t;

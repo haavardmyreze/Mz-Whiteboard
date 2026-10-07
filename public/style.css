@@ -307,6 +307,7 @@ kbd {
 .avatar.presenting { box-shadow: 0 0 0 2px var(--brand); }
 .avatar.more { background: var(--surface-3); color: var(--text-2); cursor: default; }
 .avatar.me { margin-left: 8px; }
+.avatar.me.fixed, .avatar.me.fixed:hover { transform: none; cursor: default; }
 .avatar.sm { flex: none; width: 24px; height: 24px; margin: 0; border: 0; font-size: 10px; cursor: inherit; }
 .avatar.sm:hover { transform: none; }
 
@@ -359,10 +360,10 @@ kbd {
   animation: rise 0.12s var(--ease);
 }
 .menu-item { position: relative; height: var(--h-sm); padding: 0 8px; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
-.menu-item:hover { background: var(--hover); }
+.menu-item:hover, .menu-item:focus-visible { outline: none; background: var(--hover); }
 .menu-item.danger { margin-top: 9px; color: var(--danger); }
 .menu-item.danger::before { content: ""; position: absolute; left: -4px; right: -4px; top: -5px; height: 1px; background: var(--line); }
-.menu-item.danger:hover { background: var(--brand); color: #fff; }
+.menu-item.danger:hover, .menu-item.danger:focus-visible { background: var(--brand); color: #fff; }
 
 #tip {
   position: fixed;
@@ -396,7 +397,6 @@ body.home { overflow-y: auto; }
 .home-bar { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 84%, transparent); backdrop-filter: blur(16px) saturate(1.4); }
 .home-head { display: flex; align-items: center; gap: 8px; max-width: 1264px; height: 56px; margin: 0 auto; padding: 0 32px; }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); font-size: 15px; font-weight: 650; line-height: 1; letter-spacing: -0.02em; text-decoration: none; }
-.brand img { display: block; width: 24px; height: 24px; }
 
 .search { position: relative; display: flex; align-items: center; width: min(360px, 32vw); margin-left: 24px; }
 .search svg { position: absolute; left: 10px; width: 15px; height: 15px; color: var(--muted); pointer-events: none; }
@@ -433,6 +433,7 @@ body.home { overflow-y: auto; }
   transition: background 0.12s, color 0.12s;
 }
 .chip:hover { background: var(--hover); color: var(--text); }
+.chip:disabled { background: transparent; color: var(--text-2); cursor: default; }
 
 .home main { max-width: 1264px; margin: 0 auto; padding: 48px 32px 96px; }
 .home-empty { max-width: 360px; margin: 72px auto; color: var(--muted); text-align: center; line-height: 1.6; }
@@ -558,7 +559,7 @@ body[data-tool="pan"] #viewport, body.space #viewport { cursor: grab; }
 body.panning #viewport { cursor: grabbing; }
 body[data-tool="note"] #viewport, body[data-tool="text"] #viewport,
 body[data-tool="frame"] #viewport, body[data-tool="block"] #viewport, body[data-tool="pen"] #viewport,
-body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport { cursor: crosshair; }
+body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport, body[data-tool="comment"] #viewport { cursor: crosshair; }
 
 #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; --z: 1; --inv: 1; }
 #frames, #items, #inks { position: absolute; left: 0; top: 0; }
@@ -570,7 +571,7 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport { cursor: c
 .item.peersel { outline: calc(1.5px * var(--inv)) solid var(--peer); outline-offset: calc(2px * var(--inv)); }
 /* Flush with the selection box, so one thing selected shows one line, not two. */
 .item.sel { outline: calc(1.5px * var(--inv)) solid var(--accent); outline-offset: 0; }
-.item.drop-target { outline: calc(2px * var(--inv)) solid var(--accent); outline-offset: calc(3px * var(--inv)); }
+.item.drop-target, body[data-tool="comment"] .item:is(.image, .video, .note, .text):hover { outline: calc(2px * var(--inv)) solid var(--accent); outline-offset: calc(3px * var(--inv)); }
 
 /* Artwork keeps square corners so it is judged as made; it sits on the board like a pinned print. */
 .image, .video { box-shadow: 0 0 0 calc(1px * var(--inv)) var(--ring-c), 0 calc(1px * var(--inv)) calc(3px * var(--inv)) color-mix(in srgb, var(--lift-c) 55%, transparent), 0 calc(10px * var(--inv)) calc(24px * var(--inv)) calc(-10px * var(--inv)) var(--lift-c); }
@@ -844,6 +845,18 @@ body.presenting .chrome { display: none !important; }
 #present { margin-left: 2px; padding: 0 14px; }
 #peers { display: flex; align-items: center; padding: 0 2px 0 8px; }
 
+/* A narrow window keeps what matters within reach: labels go first, then the conveniences, so the
+   board's name, who is here, Share and Present never slide off the edge. */
+@media (max-width: 900px) {
+  #boardname { flex: 0 1 min(400px, 34vw); width: auto; min-width: 72px; }
+  #comments .lbl { display: none; }
+  #topbar .sep { margin: 14px 2px; }
+}
+@media (max-width: 640px) {
+  #snap, #zoom, #help, #topbar .sep { display: none; }
+  #peers .avatar:not(.me) { display: none; }
+}
+
 .count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--surface-3); color: var(--text); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0; }
 
 /* The tool strip: icons with small labels down the left edge. The tool in hand is the one solid thing in it. */
@@ -891,7 +904,7 @@ body.dragging-tool, body.dragging-tool * { cursor: grabbing !important; }
   transition: opacity 0.12s, border-color 0.12s;
 }
 .tool-ghost.note { border-style: solid; border-color: var(--line-strong); background: var(--note-fill); color: var(--text-2); }
-.tool-ghost.block { border-color: transparent; background: #a8477a; color: #fff; }
+.tool-ghost.block { border-color: transparent; color: #fff; }
 .tool-ghost.off { opacity: 0.4; border-color: var(--muted); }
 
 #seltools { display: flex; align-items: center; gap: 2px; padding: 3px; animation: rise 0.12s var(--ease); }
@@ -1057,14 +1070,39 @@ body.welcoming [data-logo-slot] > svg { visibility: hidden; }
 @keyframes logo-trace { to { stroke-dashoffset: -1; } }
 @keyframes logo-breathe { 0%, 100% { fill-opacity: 0.04; } 50% { fill-opacity: 0.22; } }
 
-/* Workspaces: Myreze (shared) and Personal. */
-.spaces { display: flex; gap: 4px; margin: -16px 0 22px -14px; }
-.space { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 14px; border: 1px solid transparent; border-radius: var(--r-2, 8px); background: none; color: var(--text-2); font: inherit; font-weight: 600; cursor: pointer; }
+/* Workspaces: Myreze (shared) and Personal. The tabs keep to the same left edge as everything below them. */
+.spaces { display: flex; gap: 4px; margin: -16px 0 24px; }
+.space { display: inline-flex; align-items: center; gap: 8px; height: var(--h); padding: 0 12px; border: 1px solid transparent; border-radius: var(--r-2); background: transparent; color: var(--text-2); font-weight: 600; cursor: pointer; transition: background 0.12s var(--ease), border-color 0.12s var(--ease), color 0.12s var(--ease); }
 .space:hover { background: var(--hover); color: var(--text); }
-.space.current { background: var(--surface-2); color: var(--text); border-color: var(--line-strong); }
-.space.drop { border-color: var(--accent, var(--brand)); background: var(--hover); }
-.space .tally { font-weight: 500; color: var(--muted); }
+.space.current { border-color: var(--line-strong); background: var(--surface-2); color: var(--text); }
+.space.drop { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.space .tally { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
 
-.share-base { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: var(--text-2); font-size: 13px; }
-.share-base select { flex: 1; height: 30px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-2); color: var(--text); font: inherit; padding: 0 8px; }
-.share-note { margin: 10px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+/* The share dialog: where the link points, and what that address means. */
+.share-base { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--text-2); }
+.share-base select { flex: 1; min-width: 0; height: var(--h); padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; }
+.share-base select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.dlg .share-note { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
+
+/* ---------------------------------------------------------------- sign-in page */
+
+body.login { display: grid; place-items: center; min-height: 100%; padding: 24px; }
+.login-card { display: grid; justify-items: center; gap: 16px; width: min(360px, 100%); text-align: center; }
+.login-logo { width: 96px; height: auto; fill: currentColor; animation: rise 0.5s var(--ease); }
+.login-card .brand { margin: 0; font-size: 20px; }
+.login-card p { margin: 0; color: var(--text-2); line-height: 1.5; text-wrap: balance; }
+.login-card p.login-error { color: var(--danger); }
+.login-card .btn { width: 100%; height: 40px; }
+.login-form { display: grid; gap: 8px; width: 100%; }
+.login-form input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.login-form input::placeholder { color: var(--muted); }
+.login-form input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.login-form .btn { margin-top: 8px; }

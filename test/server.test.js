@@ -565,3 +565,218 @@ test('with a shared password strangers see the sign-in page, and each name has i
   assert.deepEqual((await call(anna, 'GET', '/api/library')).boards.map((b) => b.name).sort(), ['Anna private', 'Everyone']);
   assert.deepEqual((await call(ben, 'GET', '/api/library')).boards.map((b) => b.name), ['Everyone']);
 });
+
+// ---------------------------------------------------------------- staying up, and keeping what it was given
+
+// One request line sent as it is, since fetch would tidy a malformed address before sending it.
+function rawRequest(port, line) {
+  const net = require('node:net');
+  return new Promise((resolve) => {
+    const socket = net.connect(port, '127.0.0.1', () => socket.write(`${line}\r\nHost: 127.0.0.1:${port}\r\nConnection: close\r\n\r\n`));
+    let reply = '';
+    socket.on('data', (d) => { reply += d; });
+    socket.on('close', () => resolve(reply.split('\r\n')[0]));
+    socket.on('error', () => resolve('no reply'));
+  });
+}
+
+test('a malformed request is refused and the server carries on', async (t) => {
+  const s = start(4813);
+  t.after(s.stop);
+  await s.ready;
+  assert.match(await rawRequest(4813, 'GET // HTTP/1.1'), / 400 /);
+  assert.match(await rawRequest(4813, 'GET /%00 HTTP/1.1'), / 400 /);
+  assert.match(await rawRequest(4813, 'GET /uploads/%00.png HTTP/1.1'), / 400 /);
+  assert.match(await rawRequest(4813, 'GET /%E0%A4%A HTTP/1.1'), / 400 /);
+  assert.equal((await fetch(`${s.base}/healthz`)).status, 200);
+
+  // a body that is not a JSON object is the caller's mistake, not a server error
+  const post = (body) => fetch(`${s.base}/api/boards`, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+  assert.equal((await post('{not json')).status, 400);
+  assert.equal((await post('[1,2]')).status, 400);
+  assert.equal((await post('null')).status, 400);
+  assert.equal((await post('{"name":"Fine"}')).status, 201);
+});
+
+test('a change made just before shutdown is on disk when the server comes back', async (t) => {
+  const WebSocket = require('ws');
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'wipboard-test-'));
+  t.after(() => fs.rmSync(data, { recursive: true, force: true }));
+  const run = () => spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
+    env: { ...process.env, PORT: '4814', HOST: '127.0.0.1', WIPBOARD_DATA: data, WIPBOARD_ENV_FILE: path.join(data, 'no.env') },
+    stdio: 'ignore',
+  });
+  const base = 'http://127.0.0.1:4814';
+  const up = async () => {
+    for (let i = 0; i < 100; i++) {
+      try {
+        if ((await fetch(`${base}/healthz`)).ok) return;
+      } catch {
+        // not up yet
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error('server did not start');
+  };
+
+  const first = run();
+  await up();
+  const board = await (await fetch(`${base}/api/boards`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Keep me' }) })).json();
+  // long enough for the new board's own save to have finished, so only the edit below is unsaved
+  await new Promise((r) => setTimeout(r, 1200));
+  const ws = new WebSocket(`ws://127.0.0.1:4814/ws?board=${board.id}`);
+  await new Promise((resolve) => {
+    ws.on('open', () => ws.send(JSON.stringify({ t: 'hello', name: 'Anna' })));
+    ws.on('message', (raw) => { if (JSON.parse(raw).t === 'init') resolve(); });
+  });
+  const acked = new Promise((resolve) => ws.on('message', (raw) => { if (JSON.parse(raw).t === 'ack') resolve(); }));
+  ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'lastnote1', type: 'note', x: 1, y: 2, w: 100, h: 0, text: 'said just in time' } }] }));
+  await acked;
+  const gone = new Promise((resolve) => first.on('exit', resolve));
+  assert.equal((await fetch(`${base}/__shutdown`, { method: 'POST' })).status, 200);
+  await gone;
+
+  const saved = JSON.parse(fs.readFileSync(path.join(data, 'boards', `${board.id}.json`), 'utf8'));
+  assert.deepEqual(saved.items.map((i) => i.text), ['said just in time']);
+  const second = run();
+  t.after(() => second.kill());
+  await up();
+  assert.equal((await (await fetch(`${base}/api/boards/${board.id}`)).json()).count, 1);
+});
+
+test('files the browser already has are not sent again', async (t) => {
+  const s = start(4815);
+  t.after(s.stop);
+  await s.ready;
+  const first = await fetch(`${s.base}/style.css`);
+  const etag = first.headers.get('etag');
+  assert.ok(etag);
+  await first.arrayBuffer();
+  const again = await fetch(`${s.base}/style.css`, { headers: { 'if-none-match': etag } });
+  assert.equal(again.status, 304);
+  assert.equal((await fetch(`${s.base}/style.css`, { headers: { 'if-none-match': '"something-else"' } })).status, 200);
+  // where the app does no sign-in of its own, there is no sign-in page
+  const login = await fetch(`${s.base}/auth/login`, { redirect: 'manual' });
+  assert.equal(login.status, 302);
+  assert.equal(login.headers.get('location'), '/');
+});
+
+// ---------------------------------------------------------------- who is on a board
+
+function joiner(port) {
+  const WebSocket = require('ws');
+  return (query, name, options) => new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?${query}`, options);
+    const conn = { ws, seen: [], closed: null };
+    ws.on('open', () => ws.send(JSON.stringify({ t: 'hello', name, color: '#336699' })));
+    ws.on('message', (raw) => {
+      const msg = JSON.parse(raw);
+      conn.seen.push(msg);
+      if (msg.t === 'init') resolve(conn);
+    });
+    ws.on('error', reject);
+    ws.on('close', (code) => { conn.closed = code; });
+  });
+}
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test('everyone on a board is told about link viewers, whenever they arrive, and other sites cannot connect', async (t) => {
+  const s = start(4816);
+  t.after(s.stop);
+  await s.ready;
+  const open = joiner(4816);
+  const board = await (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Review' }) })).json();
+  const { token } = await (await fetch(`${s.base}/api/boards/${board.id}/share`, { method: 'POST' })).json();
+
+  const viewer = await open(`share=${token}`, 'Eve');
+  const late = await open(`board=${board.id}`, 'Anna');
+  t.after(() => { viewer.ws.close(); late.ws.close(); });
+  // the editor who arrived after the viewer knows about them too, so their pointer shows for everyone
+  assert.deepEqual(late.seen.find((m) => m.t === 'init').peers.map((p) => [p.name, p.viewer]), [['Eve', true]]);
+
+  // a page on another site cannot open a board from somebody's browser; our own pages can
+  await assert.rejects(open(`board=${board.id}`, 'Mallory', { headers: { origin: 'https://evil.example' } }));
+  const ours = await open(`board=${board.id}`, 'Ben', { headers: { origin: 'http://127.0.0.1:4816' } });
+  ours.ws.close();
+});
+
+test('a deleted comment that somebody else undoes comes back as its author wrote it', async (t) => {
+  const s = start(4817);
+  t.after(s.stop);
+  await s.ready;
+  const open = joiner(4817);
+  const board = await (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Review' }) })).json();
+  const anna = await open(`board=${board.id}`, 'Anna');
+  const ben = await open(`board=${board.id}`, 'Ben');
+  t.after(() => { anna.ws.close(); ben.ws.close(); });
+
+  anna.ws.send(JSON.stringify({ t: 'op', ops: [
+    { t: 'add', item: { id: 'imageone1', type: 'image', x: 0, y: 0, w: 100, h: 100, src: '/x.png' } },
+    { t: 'add', item: { id: 'comment01', type: 'comment', on: 'imageone1', text: 'Mine', t: 1700000000000 } },
+  ] }));
+  await pause(150);
+  // Ben deletes it, then undoes: his browser sends the comment back, and the server must not make it his
+  ben.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'del', ids: ['comment01'] }] }));
+  await pause(150);
+  ben.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'comment01', type: 'comment', on: 'imageone1', text: 'Tampered', name: 'Ben' } }] }));
+  await pause(150);
+  const back = anna.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).filter((o) => o.t === 'add').pop().item;
+  assert.equal(back.name, 'Anna');
+  assert.equal(back.text, 'Mine');
+  assert.equal(back.t, 1700000000000);
+});
+
+test('housekeeping a browser does on opening a board does not count as an edit', async (t) => {
+  const s = start(4818);
+  t.after(s.stop);
+  await s.ready;
+  const open = joiner(4818);
+  const board = await (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Review' }) })).json();
+  const anna = await open(`board=${board.id}`, 'Anna');
+  t.after(() => anna.ws.close());
+  const meta = async () => (await fetch(`${s.base}/api/boards/${board.id}`)).json();
+
+  anna.ws.send(JSON.stringify({ t: 'op', ops: [
+    { t: 'add', item: { id: 'imageone1', type: 'image', x: 0, y: 0, w: 100, h: 100, src: '/uploads/big.png' } },
+    { t: 'add', item: { id: 'videoone1', type: 'video', x: 0, y: 0, w: 100, h: 100, src: '/uploads/clip.mp4', th: '/uploads/clip.webp' } },
+    { t: 'add', item: { id: 'strokeon1', type: 'stroke', x: 0, y: 0, w: 10, h: 10, pts: [0, 0, 1, 1], size: 4 } },
+  ] }));
+  await pause(150);
+  const before = await meta();
+  // drawings are not counted one stroke at a time, and a video shows the still made for it
+  assert.equal(before.count, 2);
+  assert.deepEqual(before.thumbs, ['/uploads/big.png', '/uploads/clip.webp']);
+
+  await pause(20);
+  anna.ws.send(JSON.stringify({ t: 'op', quiet: true, ops: [{ t: 'set', id: 'imageone1', patch: { th: '/uploads/small.webp' } }] }));
+  await pause(150);
+  const after = await meta();
+  assert.deepEqual(after.thumbs, ['/uploads/small.webp', '/uploads/clip.webp']);
+  assert.equal(after.updatedAt, before.updatedAt);
+});
+
+test('moving a board to a personal workspace shows everybody else on it the door', async (t) => {
+  const secret = 'move-test-secret';
+  const mk = createAuth(googleOptions({ sessionSecret: secret, allowedDomains: 'x.com', allowedEmails: '', publicUrl: 'http://localhost:4819' }));
+  const cookie = (email, name) => mk.sessionCookie({ email, name }).split(';')[0];
+  const anna = cookie('anna@x.com', 'Anna');
+  const ben = cookie('ben@x.com', 'Ben');
+  const s = start(4819, {
+    AUTH_MODE: 'google', GOOGLE_CLIENT_ID: 'client-1', GOOGLE_CLIENT_SECRET: 'shh', PUBLIC_URL: 'http://localhost:4819',
+    ALLOWED_DOMAINS: 'x.com', SESSION_SECRET: secret,
+  });
+  t.after(s.stop);
+  await s.ready;
+  const open = joiner(4819);
+  const call = (who, method, p, body) => fetch(s.base + p, { method, headers: { cookie: who, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const board = await (await call(anna, 'POST', '/api/boards', { name: 'Team board' })).json();
+
+  const hers = await open(`board=${board.id}`, 'Anna', { headers: { cookie: anna } });
+  const his = await open(`board=${board.id}`, 'Ben', { headers: { cookie: ben } });
+  t.after(() => { hers.ws.close(); his.ws.close(); });
+  assert.equal((await call(anna, 'PATCH', `/api/boards/${board.id}`, { workspace: 'personal' })).status, 200);
+  await pause(200);
+  assert.equal(his.closed, 4003);
+  assert.equal(hers.closed, null);
+  await assert.rejects(open(`board=${board.id}`, 'Ben', { headers: { cookie: ben } }));
+});

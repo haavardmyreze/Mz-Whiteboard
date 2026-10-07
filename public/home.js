@@ -27,9 +27,17 @@
     el('span', { text: me.name }));
   paintMe();
   if (WB.info().signOut) {
-    // Signed in with Google: the name comes from the account, so the chip is a sign-out instead.
+    // Signed in: the name comes from the sign-in, so the chip signs out instead. It asks first; one
+    // stray click should not mean typing the password again.
     $('me').title = 'Sign out';
-    $('me').addEventListener('click', () => { location.href = '/auth/logout'; });
+    $('me').addEventListener('click', async () => {
+      const sure = await WB.dialog({ title: 'Sign out?', text: `You are signed in as ${me.name}.`, ok: 'Sign out' });
+      if (sure) location.href = '/auth/logout';
+    });
+  } else if (WB.info().user) {
+    // Signed in by something in front of the app: there is nothing here to change or sign out of.
+    $('me').removeAttribute('title');
+    $('me').disabled = true;
   } else {
     $('me').addEventListener('click', async () => {
       me = await WB.askName(true);
@@ -62,9 +70,18 @@
     refresh();
   }
 
-  async function refresh() {
+  // `quiet` is the background check: when nothing has changed the page is left as it is, rather than
+  // rebuilt under the pointer, except once a minute so "edited 5 min ago" stays true.
+  let shown = '';
+  let shownAt = 0;
+  async function refresh(quiet = false) {
     try {
-      everything = await api('GET', '/api/library');
+      const next = await api('GET', '/api/library');
+      const sig = `${space}|${JSON.stringify(next)}`;
+      if (quiet === true && sig === shown && Date.now() - shownAt < 60000) return;
+      shown = sig;
+      shownAt = Date.now();
+      everything = next;
       lib = {
         folders: everything.folders.filter((f) => f.workspace === space),
         boards: everything.boards.filter((b) => b.workspace === space),
@@ -112,7 +129,7 @@
         e.preventDefault();
         const { kind, id } = dragging;
         dragging = null;
-        api('PATCH', kind === 'board' ? `/api/boards/${id}` : `/api/folders/${id}`, { workspace: name }).then(refresh).catch(fail);
+        api('PATCH', kind === 'board' ? `/api/boards/${id}` : `/api/folders/${id}`, { workspace: name }).then(() => refresh()).catch(fail);
       });
       return tab;
     }));
@@ -189,12 +206,27 @@
         Promise.resolve(run()).catch(fail);
       },
     })));
+    // The arrow keys walk the menu, and Escape hands the keyboard back to the button that opened it.
+    menu.addEventListener('keydown', (e) => {
+      const list = [...menu.children];
+      const at = list.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') list[(at + 1) % list.length].focus();
+      else if (e.key === 'ArrowUp') list[(at - 1 + list.length) % list.length].focus();
+      else if (e.key === 'Escape') {
+        closeMenu();
+        anchor.focus();
+      } else return;
+      e.preventDefault();
+      e.stopPropagation();
+    });
     document.body.append(menu);
     const r = anchor.getBoundingClientRect();
     menu.style.left = `${Math.max(8, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8))}px`;
-    menu.style.top = `${Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8)}px`;
-    setTimeout(() => document.addEventListener('click', closeMenu, { once: true }));
+    menu.style.top = `${Math.max(8, Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8))}px`;
+    menu.firstChild.focus({ preventScroll: true });
   }
+  // A click anywhere else closes it. The buttons that open a menu, and its own entries, keep their clicks to themselves.
+  document.addEventListener('click', closeMenu);
 
   function menuButton(entries) {
     return el('button', {
@@ -421,5 +453,5 @@
   });
   window.addEventListener('hashchange', () => { if (lib.folders) render(); });
   await refresh();
-  setInterval(() => { if (!document.hidden && !dragging && !document.querySelector('dialog[open], .menu')) refresh(); }, 15000);
+  setInterval(() => { if (!document.hidden && !dragging && !document.querySelector('dialog[open], .menu')) refresh(true); }, 15000);
 })();

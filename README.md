@@ -62,13 +62,14 @@ private networks, otherwise only the host machine can connect.
   Once in, it stays in until it has been pulled completely out of the frame, and the frame closes up again. Drawing a frame around
   loose items gathers them. Resizing a frame by hand switches its fit-to-content button
   off; the toolbar button turns it back on.
-- **Comments.** Drag the Comment tool from the strip onto an image, video, note or heading and
-  drop it where on it the comment belongs (it also works on an opened image). Comments are
+- **Comments.** Pick the Comment tool (C) and click an image, video, note or heading where the
+  comment belongs, or drag the tool from the strip and drop it there (both also work on an opened image). Comments are
   always on one piece of content, show as numbered pins that follow it, and start a thread that
   anyone can reply to or resolve. On a video the comment remembers the moment it was left on,
   and clicking it jumps there. The Comments button in the top bar (Shift+C) lists every message
   oldest first. Who wrote a comment comes from the sign-in, not from the browser. Comments go
-  when the thing they are on is deleted, and come back with it on undo.
+  when the thing they are on is deleted, and come back with it on undo, still in their author's name
+  whoever pressed undo.
 - **Smart snapping.** Dragged items snap to the edges and centres of their neighbours and
   to equal gaps, with guide lines. Toggle with S, hold Ctrl while dragging to bypass.
 - **Live collaboration.** Everyone sees edits, cursors and selections as they happen.
@@ -86,11 +87,29 @@ private networks, otherwise only the host machine can connect.
 
 Press `?` on a board for the full shortcut list.
 
+## Who gets in
+
+Out of the box there is no sign-in: anyone who can reach the server can open, edit and delete every
+board, which suits a trusted studio network. Set `AUTH_MODE` to change that:
+
+| `AUTH_MODE` | Who gets in |
+| ----------- | ----------- |
+| `none` (default) | Everyone who can reach the server. They pick a display name |
+| `password`  | Everyone who knows the one shared password (`SITE_PASSWORD`). They type a name with it |
+| `google`    | Google accounts on an allow list. The app does the sign-in itself |
+| `iap`       | Whoever Google Cloud's Identity-Aware Proxy lets through |
+
+Signed in, everybody shares the **Myreze** workspace and each person also has a **Personal** one that
+only they can see. On a board, **Share** makes a view-only link that needs no sign-in. The settings,
+and how to reach the server from outside the building, are in [DEPLOY.md](DEPLOY.md); copy
+`.env.example` to `.env` to set them.
+
 ## Hosting it
 
-For a team that is not on one network, deploy it to Google Cloud Run behind Google sign-in. A
-`Dockerfile`, a health check, piece-by-piece uploads and an email allow list are included; see
-[DEPLOY.md](DEPLOY.md) for the commands, the settings and why it should run as a single instance.
+For a team that is not on one network, either run it from one PC behind a tunnel with a shared
+password, or deploy it to Google Cloud Run behind Google sign-in. A `Dockerfile`, a health check,
+piece-by-piece uploads and an email allow list are included; see [DEPLOY.md](DEPLOY.md) for the
+commands, the settings and why it should run as a single instance.
 
 ## Folders
 
@@ -109,14 +128,16 @@ Everything lives in `data/` next to the server:
 | `data/folders.json` | The folder tree for the board list                          |
 | `data/uploads/` | Uploaded media, named by content hash (duplicates stored once)  |
 | `data/trash/`   | Boards deleted from the board list, kept for manual recovery    |
+| `data/.session-secret` | Signs the sign-in cookies. Made on first start with a sign-in mode; keep it private |
 
-Back up by copying the `data` folder. To restore a deleted board, stop the server, move
+Boards are written 0.8 s after the last change, and everything still unsaved is written when the
+server is stopped (Ctrl+C, `stop.bat`, or the host shutting it down). Back up by copying the `data` folder. To restore a deleted board, stop the server, move
 its file from `data/trash/` to `data/boards/`, rename it to `<board id>.json` (the id is
 the part of the file name before the dash and timestamp) and start the server again.
 
 ## Settings
 
-Environment variables, all optional:
+Environment variables, or lines in a `.env` file next to `server.js`. All optional:
 
 | Variable                 | Default  | Meaning                                  |
 | ------------------------ | -------- | ---------------------------------------- |
@@ -124,12 +145,13 @@ Environment variables, all optional:
 | `HOST`                   | `0.0.0.0`| Interface to bind (`127.0.0.1` = local only) |
 | `WIPBOARD_DATA`          | `./data` | Where boards and uploads are stored      |
 | `WIPBOARD_MAX_UPLOAD_MB` | `1024`   | Largest accepted file                    |
+| `AUTH_MODE`              | `none`   | Who gets in, see above. Its own settings are listed in [DEPLOY.md](DEPLOY.md) |
 
 ## Good to know
 
-- **There are no accounts or passwords.** Anyone who can reach the server can open, edit
-  and delete every board. Run it on a trusted studio network or behind a VPN, not on the
-  open internet.
+- **Without `AUTH_MODE` there are no accounts or passwords.** Anyone who can reach the server can
+  open, edit and delete every board. Run it that way on a trusted studio network or behind a VPN,
+  never on the open internet; for anything else pick a sign-in mode.
 - **Video must be browser-playable**: H.264 MP4 or WebM. ProRes and DNxHD `.mov` files are
   rejected with a message; export an H.264 review copy instead. Compression runs in the browser
   (Chrome, Edge and Safari do it well); where a browser cannot, the file is uploaded as it is.
@@ -144,8 +166,11 @@ Environment variables, all optional:
 
 ```
 server.js          HTTP + WebSocket server, persistence
+auth.js            Who is asking: the four sign-in modes
 public/board.js    The canvas: rendering, input, sync, presenting
 public/home.js     Board list
 public/common.js   Shared helpers
+public/login.html  Sign-in page (password and Google modes)
 public/style.css   All styling
+test/              npm test: sign-in, uploads, live sync, workspaces, read-only links
 ```

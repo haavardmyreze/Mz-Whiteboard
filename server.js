@@ -35,13 +35,15 @@ function sessionSecret() {
   if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
   const file = path.join(DATA_DIR, '.session-secret');
   try {
-    return fs.readFileSync(file, 'utf8').trim();
+    const kept = fs.readFileSync(file, 'utf8').trim();
+    if (kept) return kept;
   } catch {
-    const made = crypto.randomBytes(32).toString('base64url');
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(file, made, { mode: 0o600 });
-    return made;
+    // none kept yet
   }
+  const made = crypto.randomBytes(32).toString('base64url');
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(file, made, { mode: 0o600 });
+  return made;
 }
 
 let auth;
@@ -64,6 +66,7 @@ try {
 // View-only links work wherever this app decides who gets in; behind IAP the platform does, and it cannot let anonymous people through.
 const SHARING = auth.mode !== 'iap';
 const SAVE_DELAY = 800;
+const SAVE_RETRY = 5000;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -112,6 +115,25 @@ function newId(bytes = 6) {
   return crypto.randomBytes(bytes).toString('base64url');
 }
 
+function cleanName(value, fallback) {
+  return String(value ?? '').trim().slice(0, 120) || fallback;
+}
+
+// A board as it is held in memory: what is saved, plus who is on it and where its saving stands.
+function boardRecord(saved) {
+  return {
+    ...saved,
+    peers: new Map(),
+    presenter: null,
+    viewerSeq: 0,
+    removedComments: new Map(),
+    saveTimer: null,
+    saving: Promise.resolve(),
+    dirty: false,
+    writing: false,
+  };
+}
+
 function loadBoards() {
   for (const file of fs.readdirSync(BOARD_DIR)) {
     if (!file.endsWith('.json')) continue;
@@ -120,7 +142,7 @@ function loadBoards() {
       if (!ID_RE.test(raw.id)) continue;
       const items = new Map();
       for (const it of raw.items || []) if (it && ID_RE.test(it.id)) items.set(it.id, it);
-      boards.set(raw.id, {
+      const loaded = boardRecord({
         id: raw.id,
         name: raw.name || 'Untitled',
         folderId: raw.folderId || null,
@@ -129,12 +151,8 @@ function loadBoards() {
         createdAt: raw.createdAt || Date.now(),
         updatedAt: raw.updatedAt || Date.now(),
         items,
-        peers: new Map(),
-        presenter: null,
-        saveTimer: null,
-        saving: Promise.resolve(),
       });
-      const loaded = boards.get(raw.id);
+      boards.set(loaded.id, loaded);
       if (loaded.shareToken) shares.set(loaded.shareToken, loaded);
     } catch (err) {
       console.error(`Skipping unreadable board file ${file}: ${err.message}`);
@@ -143,20 +161,16 @@ function loadBoards() {
 }
 
 function createBoard(name, folderId, workspace = 'myreze') {
-  const board = {
+  const board = boardRecord({
     id: newId(),
-    name: String(name || 'Untitled board').slice(0, 120),
+    name: cleanName(name, 'Untitled board'),
     folderId: folderId || null,
     workspace,
     shareToken: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     items: new Map(),
-    peers: new Map(),
-    presenter: null,
-    saveTimer: null,
-    saving: Promise.resolve(),
-  };
+  });
   boards.set(board.id, board);
   scheduleSave(board);
   return board;
@@ -179,40 +193,68 @@ function serialize(board) {
   });
 }
 
-function scheduleSave(board, touch = true) {
+// `dirty` means memory holds something the file does not. It is set by every change and cleared when a
+// write begins, so a change that lands while a write is under way is picked up by the next one.
+function scheduleSave(board, touch = true, delay = SAVE_DELAY) {
   if (touch) board.updatedAt = Date.now();
+  board.dirty = true;
   if (board.saveTimer) return;
   board.saveTimer = setTimeout(() => {
     board.saveTimer = null;
     board.saving = board.saving.then(() => writeBoard(board)).catch((err) => {
-      console.error(`Failed to save board ${board.id}: ${err.message}`);
+      console.error(`Failed to save board ${board.id}: ${err.message}. Trying again shortly.`);
+      // The changes are still in memory: keep trying rather than wait for somebody's next edit.
+      scheduleSave(board, false, SAVE_RETRY);
     });
-  }, SAVE_DELAY);
+  }, delay);
 }
 
 // Write to a temp file and rename so a crash mid-write never truncates a board.
 async function writeBoard(board) {
-  if (!boards.has(board.id)) return;
+  if (!boards.has(board.id) || !board.dirty) return;
   const file = boardFile(board);
   const tmp = `${file}.tmp`;
   const data = serialize(board);
-  await fsp.writeFile(tmp, data);
+  board.dirty = false;
+  board.writing = true;
   try {
-    await fsp.rename(tmp, file);
-  } catch {
-    // Windows can refuse the rename while another process holds the target open.
-    await fsp.writeFile(file, data);
-    await fsp.rm(tmp, { force: true });
+    await fsp.writeFile(tmp, data);
+    try {
+      await fsp.rename(tmp, file);
+    } catch {
+      // Windows can refuse the rename while another process holds the target open.
+      await fsp.writeFile(file, data);
+      await fsp.rm(tmp, { force: true });
+    }
+  } catch (err) {
+    board.dirty = true;
+    throw err;
+  } finally {
+    board.writing = false;
   }
 }
 
+// On the way out: every board with unsaved changes, and every board whose save this exit is about
+// to cut short. It writes beside the file and renames, under its own temp name so it cannot collide
+// with a write that is still in flight.
 function flushAllSync() {
   for (const board of boards.values()) {
-    if (!board.saveTimer) continue;
     clearTimeout(board.saveTimer);
     board.saveTimer = null;
+    if (!board.dirty && !board.writing) continue;
+    board.dirty = false;
+    board.writing = false;
+    const file = boardFile(board);
+    const tmp = `${file}.exit.tmp`;
+    const data = serialize(board);
     try {
-      fs.writeFileSync(boardFile(board), serialize(board));
+      try {
+        fs.writeFileSync(tmp, data);
+        fs.renameSync(tmp, file);
+      } catch {
+        fs.writeFileSync(file, data);
+        fs.rmSync(tmp, { force: true });
+      }
     } catch (err) {
       console.error(`Failed to save board ${board.id}: ${err.message}`);
     }
@@ -221,11 +263,14 @@ function flushAllSync() {
 
 function boardMeta(board) {
   const thumbs = [];
-  let media = 0;
+  let count = 0;
   for (const it of board.items.values()) {
-    if (it.type !== 'image' && it.type !== 'video') continue;
-    media++;
-    if (it.type === 'image' && thumbs.length < 4) thumbs.push(it.prev || it.src);
+    // What somebody would call an item: not the comments on it, nor each stroke of a drawing.
+    if (it.type !== 'comment' && it.type !== 'stroke') count++;
+    if (thumbs.length === 4) continue;
+    // The small still made when it was uploaded; images from before those existed show their preview or original.
+    const still = it.th || (it.type === 'image' ? it.prev || it.src : null);
+    if (typeof still === 'string') thumbs.push(still);
   }
   return {
     id: board.id,
@@ -234,8 +279,7 @@ function boardMeta(board) {
     workspace: spaceName(board.workspace),
     createdAt: board.createdAt,
     updatedAt: board.updatedAt,
-    count: [...board.items.values()].filter((it) => it.type !== 'comment').length,
-    media,
+    count,
     thumbs,
     online: [...board.peers.values()].filter((p) => !p.viewer).length,
     shareToken: board.shareToken || null,
@@ -270,7 +314,16 @@ function cleanComment(it, peer) {
   return clean;
 }
 
-function applyOps(board, ops, peer) {
+// Comments deleted since the server started, so undoing a delete brings each one back exactly as it
+// was written. Without this the server would stamp it with whoever pressed undo.
+const REMOVED_COMMENTS_KEPT = 500;
+function rememberComment(board, comment) {
+  board.removedComments.set(comment.id, comment);
+  if (board.removedComments.size > REMOVED_COMMENTS_KEPT) board.removedComments.delete(board.removedComments.keys().next().value);
+}
+
+// `touch` is false for housekeeping a browser does by itself, which must not make the board look edited.
+function applyOps(board, ops, peer, touch = true) {
   const applied = [];
   if (!Array.isArray(ops)) return applied;
   for (const op of ops) {
@@ -280,8 +333,9 @@ function applyOps(board, ops, peer) {
       if (!it || typeof it !== 'object' || !ID_RE.test(it.id) || typeof it.type !== 'string') continue;
       if (it.type === 'comment') {
         if (board.items.has(it.id)) continue;
-        it = cleanComment(it, peer);
+        it = board.removedComments.get(it.id) || cleanComment(it, peer);
         if (!it) continue;
+        board.removedComments.delete(it.id);
       }
       board.items.set(it.id, it);
       applied.push({ t: 'add', item: it });
@@ -303,15 +357,19 @@ function applyOps(board, ops, peer) {
       applied.push({ t: 'set', id: op.id, patch });
     } else if (op.t === 'del') {
       if (!Array.isArray(op.ids)) continue;
-      const ids = op.ids.filter((id) => board.items.delete(id));
+      const ids = op.ids.filter((id) => {
+        const gone = board.items.get(id);
+        if (gone && gone.type === 'comment') rememberComment(board, gone);
+        return board.items.delete(id);
+      });
       if (ids.length) applied.push({ t: 'del', ids });
     } else if (op.t === 'meta') {
       if (!op.patch || typeof op.patch.name !== 'string') continue;
-      board.name = op.patch.name.trim().slice(0, 120) || 'Untitled';
+      board.name = cleanName(op.patch.name, 'Untitled');
       applied.push({ t: 'meta', patch: { name: board.name } });
     }
   }
-  if (applied.length) scheduleSave(board);
+  if (applied.length) scheduleSave(board, touch);
   return applied;
 }
 
@@ -374,11 +432,8 @@ function moveFolderToSpace(folder, key) {
     if (!board.folderId || !moved.has(board.folderId)) continue;
     board.workspace = key;
     scheduleSave(board, false);
+    dropStrangers(board);
   }
-}
-
-function cleanName(value, fallback) {
-  return String(value ?? '').trim().slice(0, 120) || fallback;
 }
 
 // ---------------------------------------------------------------- http
@@ -393,6 +448,11 @@ function sendJson(res, status, body) {
   res.end(data);
 }
 
+// An error that is the caller's doing and is told to them as it is. Anything else is ours: logged, and
+// answered with a plain 500.
+const refusal = (status, message) => Object.assign(new Error(message), { status });
+
+// The body of a request as an object: handlers look fields up in it without checking what they got.
 function readJson(req, limit = 64 * 1024) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -400,29 +460,39 @@ function readJson(req, limit = 64 * 1024) {
     req.on('data', (chunk) => {
       size += chunk.length;
       if (size > limit) {
-        reject(new Error('Body too large'));
+        reject(refusal(413, 'Body too large'));
         req.destroy();
         return;
       }
       chunks.push(chunk);
     });
     req.on('end', () => {
+      let body = {};
       try {
-        resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {});
-      } catch (err) {
-        reject(err);
+        if (chunks.length) body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      } catch {
+        return reject(refusal(400, 'The request body is not valid JSON'));
       }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) return reject(refusal(400, 'The request body must be a JSON object'));
+      resolve(body);
     });
-    req.on('error', reject);
+    req.on('error', () => reject(refusal(400, 'Request interrupted')));
   });
 }
 
 function sendFile(req, res, file, headers = {}) {
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) return sendJson(res, 404, { error: 'Not found' });
+    // Unchanged since the browser last fetched it: say so instead of sending it all again.
+    const etag = `"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, { ETag: etag, ...headers });
+      return res.end();
+    }
     const head = {
       'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
       'Accept-Ranges': 'bytes',
+      ETag: etag,
       ...headers,
     };
     let start = 0;
@@ -494,7 +564,9 @@ function handleUpload(req, res, url) {
     if (size > MAX_PART) fail(413, 'Piece too large');
   });
   req.on('error', () => fail(400, 'Upload interrupted'));
-  req.on('aborted', () => fail(400, 'Upload interrupted'));
+  req.on('close', () => {
+    if (!req.complete) fail(400, 'Upload interrupted');
+  });
   out.on('error', (err) => fail(500, err.message));
   out.on('finish', async () => {
     if (failed) return;
@@ -590,6 +662,11 @@ function revokeShare(board) {
   for (const peer of [...board.peers.values()]) if (peer.viewer) peer.ws.close(4005, 'Link no longer shared');
 }
 
+// After a board changes workspace, whoever is on it but may no longer see it is shown the door.
+function dropStrangers(board) {
+  for (const peer of [...board.peers.values()]) if (!peer.viewer && !visible(peer.user, board)) peer.ws.close(4003, 'Board moved');
+}
+
 const VIEW_COOKIE = 'wb_view';
 const secureCookie = (req) => ((auth.publicUrl && auth.publicUrl.startsWith('https://')) || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '');
 // Someone who opened a live read-only link may load the files on that board without being signed in.
@@ -634,6 +711,7 @@ async function handleApi(req, res, url) {
     if (parts.length === 3 && folder) {
       if (req.method === 'PATCH') {
         const body = await readJson(req);
+        if (body.workspace === 'personal' && !req.user) return sendJson(res, 400, { error: 'Personal workspaces need sign-in' });
         if ('parentId' in body) {
           const parentId = body.parentId || null;
           if (parentId && !visibleFolder(req.user, parentId)) return sendJson(res, 400, { error: 'Folder not found' });
@@ -643,7 +721,6 @@ async function handleApi(req, res, url) {
         }
         if ('workspace' in body) {
           const key = spaceKey(body.workspace, req.user);
-          if (body.workspace === 'personal' && !req.user) return sendJson(res, 400, { error: 'Personal workspaces need sign-in' });
           if (key !== folder.workspace) moveFolderToSpace(folder, key);
         }
         if ('name' in body) folder.name = cleanName(body.name, folder.name);
@@ -707,6 +784,7 @@ async function handleApi(req, res, url) {
           board.workspace = key;
           board.folderId = null;
           scheduleSave(board, false);
+          dropStrangers(board);
         }
       }
       if ('folderId' in body) {
@@ -736,14 +814,17 @@ async function handleApi(req, res, url) {
   sendJson(res, 404, { error: 'Not found' });
 }
 
-const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, 'http://localhost');
+async function handleRequest(req, res) {
+  let url;
   let pathname;
   try {
+    url = new URL(req.url, 'http://localhost');
     pathname = decodeURIComponent(url.pathname);
   } catch {
     return sendJson(res, 400, { error: 'Bad request' });
   }
+  // No file has a null byte in its name, and Node throws rather than go looking for one.
+  if (pathname.includes('\0')) return sendJson(res, 400, { error: 'Bad request' });
 
   // For the platform's health checks: no login, no data.
   if (pathname === '/healthz') {
@@ -793,13 +874,13 @@ const server = http.createServer(async (req, res) => {
     req.user = who.user;
   }
 
-  if (pathname.startsWith('/api/')) {
-    handleApi(req, res, url).catch((err) => {
-      if (!res.headersSent) sendJson(res, 400, { error: err.message });
-    });
-    return;
-  }
+  if (pathname.startsWith('/api/')) return handleApi(req, res, url);
   if (req.method !== 'GET' && req.method !== 'HEAD') return sendJson(res, 405, { error: 'Method not allowed' });
+  // Where the app does no sign-in of its own there is no sign-in page to show.
+  if (pathname.startsWith('/auth/') && !auth.interactive) {
+    res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' });
+    return res.end();
+  }
 
   if (pathname.startsWith('/uploads/')) {
     const name = path.basename(pathname);
@@ -826,6 +907,16 @@ const server = http.createServer(async (req, res) => {
   if (!full.startsWith(PUBLIC_DIR + path.sep)) return sendJson(res, 404, { error: 'Not found' });
   // The typeface never changes under the same name, so browsers may keep it.
   sendFile(req, res, full, { 'Cache-Control': file.startsWith('fonts/') ? 'public, max-age=31536000, immutable' : 'no-cache' });
+}
+
+// Nothing one request does may take the server, and everybody's open boards, down with it.
+const server = http.createServer((req, res) => {
+  handleRequest(req, res).catch((err) => {
+    const status = err.status || 500;
+    if (status >= 500) console.error(`${req.method} ${req.url} failed: ${err.stack || err.message}`);
+    if (res.headersSent) return res.destroy();
+    sendJson(res, status, { error: status >= 500 ? 'Something went wrong on the server' : err.message });
+  });
 });
 
 // Behind a load balancer, keep connections open longer than the balancer does, and let big uploads take their time.
@@ -837,6 +928,20 @@ server.requestTimeout = 0;
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
 
+// Browsers say which page is opening a connection. It has to be one of ours: a page on another site
+// must not be able to open a board from a visitor's browser, with the visitor's sign-in.
+function fromOurPages(req) {
+  if (!req.headers.origin) return true; // not a browser
+  let origin;
+  try {
+    origin = new URL(req.headers.origin).host.toLowerCase();
+  } catch {
+    return false;
+  }
+  const ours = [req.headers.host, req.headers['x-forwarded-host'], auth.publicUrl && new URL(auth.publicUrl).host];
+  return ours.some((host) => typeof host === 'string' && host.toLowerCase() === origin);
+}
+
 server.on('upgrade', async (req, socket, head) => {
   try {
     const url = new URL(req.url, 'http://localhost');
@@ -845,15 +950,10 @@ server.on('upgrade', async (req, socket, head) => {
     if (shared) {
       const viewed = SHARING ? shares.get(shared) : null;
       if (!viewed) return socket.destroy();
-      return wss.handleUpgrade(req, socket, head, (ws) => onConnect(ws, viewed, null, true));
+      return wss.handleUpgrade(req, socket, head, (ws) => onConnect(ws, viewed, null, shared));
     }
     const board = boards.get(url.searchParams.get('board'));
-    if (!board) return socket.destroy();
-    // A page on another site must not be able to open a signed-in visitor's session as a board connection.
-    if (auth.interactive && req.headers.origin) {
-      const origin = new URL(req.headers.origin).host;
-      if (origin !== req.headers.host && !(auth.publicUrl && origin === new URL(auth.publicUrl).host)) return socket.destroy();
-    }
+    if (!board || !fromOurPages(req)) return socket.destroy();
     const who = await auth.authenticate(req);
     if (who.status) {
       socket.write(`HTTP/1.1 ${who.status} Unauthorized\r\nConnection: close\r\n\r\n`);
@@ -896,26 +996,24 @@ function publicPeer(peer) {
   return { id: peer.id, name: peer.name, color: peer.color, p: peer.p, viewer: !!peer.viewer };
 }
 
-function onConnect(ws, board, user, viewer = false) {
-  const peer = { id: newId(4), ws, name: 'Guest', color: '#888888', p: {}, joined: false, viewer };
+// `viewToken` is the secret of the read-only link the connection came in through, if it did.
+function onConnect(ws, board, user, viewToken = null) {
+  const viewer = viewToken !== null;
+  const peer = { id: newId(4), ws, user, name: 'Guest', color: '#888888', p: {}, joined: false, viewer };
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
 
-  ws.on('message', (raw) => {
-    let msg;
-    try {
-      msg = JSON.parse(raw);
-    } catch {
-      return;
-    }
-    if (!msg || typeof msg !== 'object') return;
-
+  const receive = (msg) => {
     if (msg.t === 'hello') {
       if (peer.joined) return;
+      // Between connecting and saying hello the board may have been deleted, unshared or moved out of reach.
+      if (boards.get(board.id) !== board) return ws.close(4004, 'Board deleted');
+      if (viewer && board.shareToken !== viewToken) return ws.close(4005, 'Link no longer shared');
+      if (!viewer && !visible(user, board)) return ws.close(4003, 'Board moved');
       peer.joined = true;
       if (viewer) {
         // Someone holding a read-only link: seen only as a pointer. They cannot change anything.
-        board.viewerSeq = (board.viewerSeq || 0) + 1;
+        board.viewerSeq += 1;
         // They give a name when they open the link; nobody vouches for it, so it is only a label.
         peer.name = String(msg.name || '').replace(/\s+/g, ' ').trim().slice(0, 32) || `Viewer ${board.viewerSeq}`;
         peer.color = /^#[0-9a-f]{6}$/i.test(msg.color) ? msg.color : VIEWER_COLORS[(board.viewerSeq - 1) % VIEWER_COLORS.length];
@@ -944,7 +1042,7 @@ function onConnect(ws, board, user, viewer = false) {
         you: peer.id,
         board: { id: board.id, name: board.name },
         items: [...board.items.values()],
-        peers: [...board.peers.values()].filter((p) => !p.viewer).map(publicPeer),
+        peers: [...board.peers.values()].map(publicPeer),
         presenter: board.presenter,
       });
       board.peers.set(peer.id, peer);
@@ -956,7 +1054,7 @@ function onConnect(ws, board, user, viewer = false) {
     if (peer.viewer && msg.t !== 'laser' && msg.t !== 'p') return;
 
     if (msg.t === 'op') {
-      const applied = applyOps(board, msg.ops, peer);
+      const applied = applyOps(board, msg.ops, peer, msg.quiet !== true);
       // Always ack, even when nothing applied, so the sender's outbox stays in step.
       send(ws, { t: 'ack' });
       if (applied.length) broadcast(board, { t: 'op', ops: applied, from: peer.id }, peer);
@@ -982,6 +1080,16 @@ function onConnect(ws, board, user, viewer = false) {
       if (pts.length >= 2) broadcast(board, { t: 'laser', id: peer.id, pts: pts.slice(0, pts.length - (pts.length % 2)) }, peer);
     } else if (msg.t === 'media') {
       broadcast(board, { t: 'media', from: peer.id, id: msg.id, playing: !!msg.playing, time: Number(msg.time) || 0 }, peer);
+    }
+  };
+
+  // A message this code chokes on costs whoever sent it that message, and nobody anything else.
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw);
+      if (msg && typeof msg === 'object') receive(msg);
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) console.error(`A message on board ${board.id} could not be handled: ${err.message}`);
     }
   });
 

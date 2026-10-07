@@ -18,7 +18,7 @@ stores things.
 | A folder that survives restarts | `data/boards`, `data/uploads`, `data/folders.json` | A Cloud Storage bucket mounted at `/data` |
 | Light uploads | Heavy video is compressed on the uploader's own machine (H.264, 1080p, about 8 Mbps) before it is sent, so the server never encodes anything | Nothing to configure; the bucket only ever holds light files |
 | Requests under the front end's size cap | Cloud Run limits a request body (32 MiB over HTTP/1 at the time of writing) | The app already uploads files in 8 MB pieces and joins them on the server |
-| Clean shutdown | Edits are saved 0.8 s after the last change | On SIGTERM the app saves everything before it exits |
+| Clean shutdown | Edits are saved 0.8 s after the last change | On SIGTERM the app writes everything still unsaved, including a save it was in the middle of, before it exits |
 | A health check | | `GET /healthz` answers `ok` without a login |
 
 Scale to zero is fine: boards are in the bucket, so a cold start just reloads them. Anyone connected
@@ -105,6 +105,10 @@ Good to know: the name is only a label. Anyone who knows the password can type a
 same name share one Personal workspace. Wrong passwords are slowed down (8 tries per 10 minutes per address), and changing
 `SITE_PASSWORD` signs everybody out. Cloudflare's free quick tunnels are meant for testing, with no uptime promise.
 
+The address counted for wrong passwords is the visitor's own when they come in through a tunnel or proxy on this PC
+(which says who it is passing along), and otherwise the address the connection came from. A proxy on another machine
+therefore counts as one visitor; put the limit there instead if you run one.
+
 ## Running it from your own PC, for people outside (Google sign-in)
 
 No cloud account needed for the app itself. Three parts: Google sign-in, a public address, and a
@@ -132,9 +136,11 @@ the app does its own sign-in, and read-only links must stay reachable without on
 
 On a board, **Share** makes a link such as `PUBLIC_URL/s/<secret>`. Anyone holding it can watch the
 board live and open images and videos, with no sign-in. They cannot change anything (the server ignores
-anything they send, not just the buttons being hidden), they do not appear to the team, and they do not see
-comments. **Stop sharing** kills the link at once and disconnects whoever is watching. Treat a link like a
-password: whoever has it can view the board. The links work in `none` and `google` modes, not behind IAP.
+anything they send, not just the buttons being hidden) and they do not see comments. They give a name when
+they open the link and show to the team as a pointer carrying it, with a laser if they use one; nobody
+vouches for that name, and they never appear among the people on the board. **Stop sharing** kills the link
+at once and disconnects whoever is watching. Treat a link like a password: whoever has it can view the
+board. The links work in `none`, `password` and `google` modes, not behind IAP.
 
 Uploaded files are served under hard-to-guess names. They load for signed-in people, and for a browser that has
 just opened a live read-only link, and for nobody else.
@@ -161,5 +167,5 @@ default here.
 ```bash
 npm install
 npm start        # http://localhost:4680, data in ./data
-npm test         # sign-in checks and piece-by-piece uploads
+npm test         # sign-in, uploads, live sync, workspaces, read-only links
 ```

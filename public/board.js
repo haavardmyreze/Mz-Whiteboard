@@ -22,6 +22,7 @@
   const MIN_Z = 0.02;
   const MAX_Z = 16;
   const PREVIEW_MAX = 2048;
+  const THUMB_MAX = 480;
   const LASER_LIFE = 450;
   const INK = ['ink', '#e5484d', '#f59e0b', '#16a34a', '#2f7df6', '#8b5cf6'];
   const NOTE_FILLS = ['note', '#fff2a8', '#ffd3d1', '#d4f1d2', '#d0e6ff', '#e7dbff'];
@@ -133,6 +134,7 @@
   ];
   const levelSize = (lvl) => (TEXT_LEVELS.find((l) => l.lvl === lvl) || TEXT_LEVELS[1]).size;
   const COLORABLE = new Set(['note', 'text', 'frame', 'block', 'stroke']);
+  const ITEM_TYPES = new Set(['image', 'video', 'note', 'text', 'frame', 'block', 'stroke']);
   const IMG_EXT = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
   const VID_EXT = /\.(mp4|m4v|webm|mov)$/i;
   const EXT_BY_TYPE = {
@@ -219,6 +221,11 @@
   let penBeforeFocus = null;
 
   // ------------------------------------------------------------- helpers
+
+  // Settles when the typeface text is measured in has arrived, or after two seconds without it.
+  const typeface = document.fonts && document.fonts.load
+    ? Promise.race([document.fonts.load('16px Inter'), new Promise((resolve) => setTimeout(resolve, 2000))]).catch(() => {})
+    : Promise.resolve();
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const round = (v) => Math.round(v * 10) / 10;
@@ -319,8 +326,8 @@
   function scheduleSettle() {
     clearTimeout(settleTimer);
     settleTimer = setTimeout(() => {
-      // Not before the board has loaded: the view remembered from last time is still waiting to be read.
-      if (!firstInit) store(`wb:cam:${boardId}`, { x: cam.x, y: cam.y, z: cam.z });
+      // Not before the board has loaded and been framed: the view remembered from last time is still waiting to be read.
+      if (!firstInit && !unframed) store(`wb:cam:${boardId}`, { x: cam.x, y: cam.y, z: cam.z });
       checkRes();
     }, 200);
   }
@@ -430,6 +437,18 @@
     fitRect(r, { dur, maxZ: 1.5 });
   }
 
+  // The view a board opens on: where this browser left it, otherwise everything. A window that has no
+  // size yet (opened minimised, or in a pane that is not showing) cannot be framed, so that waits
+  // until it has one instead of settling on a speck in the corner and remembering it.
+  let unframed = false;
+  function frameFirst() {
+    unframed = !vp.clientWidth || !vp.clientHeight;
+    if (unframed) return;
+    const saved = store(`wb:cam:${boardId}`);
+    if (saved && isFinite(saved.x) && isFinite(saved.y) && saved.z > 0) setCam(saved.x, saved.y, saved.z);
+    else fitAll(0);
+  }
+
   // Any manual pan or zoom means the viewer wants their own view back.
   function userMovedView() {
     stopCamAnim();
@@ -533,9 +552,9 @@
     const play = el('button', { class: 'vbtn', html: ICON.play, title: 'Play / pause (K)', onclick: () => toggleVideo(it.id) });
     const seek = el('input', { type: 'range', min: 0, max: 1000, step: 1, value: 0, 'aria-label': 'Seek' });
     const time = el('span', { class: 'vtime', text: '0:00' });
-    const mute = el('button', {
+    const sound = el('button', {
       class: 'vbtn', html: ICON.muted, title: 'Sound on / off',
-      onclick: () => { video.muted = !video.muted; mute.innerHTML = video.muted ? ICON.muted : ICON.sound; },
+      onclick: () => { video.muted = !video.muted; sound.innerHTML = video.muted ? ICON.muted : ICON.sound; },
     });
     const tick = () => {
       if (video.duration && !seek.matches(':active')) seek.value = Math.round((video.currentTime / video.duration) * 1000);
@@ -559,7 +578,7 @@
         node.classList.toggle('playing', !video.paused);
       });
     }
-    node.append(video, center, el('div', { class: 'vbar' }, play, seek, time, mute));
+    node.append(video, center, el('div', { class: 'vbar' }, play, seek, time, sound));
   }
 
   function createNode(it) {
@@ -703,12 +722,13 @@
     return keys;
   }
 
-  function sendOps(ops) {
+  // `quiet` marks housekeeping this page does by itself, so the board is not shown as just edited.
+  function sendOps(ops, quiet = false) {
     if (!ops.length || viewOnly) return;
-    const batch = { ops, keys: keysOf(ops) };
+    const batch = { ops, keys: keysOf(ops), quiet };
     for (const k of batch.keys) pendingKeys.set(k, (pendingKeys.get(k) || 0) + 1);
     outbox.push(batch);
-    if (online) ws.send(JSON.stringify({ t: 'op', ops }));
+    if (online) ws.send(JSON.stringify(quiet ? { t: 'op', ops, quiet } : { t: 'op', ops }));
   }
 
   function onAck() {
@@ -1058,8 +1078,9 @@
     if (list.length > 1) kids.push(btn(ICON.tidy, 'Tidy into a grid (Ctrl+P)', packSelection));
     kids.push(btn(ICON.dup, 'Duplicate (Ctrl+D)', duplicate));
     if (one && (one.type === 'image' || one.type === 'video')) kids.push(btn(ICON.focus, 'Open it and draw on it (double-click)', () => enterFocus(one.id)));
-    if (list.length === 1 && (types.has('image') || types.has('video'))) {
-      kids.push(btn(ICON.open, 'Open the original file in a new tab', () => window.open(list[0].src, '_blank', 'noopener')));
+    // Only ever an address: a file here, or a picture that was pasted in by its link.
+    if (one && (one.type === 'image' || one.type === 'video') && /^(\/|https?:\/\/)/.test(one.src || '')) {
+      kids.push(btn(ICON.open, 'Open the original file in a new tab', () => window.open(one.src, '_blank', 'noopener')));
     }
     kids.push(btn(ICON.trash, 'Delete (Del)', deleteSel));
     seltools.replaceChildren(...kids);
@@ -1230,8 +1251,9 @@
       ops.push({ t: 'set', id: o.it.id, patch });
       for (const ch of items.values()) {
         if (ch.pid !== o.it.id) continue;
+        // What is drawn or written on a piece goes with it, and scales as it does.
         const moved = { x: round(patch.x + (ch.x - o.b.x) * o.s), y: round(patch.y + (ch.y - o.b.y) * o.s) };
-        if (o.s !== 1) Object.assign(moved, { w: round(ch.w * o.s), h: round(ch.h * o.s), size: round(ch.size * o.s) });
+        if (o.s !== 1) Object.assign(moved, scaledSize(ch, o.s));
         ops.push({ t: 'set', id: ch.id, patch: moved });
       }
       x += o.w + gap;
@@ -1240,6 +1262,16 @@
     }
     exec(ops);
     refitLive(boxed.map((o) => o.it.fid).filter(Boolean));
+  }
+
+  // What scaling a piece by `s` does to its own size (its position is the caller's business): text by
+  // its type size, a note together with its writing, a drawing together with its line weight.
+  function scaledSize(it, s) {
+    if (it.type === 'text') return { fs: round(it.fs * s) };
+    const patch = { w: round(it.w * s), h: round((it.h || 0) * s) };
+    if (it.type === 'note') patch.fs = round(it.fs * s);
+    if (it.type === 'stroke') patch.size = round(it.size * s);
+    return patch;
   }
 
   function nudge(dx, dy) {
@@ -1447,6 +1479,7 @@
     const touched = new Set();
     for (const id of g.items) {
       const it = items.get(id);
+      if (!it) continue; // somebody else deleted it while it was being dragged
       const b = bounds(it);
       const cur = frameOf(it);
       const curId = cur && g.rest.has(cur.id) ? cur.id : null;
@@ -1756,7 +1789,7 @@
     }
     focusId = id;
     document.body.classList.add('focus');
-    $('focusname').textContent = it.name || 'Image';
+    $('focusname').textContent = it.name || (it.type === 'video' ? 'Video' : 'Image');
     const order = mediaOrder();
     $('focuspos').textContent = `${order.findIndex((m) => m.id === id) + 1} / ${order.length}`;
     $('focusprev').disabled = $('focusnext').disabled = order.length < 2;
@@ -1990,15 +2023,65 @@
       const video = document.createElement('video');
       const fail = () => reject(new Error('This browser cannot play that video. Export H.264 MP4 or WebM instead'));
       const timer = setTimeout(fail, 15000);
+      video.muted = true;
       video.preload = 'metadata';
       video.onloadedmetadata = () => {
         clearTimeout(timer);
         if (!video.videoWidth) return fail();
-        resolve({ w: video.videoWidth, h: video.videoHeight });
+        resolve({ w: video.videoWidth, h: video.videoHeight, video });
       };
       video.onerror = () => { clearTimeout(timer); fail(); };
       video.src = url;
     });
+  }
+
+  // A small still of an image or of a video frame, for the board list: opening the list should never
+  // mean fetching originals. Best effort; without one the list falls back to what it showed before.
+  async function makeThumb(source, w, h) {
+    try {
+      const k = Math.min(1, THUMB_MAX / Math.max(w, h));
+      const canvas = el('canvas', { width: Math.max(1, Math.round(w * k)), height: Math.max(1, Math.round(h * k)) });
+      canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.8));
+      return blob ? (await upload(blob, EXT_BY_TYPE[blob.type] || '.webp')).url : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Boards from before thumbnails existed: the few stills the board list shows get theirs made now, the
+  // first time somebody opens the board, so the list stops fetching originals for it.
+  async function backfillThumbs() {
+    const shown = [...items.values()].filter((it) => it.type === 'image').slice(0, 4);
+    for (const { id } of shown) {
+      const it = items.get(id);
+      if (!it || it.th || Math.max(it.nw || 0, it.nh || 0) <= THUMB_MAX * 1.5) continue;
+      try {
+        const img = await loadImage(it.prev || it.src);
+        const th = await makeThumb(img, img.naturalWidth, img.naturalHeight);
+        if (!th || !items.has(id) || items.get(id).th) continue;
+        const ops = [{ t: 'set', id, patch: { th } }];
+        applyOps(ops);
+        sendOps(ops, true);
+      } catch {
+        // an image that cannot be read here keeps what it had
+      }
+    }
+  }
+
+  // A frame from a little way into the video, where there is more to see than on the first one.
+  async function videoThumb(video) {
+    try {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(reject, 5000);
+        video.onseeked = () => { clearTimeout(timer); resolve(); };
+        video.onerror = () => { clearTimeout(timer); reject(); };
+        video.currentTime = Math.max(0.01, Math.min(1, (video.duration || 0) / 3));
+      });
+      return await makeThumb(video, video.videoWidth, video.videoHeight);
+    } catch {
+      return null;
+    }
   }
 
   // Heavy video is re-encoded here, on the uploader's own machine, before it goes anywhere: H.264 in an
@@ -2069,9 +2152,10 @@
         const prepared = original ? file : await optimiseVideo(file, onPhase, note);
         const preparedUrl = prepared === file ? url : URL.createObjectURL(prepared);
         try {
-          const { w, h } = await probeVideo(preparedUrl);
+          const { w, h, video } = await probeVideo(preparedUrl);
+          const th = await videoThumb(video);
           const up = await upload(prepared, fileExt(prepared), onProgress);
-          return { type: 'video', src: up.url, nw: w, nh: h, name: file.name };
+          return { type: 'video', src: up.url, nw: w, nh: h, name: file.name, ...(th && { th }) };
         } finally {
           if (preparedUrl !== url) URL.revokeObjectURL(preparedUrl);
         }
@@ -2087,12 +2171,16 @@
           canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
           const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.86));
           if (blob) {
-            out.prev = (await upload(blob, '.webp')).url;
+            out.prev = (await upload(blob, EXT_BY_TYPE[blob.type] || '.webp')).url;
             out.pw = canvas.width;
           }
         } catch {
           // Without a preview the board just shows the original.
         }
+      }
+      if (Math.max(nw, nh) > THUMB_MAX * 1.5) {
+        const th = await makeThumb(img, nw, nh);
+        if (th) out.th = th;
       }
       out.src = (await upload(file, ext, onProgress)).url;
       return out;
@@ -2103,6 +2191,7 @@
 
   // Lays new media out in rows starting at `at`. Everything comes in at the same width.
   function placeMedia(made, at) {
+    if (focusId) exitFocus();
     const gap = 24;
     const maxRow = clamp((vp.clientWidth * 0.9) / cam.z, IMG_W, 4 * (IMG_W + gap));
     let z = topZ();
@@ -2175,13 +2264,17 @@
   }
 
   function pasteItems(list, at) {
+    // The clipboard is text anybody could have written: only what looks like a piece of a board comes in.
+    const pieces = list.filter((it) => it && typeof it === 'object' && typeof it.id === 'string' && ITEM_TYPES.has(it.type)
+      && Number.isFinite(it.x) && Number.isFinite(it.y));
     let box = null;
-    for (const it of list) box = union(box, { x: it.x, y: it.y, w: it.w || 200, h: it.h || 100 });
+    for (const it of pieces) box = union(box, { x: it.x, y: it.y, w: it.w || 200, h: it.h || 100 });
     if (!box) return;
+    if (focusId) exitFocus();
     const dx = at.x - (box.x + box.w / 2);
     const dy = at.y - (box.y + box.h / 2);
     let z = topZ();
-    const clones = reid(list.filter((it) => it && typeof it.type === 'string'))
+    const clones = reid(pieces)
       .map((it) => ({ ...it, x: round(it.x + dx), y: round(it.y + dy), z: ++z }));
     exec(addOps(clones));
     setSel(clones.map((c) => c.id));
@@ -2321,6 +2414,11 @@
     } else if (tool === 'note' || tool === 'text') {
       createTextItem(tool, p);
       setTool('select');
+    } else if (tool === 'comment') {
+      const host = contentAt(e.clientX, e.clientY);
+      if (!host) return void toast('A comment goes on an image, video, note or heading', { ms: 2500 });
+      setTool('select');
+      commentOn(host, p);
     } else if (tool === 'frame' || tool === 'block') {
       begin({ type: 'frame', kind: tool, p0: p, p1: p }, e);
     } else if (tool === 'pen' || tool === 'arrow') {
@@ -2422,7 +2520,7 @@
       const w = Math.max(min, west ? g.ax - p.x : p.x - g.ax);
       const h = Math.max(min, north ? g.ay - p.y : p.y - g.ay);
       liveSet(id, { x: round(west ? g.ax - w : g.ax), y: round(north ? g.ay - h : g.ay), w: round(w), h: round(h) });
-      if (items.get(id).fid) refitLive([items.get(id).fid]);
+      if (items.get(id)?.fid) refitLive([items.get(id).fid]);
     } else {
       const sx = (west ? g.ax - p.x : p.x - g.ax) / g.r.w;
       const sy = (north ? g.ay - p.y : p.y - g.ay) / g.r.h;
@@ -2430,18 +2528,9 @@
       for (const id of g.ids) {
         const before = g.snap.get(id);
         const b = g.rects.get(id);
-        const patch = { x: round(g.ax + (b.x - g.ax) * s), y: round(g.ay + (b.y - g.ay) * s) };
-        if (before.type === 'text') {
-          patch.fs = round(before.fs * s);
-        } else {
-          patch.w = round(before.w * s);
-          patch.h = round((before.h || 0) * s);
-          if (before.type === 'note') patch.fs = round(before.fs * s);
-          if (before.type === 'stroke') patch.size = round(before.size * s);
-        }
-        liveSet(id, patch);
+        liveSet(id, { x: round(g.ax + (b.x - g.ax) * s), y: round(g.ay + (b.y - g.ay) * s), ...scaledSize(before, s) });
       }
-      refitLive(g.ids.map((id) => items.get(id).fid).filter(Boolean));
+      refitLive(g.ids.map((id) => items.get(id)?.fid).filter(Boolean));
     }
     updateOverlay();
   }
@@ -2618,6 +2707,8 @@
 
   vp.addEventListener('pointerup', endGesture);
   vp.addEventListener('pointercancel', endGesture);
+  // If the browser takes the pointer away without either of those, the gesture still ends.
+  vp.addEventListener('lostpointercapture', endGesture);
   vp.addEventListener('pointerleave', () => {
     pointer.inside = false;
     sendP({ c: null });
@@ -2725,10 +2816,10 @@
 
   // ------------------------------------------------------------- comments
 
-  // A comment is a pin on the board, fixed to a point on something (an image, a video, a note, a frame)
-  // or to a spot on the bare canvas. The first message starts a thread and replies hang off it. They are
-  // shared, saved and undone like everything else, but kept apart from the items so they never take part
-  // in layout, snapping or fitting.
+  // A comment is a pin fixed to a point on one piece of content (an image, a video, a note, a heading),
+  // never to a spot on the bare canvas. The first message starts a thread and replies hang off it. They
+  // are shared, saved and undone like everything else, but kept apart from the items so they never take
+  // part in layout, snapping or fitting.
 
   let showPins = store('wb:pins') !== false;
   let openThread = null;   // { id } for a thread, { draft } while a new comment is being written
@@ -2753,14 +2844,9 @@
     return named || { image: 'an image', video: 'a video', frame: 'a frame', note: 'a note', text: 'a heading', block: 'a block' }[h.type] || 'an item';
   }
 
-  function ago(t) {
-    const s = Math.max(0, (Date.now() - t) / 1000);
-    if (s < 45) return 'just now';
-    if (s < 3600) return `${Math.round(s / 60)}m ago`;
-    if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-    if (s < 86400 * 7) return `${Math.round(s / 86400)}d ago`;
-    return new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-  }
+  // A pin is part of the board, so it grows and shrinks with the zoom, within limits: far out it stays
+  // large enough to hit, and close in it does not cover what it points at.
+  const pinScale = () => clamp(cam.z, 0.6, 1.4);
 
   // Where a comment sits on the board, which follows the thing it was left on.
   function anchorOf(c) {
@@ -2814,15 +2900,15 @@
       // While something is open only its own comments are shown.
       const hide = !s || !showPins || (focusId && c.on !== focusId) || s.x < -40 || s.y < -10 || s.x > w + 40 || s.y > h + 40;
       node.hidden = !!hide;
-      // The pin is part of the board, so it grows and shrinks with the zoom and its tip stays on its point.
-      if (!hide) node.style.transform = `translate(${s.x}px, ${s.y}px) scale(${cam.z})`;
+      // Scaled from its tip, so the tip stays on its point.
+      if (!hide) node.style.transform = `translate(${s.x}px, ${s.y}px) scale(${pinScale()})`;
     }
     const d = openThread && openThread.draft;
     const dp = d && anchorOf(d);
     draftPin.hidden = !dp;
     if (dp) {
       const s = w2s(dp.x, dp.y);
-      draftPin.style.transform = `translate(${s.x}px, ${s.y}px) scale(${cam.z})`;
+      draftPin.style.transform = `translate(${s.x}px, ${s.y}px) scale(${pinScale()})`;
     }
     placeThread();
   }
@@ -2927,7 +3013,7 @@
       el('div', { class: 'msg-main' },
         el('div', { class: 'msg-top' },
           el('strong', { text: c.name }),
-          el('span', { class: 'msg-time', text: ago(c.t), title: new Date(c.t).toLocaleString() }),
+          el('span', { class: 'msg-time', text: WB.ago(c.t), title: new Date(c.t).toLocaleString() }),
           canDelete(c) && el('button', { class: 'iconbtn mini', html: ICON.trash, title: 'Delete', onclick: () => removeComment(c) })),
         i === 0 && c.at != null && timeChip(c),
         el('div', { class: 'msg-text', text: c.text })))));
@@ -2943,7 +3029,7 @@
     const w = threadBox.offsetWidth;
     const h = threadBox.offsetHeight;
     threadBox.style.visibility = s.x < -60 || s.y < -60 || s.x > innerWidth + 60 || s.y > innerHeight + 60 ? 'hidden' : '';
-    const pinW = 28 * cam.z;
+    const pinW = 28 * pinScale();
     let x = s.x + pinW + 10;
     if (x + w > innerWidth - 12) x = Math.max(12, s.x - w - 10);
     threadBox.style.left = `${x}px`;
@@ -2987,8 +3073,8 @@
     sendMedia(c.on);
   }
 
-  // A comment belongs to one piece of content: drag the Comment tool from the strip onto an image,
-  // video, note or heading and drop it where on it the comment goes.
+  // A comment belongs to one piece of content: pick the Comment tool and click an image, video, note or
+  // heading where the comment goes, or drag the tool out of the strip and drop it there.
   const COMMENTABLE = new Set(['image', 'video', 'note', 'text']);
 
   // The piece of content under a screen point that can take a comment, if any.
@@ -3055,13 +3141,13 @@
       return el('button', { class: `cp-row${c.re ? ' reply' : ''}${root.done ? ' done' : ''}`, onclick: () => goToComment(root.id) },
         el('span', { class: 'cp-num', style: { background: color, color: pinInk(color) }, text: WB.initials(c.name) }),
         el('span', { class: 'cp-body' },
-          el('span', { class: 'cp-top' }, el('strong', { text: c.name }), el('span', { class: 'msg-time', text: ago(c.t), title: new Date(c.t).toLocaleString() }), root.done && el('span', { class: 'cp-done', html: ICON.check, title: 'Resolved' })),
+          el('span', { class: 'cp-top' }, el('strong', { text: c.name }), el('span', { class: 'msg-time', text: WB.ago(c.t), title: new Date(c.t).toLocaleString() }), root.done && el('span', { class: 'cp-done', html: ICON.check, title: 'Resolved' })),
           el('span', { class: 'cp-text', text: c.text }),
           el('span', { class: 'cp-meta', text: where })));
     };
     const list = el('div', { class: 'cp-list' }, ...(feed.length
       ? feed.map(row)
-      : [el('p', { class: 'cp-empty', text: comments.size ? 'Everything has been resolved.' : 'No comments yet. Select an image or video and press Comment in the bar above it.' })]));
+      : [el('p', { class: 'cp-empty', text: comments.size ? 'Everything has been resolved.' : 'No comments yet. Pick the Comment tool (C) and click an image, video, note or heading.' })]));
     const keep = panel.querySelector('.cp-list');
     const grew = Number(panel.dataset.n || 0) < feed.length;
     const top = keep ? keep.scrollTop : 0;
@@ -3096,7 +3182,7 @@
     ['select', 'Select and move (V)', ICON.select],
     ['pan', 'Pan. Or hold Space and drag (H)', ICON.pan],
     null,
-    ['upload', 'Add images or video (or just drop or paste them)', ICON.upload],
+    ['upload', 'Add images or video. Or just drop or paste them', ICON.upload],
     ['note', 'Note. Click, or drag it onto the board (N)', ICON.note],
     ['text', 'Heading or text. Pick the level, then click or drag it out (T)', ICON.text],
     ['block', 'Coloured heading block. Click, or drag it onto the board (B)', ICON.block],
@@ -3106,10 +3192,10 @@
     ['arrow', 'Arrow (A)', ICON.arrow],
     ['laser', 'Laser pointer, visible to everyone (L)', ICON.laser],
     null,
-    ['comment', 'Comment. Drag it onto an image, video or note and drop it where the comment belongs', ICON.comment],
+    ['comment', 'Comment. Click an image, video or note where it belongs, or drag this onto it (C)', ICON.comment],
   ];
 
-  const TOOL_LABELS = { select: 'Select', pan: 'Pan', upload: 'Image', note: 'Note', text: 'Heading', block: 'Block', frame: 'Frame', pen: 'Draw', arrow: 'Arrow', laser: 'Laser', comment: 'Comment' };
+  const TOOL_LABELS = { select: 'Select', pan: 'Pan', upload: 'Media', note: 'Note', text: 'Heading', block: 'Block', frame: 'Frame', pen: 'Draw', arrow: 'Arrow', laser: 'Laser', comment: 'Comment' };
 
   // Drag a note, heading, block or frame out of the strip and drop it where you want it, instead of
   // choosing the tool and then clicking. A plain click on the tool still works as before.
@@ -3125,7 +3211,7 @@
   function makeToolGhost(name) {
     if (name === 'comment') {
       const pin = el('div', { class: 'tool-ghost comment', html: ICON.comment });
-      const k = cam.z;
+      const k = pinScale();
       Object.assign(pin.style, { width: `${28 * k}px`, height: `${28 * k}px`, margin: `${-28 * k}px 0 0` });
       pin.firstChild.style.width = pin.firstChild.style.height = `${14 * k}px`;
       document.body.append(pin);
@@ -3140,6 +3226,7 @@
     // Shown at the size it will land at, kept to a sensible size on screen.
     const k = Math.min(cam.z, 520 / Math.max(...size));
     const ghost = el('div', { class: `tool-ghost ${name}`, text: TOOL_LABELS[name] });
+    if (name === 'block') ghost.style.background = mute(BLOCK_COLORS[0]);
     ghost.style.width = `${Math.max(48, size[0] * k)}px`;
     ghost.style.height = `${Math.max(28, size[1] * k)}px`;
     document.body.append(ghost);
@@ -3205,7 +3292,7 @@
     setTimeout(() => { suppressToolClick = false; }, 0);
     if (drag.tool === 'comment') {
       if (host) commentOn(host, s2w(e.clientX, e.clientY));
-      else if (drop) toast('Drop the comment onto an image, video or note');
+      else if (drop) toast('A comment goes on an image, video, note or heading', { ms: 2500 });
     } else if (drop) {
       dropTool(drag.tool, s2w(e.clientX, e.clientY));
     }
@@ -3223,7 +3310,7 @@
       const [name, title, html] = t;
       return el('button', {
         class: 'iconbtn', 'data-tool': name, title, html,
-        onclick: () => (suppressToolClick ? null : name === 'upload' ? $('filepick').click() : name === 'frame' ? activateFrame() : name === 'comment' ? toast('Drag the comment onto an image, video or note') : setTool(name)),
+        onclick: () => (suppressToolClick ? null : name === 'upload' ? $('filepick').click() : name === 'frame' ? activateFrame() : setTool(name)),
       }, el('span', { class: 'tl', text: TOOL_LABELS[name] }));
     }));
     $('pprev').innerHTML = ICON.prev;
@@ -3240,7 +3327,8 @@
       return;
     }
     const savePen = () => {
-      store('wb:pen', pen);
+      // The fine brush an opened image starts with is for that image only; the usual size is what is kept.
+      store('wb:pen', { ...pen, size: penBeforeFocus ?? pen.size });
       buildToolOptions();
     };
     $('tooloptions').replaceChildren(
@@ -3271,11 +3359,16 @@
     requestLaser();
   }
 
-  const TOOL_KEYS = { v: 'select', h: 'pan', n: 'note', t: 'text', b: 'block', f: 'frame', p: 'pen', a: 'arrow', l: 'laser' };
+  const TOOL_KEYS = { v: 'select', h: 'pan', n: 'note', t: 'text', b: 'block', f: 'frame', p: 'pen', a: 'arrow', l: 'laser', c: 'comment' };
 
   window.addEventListener('keydown', (e) => {
     if (isTyping(e.target)) return;
+    // A dialog is open over the board: its keys are its own, and Delete must not reach what is selected behind it.
+    if (document.querySelector('dialog[open]')) return;
     const k = e.key.toLowerCase();
+    // A control reached with Tab is pressed with Space or Enter, as anywhere else. (One clicked with the
+    // mouse never keeps the focus, so on the board itself both stay canvas shortcuts.)
+    if ((e.code === 'Space' || k === 'enter') && e.target.closest && e.target.closest('button, a[href]')) return;
     // Looking around is all a read-only link allows.
     if (viewOnly) {
       const look = e.code === 'Space' || k === 'escape' || k === 'home' || k === '?' || k === 'h' || (k === 'l' && !e.shiftKey && !e.ctrlKey && !e.metaKey) || (focusId && k.startsWith('arrow'))
@@ -3357,7 +3450,7 @@
     spaceDown = false;
     document.body.classList.remove('space');
   });
-  window.addEventListener('resize', applyCam);
+  window.addEventListener('resize', () => (unframed ? frameFirst() : applyCam()));
 
   const HELP = [
     ['Pan', 'Space + drag, or middle drag'],
@@ -3373,7 +3466,7 @@
     ['Frame the selection, or draw a frame', 'F'],
     ['Change heading level', 'Select it, then H1 / H2 / H3 / Text'],
     ['Draw / Arrow / Laser', 'P / A / L'],
-    ['Comment on an image, video, note or heading', 'Drag the Comment tool onto it'],
+    ['Comment on an image, video, note or heading', 'C, then click it. Or drag the tool onto it'],
     ['All comments, oldest first', 'Shift+C'],
     ['Erase drawings', 'Right-drag while drawing'],
     ['Edit text', 'Double-click or Enter'],
@@ -3400,10 +3493,12 @@
     }
   }
   $('help').addEventListener('click', toggleHelp);
-  // A focused button would swallow Space and Enter, which are canvas shortcuts here.
+  // A button left focused by a click would swallow Space and Enter, which are canvas shortcuts here.
+  // Only for the pointer (a click made from the keyboard has no click count): someone tabbing through
+  // the controls keeps their place.
   document.addEventListener('click', (e) => {
     const button = e.target.closest('button');
-    if (button) button.blur();
+    if (button && e.detail) button.blur();
   });
   $('zoom').addEventListener('click', () => {
     userMovedView();
@@ -3495,13 +3590,15 @@
   }
 
   function onPresenter(id) {
+    const was = presenter;
     presenter = id;
     if (id && id !== myId) {
       stopPresenting(false);
       follow(id);
       const peer = peers.get(id);
-      if (peer) toast(`${peer.name} started presenting. You are following their view.`);
-    } else if (!id && following) {
+      if (peer && id !== was) toast(`${peer.name} started presenting. You are following their view.`);
+    } else if (!id && following === was) {
+      // The presentation is over. Following somebody else by choice carries on.
       following = null;
     }
     updateFollowUI();
@@ -3546,7 +3643,10 @@
         onclick: () => (following === peer.id ? userMovedView() : follow(peer.id)),
       })),
       list.length > 8 && el('span', { class: 'avatar more', text: `+${list.length - 8}` }),
-      !viewOnly && el('button', { class: 'avatar me', style: { background: me.color }, title: `${me.name} (you). Click to change your name`, text: WB.initials(me.name), onclick: rename }),
+      // Signed in, the name comes from the sign-in and is not something to change here.
+      !viewOnly && (WB.info().user
+        ? el('span', { class: 'avatar me fixed', style: { background: me.color }, title: `${me.name} (you)`, text: WB.initials(me.name) })
+        : el('button', { class: 'avatar me', style: { background: me.color }, title: `${me.name} (you). Click to change your name`, text: WB.initials(me.name), onclick: rename })),
     ];
     $('peers').replaceChildren(...nodes.filter(Boolean));
   }
@@ -3761,6 +3861,8 @@
     }
     cmDirty = true;
     setBoardName(msg.board.name);
+    // What was open may have been deleted while this window was disconnected.
+    if (focusId && !items.has(focusId)) exitFocus();
 
     for (const id of [...peers.keys()]) dropPeer(id);
     for (const p of msg.peers) addPeer(p);
@@ -3768,7 +3870,7 @@
     // Anything done while disconnected is replayed on top of the server's state.
     for (const batch of queued) {
       applyOps(batch.ops);
-      sendOps(batch.ops);
+      sendOps(batch.ops, batch.quiet);
     }
     setSel([...sel]);
     afterChange();
@@ -3777,11 +3879,14 @@
     if (firstInit) {
       firstInit = false;
       // Frames made before they had headers close up around their contents again, headers included.
-      refitLive(frameIds());
-      attachLegacyStrokes();
-      const saved = store(`wb:cam:${boardId}`);
-      if (saved && isFinite(saved.x) && isFinite(saved.y) && saved.z > 0) setCam(saved.x, saved.y, saved.z);
-      else fitAll(0);
+      // Notes and headings are measured from the page, so this waits for the typeface: measured in a
+      // fallback face, every frame holding text would come out a little wrong, for everyone.
+      typeface.then(() => {
+        refitLive(frameIds());
+        attachLegacyStrokes();
+      });
+      if (!viewOnly) backfillThumbs();
+      frameFirst();
       if (viewOnly && [...items.values()].some((it) => it.type === 'image' || it.type === 'video')) {
         toast('Click an image or video to look closer', { ms: 7000 });
       }
@@ -3834,22 +3939,42 @@
     }
   }
 
+  const metaUrl = viewOnly ? `/api/shared/${boardId}` : `/api/boards/${boardId}`;
+  let dead = false;
+
   function connect() {
+    if (dead) return;
     ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?${viewOnly ? 'share' : 'board'}=${boardId}`);
     ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', name: me.name, color: me.color }));
     ws.onmessage = (e) => onMessage(JSON.parse(e.data));
     ws.onclose = (e) => {
       online = false;
+      if (dead) return;
+      if (e.code === 4003) return fatal('This board was moved to a workspace you cannot open.');
       if (e.code === 4004) return fatal('This board was deleted.');
       if (e.code === 4005) return fatal('This link is not shared any more.');
       $('conn').hidden = false;
       WB.offline(true);
       setTimeout(connect, retry);
       retry = Math.min(retry * 1.6, 8000);
+      checkAccess();
     };
   }
 
+  // A connection that will not open is not always the network. The server may be answering and
+  // turning this page away: the sign-in ran out (the request sends the page to sign in again), or the
+  // board went while this window was disconnected. Retrying for ever would never say so.
+  async function checkAccess() {
+    try {
+      await WB.api('GET', metaUrl);
+    } catch (err) {
+      if (err.status === 404) fatal(viewOnly ? 'This link is not shared any more.' : 'This board does not exist any more.');
+    }
+  }
+
   function fatal(text) {
+    dead = true;
+    WB.offline(false);
     document.body.replaceChildren(el('div', { class: 'fatal' },
       el('h1', { text }),
       !viewOnly && el('a', { class: 'btn primary', href: '/', text: 'Back to all boards' })));
@@ -3860,7 +3985,7 @@
   me = await WB.askName();
   let meta;
   try {
-    meta = await WB.api('GET', viewOnly ? `/api/shared/${boardId}` : `/api/boards/${boardId}`);
+    meta = await WB.api('GET', metaUrl);
   } catch {
     return fatal(viewOnly ? 'This link is not shared any more.' : 'This board does not exist.');
   }
@@ -3955,5 +4080,5 @@
   applyCam();
   connect();
   // Text is measured from the page, so measure again once the typeface has arrived.
-  if (document.fonts) document.fonts.ready.then(() => { updateOverlay(); queuePins(); });
+  typeface.then(() => { updateOverlay(); queuePins(); });
 })();

@@ -4,6 +4,9 @@ data
 .claude
 .gitignore
 .dockerignore
+.env
+.env.*
 Dockerfile
 test
 *.md
+*.bat

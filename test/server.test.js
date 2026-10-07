@@ -328,7 +328,7 @@ test('with google sign-in nothing is served to strangers except the sign-in page
 
   // a read-only link needs nothing, tells nothing but the name, and cannot reach the editable board
   assert.equal((await get(`/s/${shareToken}`)).status, 200);
-  assert.deepEqual(await (await get(`/api/shared/${shareToken}`)).json(), { name: 'Secret plans' });
+  assert.deepEqual(await (await get(`/api/shared/${shareToken}`)).json(), { name: 'Secret plans', access: 'view' });
   assert.equal((await get('/api/shared/notarealtokenvalue000')).status, 404);
   assert.equal((await get('/api/boards/boardone1')).status, 401);
   // opening it lets that browser load the board's files, which a stranger still cannot
@@ -395,13 +395,13 @@ test('a read-only link shows the board live, hides comments, accepts no changes 
 
   // whatever a viewer sends is ignored
   viewer.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'vandal001', type: 'note', x: 0, y: 0, w: 1, h: 1 } }, { t: 'del', ids: ['imageone1'] }, { t: 'meta', patch: { name: 'Hacked' } }] }));
-  viewer.ws.send(JSON.stringify({ t: 'present', on: true }));
+  viewer.ws.send(JSON.stringify({ t: 'media', id: 'imageone1', playing: true, time: 3 }));
   // ...except a pointer and the laser, which reach the editors without anything else the viewer claims
   viewer.ws.send(JSON.stringify({ t: 'p', p: { c: [10, 20], l: 1, s: ['imageone1'], v: [0, 0, 1], name: 'Boss' } }));
   viewer.ws.send(JSON.stringify({ t: 'laser', pts: [1, 2, 3, 4] }));
   await wait(250);
   assert.ok(!editor.seen.some((m) => m.t === 'op' && m.from));
-  assert.ok(!editor.seen.some((m) => m.t === 'presenter'));
+  assert.ok(!editor.seen.some((m) => m.t === 'media'));
   const pointer = editor.seen.find((m) => m.t === 'p' && m.id === arrival.peer.id);
   assert.deepEqual(pointer.p, { c: [10, 20], l: 1 });
   assert.deepEqual(editor.seen.find((m) => m.t === 'laser' && m.id === arrival.peer.id).pts, [1, 2, 3, 4]);
@@ -921,4 +921,74 @@ test('a board nobody has open is let go of, and comes back whole when somebody o
   const again = await open(`board=${board.id}`, 'Anna');
   again.ws.close();
   assert.deepEqual(again.seen.find((m) => m.t === 'init').items.map((i) => i.id), ['imageone1', 'noteone01']);
+});
+
+// ---------------------------------------------------------------- what a link allows
+
+test('a link can show the comments, let its holders comment, run out, and be replaced', async (t) => {
+  const s = start(4825);
+  t.after(s.stop);
+  await s.ready;
+  const open = joiner(4825);
+  const json = (method, p, body) => fetch(s.base + p, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }).then((r) => r.json());
+  const board = await json('POST', '/api/boards', { name: 'Client review' });
+  const editor = await open(`board=${board.id}`, 'Anna');
+  t.after(() => editor.ws.close());
+  editor.ws.send(JSON.stringify({ t: 'op', ops: [
+    { t: 'add', item: { id: 'imageone1', type: 'image', x: 0, y: 0, w: 100, h: 100, src: '/x.png' } },
+    { t: 'add', item: { id: 'teamnote1', type: 'comment', on: 'imageone1', text: 'Internal note' } },
+  ] }));
+  await pause(150);
+
+  // turned on, it starts as look-only
+  const on = await json('POST', `/api/boards/${board.id}/share`);
+  assert.equal(on.access, 'view');
+  assert.equal(on.expiresAt, null);
+
+  // allowed to comment: they see the team's comments and can add their own, under the name they gave, and nothing more
+  const changed = await json('PATCH', `/api/boards/${board.id}/share`, { access: 'comment' });
+  assert.equal(changed.access, 'comment');
+  const guest = await open(`share=${on.token}`, 'Client Carl');
+  t.after(() => guest.ws.close());
+  const init = guest.seen.find((m) => m.t === 'init');
+  assert.equal(init.access, 'comment');
+  assert.ok(init.items.some((i) => i.id === 'teamnote1'));
+  guest.ws.send(JSON.stringify({ t: 'op', ops: [
+    { t: 'add', item: { id: 'guestnote', type: 'comment', on: 'imageone1', text: 'Love it', name: 'The Boss' } },
+    { t: 'add', item: { id: 'guestrepl', type: 'comment', on: 'imageone1', re: 'teamnote1', text: 'Agreed' } },
+    { t: 'add', item: { id: 'nowhere01', type: 'comment', on: 'missing01', text: 'Lost' } },
+    { t: 'set', id: 'teamnote1', patch: { done: true } },
+    { t: 'del', ids: ['teamnote1'] },
+    { t: 'add', item: { id: 'vandal001', type: 'note', x: 0, y: 0, w: 1, h: 1, text: 'x' } },
+  ] }));
+  await pause(200);
+  const got = editor.seen.filter((m) => m.t === 'op' && m.from).flatMap((m) => m.ops);
+  assert.deepEqual(got.map((o) => [o.t, o.item && o.item.id]), [['add', 'guestnote'], ['add', 'guestrepl']]);
+  assert.equal(got[0].item.name, 'Client Carl');
+  assert.equal(got[0].item.guest, true);
+
+  // changing what the link allows sends whoever is watching to reload
+  await json('PATCH', `/api/boards/${board.id}/share`, { access: 'view' });
+  await pause(150);
+  assert.equal(guest.closed, 4006);
+  const looker = await open(`share=${on.token}`, 'Eve');
+  t.after(() => looker.ws.close());
+  assert.ok(!looker.seen.find((m) => m.t === 'init').items.some((i) => i.type === 'comment'));
+
+  // a new address: the old one stops at once
+  const fresh = await json('POST', `/api/boards/${board.id}/share/reset`);
+  assert.notEqual(fresh.token, on.token);
+  assert.equal(fresh.access, 'view');
+  await pause(100);
+  assert.equal(looker.closed, 4005);
+  assert.equal((await fetch(`${s.base}/api/shared/${on.token}`)).status, 404);
+  assert.equal((await fetch(`${s.base}/api/shared/${fresh.token}`)).status, 200);
+
+  // running out
+  await json('PATCH', `/api/boards/${board.id}/share`, { expiresAt: Date.now() + 500 });
+  assert.equal((await fetch(`${s.base}/api/shared/${fresh.token}`)).status, 200);
+  await pause(700);
+  assert.equal((await fetch(`${s.base}/api/shared/${fresh.token}`)).status, 404);
+  await assert.rejects(open(`share=${fresh.token}`, 'Late'));
+  assert.equal((await (await fetch(`${s.base}/api/boards/${board.id}/share`)).json()).token, fresh.token);
 });

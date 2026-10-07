@@ -137,7 +137,6 @@ function boardRecord(saved, items = null) {
     summary: null,
     lastUsed: Date.now(),
     peers: new Map(),
-    presenter: null,
     viewerSeq: 0,
     removedComments: new Map(),
     // What has changed since the last write: items to write, items to remove, and who added each new one.
@@ -166,6 +165,7 @@ function cleanBoard(raw) {
     workspace: validSpace(raw.workspace) ? raw.workspace : 'myreze',
     shareToken: typeof raw.shareToken === 'string' && SHARE_RE.test(raw.shareToken) ? raw.shareToken : null,
     createdAt: raw.createdAt || Date.now(),
+    createdBy: typeof raw.createdBy === 'string' ? raw.createdBy : null,
     updatedAt: raw.updatedAt || Date.now(),
     items,
   };
@@ -217,7 +217,7 @@ function unloadIdle() {
   }
 }
 
-function createBoard(name, folderId, workspace = 'myreze') {
+function createBoard(name, folderId, workspace = 'myreze', by = null) {
   const board = boardRecord({
     id: newId(),
     name: cleanName(name, 'Untitled board'),
@@ -225,6 +225,7 @@ function createBoard(name, folderId, workspace = 'myreze') {
     workspace,
     shareToken: null,
     createdAt: Date.now(),
+    createdBy: by,
     updatedAt: Date.now(),
   }, new Map());
   boards.set(board.id, board);
@@ -301,7 +302,7 @@ function boardMeta(board) {
     count,
     thumbs,
     online: [...board.peers.values()].filter((p) => !p.viewer).length,
-    shareToken: board.shareToken || null,
+    share: shareInfo(board),
   };
 }
 
@@ -326,6 +327,8 @@ function cleanComment(it, peer) {
     on: it.on,
     done: it.done === true,
   };
+  // Written by somebody with a link, under a name they typed themselves.
+  if (peer && peer.viewer) clean.guest = true;
   if (typeof it.re === 'string' && ID_RE.test(it.re)) clean.re = it.re;
   clean.rx = Math.min(1, Math.max(0, num(it.rx) ?? 0.5));
   clean.ry = Math.min(1, Math.max(0, num(it.ry) ?? 0.5));
@@ -664,11 +667,42 @@ function cleanStaleUploads() {
 
 const visibleFolder = (user, id) => folders.has(id) && canSee(user, folders.get(id).workspace);
 
+// What people holding a board's link may do: look ('view'), also read the team's comments
+// ('comments'), or also comment themselves ('comment').
+const SHARE_ACCESS = ['view', 'comments', 'comment'];
+const accessOf = (board) => (SHARE_ACCESS.includes(board.shareAccess) ? board.shareAccess : 'view');
+const shareInfo = (board) => (board.shareToken ? { token: board.shareToken, access: accessOf(board), expiresAt: board.shareExpires || null } : { token: null });
+
+// The board a link opens, while it is shared and has not run out.
+function sharedBoard(token) {
+  const board = SHARING && token ? shares.get(token) : null;
+  if (!board || (board.shareExpires && board.shareExpires <= Date.now())) return null;
+  return board;
+}
+
+const closeViewers = (board, code, reason) => {
+  for (const peer of [...board.peers.values()]) if (peer.viewer) peer.ws.close(code, reason);
+};
+
 function revokeShare(board) {
   if (board.shareToken) shares.delete(board.shareToken);
   board.shareToken = null;
   scheduleSave(board, false);
-  for (const peer of [...board.peers.values()]) if (peer.viewer) peer.ws.close(4005, 'Link no longer shared');
+  closeViewers(board, 4005, 'Link no longer shared');
+}
+
+// Links that ran out while somebody was watching stop working for them too.
+function closeExpiredLinks() {
+  for (const board of boards.values()) if (board.shareToken && !sharedBoard(board.shareToken)) closeViewers(board, 4005, 'Link no longer shared');
+}
+
+// Changes what a link allows and when it runs out. Whoever is watching is sent to reload, so they see the board as now shared.
+function setShare(board, body) {
+  const before = `${accessOf(board)}:${board.shareExpires || ''}`;
+  if (SHARE_ACCESS.includes(body.access)) board.shareAccess = body.access;
+  if ('expiresAt' in body) board.shareExpires = Number.isSafeInteger(body.expiresAt) && body.expiresAt > Date.now() ? body.expiresAt : null;
+  if (`${accessOf(board)}:${board.shareExpires || ''}` !== before) closeViewers(board, 4006, 'Link settings changed');
+  scheduleSave(board, false);
 }
 
 // After a board changes workspace, whoever is on it but may no longer see it is shown the door.
@@ -679,7 +713,7 @@ function dropStrangers(board) {
 const VIEW_COOKIE = 'wb_view';
 const secureCookie = (req) => ((auth.publicUrl && auth.publicUrl.startsWith('https://')) || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '');
 // Someone who opened a live read-only link may load the files on that board without being signed in.
-const viewingShare = (req) => SHARING && shares.has(parseCookies(req.headers.cookie)[VIEW_COOKIE]);
+const viewingShare = (req) => !!sharedBoard(parseCookies(req.headers.cookie)[VIEW_COOKIE]);
 
 // Where a read-only link can be opened from: the public address when there is one, otherwise this
 // machine's network addresses, never "localhost", which only means "this computer" to whoever opens it.
@@ -760,20 +794,39 @@ async function handleApi(req, res, url) {
       const body = await readJson(req);
       const folderId = visibleFolder(req.user, body.folderId) ? body.folderId : null;
       const workspace = folderId ? folders.get(folderId).workspace : spaceKey(body.workspace, req.user);
-      return sendJson(res, 201, boardMeta(createBoard(body.name, folderId, workspace)));
+      const by = req.user ? req.user.name : typeof body.by === 'string' ? cleanName(body.by, null) : null;
+      return sendJson(res, 201, boardMeta(createBoard(body.name, folderId, workspace, by)));
     }
   }
-  // A read-only link for a board: anyone holding it can watch, nobody holding it can change anything.
-  if (parts[1] === 'boards' && parts.length === 4 && parts[3] === 'share') {
+  // A board's link: anyone holding it can watch without signing in and, as the board's people decide,
+  // read the comments or comment too. Never more: nobody holding it can change the board.
+  //   GET     what the link allows now          POST   turn it on (with any settings below)
+  //   PATCH   { access, expiresAt }             DELETE turn it off
+  //   POST .../share/reset  a new address, the old one stops working
+  if (parts[1] === 'boards' && parts[3] === 'share' && (parts.length === 4 || (parts.length === 5 && parts[4] === 'reset'))) {
     const board = boards.get(parts[2]);
     if (!visible(req.user, board) || !SHARING) return sendJson(res, 404, { error: 'Board not found' });
-    if (req.method === 'POST') {
-      if (!board.shareToken) {
+    if (parts.length === 5) {
+      if (req.method !== 'POST' || !board.shareToken) return sendJson(res, 404, { error: 'Not shared' });
+      shares.delete(board.shareToken);
+      closeViewers(board, 4005, 'Link no longer shared');
+      board.shareToken = newId(16);
+      shares.set(board.shareToken, board);
+      scheduleSave(board, false);
+      return sendJson(res, 200, shareInfo(board));
+    }
+    if (req.method === 'GET') return sendJson(res, 200, shareInfo(board));
+    if (req.method === 'POST' || req.method === 'PATCH') {
+      const body = await readJson(req);
+      if (req.method === 'POST' && !board.shareToken) {
         board.shareToken = newId(16);
+        board.shareAccess = 'view';
+        board.shareExpires = null;
         shares.set(board.shareToken, board);
-        scheduleSave(board, false);
       }
-      return sendJson(res, 200, { token: board.shareToken });
+      if (!board.shareToken) return sendJson(res, 404, { error: 'Not shared' });
+      setShare(board, body);
+      return sendJson(res, 200, shareInfo(board));
     }
     if (req.method === 'DELETE') {
       revokeShare(board);
@@ -873,13 +926,13 @@ async function handleRequest(req, res) {
     const link = /^\/s\/([\w-]{16,64})\/?$/.exec(pathname);
     if (link) {
       const headers = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
-      if (shares.has(link[1])) headers['Set-Cookie'] = `${VIEW_COOKIE}=${link[1]}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureCookie(req)}`;
+      if (sharedBoard(link[1])) headers['Set-Cookie'] = `${VIEW_COOKIE}=${link[1]}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureCookie(req)}`;
       return sendFile(req, res, path.join(PUBLIC_DIR, 'board.html'), headers);
     }
     const shared = /^\/api\/shared\/([\w-]{16,64})$/.exec(pathname);
     if (shared) {
-      const board = shares.get(shared[1]);
-      return board ? sendJson(res, 200, { name: board.name }) : sendJson(res, 404, { error: 'This link is not shared any more' });
+      const board = sharedBoard(shared[1]);
+      return board ? sendJson(res, 200, { name: board.name, access: accessOf(board) }) : sendJson(res, 404, { error: 'This link is not shared any more' });
     }
   }
   if (auth.handle && (await auth.handle(req, res, url))) return;
@@ -973,7 +1026,7 @@ server.on('upgrade', async (req, socket, head) => {
     if (url.pathname !== '/ws') return socket.destroy();
     const shared = url.searchParams.get('share');
     if (shared) {
-      const viewed = SHARING ? shares.get(shared) : null;
+      const viewed = sharedBoard(shared);
       if (!viewed) return socket.destroy();
       return wss.handleUpgrade(req, socket, head, (ws) => onConnect(ws, viewed, null, shared));
     }
@@ -995,8 +1048,16 @@ function send(ws, msg) {
   if (ws.readyState === 1) ws.send(JSON.stringify(msg));
 }
 
-// What people holding a read-only link are shown: the board, without the team's comments.
-const hiddenFromViewers = (board, op) => (op.t === 'add' ? op.item.type === 'comment' : op.t === 'set' && board.items.get(op.id)?.type === 'comment');
+// What people holding a link are shown: the board, and the team's comments only if the link includes them.
+const hiddenFromViewers = (board, op) => accessOf(board) === 'view'
+  && (op.t === 'add' ? op.item.type === 'comment' : op.t === 'set' && board.items.get(op.id)?.type === 'comment');
+
+// All that somebody commenting through a link can send: new comments and replies on what is there.
+function guestOps(board, ops) {
+  if (!Array.isArray(ops)) return [];
+  return ops.filter((op) => op && op.t === 'add' && op.item && op.item.type === 'comment' && !board.items.has(op.item.id)
+    && board.items.has(op.item.on) && (!op.item.re || board.items.get(op.item.re)?.type === 'comment'));
+}
 
 function broadcast(board, msg, except) {
   const data = JSON.stringify(msg);
@@ -1033,7 +1094,7 @@ function onConnect(ws, board, user, viewToken = null) {
       if (peer.joined) return;
       // Between connecting and saying hello the board may have been deleted, unshared or moved out of reach.
       if (boards.get(board.id) !== board) return ws.close(4004, 'Board deleted');
-      if (viewer && board.shareToken !== viewToken) return ws.close(4005, 'Link no longer shared');
+      if (viewer && (board.shareToken !== viewToken || !sharedBoard(viewToken))) return ws.close(4005, 'Link no longer shared');
       if (!viewer && !visible(user, board)) return ws.close(4003, 'Board moved');
       openItems(board);
       peer.joined = true;
@@ -1043,13 +1104,14 @@ function onConnect(ws, board, user, viewToken = null) {
         // They give a name when they open the link; nobody vouches for it, so it is only a label.
         peer.name = String(msg.name || '').replace(/\s+/g, ' ').trim().slice(0, 32) || `Viewer ${board.viewerSeq}`;
         peer.color = /^#[0-9a-f]{6}$/i.test(msg.color) ? msg.color : VIEWER_COLORS[(board.viewerSeq - 1) % VIEWER_COLORS.length];
+        const access = accessOf(board);
         send(ws, {
           t: 'init',
           you: peer.id,
           board: { name: board.name },
-          items: [...board.items.values()].filter((it) => it.type !== 'comment'),
+          access,
+          items: [...board.items.values()].filter((it) => access !== 'view' || it.type !== 'comment'),
           peers: [...board.peers.values()].map(publicPeer),
-          presenter: board.presenter,
         });
         board.peers.set(peer.id, peer);
         broadcast(board, { t: 'join', peer: publicPeer(peer) }, peer);
@@ -1069,18 +1131,17 @@ function onConnect(ws, board, user, viewToken = null) {
         board: { id: board.id, name: board.name },
         items: [...board.items.values()],
         peers: [...board.peers.values()].map(publicPeer),
-        presenter: board.presenter,
       });
       board.peers.set(peer.id, peer);
       broadcast(board, { t: 'join', peer: publicPeer(peer) }, peer);
       return;
     }
     if (!peer.joined) return;
-    // A viewer may show a pointer and use the laser, nothing else.
-    if (peer.viewer && msg.t !== 'laser' && msg.t !== 'p') return;
+    // A viewer may show a pointer and use the laser, and comment when the link allows it. Nothing else.
+    if (peer.viewer && msg.t !== 'laser' && msg.t !== 'p' && !(msg.t === 'op' && accessOf(board) === 'comment')) return;
 
     if (msg.t === 'op') {
-      const applied = applyOps(board, msg.ops, peer, msg.quiet !== true);
+      const applied = applyOps(board, peer.viewer ? guestOps(board, msg.ops) : msg.ops, peer, peer.viewer || msg.quiet !== true);
       // Always ack, even when nothing applied, so the sender's outbox stays in step.
       send(ws, { t: 'ack' });
       if (applied.length) broadcast(board, { t: 'op', ops: applied, from: peer.id }, peer);
@@ -1095,11 +1156,6 @@ function onConnect(ws, board, user, viewToken = null) {
       }
       Object.assign(peer.p, p);
       broadcast(board, { t: 'p', id: peer.id, p }, peer);
-    } else if (msg.t === 'present') {
-      if (msg.on) board.presenter = peer.id;
-      else if (board.presenter === peer.id) board.presenter = null;
-      else return;
-      broadcast(board, { t: 'presenter', id: board.presenter });
     } else if (msg.t === 'laser') {
       if (!Array.isArray(msg.pts)) return;
       const pts = msg.pts.slice(0, 200).filter((n) => Number.isFinite(n));
@@ -1122,10 +1178,6 @@ function onConnect(ws, board, user, viewToken = null) {
   ws.on('close', () => {
     if (!board.peers.delete(peer.id)) return;
     broadcast(board, { t: 'leave', id: peer.id });
-    if (board.presenter === peer.id) {
-      board.presenter = null;
-      broadcast(board, { t: 'presenter', id: null });
-    }
   });
   ws.on('error', () => {});
 }
@@ -1148,6 +1200,7 @@ loadFolders();
 cleanStaleUploads();
 setInterval(cleanStaleUploads, 3600e3).unref();
 setInterval(unloadIdle, Math.min(60e3, IDLE_UNLOAD)).unref();
+setInterval(closeExpiredLinks, 30e3).unref();
 try {
   const added = store.catalogueUploads(UPLOAD_DIR);
   if (added) console.log(`Catalogued ${added} uploaded file(s).`);

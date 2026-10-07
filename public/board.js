@@ -7,6 +7,15 @@
   // /s/<secret> is a read-only link: anyone holding it can watch the board and nothing else.
   const viewOnly = location.pathname.startsWith('/s/');
   document.body.classList.toggle('viewonly', viewOnly);
+  // What a link lets its holder do: 'view', also read comments ('comments'), or also comment ('comment').
+  let shareAccess = 'view';
+  const guestReads = () => viewOnly && shareAccess !== 'view';
+  const guestWrites = () => viewOnly && shareAccess === 'comment';
+  function setAccess(access) {
+    shareAccess = access || 'view';
+    document.body.classList.toggle('guest-reads', guestReads());
+    document.body.classList.toggle('guest-writes', guestWrites());
+  }
   const boardId = location.pathname.split('/').filter(Boolean)[1];
   const vp = $('viewport');
   const world = $('world');
@@ -23,6 +32,8 @@
   const MAX_Z = 16;
   const PREVIEW_MAX = 2048;
   const THUMB_MAX = 480;
+  // A video's poster: big enough to look sharp filling the screen on a laptop, small enough to load at once.
+  const POSTER_MAX = 1600;
   const LASER_LIFE = 450;
   const INK = ['ink', '#e5484d', '#f59e0b', '#16a34a', '#2f7df6', '#8b5cf6'];
   const NOTE_FILLS = ['note', '#fff2a8', '#ffd3d1', '#d4f1d2', '#d0e6ff', '#e7dbff'];
@@ -207,9 +218,6 @@
   let gesture = null;
   let editing = null;
   let spaceDown = false;
-  let presenter = null;
-  let presenting = false;
-  let presentId = null;
   let following = null;
   let liveTimer = 0;
   let camAnim = 0;
@@ -389,7 +397,7 @@
     stopCamAnim();
     if (document.hidden) return setCam(to.x, to.y, to.z);
     // Occluded or background windows may get no animation frames at all; land on the
-    // target anyway so a follower who is not looking stays in step with the presenter.
+    // target anyway so a follower who is not looking stays in step with the person they follow.
     camTimer = setTimeout(() => setCam(to.x, to.y, to.z), dur + 150);
     const vw = vp.clientWidth;
     const vh = vp.clientHeight;
@@ -416,7 +424,7 @@
 
   // Space kept clear of the floating chrome when framing something.
   function insets() {
-    return presenting ? { t: 48, r: 32, b: 88, l: 32 } : { t: 80, r: 32, b: 32, l: 110 };
+    return { t: 80, r: 32, b: 32, l: 110 };
   }
 
   function fitRect(r, { inset = insets(), dur = 380, linear = false, maxZ = MAX_Z } = {}) {
@@ -651,6 +659,7 @@
       st.width = `${it.w}px`;
       st.height = `${it.h}px`;
       const video = node.firstChild;
+      if (it.poster && video.getAttribute('poster') !== it.poster) video.poster = it.poster;
       if (video.dataset.src !== it.src) {
         video.dataset.src = it.src;
         video.src = it.src;
@@ -747,7 +756,8 @@
 
   // `quiet` marks housekeeping this page does by itself, so the board is not shown as just edited.
   function sendOps(ops, quiet = false) {
-    if (!ops.length || viewOnly) return;
+    // Somebody with a link sends nothing, unless it lets them comment, and then only comments.
+    if (!ops.length || (viewOnly && !(guestWrites() && ops.every((op) => op.t === 'add' && op.item.type === 'comment')))) return;
     const batch = { ops, keys: keysOf(ops), quiet };
     for (const k of batch.keys) pendingKeys.set(k, (pendingKeys.get(k) || 0) + 1);
     outbox.push(batch);
@@ -811,7 +821,6 @@
     updateOverlay();
     queueMarks();
     scheduleSettle();
-    if (presenting) updatePresentBar();
   }
 
   function invert(ops) {
@@ -1051,7 +1060,7 @@
     selbox.style.height = `${h}px`;
 
     const dragging = gesture && gesture.type !== 'pan';
-    seltools.hidden = !!dragging || presenting;
+    seltools.hidden = !!dragging;
     if (seltools.hidden) return;
     buildSelTools();
     const tw = seltools.offsetWidth;
@@ -1798,19 +1807,36 @@
     const i = list.findIndex((it) => it.id === focusId);
     if (i < 0 || list.length < 2) return;
     closeThread();
-    enterFocus(list[(i + dir + list.length) % list.length].id, 380);
+    enterFocus(list[(i + dir + list.length) % list.length].id);
   }
 
-  function enterFocus(id, dur = 520) {
+  // An open image or video fills the space between the bars and stays put: the view cannot be
+  // panned or zoomed away from it, only closed. It is the board's viewer, not a zoomed-in board.
+  function fitFocus() {
+    const it = focusId && items.get(focusId);
+    if (!it) return;
+    const narrow = vp.clientWidth < 700;
+    fitRect(bounds(it), { inset: narrow ? { t: 104, r: 12, b: 76, l: 12 } : { t: 112, r: 48, b: 48, l: 120 }, dur: 0 });
+  }
+
+  // `followed` is true when it opens because the person being followed opened it.
+  function enterFocus(id, followed = false) {
     const it = items.get(id);
     if (!it || (it.type !== 'image' && it.type !== 'video')) return;
     finishEdit();
+    if (!followed && following) {
+      following = null;
+      updateFollowUI();
+    }
+    stopCamAnim();
     if (!focusId) {
       focusReturn = { x: cam.x, y: cam.y, z: cam.z };
       // Annotating is fine work, so the brush starts at its smallest; the usual size comes back afterwards.
       penBeforeFocus = pen.size;
       pen.size = PEN_SIZES[0];
     }
+    const prev = focusId && videoOf(focusId);
+    if (prev && focusId !== id) prev.pause();
     focusId = id;
     document.body.classList.add('focus');
     $('focusname').textContent = it.name || (it.type === 'video' ? 'Video' : 'Image');
@@ -1820,14 +1846,16 @@
     $('focusbar').hidden = false;
     for (const [nid, node] of els) node.classList.toggle('dim', nid !== id && items.get(nid).pid !== id);
     $('focushint').textContent = it.type === 'image' ? 'Draw, write notes or comment' : 'Pause on a frame and draw: the drawing stays on that frame';
-    userMovedView();
     // A video starts on the select tool so its play button still works.
     setTool(it.type === 'image' && !viewOnly ? 'pen' : 'select');
     if (it.type === 'video') {
       setSel([id]);
-      learnRate(id);
+      // Open, it is scrubbed and stepped through: worth having all of it rather than just its start.
+      const video = videoOf(id);
+      if (video) video.preload = 'auto';
     }
-    fitRect(bounds(it), { inset: { t: 112, r: 48, b: presenting ? 96 : 48, l: presenting ? 48 : 160 }, dur });
+    fitFocus();
+    sendP({ f: id });
   }
 
   function exitFocus() {
@@ -1841,9 +1869,19 @@
       penBeforeFocus = null;
     }
     if (tool === 'pen' || tool === 'arrow') setTool('select');
-    if (focusReturn) {
-      animateCam(focusReturn, 520);
-      focusReturn = null;
+    sendP({ f: null });
+    const leader = following && peers.get(following);
+    if (leader && leader.p.v) followView(leader.p.v, 0);
+    else if (focusReturn) setCam(focusReturn.x, focusReturn.y, focusReturn.z);
+    focusReturn = null;
+  }
+
+  // Following someone means seeing what they have open, too.
+  function followFocus(id) {
+    if (id && items.has(id)) {
+      if (focusId !== id) enterFocus(id, true);
+    } else if (focusId) {
+      exitFocus();
     }
   }
 
@@ -1964,7 +2002,6 @@
   function toggleVideo(id) {
     const video = videoOf(id);
     if (!video) return;
-    learnRate(id);
     if (video.paused) video.play().catch(() => {});
     else video.pause();
     sendMedia(id);
@@ -1979,9 +2016,8 @@
       const f = clamp(frameIndex(video.currentTime, fps) + dir, 0, lastFrame(video, fps));
       video.currentTime = frameTime(f, fps);
     } else {
-      // Until its frame rate is known, a step is a 24th of a second.
+      // A video whose frame rate could not be read steps a 24th of a second.
       video.currentTime = clamp(video.currentTime + dir / 24, 0, video.duration || 0);
-      learnRate(id);
     }
     sendMedia(id);
   }
@@ -2007,11 +2043,12 @@
 
   // ------------------------------------------------------------- frames
 
-  // Rates as cameras and editors write them: a measured rate this close to one of them is that one.
+  // Rates as cameras and editors write them: a measured rate within 1.5% of one of them is the nearest.
   const RATES = [23.976, 24, 25, 29.97, 30, 47.952, 48, 50, 59.94, 60, 100, 119.88, 120];
   function snapRate(r) {
     if (!(r > 0) || !isFinite(r)) return 0;
-    return RATES.find((s) => Math.abs(s - r) / s < 0.004) || Math.round(r * 1000) / 1000;
+    const near = RATES.reduce((a, b) => (Math.abs(b - r) < Math.abs(a - r) ? b : a));
+    return Math.abs(near - r) / near < 0.015 ? near : Math.round(r * 1000) / 1000;
   }
   const fpsOf = (id) => items.get(id)?.fps || 0;
   // A frame is on screen from its start until the next one's. Asking for its middle lands on it in every browser.
@@ -2045,24 +2082,6 @@
     } finally {
       input.dispose();
     }
-  }
-
-  // Videos added before frame rates were kept learn theirs the first time somebody opens, plays or steps one.
-  const rateAsked = new Set();
-  function learnRate(id) {
-    const it = items.get(id);
-    if (!it || it.type !== 'video' || it.fps || !it.src || rateAsked.has(id)) return;
-    rateAsked.add(id);
-    readRate(it.src).then((fps) => {
-      const cur = items.get(id);
-      if (!fps || !cur || cur.fps) return;
-      const ops = [{ t: 'set', id, patch: { fps } }];
-      applyOps(ops);
-      sendOps(ops, true);
-      const video = videoOf(id);
-      if (video && video.wbTick) video.wbTick();
-      showFrameMarks(id);
-    });
   }
 
   // How a moment in a video is written: minutes and seconds, the frame number, or a timecode. Frames are
@@ -2288,20 +2307,23 @@
     }
   }
 
-  // Heavy video is re-encoded here, on the uploader's own machine, before it goes anywhere: H.264 in an
-  // MP4, at most 1080p, about 8 Mbps, audio kept. Light files go up untouched (encoding twice only loses
-  // quality), and anything this browser cannot decode or encode falls back to uploading as it is.
-  const VIDEO_BITRATE = 8e6;
-  const VIDEO_LIGHT_BITRATE = 12e6;
-  const VIDEO_SMALL = 40 * 1024 * 1024;
+  // Every video is turned into a review copy here, on the uploader's own machine, before it goes
+  // anywhere: H.264 in an MP4 that starts playing before it has all arrived (VP9 in WebM where the
+  // browser cannot encode H.264), at most 1080p, audio kept,
+  // and a key frame every half second. Browsers can only show a frame by decoding from the key frame
+  // before it, and renders and camera files often have one every few seconds, so stepping or scrubbing
+  // backwards through them stalls. With key frames this close together it is instant both ways.
+  // Holding Shift uploads the file as it is; so does a browser that cannot encode video.
+  const VIDEO_BITRATE = 10e6;
+  const VIDEO_MIN_BITRATE = 3e6;
+  const VIDEO_KEY_INTERVAL = 0.5;
   const VIDEO_LONG_SIDE = 1920;
   const VIDEO_SHORT_SIDE = 1080;
   let mediabunny;
 
   const fmtSize = (bytes) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`);
 
-  async function optimiseVideo(file, report, note) {
-    if (file.size < VIDEO_SMALL) return file;
+  async function reviewCopy(file, report, note) {
     let mb;
     try {
       mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
@@ -2315,37 +2337,46 @@
       const w = track.displayWidth;
       const h = track.displayHeight;
       const duration = await input.computeDuration();
-      const bitrate = duration > 0 ? (file.size * 8) / duration : 0;
-      const oversized = Math.max(w, h) > VIDEO_LONG_SIDE || Math.min(w, h) > VIDEO_SHORT_SIDE;
-      if (!oversized && bitrate <= VIDEO_LIGHT_BITRATE) return file;
-
+      const bitrate = duration > 0 ? (file.size * 8) / duration : VIDEO_BITRATE;
       // Fit inside 1920x1080 (or 1080x1920), keeping the shape; encoders want even sizes.
       const k = Math.min(1, VIDEO_LONG_SIDE / Math.max(w, h), VIDEO_SHORT_SIDE / Math.min(w, h));
       const width = Math.max(2, Math.round((w * k) / 2) * 2);
       const height = Math.max(2, Math.round((h * k) / 2) * 2);
-      const target = Math.min(VIDEO_BITRATE, bitrate || VIDEO_BITRATE);
-      if (!(await mb.canEncodeVideo('avc', { width, height, bitrate: target }))) {
-        note('This browser cannot compress video, so it is uploaded as it is.');
+      // Close key frames cost bits, so a lean source gets some headroom rather than losing detail.
+      const target = Math.round(Math.min(VIDEO_BITRATE, Math.max(VIDEO_MIN_BITRATE, bitrate * 1.5)));
+      const codec = await mb.getFirstEncodableVideoCodec(['avc', 'vp9'], { width, height, bitrate: target });
+      if (!codec) {
+        note('This browser cannot make a review copy of video, so it is uploaded as it is. Scrubbing backwards may be slow.');
         return file;
       }
-
-      const output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new mb.BufferTarget() });
-      const conversion = await mb.Conversion.init({ input, output, video: { codec: 'avc', width, height, fit: 'contain', bitrate: target } });
+      const mp4 = codec === 'avc';
+      const format = mp4 ? new mb.Mp4OutputFormat({ fastStart: 'in-memory' }) : new mb.WebMOutputFormat();
+      const output = new mb.Output({ format, target: new mb.BufferTarget() });
+      const conversion = await mb.Conversion.init({
+        input, output,
+        video: { codec, width, height, fit: 'contain', bitrate: target, keyFrameInterval: VIDEO_KEY_INTERVAL, forceTranscode: true },
+      });
       if (!conversion.isValid) return file;
       conversion.onProgress = (p) => report(p);
       await conversion.execute();
-
-      const out = new File([output.target.buffer], `${file.name.replace(/\.[^.]+$/, '')}.mp4`, { type: 'video/mp4' });
-      if (out.size >= file.size) return file;
-      note(`Video compressed from ${fmtSize(file.size)} to ${fmtSize(out.size)}.`);
-      return out;
+      const ext = mp4 ? 'mp4' : 'webm';
+      return new File([output.target.buffer], `${file.name.replace(/\.[^.]+$/, '')}.${ext}`, { type: `video/${ext}` });
     } catch (err) {
-      console.warn('Video compression failed, uploading the original:', err);
-      note('Could not compress this video, so it is uploaded as it is.');
+      console.warn('Could not make a review copy, uploading the original:', err);
+      note('Could not make a review copy of this video, so it is uploaded as it is.');
       return file;
     } finally {
       input.dispose();
     }
+  }
+
+  // The still a video shows until it is played: the frame its thumbnail is made from, large enough to fill the item.
+  async function videoPoster(video) {
+    const k = Math.min(1, POSTER_MAX / Math.max(video.videoWidth, video.videoHeight));
+    const canvas = el('canvas', { width: Math.round(video.videoWidth * k), height: Math.round(video.videoHeight * k) });
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.86));
+    return blob ? (await upload(blob, EXT_BY_TYPE[blob.type] || '.webp')).url : null;
   }
 
   async function ingest(file, onProgress, { original = false, onPhase = () => {}, note = () => {} } = {}) {
@@ -2353,15 +2384,17 @@
     const url = URL.createObjectURL(file);
     try {
       if (VID_EXT.test(ext)) {
-        const prepared = original ? file : await optimiseVideo(file, onPhase, note);
+        const prepared = original ? file : await reviewCopy(file, onPhase, note);
         const preparedUrl = prepared === file ? url : URL.createObjectURL(prepared);
         try {
           const { w, h, video } = await probeVideo(preparedUrl);
           const th = await videoThumb(video);
-          const fps = await readRate(prepared);
+          const poster = await videoPoster(video).catch(() => null);
+          // Read from the file as it came: a re-encoded copy keeps the rate, but not every container records it as exactly.
+          const fps = await readRate(file);
           const dur = isFinite(video.duration) ? Math.round(video.duration * 1000) / 1000 : 0;
           const up = await upload(prepared, fileExt(prepared), onProgress);
-          return { type: 'video', src: up.url, nw: w, nh: h, name: file.name, ...(th && { th }), ...(fps && { fps }), ...(dur && { dur }) };
+          return { type: 'video', src: up.url, nw: w, nh: h, name: file.name, ...(th && { th }), ...(poster && { poster }), ...(fps && { fps }), ...(dur && { dur }) };
         } finally {
           if (preparedUrl !== url) URL.revokeObjectURL(preparedUrl);
         }
@@ -2433,7 +2466,7 @@
     setSel(list.map((item) => item.id));
   }
 
-  // Hold Shift while dropping to upload video exactly as it is, without compressing it first.
+  // Hold Shift while dropping to upload video exactly as it is, without making a review copy first.
   async function addFiles(fileList, at, { original = false } = {}) {
     const files = [...fileList].filter(fileExt);
     if (!files.length) {
@@ -2448,7 +2481,7 @@
       try {
         made.push(await ingest(file, (k) => status.set(`${label} · ${Math.round(k * 100)}%`), {
           original,
-          onPhase: (k) => status.set(`${files.length > 1 ? `File ${i + 1} of ${files.length}: ` : ''}Compressing video · ${Math.round(k * 100)}%`),
+          onPhase: (k) => status.set(`${files.length > 1 ? `File ${i + 1} of ${files.length}: ` : ''}Making a review copy · ${Math.round(k * 100)}%`),
           note: (text) => toast(text, { ms: 6000 }),
         }));
       } catch (err) {
@@ -2578,9 +2611,11 @@
     }
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     const p = s2w(e.clientX, e.clientY);
-    const pan = e.button === 1 || e.button === 2 || (e.button === 0 && (viewOnly || spaceDown || tool === 'pan' || tool === 'laser'));
+    const pan = !focusId && (e.button === 1 || e.button === 2 || (e.button === 0 && ((viewOnly && tool !== 'comment') || spaceDown || tool === 'pan' || tool === 'laser')));
     e.preventDefault();
     if (gesture) return;
+    // Someone with a link only looks at an open image or video, or comments on it; clicks on it are handled on release.
+    if (viewOnly && focusId && tool !== 'comment') return;
     // Touching the board catches it.
     if (coasting) stopCamAnim();
     if (e.button === 2 && !viewOnly && (tool === 'pen' || tool === 'arrow')) {
@@ -2932,6 +2967,7 @@
 
   vp.addEventListener('wheel', (e) => {
     e.preventDefault();
+    if (focusId) return;
     const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
     userMovedView();
     zoomAt(e.clientX, e.clientY, Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)));
@@ -2956,7 +2992,7 @@
   if (viewOnly) {
     let down = null;
     vp.addEventListener('pointerdown', (e) => {
-      down = e.button === 0 ? { x: e.clientX, y: e.clientY, skip: !!e.target.closest('.vbar, a'), play: !!e.target.closest('.vplay') } : null;
+      down = e.button === 0 && tool !== 'comment' ? { x: e.clientX, y: e.clientY, skip: !!e.target.closest('.vbar, a, .pin'), play: !!e.target.closest('.vplay') } : null;
     }, true);
     vp.addEventListener('pointerup', (e) => {
       const start = down;
@@ -3180,10 +3216,11 @@
       input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
       placeThread();
     });
-    threadBox.replaceChildren(
+    threadBox.replaceChildren(...[
       el('div', { class: 'th-head' }),
       el('div', { class: 'th-msgs' }),
-      el('div', { class: 'th-compose' }, input, el('button', { class: 'btn small primary', text: isThread ? 'Reply' : 'Comment', onclick: submitComment })));
+      (!viewOnly || guestWrites()) && el('div', { class: 'th-compose' }, input, el('button', { class: 'btn small primary', text: isThread ? 'Reply' : 'Comment', onclick: submitComment })),
+    ].filter(Boolean));
     if (!isThread) setTimeout(() => input.focus({ preventScroll: true }), 0);
   }
 
@@ -3206,15 +3243,15 @@
     msgs.hidden = false;
     const list = [root, ...repliesOf(root.id)];
     const mine = (c) => c.name === me.name;
-    const canDelete = (c) => mine(c) && (c.re || repliesOf(c.id).every(mine));
-    head.replaceChildren(
+    const canDelete = (c) => !viewOnly && mine(c) && (c.re || repliesOf(c.id).every(mine));
+    head.replaceChildren(...[
       el('span', { class: 'th-title', text: `On ${hostLabel(root)}` }),
-      el('button', {
+      !viewOnly && el('button', {
         class: 'btn small ghost', html: `${ICON.check}${root.done ? 'Reopen' : 'Resolve'}`,
         title: root.done ? 'Mark as open again' : 'Mark as dealt with',
         onclick: () => exec([{ t: 'set', id: root.id, patch: { done: !root.done } }]),
       }),
-      close);
+      close].filter(Boolean));
     const grew = Number(msgs.dataset.n || 0) < list.length;
     msgs.dataset.n = list.length;
     msgs.replaceChildren(...list.map((c, i) => el('div', { class: 'msg' },
@@ -3512,7 +3549,7 @@
   }, true);
 
   function buildToolbar() {
-    $('toolbar').replaceChildren(...TOOLS.filter((t) => !viewOnly || (t && (t[0] === 'pan' || t[0] === 'laser'))).map((t) => {
+    $('toolbar').replaceChildren(...TOOLS.filter((t) => !viewOnly || (t && (t[0] === 'pan' || t[0] === 'laser' || (t[0] === 'comment' && guestWrites())))).map((t) => {
       if (!t) return el('span', { class: 'sep' });
       const [name, title, html] = t;
       return el('button', {
@@ -3520,8 +3557,6 @@
         onclick: () => (suppressToolClick ? null : name === 'upload' ? $('filepick').click() : name === 'frame' ? activateFrame() : setTool(name)),
       }, el('span', { class: 'tl', text: TOOL_LABELS[name] }));
     }));
-    $('pprev').innerHTML = ICON.prev;
-    $('pnext').innerHTML = ICON.next;
     buildToolOptions();
   }
 
@@ -3551,8 +3586,8 @@
   }
 
   function setTool(name) {
-    // The only tools a read-only link has are the hand and the laser.
-    if (viewOnly && name !== 'laser') name = 'pan';
+    // The only tools a link has are the hand and the laser, and the comment tool when it lets them comment.
+    if (viewOnly && name !== 'laser' && !(name === 'comment' && guestWrites())) name = 'pan';
     // While an image is open there is nothing to place notes or frames on.
     if (focusId && (name === 'frame' || name === 'block')) return;
     tool = name;
@@ -3560,7 +3595,6 @@
     for (const b of $('toolbar').querySelectorAll('[data-tool]')) b.classList.toggle('active', b.dataset.tool === name);
     $('tooloptions').hidden = name !== 'pen' && name !== 'arrow' && name !== 'text';
     buildToolOptions();
-    $('plaser').classList.toggle('active', name === 'laser');
     if (name !== 'select') setSel([]);
     sendP({ l: name === 'laser' ? 1 : 0 });
     requestLaser();
@@ -3578,8 +3612,10 @@
     if ((e.code === 'Space' || k === 'enter') && e.target.closest && e.target.closest('button, a[href]')) return;
     // Looking around is all a read-only link allows.
     if (viewOnly) {
-      const look = e.code === 'Space' || k === 'escape' || k === 'home' || k === '?' || k === 'h' || (k === 'l' && !e.shiftKey && !e.ctrlKey && !e.metaKey) || (focusId && k.startsWith('arrow'))
-        || (e.shiftKey && e.code === 'Digit1') || ((e.ctrlKey || e.metaKey) && k === '0');
+      const plain = !e.shiftKey && !e.ctrlKey && !e.metaKey;
+      const look = e.code === 'Space' || k === 'escape' || k === 'home' || k === '?' || k === 'h' || (k === 'l' && plain) || (focusId && k.startsWith('arrow'))
+        || (e.shiftKey && e.code === 'Digit1') || ((e.ctrlKey || e.metaKey) && k === '0')
+        || k === ',' || k === '.' || k === 'k' || (k === 'c' && plain && guestWrites()) || (k === 'c' && e.shiftKey && guestReads());
       if (!look) return;
     }
     if (e.code === 'Space') {
@@ -3595,7 +3631,7 @@
       else if (k === 'a') { setTool('select'); setSel([...items.values()].filter((it) => selectable(it) && (focusId || !it.pid)).map((it) => it.id)); }
       else if (k === 'd') duplicate();
       else if (k === 'p') packSelection();
-      else if (k === '0') { userMovedView(); zoomAt(vp.clientWidth / 2, vp.clientHeight / 2, 1 / cam.z); }
+      else if (k === '0') { if (!focusId) { userMovedView(); zoomAt(vp.clientWidth / 2, vp.clientHeight / 2, 1 / cam.z); } }
       else return;
       e.preventDefault();
       return;
@@ -3609,16 +3645,10 @@
       if (k === 'arrowleft' || k === 'arrowup') return void (e.preventDefault(), stepFocus(-1));
     }
 
-    if (presenting) {
-      if (k === 'arrowright' || k === 'arrowdown' || k === 'pagedown') return void (e.preventDefault(), moveStep(1));
-      if (k === 'arrowleft' || k === 'arrowup' || k === 'pageup') return void (e.preventDefault(), moveStep(-1));
-      if (k === 'escape') return void (focusId ? exitFocus() : stopPresenting());
-      if (k === 'l') return void setTool(tool === 'laser' ? 'select' : 'laser');
-    }
-
     // The selected video, or the open one: while a video is open its keys work whatever else is selected on it.
     const video = selectedVideo() || (focusId && items.get(focusId)?.type === 'video' ? focusId : null);
-    if (e.shiftKey && e.code === 'Digit1') { userMovedView(); fitAll(); }
+    if (focusId && ((e.shiftKey && (e.code === 'Digit1' || e.code === 'Digit2')) || k === 'home')) { /* the open piece stays framed */ }
+    else if (e.shiftKey && e.code === 'Digit1') { userMovedView(); fitAll(); }
     else if (e.shiftKey && e.code === 'Digit2') { const r = selBounds(); if (r) { userMovedView(); fitRect(r); } }
     else if (k === 'home') { userMovedView(); fitAll(); }
     else if (k === '?') toggleHelp();
@@ -3658,7 +3688,7 @@
     spaceDown = false;
     document.body.classList.remove('space');
   });
-  window.addEventListener('resize', () => (unframed ? frameFirst() : applyCam()));
+  window.addEventListener('resize', () => (unframed ? frameFirst() : focusId ? fitFocus() : applyCam()));
 
   const HELP = [
     ['Pan', 'Space + drag, or middle drag'],
@@ -3669,7 +3699,7 @@
     ['Smart snapping on / off', 'S, hold Ctrl to bypass'],
     ['Add media', 'Drop files, or paste from the clipboard'],
     ['Place a note, heading, block or frame', 'Drag it out of the tool strip'],
-    ['Upload video without compressing', 'Hold Shift while dropping'],
+    ['Upload video exactly as it is', 'Hold Shift while dropping'],
     ['Note / Heading / Colour block', 'N / T / B'],
     ['Frame the selection, or draw a frame', 'F'],
     ['Change heading level', 'Select it, then H1 / H2 / H3 / Text'],
@@ -3687,7 +3717,7 @@
     ['Show time, frame number or timecode', 'Click the time on a video'],
     ['Draw on one frame of a video', 'Open it, pause, then draw'],
     ['Undo / redo', 'Ctrl+Z / Ctrl+Shift+Z'],
-    ['Presenting: next / previous', '→ / ←'],
+    ['Follow someone\'s view', 'Click their picture at the top'],
   ];
 
   function toggleHelp() {
@@ -3715,103 +3745,22 @@
     fitAll();
   });
 
-  // ------------------------------------------------------------- presenting and following
-
-  function steps() {
-    const all = [...items.values()];
-    let list = all.filter((it) => it.type === 'frame');
-    if (!list.length) list = all.filter((it) => it.type === 'image' || it.type === 'video');
-    return readingOrder(list);
-  }
-
-  function goStep(i) {
-    const list = steps();
-    if (!list.length) {
-      presentId = null;
-      fitAll();
-    } else {
-      const it = list[clamp(i, 0, list.length - 1)];
-      presentId = it.id;
-      fitRect(bounds(it), { dur: 450 });
-    }
-    updatePresentBar();
-  }
-
-  function moveStep(dir) {
-    const i = steps().findIndex((it) => it.id === presentId);
-    goStep(i < 0 ? 0 : i + dir);
-  }
-
-  function updatePresentBar() {
-    const list = steps();
-    const i = list.findIndex((it) => it.id === presentId);
-    const it = list[i];
-    const label = it && it.type !== 'frame' ? it.name || '' : '';
-    $('pstep').textContent = list.length
-      ? `${i < 0 ? '–' : i + 1} / ${list.length}${label ? `  ·  ${label}` : ''}`
-      : 'Nothing to step through yet';
-    $('pprev').disabled = i <= 0;
-    $('pnext').disabled = i < 0 || i >= list.length - 1;
-  }
-
-  function startPresenting() {
-    finishEdit();
-    const list = steps();
-    const start = Math.max(0, list.findIndex((it) => sel.has(it.id)));
-    presenting = true;
-    following = null;
-    document.body.classList.add('presenting');
-    $('presentbar').hidden = false;
-    $('present').textContent = 'Stop presenting';
-    setTool('select');
-    setSel([]);
-    wsSend({ t: 'present', on: true });
-    goStep(start);
-    updateFollowUI();
-  }
-
-  function stopPresenting(tell = true) {
-    if (!presenting) return;
-    presenting = false;
-    document.body.classList.remove('presenting');
-    $('presentbar').hidden = true;
-    $('present').textContent = 'Present';
-    if (tool === 'laser') setTool('select');
-    if (tell) wsSend({ t: 'present', on: false });
-    updateOverlay();
-  }
-
-  $('present').addEventListener('click', () => (presenting ? stopPresenting() : startPresenting()));
-  $('pexit').addEventListener('click', () => stopPresenting());
-  $('pprev').addEventListener('click', () => moveStep(-1));
-  $('pnext').addEventListener('click', () => moveStep(1));
-  $('plaser').addEventListener('click', () => setTool(tool === 'laser' ? 'select' : 'laser'));
+  // ------------------------------------------------------------- following
 
   function follow(id) {
     following = id;
     const peer = peers.get(id);
-    if (peer && peer.p.v) followView(peer.p.v, 380);
+    if (peer && peer.p.f && items.has(peer.p.f)) followFocus(peer.p.f);
+    else {
+      if (focusId) exitFocus();
+      if (peer && peer.p.v) followView(peer.p.v, 380);
+    }
     updateFollowUI();
   }
 
   // Shows at least everything the followed person can see, whatever our window shape.
   function followView(v, dur = 140) {
     fitRect({ x: v[0], y: v[1], w: v[2], h: v[3] }, { inset: { t: 0, r: 0, b: 0, l: 0 }, dur, linear: dur < 200 });
-  }
-
-  function onPresenter(id) {
-    const was = presenter;
-    presenter = id;
-    if (id && id !== myId) {
-      stopPresenting(false);
-      follow(id);
-      const peer = peers.get(id);
-      if (peer && id !== was) toast(`${peer.name} started presenting. You are following their view.`);
-    } else if (!id && following === was) {
-      // The presentation is over. Following somebody else by choice carries on.
-      following = null;
-    }
-    updateFollowUI();
   }
 
   function updateFollowUI() {
@@ -3822,20 +3771,13 @@
     if (target) ring.style.setProperty('--c', target.color);
 
     const pill = $('followpill');
-    const host = presenter && presenter !== myId ? peers.get(presenter) : null;
-    if (host) {
-      const on = following === host.id;
-      pill.replaceChildren(
-        el('i', { class: 'live', style: { background: host.color } }),
-        el('span', { text: `${host.name} is presenting` }),
-        el('button', { class: 'btn small', text: on ? 'Stop following' : 'Follow', onclick: () => (on ? userMovedView() : follow(host.id)) }));
-    } else if (target) {
+    if (target) {
       pill.replaceChildren(
         el('i', { class: 'live', style: { background: target.color } }),
         el('span', { text: `Following ${target.name}` }),
         el('button', { class: 'btn small', text: 'Stop', onclick: userMovedView }));
     }
-    pill.hidden = !host && !target;
+    pill.hidden = !target;
     renderPeers();
   }
 
@@ -3846,9 +3788,9 @@
     const list = [...peers.values()].filter((peer) => !peer.viewer);
     const nodes = [
       ...list.slice(0, 8).map((peer) => el('button', {
-        class: `avatar${following === peer.id ? ' following' : ''}${presenter === peer.id ? ' presenting' : ''}`,
+        class: `avatar${following === peer.id ? ' following' : ''}`,
         style: { background: peer.color },
-        title: `${peer.name}${presenter === peer.id ? ' (presenting)' : ''}. Click to ${following === peer.id ? 'stop following' : 'follow their view'}`,
+        title: `${peer.name}. Click to ${following === peer.id ? 'stop following' : 'follow their view'}`,
         text: WB.initials(peer.name),
         onclick: () => (following === peer.id ? userMovedView() : follow(peer.id)),
       })),
@@ -4103,9 +4045,7 @@
     } else {
       applyCam();
     }
-    sendP({ l: tool === 'laser' ? 1 : 0 });
-    if (presenting) wsSend({ t: 'present', on: true });
-    else onPresenter(msg.presenter);
+    sendP({ l: tool === 'laser' ? 1 : 0, f: focusId });
     updateFollowUI();
   }
 
@@ -4124,8 +4064,6 @@
       dropPeer(msg.id);
       refreshPeerSel();
       updateFollowUI();
-    } else if (msg.t === 'presenter') {
-      onPresenter(msg.id);
     } else if (msg.t === 'p') {
       const peer = peers.get(msg.id);
       if (!peer) return;
@@ -4135,7 +4073,8 @@
         requestLaser();
       }
       if ('s' in msg.p) refreshPeerSel();
-      if ('v' in msg.p && following === peer.id && !gesture) followView(peer.p.v);
+      if ('f' in msg.p && following === peer.id) followFocus(peer.p.f);
+      if ('v' in msg.p && following === peer.id && !gesture && !focusId) followView(peer.p.v);
     } else if (msg.t === 'laser') {
       const peer = peers.get(msg.id);
       if (peer) addRemoteLaser(peer, msg.pts);
@@ -4143,7 +4082,7 @@
       if (following !== msg.from) return;
       const video = videoOf(msg.id);
       if (!video) return;
-      // Stopped, it shows exactly the presenter's frame; playing, small drift is left alone rather than stutter.
+      // Stopped, it shows exactly the frame of the person followed; playing, small drift is left alone rather than stutter.
       if (Math.abs(video.currentTime - msg.time) > (msg.playing ? 0.25 : 0.001)) video.currentTime = msg.time;
       if (msg.playing) video.play().catch(() => {});
       else video.pause();
@@ -4164,6 +4103,8 @@
       if (e.code === 4003) return fatal('This board was moved to a workspace you cannot open.');
       if (e.code === 4004) return fatal('This board was deleted.');
       if (e.code === 4005) return fatal('This link is not shared any more.');
+      // What the link allows changed: open it again as it is now.
+      if (e.code === 4006) return location.reload();
       $('conn').hidden = false;
       WB.offline(true);
       setTimeout(connect, retry);
@@ -4203,6 +4144,7 @@
   // Home opens on the workspace this board lives in.
   if (!viewOnly && meta.workspace) store('wb:workspace', meta.workspace);
   if (viewOnly) {
+    setAccess(meta.access);
     $('boardname').readOnly = true;
     // The corner logo is not a way back to the team's boards for someone holding a link.
     $('back').removeAttribute('href');
@@ -4216,7 +4158,16 @@
     $('share').addEventListener('click', () => openShare(meta));
   }
 
-  function openShare(board) {
+  // Who can open the board: its workspace says who on the team, and a link, when it is on, who else
+  // and what they may do there. Everything here takes effect at once; Done only closes.
+  const ACCESS = [
+    ['view', 'View only'],
+    ['comments', 'View and read comments'],
+    ['comment', 'View and comment'],
+  ];
+  const EXPIRY = [['never', 'Never', 0], ['1d', 'In 1 day', 864e5], ['7d', 'In 7 days', 7 * 864e5], ['30d', 'In 30 days', 30 * 864e5]];
+
+  function openShare(meta) {
     // Never a localhost address: it would only open on this computer.
     // A configured public address first, then the address this page was opened from (a tunnel, say), then this computer's network addresses.
     const served = WB.info().shareBases || [];
@@ -4224,20 +4175,28 @@
     const bases = [...new Set([...served.filter((b) => b.startsWith('https:')), ...here, ...served])];
     if (!bases.length) bases.push(location.origin);
     let base = bases.includes(store('wb:sharebase')) ? store('wb:sharebase') : bases[0];
-    const dlg = el('dialog', { class: 'dlg' });
-    const close = () => dlg.close();
-    const request = async (method) => {
+    let share = meta.share || { token: null };
+    let busy = false;
+    const dlg = el('dialog', { class: 'dlg share-dlg' });
+    const call = async (method, path, body) => {
+      if (busy) return;
+      busy = true;
       try {
-        const res = await WB.api(method, `/api/boards/${boardId}/share`);
-        board.shareToken = method === 'POST' ? res.token : null;
+        const res = await WB.api(method, `/api/boards/${boardId}/share${path}`, body);
+        share = method === 'DELETE' ? { token: null } : res;
+        meta.share = share;
       } catch (err) {
         toast(err.message);
       }
+      busy = false;
       paint();
     };
+    const select = (options, value, onchange) => el('select', { onchange: (e) => onchange(e.target.value) },
+      options.map(([v, label]) => el('option', { value: v, text: label, selected: v === value })));
+
     function paint() {
-      const link = board.shareToken && `${base}/s/${board.shareToken}`;
-      const input = link && el('input', { type: 'text', readonly: true, value: link, 'aria-label': 'View-only link', onfocus: (e) => e.target.select() });
+      const link = share.token && `${base}/s/${share.token}`;
+      const input = link && el('input', { type: 'text', readonly: true, value: link, 'aria-label': 'Link', onfocus: (e) => e.target.select() });
       const copy = async () => {
         try {
           await navigator.clipboard.writeText(link);
@@ -4247,20 +4206,35 @@
         }
         toast('Link copied');
       };
+      const toggle = el('input', { type: 'checkbox', role: 'switch', 'aria-label': 'Share with a link' });
+      toggle.checked = !!share.token;
+      toggle.addEventListener('change', () => call(toggle.checked ? 'POST' : 'DELETE', ''));
+      const expiry = share.expiresAt
+        ? [['set', `On ${new Date(share.expiresAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`], ...EXPIRY.filter((e) => e[0] !== 'set')]
+        : EXPIRY;
+      const team = meta.workspace === 'personal' ? 'Only you: it is in your personal workspace.' : 'Everyone on the team who can sign in.';
       dlg.replaceChildren(el('form', { method: 'dialog', onsubmit: (e) => e.preventDefault() },
-        el('h2', { text: 'Share a view-only link' }),
-        el('p', { text: link
-          ? 'Anyone with this link can watch the board live, without signing in. They cannot change anything, and they do not see comments. Stop sharing to make the link stop working.'
-          : 'Make a link that lets anyone watch this board without signing in. They can look around and open images and videos, but cannot change anything.' }),
-        input,
-        link && bases.length > 1 && el('label', { class: 'share-base' }, 'Address ',
-          el('select', { onchange: (e) => { base = e.target.value; store('wb:sharebase', base); paint(); } },
-            bases.map((b) => el('option', { value: b, text: b, selected: b === base })))),
+        el('h2', { text: `Share “${$('boardname').value || 'this board'}”` }),
+        el('div', { class: 'share-row' }, el('span', { class: 'share-label', text: 'Team' }), el('span', { class: 'share-value', text: team })),
+        el('label', { class: 'share-row share-switch' },
+          el('span', { class: 'share-label', text: 'Link' }),
+          el('span', { class: 'share-value', text: share.token ? 'Anyone with the link can open it, without signing in.' : 'Off. Turn it on to share outside the team.' }),
+          toggle),
+        link && el('div', { class: 'share-link' }, input, el('button', { type: 'button', class: 'btn primary', text: 'Copy', onclick: copy })),
+        link && el('label', { class: 'share-row' }, el('span', { class: 'share-label', text: 'They can' }),
+          select(ACCESS, share.access, (v) => call('PATCH', '', { access: v }))),
+        link && el('label', { class: 'share-row' }, el('span', { class: 'share-label', text: 'Link ends' }),
+          select(expiry, share.expiresAt ? 'set' : 'never', (v) => {
+            const pick = EXPIRY.find((e) => e[0] === v);
+            if (pick) call('PATCH', '', { expiresAt: pick[2] ? Date.now() + pick[2] : null });
+          })),
+        link && bases.length > 1 && el('label', { class: 'share-row' }, el('span', { class: 'share-label', text: 'Address' }),
+          select(bases.map((b) => [b, b]), base, (v) => { base = v; store('wb:sharebase', base); paint(); })),
         link && !/^https:/.test(base) && el('p', { class: 'share-note', text: 'This address only works for people on the same network as this computer. For people elsewhere, set up a public address (see DEPLOY.md).' }),
+        link && share.access === 'comment' && el('p', { class: 'share-note', text: 'People with the link comment under a name they type themselves. They cannot resolve or delete anything.' }),
         el('div', { class: 'dlg-actions' },
-          link && el('button', { type: 'button', class: 'btn danger', text: 'Stop sharing', onclick: () => request('DELETE') }),
-          el('button', { type: 'button', class: 'btn', text: 'Close', onclick: close }),
-          link ? el('button', { type: 'button', class: 'btn primary', text: 'Copy link', onclick: copy }) : el('button', { type: 'button', class: 'btn primary', text: 'Create link', onclick: () => request('POST') }))));
+          link && el('button', { type: 'button', class: 'btn ghost share-reset', text: 'New link', title: 'Make a new link. The current one stops working at once.', onclick: () => call('POST', '/reset') }),
+          el('button', { type: 'button', class: 'btn', text: 'Done', onclick: () => dlg.close() }))));
     }
     dlg.addEventListener('close', () => dlg.remove());
     paint();

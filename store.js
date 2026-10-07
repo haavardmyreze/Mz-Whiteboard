@@ -48,7 +48,10 @@ CREATE TABLE IF NOT EXISTS boards (
   folder_id TEXT,
   workspace TEXT NOT NULL,
   share_token TEXT UNIQUE,
+  share_access TEXT,
+  share_expires INTEGER,
   created_at INTEGER NOT NULL,
+  created_by TEXT,
   updated_at INTEGER NOT NULL,
   deleted_at INTEGER
 );
@@ -152,9 +155,11 @@ function openStore(dataDir) {
   }
 
   const putBoard = db.prepare(`
-    INSERT INTO boards (id, name, folder_id, workspace, share_token, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO boards (id, name, folder_id, workspace, share_token, share_access, share_expires, created_at, created_by, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (id) DO UPDATE SET name = excluded.name, folder_id = excluded.folder_id, workspace = excluded.workspace,
-      share_token = excluded.share_token, updated_at = excluded.updated_at, deleted_at = NULL`);
+      share_token = excluded.share_token, share_access = excluded.share_access, share_expires = excluded.share_expires,
+      updated_at = excluded.updated_at, deleted_at = NULL`);
   const putItem = db.prepare(`
     INSERT INTO items (board_id, id, data, type, label, label_key, frame_id, parent_id, media, thumb, created_at, created_by, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -173,7 +178,9 @@ function openStore(dataDir) {
     if (d.media) learnMedia.run(text(it.name), num(it.nw), num(it.nh), num(it.dur), num(it.fps), d.media);
   }
 
-  const boardValues = (b) => [b.id, b.name, b.folderId || null, b.workspace, b.shareToken || null, b.createdAt, b.updatedAt];
+  const boardValues = (b) => [
+    b.id, b.name, b.folderId || null, b.workspace, b.shareToken || null, b.shareAccess || null, b.shareExpires || null, b.createdAt, b.createdBy || null, b.updatedAt,
+  ];
 
   // A board's details, and the items that changed and went since it was last written, in one go.
   function saveBoard(board, changed = [], removed = [], creators = new Map()) {
@@ -188,7 +195,8 @@ function openStore(dataDir) {
   const readBoards = db.prepare('SELECT * FROM boards WHERE deleted_at IS NULL');
   function boards() {
     return readBoards.all().map((r) => ({
-      id: r.id, name: r.name, folderId: r.folder_id, workspace: r.workspace, shareToken: r.share_token, createdAt: r.created_at, updatedAt: r.updated_at,
+      id: r.id, name: r.name, folderId: r.folder_id, workspace: r.workspace, shareToken: r.share_token, shareAccess: r.share_access,
+      shareExpires: r.share_expires, createdAt: r.created_at, createdBy: r.created_by, updatedAt: r.updated_at,
     }));
   }
 

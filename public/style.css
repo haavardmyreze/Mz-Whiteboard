@@ -70,6 +70,7 @@
   --shadow-pop: 0 2px 4px rgba(0, 0, 0, 0.4), 0 24px 56px -12px rgba(0, 0, 0, 0.7);
 
   --dots: rgba(255, 255, 255, 0.075);
+  --viewer-bg: #0c0c0c;
   --ring-c: rgba(255, 255, 255, 0.09);
   --lift-c: rgba(0, 0, 0, 0.6);
   --thumb-bg: #0a0a0a;
@@ -135,6 +136,7 @@
   --shadow-pop: 0 2px 4px rgba(0, 0, 0, 0.06), 0 24px 56px -12px rgba(0, 0, 0, 0.24);
 
   --dots: rgba(0, 0, 0, 0.11);
+  --viewer-bg: #d6d6d6;
   --ring-c: rgba(0, 0, 0, 0.1);
   --lift-c: rgba(0, 0, 0, 0.22);
   --thumb-bg: #dedede;
@@ -304,7 +306,6 @@ kbd {
 }
 .avatar:hover { transform: translateY(-1px); }
 .avatar.following { box-shadow: 0 0 0 2px var(--accent); }
-.avatar.presenting { box-shadow: 0 0 0 2px var(--brand); }
 .avatar.more { background: var(--surface-3); color: var(--text-2); cursor: default; }
 .avatar.me { margin-left: 8px; }
 .avatar.me.fixed, .avatar.me.fixed:hover { transform: none; cursor: default; }
@@ -741,7 +742,10 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport, body[data-
 .drawing { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; z-index: 2147483000; }
 
 .item.dim, .item.dim * { pointer-events: none !important; }
-.item.dim { opacity: 0.12; transition: opacity 0.2s; }
+/* With an image or video open the rest of the board is out of sight, and the board itself becomes a plain viewer backdrop. */
+.item.dim { opacity: 0; visibility: hidden; }
+body.focus #viewport { background-image: none; background-color: var(--viewer-bg); }
+body.focus .pin { transition: none; }
 /* Dimmed items never cover the piece that is open. */
 .item.dim { z-index: -1000000 !important; }
 .item.erased { opacity: 0.2; }
@@ -768,7 +772,6 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport, body[data-
 .handle.ne { right: -5px; top: -5px; cursor: nesw-resize; }
 .handle.sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
 #selbox.noresize .handle { display: none; }
-body.presenting #selbox { display: none; }
 
 #laser, #cursors, #followring, #dropzone { position: absolute; inset: 0; pointer-events: none; }
 #laser { width: 100%; height: 100%; }
@@ -820,14 +823,13 @@ body.presenting #selbox { display: none; }
 
 /* ---------------------------------------------------------------- chrome: panels over the canvas */
 
-.chrome, #seltools, #presentbar, #followpill, #focusbar, #helppanel, .toast {
+.chrome, #seltools, #followpill, #focusbar, #helppanel, .toast {
   position: fixed;
   border: 1px solid var(--line);
   border-radius: var(--r-3);
   background: var(--surface-1);
   box-shadow: var(--shadow-2);
 }
-body.presenting .chrome { display: none !important; }
 
 #topbar { left: 0; right: 0; top: 0; height: var(--bar); display: flex; align-items: center; gap: 4px; padding: 0 8px; border-width: 0 0 1px; border-radius: 0; box-shadow: none; }
 #boardname {
@@ -852,11 +854,10 @@ body.presenting .chrome { display: none !important; }
 #commentsicon { display: grid; }
 #zoom { min-width: 56px; padding: 0 8px; font-variant-numeric: tabular-nums; letter-spacing: 0; }
 #help { font-size: 14px; }
-#present { margin-left: 2px; padding: 0 14px; }
 #peers { display: flex; align-items: center; padding: 0 2px 0 8px; }
 
 /* A narrow window keeps what matters within reach: labels go first, then the conveniences, so the
-   board's name, who is here, Share and Present never slide off the edge. */
+   board's name, who is here and Share never slide off the edge. */
 @media (max-width: 900px) {
   #boardname { flex: 0 1 min(400px, 34vw); width: auto; min-width: 72px; }
   #comments .lbl { display: none; }
@@ -878,7 +879,7 @@ body.presenting .chrome { display: none !important; }
 #toolbar .iconbtn.active { background: var(--accent-fill); color: #fff; }
 #toolbar .iconbtn[data-tool="note"], #toolbar .iconbtn[data-tool="text"], #toolbar .iconbtn[data-tool="block"], #toolbar .iconbtn[data-tool="frame"], #toolbar .iconbtn[data-tool="comment"] { cursor: grab; }
 /* While an image is open there is no board to put frames or colour blocks on. */
-body.focus #toolbar [data-tool="frame"], body.focus #toolbar [data-tool="block"], body.focus #toolbar [data-tool="upload"] { opacity: 0.3; pointer-events: none; }
+body.focus #toolbar [data-tool="frame"], body.focus #toolbar [data-tool="block"], body.focus #toolbar [data-tool="upload"], body.focus #toolbar [data-tool="pan"] { display: none; }
 
 /* Brush and text options stack in a narrow column beside the strip, so they stay out of the way of
    whatever is open in the middle of the board. */
@@ -922,16 +923,13 @@ body.dragging-tool, body.dragging-tool * { cursor: grabbing !important; }
 #seltools .sep { margin: 6px 5px; }
 #seltools .lvl { height: var(--h); }
 
-#presentbar { left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 4px; max-width: calc(100vw - 24px); padding: 3px; }
 #pstep { min-width: 120px; max-width: 46vw; padding: 0 8px; overflow: hidden; color: var(--text-2); font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; text-align: center; text-overflow: ellipsis; white-space: pre; }
-#presentbar .sep { margin: 6px 4px; }
 
 #followpill, #focusbar { left: 50%; top: calc(var(--bar) + 12px); transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 5px 5px 5px 14px; white-space: nowrap; animation: rise 0.18s var(--ease); }
 #focusbar { gap: 4px; padding-left: 5px; }
 #focusbar .iconbtn { width: var(--h-sm); height: var(--h-sm); }
 #focusbar .sep { margin: 4px 6px; }
 #focuspos { min-width: 44px; color: var(--text-2); font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; text-align: center; }
-body.presenting #followpill, body.presenting #focusbar { top: 16px; }
 .live { flex: none; width: 8px; height: 8px; border-radius: 50%; }
 #focusname { max-width: 28ch; margin-right: 4px; overflow: hidden; font-weight: 600; text-overflow: ellipsis; }
 #focusbar .hint { margin-right: 8px; color: var(--muted); }
@@ -1038,8 +1036,9 @@ body.presenting #followpill, body.presenting #focusbar { top: 16px; }
 
 /* Read-only link: only looking around is left. */
 body.viewonly #tooloptions, body.viewonly #seltools, body.viewonly #selbox,
-body.viewonly #present, body.viewonly #comments, body.viewonly #share,
-body.viewonly #pins, body.viewonly #thread, body.viewonly #commentpanel, body.viewonly #snap,
+body.viewonly #share, body.viewonly #snap,
+body.viewonly:not(.guest-reads) #comments, body.viewonly:not(.guest-reads) #pins,
+body.viewonly:not(.guest-reads) #thread, body.viewonly:not(.guest-reads) #commentpanel,
 body.viewonly #focusclear, body.viewonly #focushint { display: none !important; }
 body.viewonly #boardname, body.viewonly #back { pointer-events: none; }
 body.viewonly .item { cursor: grab; }
@@ -1089,9 +1088,29 @@ body.welcoming [data-logo-slot] > svg { visibility: hidden; }
 .space .tally { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
 
 /* The share dialog: where the link points, and what that address means. */
-.share-base { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--text-2); }
-.share-base select { flex: 1; min-width: 0; height: var(--h); padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; }
-.share-base select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+/* Share: one row per setting, the label on the left. */
+.share-dlg { width: min(460px, calc(100vw - 32px)); }
+.share-row { display: grid; grid-template-columns: 76px 1fr auto; align-items: center; gap: 12px; min-height: var(--h); margin-top: 10px; }
+.share-label { color: var(--muted); font-size: 12px; font-weight: 600; }
+.share-value { color: var(--text-2); line-height: 1.4; }
+.share-row select { grid-column: 2 / 4; min-width: 0; height: var(--h); padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; }
+.share-row select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.share-switch { cursor: pointer; }
+.share-link { display: flex; gap: 8px; margin: 12px 0 2px 88px; }
+.share-link input { flex: 1; min-width: 0; margin: 0; }
+.share-dlg .dlg-actions .share-reset { margin-right: auto; }
+/* A switch: a checkbox drawn as a track and knob. */
+input[role="switch"] { -webkit-appearance: none; appearance: none; position: relative; width: 34px; height: 20px; margin: 0; border-radius: 10px; background: var(--line-strong); cursor: pointer; transition: background 0.15s; }
+input[role="switch"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: var(--shadow-1); transition: transform 0.15s var(--ease); }
+input[role="switch"]:checked { background: var(--accent-fill); }
+input[role="switch"]:checked::after { transform: translateX(14px); }
+input[role="switch"]:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+@media (max-width: 520px) {
+  .share-row { grid-template-columns: 1fr auto; }
+  .share-label { grid-column: 1 / -1; }
+  .share-row select { grid-column: 1 / -1; }
+  .share-link { margin-left: 0; }
+}
 .dlg .share-note { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
 
 /* ---------------------------------------------------------------- sign-in page */

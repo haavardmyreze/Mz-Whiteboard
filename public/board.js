@@ -109,18 +109,19 @@
   const PEN_SIZES = [4, 8, 16];
   const FRAME_PAD = 28;
   // World-unit sizes for new items: what you get does not depend on how far you are zoomed in.
-  const IMG_W = 480;
-  const IMG_MAX_H = 720;
+  // Sized to what the standup board settled on: a still is about 750 wide, a frame holds one at 806.
+  const IMG_W = 750;
+  const IMG_MAX_H = 1080;
   const NOTE_W = 260;
   const NOTE_FS = 16;
   // A frame starts at the width it needs to hold one piece of media at its imported width, and a block
   // at the same width as a frame, since it usually sits above one as its header.
   const FRAME_W = IMG_W + 2 * FRAME_PAD;
-  const FRAME_H = 500;
+  const FRAME_H = 750;
   // Every frame has a header band for its title and a count; blocks are free-standing coloured headings.
   const FRAME_HEAD = 80;
   const BLOCK_W = FRAME_W;
-  const BLOCK_H = 104;
+  const BLOCK_H = 180;
   const BLOCK_FS = 56;
   const SNAP_PX = 7;
   // Sizes are screen pixels at the zoom the text was created at.

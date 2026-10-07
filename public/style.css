@@ -532,6 +532,28 @@ body.home { overflow-y: auto; }
 .pick.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .pick.active svg { color: var(--accent); }
 
+/* Notifications: a bell in the header with an unread count, opening a list beneath it. */
+.bellwrap { position: relative; }
+#bell { position: relative; }
+.bell-count { position: absolute; top: 2px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger); color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
+.notices { position: absolute; top: calc(100% + 8px); right: -8px; z-index: 40; display: flex; flex-direction: column; width: min(400px, calc(100vw - 24px)); max-height: min(560px, calc(100vh - 96px)); border: 1px solid var(--line-strong); border-radius: var(--r-3); background: var(--surface-1); box-shadow: var(--shadow-pop); animation: rise 0.16s var(--ease); }
+.notices[hidden] { display: none; }
+.notices-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 48px; padding: 6px 8px 6px 16px; border-bottom: 1px solid var(--line); }
+.notices-head h2 { margin: 0; font-size: 14px; font-weight: 650; }
+.notices-list { overflow-y: auto; padding: 4px; }
+.notices-empty { margin: 0; padding: 24px 20px; color: var(--muted); line-height: 1.5; text-align: center; }
+.notice { position: relative; display: flex; gap: 10px; padding: 10px 28px 10px 10px; border-radius: var(--r-2); color: var(--text-2); text-decoration: none; }
+.notice:hover { background: var(--hover); }
+.notice .avatar.sm { margin-top: 1px; }
+.notice-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.notice-what { color: var(--text-2); line-height: 1.35; }
+.notice-what strong { color: var(--text); font-weight: 600; }
+.notice-guest { margin-left: 6px; padding: 1px 5px; border-radius: 4px; background: var(--surface-3); color: var(--muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; vertical-align: 1px; }
+.notice-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--text); line-height: 1.4; overflow-wrap: anywhere; }
+.notice-where { color: var(--muted); font-size: 12px; }
+.notice.unread .notice-what { color: var(--text); }
+.notice-dot { position: absolute; top: 16px; right: 12px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
 @media (max-width: 760px) {
   .search { display: none; }
   .home-head { padding: 0 16px; }

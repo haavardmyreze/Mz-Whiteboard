@@ -3408,16 +3408,21 @@
   }
 
   // Flies to where a comment was left, opens it, and for a video jumps to the moment it is about.
+  // Shows a comment's thread where it was left: an image or video opens in the viewer, at the comment's frame.
   function goToComment(id) {
-    const c = comments.get(id);
+    const c = comments.get(comments.get(id)?.re || id);
     if (!c) return;
     const host = items.get(c.on);
     if (!host) return;
-    if (focusId && focusId !== c.on) exitFocus();
-    userMovedView();
-    fitRect(bounds(host), { dur: 420, maxZ: 1.5 });
+    if (host.type === 'image' || host.type === 'video') {
+      enterFocus(host.id);
+    } else {
+      if (focusId) exitFocus();
+      userMovedView();
+      fitRect(bounds(host), { dur: 420, maxZ: 1.5 });
+    }
     seekTo(c);
-    openThreadFor(id);
+    openThreadFor(c.id);
   }
 
   // ------------------------------------------------------------- tools and keyboard
@@ -4039,6 +4044,12 @@
       });
       if (!viewOnly) backfillThumbs();
       frameFirst();
+      // Opened from a notification: straight to the comment.
+      const asked = /^#c=([\w-]+)$/.exec(location.hash);
+      if (asked) {
+        history.replaceState(null, '', location.pathname);
+        goToComment(asked[1]);
+      }
       if (viewOnly && [...items.values()].some((it) => it.type === 'image' || it.type === 'video')) {
         toast('Click an image or video to look closer', { ms: 7000 });
       }

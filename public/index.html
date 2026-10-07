@@ -23,6 +23,13 @@
         <kbd>/</kbd>
       </label>
       <div class="spacer"></div>
+      <div class="bellwrap">
+        <button id="bell" class="iconbtn" title="Notifications" aria-label="Notifications" aria-haspopup="true" aria-expanded="false">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/></svg>
+          <span id="bellcount" class="bell-count" hidden></span>
+        </button>
+        <section id="notices" class="notices" hidden aria-label="Notifications"></section>
+      </div>
       <span id="themeslot"></span>
       <button id="me" class="chip" title="Change your name"></button>
       <button id="newfolder" class="btn">

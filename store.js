@@ -89,6 +89,14 @@ CREATE TRIGGER IF NOT EXISTS items_text_set AFTER UPDATE OF label ON items BEGIN
   INSERT INTO items_text (rowid, label) SELECT new.rowid, new.label WHERE new.label IS NOT NULL;
 END;
 
+-- Small things kept per person, such as which notifications they have read.
+CREATE TABLE IF NOT EXISTS user_state (
+  user TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT,
+  PRIMARY KEY (user, key)
+);
+
 CREATE TABLE IF NOT EXISTS media (
   name TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
@@ -378,6 +386,31 @@ function openStore(dataDir) {
     }));
   }
 
+  // ---------------------------------------------------------------- notifications
+
+  // Every comment on the boards in these workspaces that have had one since `since`, with what each is on
+  // and who made that, and who made the board. Older comments on those boards come too: a new reply
+  // needs the thread it is in.
+  function commentsForNotices(spaces, since) {
+    const list = spaces.map(() => '?').join(', ');
+    return db.prepare(`
+      SELECT c.data, c.created_at, b.id AS board_id, b.name AS board_name, b.created_by AS board_by,
+        h.created_by AS host_by, h.type AS host_type, h.label AS host_label
+      FROM items c JOIN boards b ON b.id = c.board_id
+      LEFT JOIN items h ON h.board_id = c.board_id AND h.id = c.parent_id
+      WHERE c.type = 'comment' AND b.deleted_at IS NULL AND b.workspace IN (${list})
+        AND c.board_id IN (SELECT board_id FROM items WHERE type = 'comment' AND created_at > ?)`).all(...spaces, since)
+      .map((r) => ({ ...r, comment: JSON.parse(r.data) }));
+  }
+
+  const readState = db.prepare('SELECT value FROM user_state WHERE user = ? AND key = ?');
+  const writeState = db.prepare('INSERT INTO user_state (user, key, value) VALUES (?, ?, ?) ON CONFLICT (user, key) DO UPDATE SET value = excluded.value');
+  const getState = (user, key) => {
+    const row = readState.get(user, key);
+    return row ? JSON.parse(row.value) : null;
+  };
+  const setState = (user, key, value) => writeState.run(user, key, JSON.stringify(value));
+
   // A copy of the whole database, safe to take while the server runs. Keeps the newest `keep` of them.
   function backup(dir, keep = 7) {
     fs.mkdirSync(dir, { recursive: true });
@@ -401,7 +434,7 @@ function openStore(dataDir) {
 
   return {
     file, saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media,
-    catalogueUploads, importLegacy, find, backup, close, isOpen: () => !closed,
+    catalogueUploads, importLegacy, find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
   };
 }
 

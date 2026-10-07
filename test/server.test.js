@@ -992,3 +992,50 @@ test('a link can show the comments, let its holders comment, run out, and be rep
   await assert.rejects(open(`share=${fresh.token}`, 'Late'));
   assert.equal((await (await fetch(`${s.base}/api/boards/${board.id}/share`)).json()).token, fresh.token);
 });
+
+// ---------------------------------------------------------------- notifications
+
+test('people hear about replies, comments on their work and boards, and mentions, until they read them', async (t) => {
+  const s = start(4826);
+  t.after(s.stop);
+  await s.ready;
+  const open = joiner(4826);
+  const board = await (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Set review', by: 'Anna' }) })).json();
+  const people = {};
+  for (const name of ['Anna', 'Ben', 'Cleo', 'Dave']) people[name] = await open(`board=${board.id}`, name);
+  t.after(() => Object.values(people).forEach((p) => p.ws.close()));
+  const say = async (name, ops) => {
+    people[name].ws.send(JSON.stringify({ t: 'op', ops }));
+    await pause(80);
+  };
+  await say('Anna', [{ t: 'add', item: { id: 'annaimage', type: 'image', x: 0, y: 0, w: 100, h: 100, src: '/uploads/a.png', name: 'desk_v002.png' } }]);
+  await say('Ben', [{ t: 'add', item: { id: 'bennote01', type: 'note', x: 0, y: 0, w: 100, h: 0, text: 'Lighting notes' } }]);
+  await say('Ben', [{ t: 'add', item: { id: 'bencom001', type: 'comment', on: 'annaimage', text: 'Rim light is too hot' } }]);
+  await say('Anna', [{ t: 'add', item: { id: 'annacom01', type: 'comment', on: 'bennote01', text: 'Agree, @cleo can you look?' } }]);
+  await say('Cleo', [{ t: 'add', item: { id: 'cleorep01', type: 'comment', on: 'annaimage', re: 'bencom001', text: 'Fixed in v3' } }]);
+  await say('Dave', [{ t: 'add', item: { id: 'davecom01', type: 'comment', on: 'bennote01', text: 'Nice notes' } }]);
+
+  const notices = async (name) => (await fetch(`${s.base}/api/notifications?name=${name}`)).json();
+  const kinds = (n) => n.items.map((i) => [i.id, i.kind]).sort();
+  assert.deepEqual(kinds(await notices('Anna')), [['bencom001', 'work'], ['cleorep01', 'work'], ['davecom01', 'board']]);
+  assert.deepEqual(kinds(await notices('Ben')), [['annacom01', 'work'], ['cleorep01', 'reply'], ['davecom01', 'work']]);
+  assert.deepEqual(kinds(await notices('Cleo')), [['annacom01', 'mention']]);
+  assert.deepEqual(kinds(await notices('Dave')), []);
+  const first = (await notices('Anna')).items.find((i) => i.id === 'bencom001');
+  assert.equal(first.on, 'desk_v002.png');
+  assert.equal(first.author, 'Ben');
+  assert.equal(first.board.name, 'Set review');
+
+  // read one, then all
+  assert.equal((await notices('Anna')).unread, 3);
+  await fetch(`${s.base}/api/notifications/read?name=Anna`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: ['bencom001'] }) });
+  const after = await notices('Anna');
+  assert.equal(after.unread, 2);
+  assert.equal(after.items.find((i) => i.id === 'bencom001').read, true);
+  await fetch(`${s.base}/api/notifications/read?name=Anna`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ all: true }) });
+  assert.equal((await notices('Anna')).unread, 0);
+  // what comes after that is new again, and nobody hears about their own
+  await say('Ben', [{ t: 'add', item: { id: 'bencom002', type: 'comment', on: 'annaimage', text: 'One more' } }]);
+  assert.equal((await notices('Anna')).unread, 1);
+  assert.equal((await notices('Ben')).items.some((i) => i.id === 'bencom002'), false);
+});

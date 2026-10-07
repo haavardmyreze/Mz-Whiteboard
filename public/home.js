@@ -421,7 +421,7 @@
     const name = await WB.dialog({ title: 'New board', value: `Standup ${new Date().toLocaleDateString()}`, placeholder: 'Board name', ok: 'Create board' });
     if (!name) return;
     try {
-      const board = await api('POST', '/api/boards', { name, folderId: currentFolder(), workspace: space });
+      const board = await api('POST', '/api/boards', { name, folderId: currentFolder(), workspace: space, by: me.name });
       location.href = `/b/${board.id}`;
     } catch (err) {
       fail(err);
@@ -439,6 +439,81 @@
       fail(err);
     }
   });
+
+  // ------------------------------------------------------------- notifications
+
+  // Replies, comments on your work and boards, and mentions, newest first (see notifications.js).
+  // Without sign-in the server only knows you by the name you gave, so it is sent along.
+  const noticeUrl = (p = '') => `/api/notifications${p}${WB.info().user ? '' : `?name=${encodeURIComponent(me.name)}`}`;
+  const NOTICE_TEXT = {
+    mention: () => 'mentioned you',
+    reply: () => 'replied to you',
+    work: (n) => `commented on ${n.on}`,
+    board: (n) => `commented on ${n.on}`,
+  };
+  let notices = { items: [], unread: 0 };
+
+  async function loadNotices() {
+    try {
+      notices = await api('GET', noticeUrl());
+    } catch {
+      return;
+    }
+    $('bellcount').hidden = !notices.unread;
+    $('bellcount').textContent = notices.unread > 99 ? '99+' : notices.unread;
+    $('bell').title = notices.unread ? `Notifications: ${notices.unread} unread` : 'Notifications';
+    if (!$('notices').hidden) paintNotices();
+  }
+
+  async function markNotices(body) {
+    try {
+      await api('POST', noticeUrl('/read'), body);
+    } catch {
+      // the next check shows them as they are
+    }
+  }
+
+  function paintNotices() {
+    const row = (n) => el('a', {
+      class: `notice${n.read ? '' : ' unread'}`,
+      href: `/b/${n.board.id}#c=${n.id}`,
+      onclick: () => { if (!n.read) markNotices({ ids: [n.id] }); },
+    },
+    el('span', { class: 'avatar sm', style: { background: /^#[0-9a-f]{6}$/i.test(n.color || '') ? n.color : '#8a8a8a' }, text: WB.initials(n.author) }),
+    el('span', { class: 'notice-body' },
+      el('span', { class: 'notice-what' }, el('strong', { text: n.author }), n.guest && el('span', { class: 'notice-guest', text: 'guest' }), ` ${NOTICE_TEXT[n.kind](n)}`),
+      el('span', { class: 'notice-text', text: n.text }),
+      el('span', { class: 'notice-where', text: `${n.board.name} · ${ago(n.at)}` })),
+    !n.read && el('i', { class: 'notice-dot', 'aria-label': 'Unread' }));
+    $('notices').replaceChildren(
+      el('header', { class: 'notices-head' },
+        el('h2', { text: 'Notifications' }),
+        notices.unread > 0 && el('button', {
+          class: 'btn small ghost', text: 'Mark all as read',
+          onclick: async () => { await markNotices({ all: true }); loadNotices(); },
+        })),
+      notices.items.length
+        ? el('div', { class: 'notices-list' }, notices.items.map(row))
+        : el('p', { class: 'notices-empty', text: 'Nothing yet. Replies to you, comments on your work and boards, and @mentions of your name show up here.' }));
+  }
+
+  function toggleNotices(open = $('notices').hidden) {
+    $('notices').hidden = !open;
+    $('bell').setAttribute('aria-expanded', String(open));
+    if (open) {
+      paintNotices();
+      loadNotices();
+    }
+  }
+  $('bell').addEventListener('click', () => toggleNotices());
+  document.addEventListener('pointerdown', (e) => {
+    if (!$('notices').hidden && !e.target.closest('.bellwrap')) toggleNotices(false);
+  });
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('notices').hidden) toggleNotices(false); });
+  loadNotices();
+  setInterval(() => { if (!document.hidden) loadNotices(); }, 30000);
+  // Coming back to this tab from a board: what was read there, or arrived since, shows at once.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) loadNotices(); });
 
   $('q').addEventListener('input', render);
   window.addEventListener('keydown', (e) => {

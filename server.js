@@ -9,6 +9,7 @@ const os = require('os');
 const { WebSocketServer } = require('ws');
 const { createAuth, parseCookies } = require('./auth');
 const { openStore } = require('./store');
+const { noticesFor, markRead } = require('./notifications');
 
 // Settings can live in a .env file next to this one (KEY=value per line); real environment variables win.
 try {
@@ -871,6 +872,22 @@ async function handleApi(req, res, url) {
       for (const peer of board.peers.values()) peer.ws.close(4004, 'Board deleted');
       return sendJson(res, 200, { ok: true });
     }
+  }
+  // What has happened that this person should know about: see notifications.js. Without sign-in people
+  // are who they say they are, so the page says which name it is asking for.
+  if (parts[1] === 'notifications') {
+    const named = cleanName(url.searchParams.get('name'), null);
+    const who = req.user ? { user: req.user.id, name: req.user.name } : named ? { user: `name:${named.toLowerCase()}`, name: named } : null;
+    if (!who) return sendJson(res, 200, { items: [], unread: 0 });
+    flushAll();
+    if (parts.length === 2 && req.method === 'GET') {
+      return sendJson(res, 200, noticesFor(store, who, req.user ? ['myreze', PERSONAL + req.user.id] : ['myreze']));
+    }
+    if (parts.length === 3 && parts[2] === 'read' && req.method === 'POST') {
+      markRead(store, who, await readJson(req));
+      return sendJson(res, 200, { ok: true });
+    }
+    return sendJson(res, 404, { error: 'Not found' });
   }
   // The catalogue: items across every board this person can see. See `find` in store.js for the filters.
   if (parts[1] === 'catalog' && req.method === 'GET') {

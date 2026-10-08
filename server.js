@@ -301,6 +301,22 @@ function cleanComment(it, peer) {
   return clean;
 }
 
+// What may change about a comment: whether it has been dealt with, by anyone on the board, and what it
+// says, by whoever wrote it (known by the name the connection goes by), stamped as edited. Nothing else,
+// and nothing at all from somebody holding a link. Null when the patch changes nothing it may.
+function commentPatch(it, asked, peer) {
+  const patch = {};
+  if ('done' in asked) patch.done = !!asked.done;
+  if (typeof asked.text === 'string' && peer && !peer.viewer && peer.name === it.name) {
+    const text = asked.text.trim().slice(0, 2000);
+    if (text && text !== it.text) {
+      patch.text = text;
+      patch.edited = Date.now();
+    }
+  }
+  return Object.keys(patch).length ? patch : null;
+}
+
 // Comments deleted since the server started, so undoing a delete brings each one back exactly as it
 // was written. Without this the server would stamp it with whoever pressed undo.
 const REMOVED_COMMENTS_KEPT = 500;
@@ -332,16 +348,15 @@ function applyOps(board, ops, peer, touch = true) {
     } else if (op.t === 'set') {
       const it = board.items.get(op.id);
       if (!it || !op.patch || typeof op.patch !== 'object') continue;
-      const patch = {};
-      for (const key of Object.keys(op.patch)) {
-        if (key === 'id' || key === 'type' || key === '__proto__') continue;
-        // The one thing about a comment that changes is whether it has been dealt with.
-        if (it.type === 'comment' && key !== 'done') continue;
-        patch[key] = op.patch[key];
-      }
+      let patch = {};
       if (it.type === 'comment') {
-        if (!('done' in patch)) continue;
-        patch.done = !!patch.done;
+        patch = commentPatch(it, op.patch, peer);
+        if (!patch) continue;
+      } else {
+        for (const key of Object.keys(op.patch)) {
+          if (key === 'id' || key === 'type' || key === '__proto__') continue;
+          patch[key] = op.patch[key];
+        }
       }
       Object.assign(it, patch);
       board.changed.add(op.id);

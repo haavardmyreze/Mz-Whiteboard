@@ -160,6 +160,7 @@
     text: icon('<path d="M5 7V4h14v3M12 4v16M9 20h6"/>'),
     frame: icon('<path d="M7 3v18M17 3v18M3 7h18M3 17h18"/>'),
     pen: icon('<path d="M4 20l1-4L16 5l3 3L8 19z"/><path d="M14 7l3 3"/>'),
+    scribble: icon('<path d="M3 16c2.5-5 4.5-8 6.5-8 2.5 0-1 9 2 9 2.5 0 3.5-7 6-7 1.5 0 2 2 3.5 3"/>'),
     arrow: icon('<path d="M5 19L19 5M9 5h10v10"/>'),
     laser: icon('<circle cx="12" cy="12" r="3" fill="currentColor"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2 2M16.4 16.4l2 2M5.6 18.4l2-2M16.4 7.6l2-2"/>'),
     prev: icon('<path d="M15 5l-7 7 7 7"/>'),
@@ -2557,6 +2558,7 @@
     const full = done >= total;
     const videos = total === 1 ? 'video' : 'videos';
     keptRing.querySelector('.arc').style.strokeDashoffset = KEPT_RING * (1 - k);
+    keptRing.querySelector('.kept-label').textContent = full ? 'Cached' : `${done}/${total} cached`;
     keptRing.classList.toggle('full', full);
     keptRing.classList.toggle('off', aheadOff && !full);
     const tip = full
@@ -4708,7 +4710,7 @@
     },
   }, el('span', { html: ICON.play }), el('b'));
   // What has been drawn for the comment in the box, with a way to take it back.
-  const drawnChip = el('button', { class: 'tchip drawn', title: 'Take the drawing back', onclick: discardDrawing }, el('span', { html: ICON.pen }), el('b'), el('span', { html: ICON.close }));
+  const drawnChip = el('button', { class: 'tchip drawn', title: 'Take the drawing back', onclick: discardDrawing }, el('span', { html: ICON.scribble }), el('b'), el('span', { html: ICON.close }));
   // The brush is the one tool the viewer has, so its colours are here, with the reminder of what it is for.
   const cpInks = el('span', { class: 'cp-inks' });
   const cpBrush = el('div', { class: 'cp-brush' }, cpInks, el('span', { text: 'Draw on the picture to point at what you mean' }));
@@ -4735,15 +4737,20 @@
     input.style.height = 'auto';
     input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
   }
-  // Enter sends, Shift+Enter starts a new line, Esc lets go of the box and gives the keys back to the viewer.
-  function wireBox(input, send) {
+  // Enter sends, Shift+Enter starts a new line, Esc lets go of the box and gives the keys back to the viewer
+  // (or, where there is something to call off, `cancel`s it). While names are offered after an @, the
+  // arrows, Enter, Tab and Esc are theirs.
+  function wireBox(input, send, cancel = () => input.blur()) {
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      if (mention && mention.input === input && !e.isComposing && mentionKey(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+      } else if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
         send();
       } else if (e.key === 'Escape') {
         e.stopPropagation();
-        input.blur();
+        cancel();
       } else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'z' && !input.value) {
         // Nothing typed to take back, so undo is for the board: the stroke just drawn, say.
         e.preventDefault();
@@ -4751,10 +4758,156 @@
         else stepHistory(undoStack, redoStack);
       }
     });
-    input.addEventListener('input', () => autosize(input));
+    input.addEventListener('input', () => {
+      autosize(input);
+      offerNames(input);
+    });
+    input.addEventListener('click', () => offerNames(input));
+    input.addEventListener('blur', () => { if (mention && mention.input === input) closeNames(); });
   }
+
+  // ---- @mentions: names offered while typing, and marked in what was written
+  //
+  // Whoever is named with an @ hears about it (notifications.js matches the full name or the first one).
+  // Names are offered from the people on the board and those who have commented on it, so they are spelled
+  // the way the notifications will look for them.
+  const mentionMenu = el('div', { class: 'menu mention-menu', role: 'listbox', 'aria-label': 'People', hidden: true });
+  document.body.append(mentionMenu);
+  let mention = null; // { input, start, list, i }: the box, where its "@" is, the names offered, the one picked
+  const nameColors = new Map(); // a name -> the colour it goes by
+
+  function knownNames() {
+    const names = new Map();
+    const add = (n, color) => {
+      const name = String(n || '').trim();
+      if (!name || names.has(name.toLowerCase())) return;
+      names.set(name.toLowerCase(), name);
+      if (hexOk(color)) nameColors.set(name, color);
+    };
+    for (const peer of peers.values()) if (!peer.viewer) add(peer.name, peer.color);
+    for (const c of comments.values()) if (!c.guest) add(c.name, c.color);
+    return names;
+  }
+
+  function offerNames(input) {
+    const before = input.value.slice(0, input.selectionStart);
+    const m = /(^|\s)@([\p{L}\p{N}_.-]*)$/u.exec(before);
+    if (!m || input.selectionStart !== input.selectionEnd) return closeNames();
+    const q = m[2].toLowerCase();
+    const names = knownNames();
+    names.delete(me.name.trim().toLowerCase());
+    const list = [...names.values()].filter((n) => n.toLowerCase().split(/\s+/).some((w) => w.startsWith(q)))
+      .sort((a, b) => a.localeCompare(b)).slice(0, 6);
+    if (!list.length) return closeNames();
+    const keep = mention && mention.input === input ? list.indexOf(mention.list[mention.i]) : -1;
+    mention = { input, start: before.length - m[2].length - 1, list, i: Math.max(0, keep) };
+    paintNames();
+  }
+
+  function paintNames() {
+    const { input, list, i } = mention;
+    mentionMenu.replaceChildren(...list.map((name, n) => el('button', {
+      class: `menu-item${n === i ? ' active' : ''}`, role: 'option', 'aria-selected': String(n === i), type: 'button',
+      // Pressing a name must not take the keyboard from the box first.
+      onpointerdown: (e) => e.preventDefault(),
+      onclick: () => pickName(name),
+    }, el('span', { class: 'avatar sm', style: { background: nameColors.get(name) || '#8a8a8a' }, text: WB.initials(name) }), el('span', { text: name }))));
+    mentionMenu.hidden = false;
+    const r = input.getBoundingClientRect();
+    mentionMenu.style.left = `${Math.round(clamp(r.left, 8, innerWidth - mentionMenu.offsetWidth - 8))}px`;
+    mentionMenu.style.top = `${Math.round(Math.max(8, r.top - mentionMenu.offsetHeight - 6))}px`;
+  }
+
+  function closeNames() {
+    mention = null;
+    mentionMenu.hidden = true;
+  }
+
+  function pickName(name) {
+    const { input, start } = mention;
+    closeNames();
+    input.focus({ preventScroll: true });
+    input.setRangeText(`@${name} `, start, input.selectionStart, 'end');
+    autosize(input);
+  }
+
+  // Whether a key went to the list of names.
+  function mentionKey(e) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      mention.i = (mention.i + (e.key === 'ArrowDown' ? 1 : -1) + mention.list.length) % mention.list.length;
+      paintNames();
+      return true;
+    }
+    if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+      pickName(mention.list[mention.i]);
+      return true;
+    }
+    if (e.key === 'Escape') {
+      closeNames();
+      return true;
+    }
+    return false;
+  }
+
+  // In what was written, the names of people on this board after an @ are marked; your own more strongly.
+  const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  function mentionPattern() {
+    const words = new Set();
+    for (const name of [...knownNames().values(), me.name]) {
+      words.add(name.trim());
+      words.add(name.trim().split(/\s+/)[0]);
+    }
+    const alts = [...words].filter((w) => w.length >= 2).sort((a, b) => b.length - a.length).map(escapeRe);
+    return alts.length ? new RegExp(`@(?:${alts.join('|')})(?![\\p{L}\\p{N}_])`, 'giu') : null;
+  }
+
+  function markMentions(node, re) {
+    if (!re) return;
+    const mine = new Set([me.name.trim().toLowerCase(), me.name.trim().split(/\s+/)[0].toLowerCase()]);
+    for (const t of [...node.childNodes]) {
+      if (t.nodeType !== Node.TEXT_NODE) continue;
+      const parts = [];
+      let last = 0;
+      re.lastIndex = 0;
+      for (let m = re.exec(t.data); m; m = re.exec(t.data)) {
+        if (m.index > last) parts.push(t.data.slice(last, m.index));
+        parts.push(el('span', { class: `mention${mine.has(m[0].slice(1).toLowerCase()) ? ' me' : ''}`, text: m[0] }));
+        last = m.index + m[0].length;
+      }
+      if (!parts.length) continue;
+      if (last < t.data.length) parts.push(t.data.slice(last));
+      t.replaceWith(...parts);
+    }
+  }
+
+  // ---- your own comment, reworded in place
+  //
+  // Like the reply box, the edit box is built once and moved into whichever comment is being edited, so what
+  // is typed in it survives other people's comments arriving.
+  const editBox = el('textarea', { rows: 1, maxlength: 2000, 'aria-label': 'Edit comment' });
+  let editingId = null;
+
+  function startCommentEdit(c) {
+    editingId = c.id;
+    editBox.value = c.text;
+    renderPanel();
+    editBox.focus({ preventScroll: true });
+    editBox.setSelectionRange(editBox.value.length, editBox.value.length);
+    autosize(editBox);
+  }
+
+  function endCommentEdit(save) {
+    const c = comments.get(editingId);
+    const text = editBox.value.trim().slice(0, 2000);
+    editingId = null;
+    editBox.blur();
+    if (save && c && text && text !== c.text) exec([{ t: 'set', id: c.id, patch: { text, edited: Date.now() } }]);
+    else renderPanel();
+  }
+
   wireBox(composer, submitComment);
   wireBox(replyBox, submitReply);
+  wireBox(editBox, () => endCommentEdit(true), () => endCommentEdit(false));
 
   // What is half written in the comment box belongs to the piece it was written on: going on to another
   // piece puts it aside, and coming back finds it there again. Nothing is posted on the wrong piece.
@@ -4833,12 +4986,20 @@
     cpBrush.hidden = viewOnly;
   }
 
-  function messageNode(c, root, showHost) {
+  function messageNode(c, root, showHost, mentions) {
     const first = c === root;
     const mine = (m) => m.name === me.name;
     const canDelete = !viewOnly && mine(c) && (!first || repliesOf(c.id).every(mine));
-    const text = el('div', { class: 'msg-text' });
-    fillText(text, c.text);
+    const editing = c.id === editingId;
+    const text = editing
+      ? el('div', { class: 'msg-edit' }, editBox, el('div', { class: 'msg-edit-acts' },
+        el('button', { class: 'btn small ghost', text: 'Cancel', title: 'Keep it as it was (Esc)', onclick: () => endCommentEdit(false) }),
+        el('button', { class: 'btn small primary', text: 'Save', title: 'Save (Enter)', onclick: () => endCommentEdit(true) })))
+      : el('div', { class: 'msg-text' });
+    if (!editing) {
+      fillText(text, c.text);
+      markMentions(text, mentions);
+    }
     const moment = first && videoOf(c.on) ? momentOf(c) : null;
     return el('div', { class: `msg${first ? '' : ' reply'}` },
       el('span', { class: 'avatar sm', style: { background: hexOk(c.color) ? c.color : '#8a8a8a' }, text: WB.initials(c.name) }),
@@ -4849,18 +5010,21 @@
           // The moment it is about sits on the same line as who wrote it, so a short comment is two lines, not three.
           moment != null && el('button', { class: 'tchip', title: 'Go to this frame', onclick: () => pickThread(c.id) }, el('span', { html: ICON.play }), fmtMoment(moment, fpsOf(c.on))),
           el('span', { class: 'msg-time', text: WB.ago(c.t), title: new Date(c.t).toLocaleString() }),
-          first && drawnIds.has(c.id) && el('span', { class: 'msg-drawn', html: ICON.pen, title: 'Has a drawing on the picture' }),
+          c.edited && el('span', { class: 'msg-edited', text: 'edited', title: `Edited ${new Date(c.edited).toLocaleString()}` }),
           el('span', { class: 'msg-acts' },
+            !viewOnly && mine(c) && !editing && el('button', { class: 'iconbtn mini', html: ICON.pen, title: 'Edit', onclick: () => startCommentEdit(c) }),
             first && !viewOnly && el('button', {
               class: `iconbtn mini${c.done ? ' active' : ''}`, html: ICON.check, title: c.done ? 'Resolved. Click to open it again' : 'Mark as resolved',
               onclick: () => exec([{ t: 'set', id: c.id, patch: { done: !c.done } }]),
             }),
             canDelete && el('button', { class: 'iconbtn mini', html: ICON.trash, title: first ? 'Delete the thread, and what was drawn for it' : 'Delete', onclick: () => removeComment(c) }))),
         first && showHost && el('div', { class: 'msg-where' }, el('span', { class: 'msg-on', text: hostLabel(c) })),
-        text));
+        text,
+        // Under what it says, so the line with the name keeps its room.
+        first && drawnIds.has(c.id) && el('span', { class: 'msg-drawn', title: 'Has a drawing on the picture. Pick the thread to see it' }, el('span', { html: ICON.scribble }), 'Drawing')));
   }
 
-  function threadCard(root, showHost) {
+  function threadCard(root, showHost, mentions) {
     const active = activeThread === root.id;
     return el('div', {
       class: `cp-card${active ? ' active' : ''}${root.done ? ' done' : ''}`, 'data-id': root.id,
@@ -4868,8 +5032,8 @@
         if (!e.target.closest('button, a, textarea')) pickThread(root.id);
       },
     },
-    messageNode(root, root, showHost),
-    repliesOf(root.id).map((r) => messageNode(r, root, false)),
+    messageNode(root, root, showHost, mentions),
+    repliesOf(root.id).map((r) => messageNode(r, root, false, mentions)),
     active && canWrite() && el('div', { class: 'cp-reply' }, replyBox, el('button', { class: 'btn small', text: 'Reply', onclick: submitReply })));
   }
 
@@ -4904,14 +5068,17 @@
           : 'No comments yet. Write the first one below, or draw on the picture to point at something.';
     drawnIds = new Set();
     for (const it of items.values()) if (it.cid) drawnIds.add(it.cid);
-    // A reply half written keeps the keyboard and its place while the list is drawn again around it.
-    const typing = document.activeElement === replyBox ? [replyBox.selectionStart, replyBox.selectionEnd] : null;
+    if (editingId && !comments.has(editingId)) editingId = null;
+    // A reply or an edit half written keeps the keyboard and its place while the list is drawn again around it.
+    const held = [replyBox, editBox].find((box) => document.activeElement === box);
+    const typing = held && [held.selectionStart, held.selectionEnd];
     const top = cpList.scrollTop;
-    cpList.replaceChildren(...(roots.length ? roots.map((c) => threadCard(c, !host)) : [el('p', { class: 'cp-empty', text: empty })]));
+    const mentions = mentionPattern();
+    cpList.replaceChildren(...(roots.length ? roots.map((c) => threadCard(c, !host, mentions)) : [el('p', { class: 'cp-empty', text: empty })]));
     cpList.scrollTop = top;
-    if (typing && replyBox.isConnected) {
-      replyBox.focus({ preventScroll: true });
-      replyBox.setSelectionRange(typing[0], typing[1]);
+    if (typing && held.isConnected) {
+      held.focus({ preventScroll: true });
+      held.setSelectionRange(typing[0], typing[1]);
     }
     const foot = !host ? cpHint : canWrite() ? cpCompose : null;
     if (cpFoot.firstChild !== foot) cpFoot.replaceChildren(...(foot ? [foot] : []));
@@ -5316,6 +5483,8 @@
     ['Show time, frame number or timecode', 'Click the time on a video'],
     ['Comment on what is open', 'C, type, Enter'],
     ['Point at something in a comment', 'Draw on the picture: the drawing goes with the comment'],
+    ['Mention someone in a comment', '@, then pick with ↑ ↓ and Enter'],
+    ['Edit your own comment', 'The pencil beside it. Enter saves, Esc cancels'],
     ['Erase a drawing in the viewer', 'Right-drag over it'],
     ['Laser pointer in the viewer', 'L, and L again for the brush'],
     ['Show or hide the comments', 'Shift+C'],

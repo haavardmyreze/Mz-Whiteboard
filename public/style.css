@@ -927,9 +927,10 @@ body:not(.focus) .viewer-only, body.focus .board-only { display: none !important
 #peers { display: flex; align-items: center; padding: 0 2px 0 8px; }
 #share, #focusdone { margin-left: 4px; }
 /* The ring for what is kept on this computer. Quiet while it fills, quieter still once it is full. */
-#kept { flex: none; display: grid; place-items: center; width: 28px; height: var(--h-sm); padding: 0; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text-2); cursor: pointer; transition: background 0.12s var(--ease); }
+#kept { flex: none; display: flex; align-items: center; gap: 5px; height: var(--h-sm); padding: 0 8px 0 5px; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text-2); cursor: pointer; transition: background 0.12s var(--ease); }
 #kept:hover { background: var(--hover); }
-#kept svg { width: 18px; height: 18px; transform: rotate(-90deg); }
+#kept svg { flex: none; width: 18px; height: 18px; transform: rotate(-90deg); }
+.kept-label { font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 #kept circle { fill: none; stroke-width: 2; }
 #kept .track { stroke: var(--line-strong); }
 #kept .arc { stroke: currentColor; stroke-linecap: round; }
@@ -1173,8 +1174,21 @@ body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: 320px; m
 .iconbtn.mini svg { width: 14px; height: 14px; }
 .msg-acts .iconbtn.active { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
 .msg-where { display: flex; align-items: center; gap: 6px; min-width: 0; margin: 0 0 1px; color: var(--muted); font-size: 11.5px; line-height: 1.4; }
-.msg-drawn { flex: none; display: grid; color: var(--muted); }
-.msg-drawn svg { width: 13px; height: 13px; }
+.msg-drawn { flex: none; display: inline-flex; align-items: center; gap: 3px; width: fit-content; height: 18px; margin-top: 4px; padding: 0 6px 0 4px; border-radius: 9px; background: var(--surface-3); color: var(--text-2); font-size: 10.5px; font-weight: 500; }
+.msg-drawn span { display: grid; }
+.msg-drawn svg { width: 12px; height: 12px; }
+.msg-edited { flex: none; color: var(--muted); font-size: 11px; }
+/* Your own comment, being reworded in place. */
+.msg-edit { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+.msg-edit textarea { min-height: var(--h-sm); max-height: 140px; padding: 4px 8px; border: 1px solid var(--accent); border-radius: var(--r-2); background: var(--surface-1); box-shadow: 0 0 0 3px var(--accent-soft); color: var(--text); font: inherit; line-height: 18px; resize: none; }
+.msg-edit-acts { display: flex; justify-content: flex-end; gap: 6px; }
+/* People named with an @; yourself more strongly. */
+.mention { color: var(--accent); font-weight: 600; }
+.mention.me { padding: 0 2px; border-radius: 3px; background: var(--accent-soft); }
+/* The names offered after an @, just above the box being typed in. */
+.mention-menu { z-index: 70; min-width: 200px; max-width: 280px; }
+.mention-menu .menu-item { display: flex; align-items: center; gap: 8px; }
+.mention-menu .menu-item.active { background: var(--hover); }
 .msg-on { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg-text { color: var(--text); line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
 .msg-text a { color: var(--accent); }

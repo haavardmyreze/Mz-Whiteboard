@@ -40,10 +40,12 @@ private networks, otherwise only the host machine can connect.
   paste an image URL. Large images get a 2K preview so heavy boards stay fast; the
   original loads when you zoom in past the preview's resolution. Videos have a play
   button in the middle and a plain scrub bar on hover to drag through them where they sit, and show
-  a still until they are played, so a board never opens on black rectangles. A video on its way in
-  shows a ring that counts all of the work (making the review copy, sending it, reading it for its
-  timeline) at an even pace, and is only full when the video lands. If whoever was adding it leaves
-  before it is done, what is left behind says so instead of waiting for ever.
+  a still until they are played, so a board never opens on black rectangles. Every file is on the
+  board the moment it is chosen, as a stand-in at its own shape, laid out in an even grid, and the view
+  eases out to show them all if any landed out of sight. A stand-in shows a ring that counts all of the
+  work (for a video: making the review copy, sending it, reading it for its timeline) at an even pace,
+  and is only full when the file lands. If whoever was adding it leaves before it is done, what is
+  left behind says so instead of waiting for ever.
 - **Review copies of video.** Every video is re-encoded in the browser before it is uploaded: H.264
   MP4 (VP9 WebM where the browser cannot encode H.264), 1080p at most, at most 12 Mbps, audio kept, and a
   key frame every quarter of a second. A browser can only show a frame by decoding from the key frame before
@@ -87,7 +89,8 @@ private networks, otherwise only the host machine can connect.
   internet and not only on the office network. Whatever is opened has the line to itself and never
   waits for this. It needs an https address (or the server's own machine); on a plain http address,
   or with the browser asked to save data, nothing is fetched ahead. A small ring in the bar fills as
-  the videos are cached and turns to a tick once the whole board is; hover or press it and it says so.
+  the videos are cached, with a count beside it ("2/5 cached"), and turns to a tick and "Cached" once
+  the whole board is; hover or press it and it says more.
   A video that is more than the browser can process (a very large frame in Safari, say) is not added:
   a message names it and says which browsers to add it from instead, rather than putting the bare
   file on the board. (On a plain http address, where no browser can make review copies, videos still
@@ -118,10 +121,14 @@ private networks, otherwise only the host machine can connect.
   loose items gathers them. Resizing a frame by hand switches its fit-to-content button
   off; the toolbar button turns it back on.
 - **Comments.** Comments are made in the viewer, on the image or video that is open: type in the box
-  at the bottom of the panel (C goes there) and press Enter. On a video a comment is about the frame
+  at the bottom of the panel (C goes there) and press Enter; the box then lets go of the keyboard, so
+  the arrows and Space work the viewer again. What is half written stays with its piece: go on to the
+  next and the box is empty, come back and it is there. On a video a comment is about the frame
   showing, which the chip under the box says (click the chip to make it about the whole video
   instead); starting to type stops the video there. Each comment starts a thread that anyone can
-  reply to or resolve. Out on the board, whatever has comments carries a small chip in its corner:
+  reply to or resolve. Type @ to be offered the people on the board, and pick one with the arrows and
+  Enter; their name is marked in the comment, and they are told about it. Your own comments can be
+  edited (the pencil beside them); an edited comment says so. Out on the board, whatever has comments carries a small chip in its corner:
   the number of open threads, or a tick once they are all resolved; click it to open the piece with
   its comments beside it. Comments belong to the viewer, so there is no button for them out on the
   board; Shift+C there still lists every thread on the board, and picking one opens what it is about. Who wrote a comment comes from the sign-in, not from the
@@ -135,14 +142,16 @@ private networks, otherwise only the host machine can connect.
   comments about the same frame never draw over one another. Whoever follows you reads the thread
   you are reading, and sees its drawing with you. What is drawn for a comment is part
   of the review, not of the board: it shows in the viewer only, never out on the board, and a copy of
-  the piece does not take it along. Deleting a thread deletes its drawing. A drawing whose comment
-  was never sent is not thrown away: it stays on the piece as an ordinary drawing, there on every
-  frame and out on the board too.
+  the piece does not take it along. A thread with a drawing says so under its text. Deleting a thread
+  deletes its drawing. A drawing whose comment was never sent is not thrown away: it stays on the piece
+  as an ordinary drawing, there on every frame and out on the board too. "Clear drawing" in the bar asks
+  first, and clears only those ordinary drawings: what was drawn for a comment stays with its thread.
 - **Smart snapping.** Dragged items snap to the edges and centres of their neighbours and
   to equal gaps, with guide lines. Toggle with S, hold Ctrl while dragging to bypass.
 - **Live collaboration.** Everyone sees edits, cursors and selections as they happen.
 - **Follow anyone.** Click a teammate's picture to follow their view, into the viewer and back
-  out with them, with their video playing, pausing and stepping on your screen as on theirs. Pan,
+  out with them, with their video playing, pausing and stepping on your screen as on theirs; you
+  join on the frame they are on, not at the start. Pan,
   zoom or open something yourself to stop. The laser pointer (L) is visible to everyone.
 - **Notifications.** The bell on the board list collects what concerns you from every board: replies
   in threads you wrote in, comments on what you added and on boards you made, and comments that

@@ -54,8 +54,8 @@
     <div class="spacer"></div>
     <!-- Away from Fit, which is pressed often: this one deletes, and asks first. -->
     <button class="btn ghost viewer-only" id="focusclear" title="Delete what is drawn on this image, apart from drawings that belong to comments">Clear drawing</button>
-    <!-- How much of the board's video is cached on this computer: a small ring that fills, and stays out of the way. -->
-    <button id="kept" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><circle class="track" cx="10" cy="10" r="7"/><circle class="arc" cx="10" cy="10" r="7"/><path class="tick" d="M6.6 10.3l2.3 2.3 4.6-5"/></svg></button>
+    <!-- How much of the board's video is cached on this computer: a small ring that fills, with a word to say what it counts. -->
+    <button id="kept" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><circle class="track" cx="10" cy="10" r="7"/><circle class="arc" cx="10" cy="10" r="7"/><path class="tick" d="M6.6 10.3l2.3 2.3 4.6-5"/></svg><span class="kept-label"></span></button>
     <div id="peers"></div>
     <span class="bar-group board-only">
       <button id="snap" class="iconbtn" title="Smart snapping. Hold Ctrl while dragging to bypass (S)"></button>

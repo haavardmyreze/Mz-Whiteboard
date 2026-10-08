@@ -166,7 +166,7 @@ test('the in-browser video encoder is served as a module', async (t) => {
   assert.match(await res.text(), /Conversion/);
 });
 
-test('comments are stamped with who wrote them, and only ever sit on a piece of content', async (t) => {
+test('comments are stamped with who wrote them, only ever sit on a piece of content, and only their author edits them', async (t) => {
   const WebSocket = require('ws');
   const s = start(4796);
   t.after(s.stop);
@@ -220,6 +220,21 @@ test('comments are stamped with who wrote them, and only ever sit on a piece of 
   assert.equal(stored.text, 'Lovely');
   assert.equal(stored.name, 'Anna');
   assert.equal(stored.done, true);
+  assert.equal(stored.edited, undefined);
+
+  // whoever wrote it can change what it says, and it is marked as edited; nothing else about it moves
+  author.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'set', id: 'comment01', patch: { text: '  Lovely, really ', name: 'Boss', on: 'elsewhere' } }] }));
+  await wait(300);
+  const edit = reviewer.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).find((o) => o.t === 'set' && o.patch.text);
+  assert.equal(edit.patch.text, 'Lovely, really');
+  assert.ok(edit.patch.edited > 0);
+  assert.deepEqual(Object.keys(edit.patch).sort(), ['edited', 'text']);
+  const last = await join('Dora');
+  t.after(() => last.ws.close());
+  const now = last.seen.find((m) => m.t === 'init').items.find((i) => i.id === 'comment01');
+  assert.equal(now.text, 'Lovely, really');
+  assert.equal(now.name, 'Anna');
+  assert.equal(now.on, 'imageone1');
 });
 
 // ---------------------------------------------------------------- google sign-in

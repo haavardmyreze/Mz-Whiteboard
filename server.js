@@ -112,7 +112,6 @@ const boards = new Map();
 // Workspaces: "myreze" is shared by everyone who can sign in; "u:<email>" is one person's own space.
 // Stored with the full key, but people only ever see "myreze" and "personal", and only their own.
 const PERSONAL = 'u:';
-const validSpace = (key) => key === 'myreze' || (typeof key === 'string' && key.startsWith(PERSONAL) && key.length > 3);
 const spaceKey = (name, user) => (name === 'personal' && user ? PERSONAL + user.id : 'myreze');
 const spaceName = (key) => (key === 'myreze' ? 'myreze' : 'personal');
 const canSee = (user, key) => key === 'myreze' || (!!user && key === PERSONAL + user.id);
@@ -149,21 +148,10 @@ function boardRecord(saved, items = null) {
   };
 }
 
-// What a stored folder may hold, and nothing else.
-function cleanFolders(list) {
-  return (Array.isArray(list) ? list : []).filter((f) => f && ID_RE.test(f.id)).map((f) => ({
-    id: f.id,
-    name: String(f.name || 'Folder').slice(0, 120),
-    parentId: f.parentId || null,
-    workspace: validSpace(f.workspace) ? f.workspace : 'myreze',
-    createdAt: f.createdAt || Date.now(),
-  }));
-}
-
 function loadBoards() {
   const summaries = store.summaries();
   for (const saved of store.boards()) {
-    const board = boardRecord({ ...saved, workspace: validSpace(saved.workspace) ? saved.workspace : 'myreze' });
+    const board = boardRecord(saved);
     board.summary = summaries.get(board.id) || { count: 0, thumbs: [] };
     boards.set(board.id, board);
     if (board.shareToken) shares.set(board.shareToken, board);
@@ -385,9 +373,7 @@ function applyOps(board, ops, peer, touch = true) {
 const folders = new Map();
 
 function loadFolders() {
-  for (const f of cleanFolders(store.folders())) folders.set(f.id, f);
-  for (const f of folders.values()) if (f.parentId && folders.get(f.parentId)?.workspace !== f.workspace) f.parentId = null;
-  for (const board of boards.values()) if (board.folderId && folders.get(board.folderId)?.workspace !== board.workspace) board.folderId = null;
+  for (const f of store.folders()) folders.set(f.id, f);
 }
 
 function saveFolders() {
@@ -657,8 +643,7 @@ const visibleFolder = (user, id) => folders.has(id) && canSee(user, folders.get(
 // What people holding a board's link may do: look ('view'), also read the team's comments
 // ('comments'), or also comment themselves ('comment').
 const SHARE_ACCESS = ['view', 'comments', 'comment'];
-const accessOf = (board) => (SHARE_ACCESS.includes(board.shareAccess) ? board.shareAccess : 'view');
-const shareInfo = (board) => (board.shareToken ? { token: board.shareToken, access: accessOf(board), expiresAt: board.shareExpires || null } : { token: null });
+const shareInfo = (board) => (board.shareToken ? { token: board.shareToken, access: board.shareAccess, expiresAt: board.shareExpires || null } : { token: null });
 
 // The board a link opens, while it is shared and has not run out.
 function sharedBoard(token) {
@@ -685,10 +670,10 @@ function closeExpiredLinks() {
 
 // Changes what a link allows and when it runs out. Whoever is watching is sent to reload, so they see the board as now shared.
 function setShare(board, body) {
-  const before = `${accessOf(board)}:${board.shareExpires || ''}`;
+  const before = `${board.shareAccess}:${board.shareExpires || ''}`;
   if (SHARE_ACCESS.includes(body.access)) board.shareAccess = body.access;
   if ('expiresAt' in body) board.shareExpires = Number.isSafeInteger(body.expiresAt) && body.expiresAt > Date.now() ? body.expiresAt : null;
-  if (`${accessOf(board)}:${board.shareExpires || ''}` !== before) closeViewers(board, 4006, 'Link settings changed');
+  if (`${board.shareAccess}:${board.shareExpires || ''}` !== before) closeViewers(board, 4006, 'Link settings changed');
   scheduleSave(board, false);
 }
 
@@ -774,18 +759,12 @@ async function handleApi(req, res, url) {
     }
     return sendJson(res, 404, { error: 'Folder not found' });
   }
-  if (parts[1] === 'boards' && parts.length === 2) {
-    if (req.method === 'GET') {
-      const list = [...boards.values()].filter((b) => visible(req.user, b)).map(boardMeta).sort((a, b) => b.updatedAt - a.updatedAt);
-      return sendJson(res, 200, list);
-    }
-    if (req.method === 'POST') {
-      const body = await readJson(req);
-      const folderId = visibleFolder(req.user, body.folderId) ? body.folderId : null;
-      const workspace = folderId ? folders.get(folderId).workspace : spaceKey(body.workspace, req.user);
-      const by = req.user ? req.user.name : typeof body.by === 'string' ? cleanName(body.by, null) : null;
-      return sendJson(res, 201, boardMeta(createBoard(body.name, folderId, workspace, by)));
-    }
+  if (parts[1] === 'boards' && parts.length === 2 && req.method === 'POST') {
+    const body = await readJson(req);
+    const folderId = visibleFolder(req.user, body.folderId) ? body.folderId : null;
+    const workspace = folderId ? folders.get(folderId).workspace : spaceKey(body.workspace, req.user);
+    const by = req.user ? req.user.name : typeof body.by === 'string' ? cleanName(body.by, null) : null;
+    return sendJson(res, 201, boardMeta(createBoard(body.name, folderId, workspace, by)));
   }
   // A board's link: anyone holding it can watch without signing in and, as the board's people decide,
   // read the comments or comment too. Never more: nobody holding it can change the board.
@@ -934,7 +913,7 @@ async function handleRequest(req, res) {
     const shared = /^\/api\/shared\/([\w-]{16,64})$/.exec(pathname);
     if (shared) {
       const board = sharedBoard(shared[1]);
-      return board ? sendJson(res, 200, { name: board.name, access: accessOf(board) }) : sendJson(res, 404, { error: 'This link is not shared any more' });
+      return board ? sendJson(res, 200, { name: board.name, access: board.shareAccess }) : sendJson(res, 404, { error: 'This link is not shared any more' });
     }
   }
   if (auth.handle && (await auth.handle(req, res, url))) return;
@@ -1010,8 +989,6 @@ server.requestTimeout = 0;
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
 
-// Browsers say which page is opening a connection. It has to be one of ours: a page on another site
-// must not be able to open a board from a visitor's browser, with the visitor's sign-in.
 // Whether a request was made on the machine the server runs on, by someone sitting at it.
 function fromThisMachine(req) {
   // A tunnel or proxy on this machine also arrives from loopback, but it adds forwarding headers.
@@ -1019,6 +996,8 @@ function fromThisMachine(req) {
   return !proxied && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress || '');
 }
 
+// Browsers say which page is opening a connection. It has to be one of ours: a page on another site
+// must not be able to open a board from a visitor's browser, with the visitor's sign-in.
 function fromOurPages(req) {
   if (!req.headers.origin) return true; // not a browser
   let origin;
@@ -1060,7 +1039,7 @@ function send(ws, msg) {
 }
 
 // What people holding a link are shown: the board, and the team's comments only if the link includes them.
-const hiddenFromViewers = (board, op) => accessOf(board) === 'view'
+const hiddenFromViewers = (board, op) => board.shareAccess === 'view'
   && (op.t === 'add' ? op.item.type === 'comment' : op.t === 'set' && board.items.get(op.id)?.type === 'comment');
 
 // All that somebody commenting through a link can send: new comments and replies on what is there.
@@ -1115,7 +1094,7 @@ function onConnect(ws, board, user, viewToken = null) {
         // They give a name when they open the link; nobody vouches for it, so it is only a label.
         peer.name = String(msg.name || '').replace(/\s+/g, ' ').trim().slice(0, 32) || `Viewer ${board.viewerSeq}`;
         peer.color = /^#[0-9a-f]{6}$/i.test(msg.color) ? msg.color : VIEWER_COLORS[(board.viewerSeq - 1) % VIEWER_COLORS.length];
-        const access = accessOf(board);
+        const access = board.shareAccess;
         send(ws, {
           t: 'init',
           you: peer.id,
@@ -1149,7 +1128,7 @@ function onConnect(ws, board, user, viewToken = null) {
     }
     if (!peer.joined) return;
     // A viewer may show a pointer and use the laser, and comment when the link allows it. Nothing else.
-    if (peer.viewer && msg.t !== 'laser' && msg.t !== 'p' && !(msg.t === 'op' && accessOf(board) === 'comment')) return;
+    if (peer.viewer && msg.t !== 'laser' && msg.t !== 'p' && !(msg.t === 'op' && board.shareAccess === 'comment')) return;
 
     if (msg.t === 'op') {
       const applied = applyOps(board, peer.viewer ? guestOps(board, msg.ops) : msg.ops, peer, peer.viewer || msg.quiet !== true);
@@ -1208,19 +1187,10 @@ setInterval(() => {
 
 loadBoards();
 loadFolders();
-if (fs.existsSync(path.join(DATA_DIR, 'boards')) && fs.readdirSync(path.join(DATA_DIR, 'boards')).some((f) => f.endsWith('.json'))) {
-  console.log('There are boards kept as JSON files from an older version. Stop the server and run: node scripts/import-json.js');
-}
 cleanStaleUploads();
 setInterval(cleanStaleUploads, 3600e3).unref();
 setInterval(unloadIdle, Math.min(60e3, IDLE_UNLOAD)).unref();
 setInterval(closeExpiredLinks, 30e3).unref();
-try {
-  const added = store.catalogueUploads(UPLOAD_DIR);
-  if (added) console.log(`Catalogued ${added} uploaded file(s).`);
-} catch (err) {
-  console.error(`Could not catalogue the uploads: ${err.message}`);
-}
 
 // A copy of the database a day, the last week of them kept, in data/backups.
 function dailyBackup() {

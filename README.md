@@ -45,8 +45,8 @@ private networks, otherwise only the host machine can connect.
   timeline) at an even pace, and is only full when the video lands. If whoever was adding it leaves
   before it is done, what is left behind says so instead of waiting for ever.
 - **Review copies of video.** Every video is re-encoded in the browser before it is uploaded: H.264
-  MP4 (VP9 WebM where the browser cannot encode H.264), 1080p at most, about 10 Mbps, audio kept, and a
-  key frame every half second. A browser can only show a frame by decoding from the key frame before
+  MP4 (VP9 WebM where the browser cannot encode H.264), 1080p at most, at most 12 Mbps, audio kept, and a
+  key frame every quarter of a second. A browser can only show a frame by decoding from the key frame before
   it, and renders and camera files often have one every few seconds, so stepping or scrubbing
   backwards through them stalls; through the review copy it is instant in both directions.
 - **Frame-accurate video.** Each video knows its frame rate, read from the file when it is added. `,` and `.` step one frame
@@ -217,7 +217,6 @@ Everything lives in `data/` next to the server:
 | `data/wipboard.db` | Boards, their items, folders and the catalogue, in one SQLite database (with `-wal` and `-shm` files beside it while the server runs) |
 | `data/uploads/` | Uploaded media, named by content hash (duplicates stored once)  |
 | `data/backups/` | A copy of the database made each day the server runs; the last seven are kept |
-| `data/legacy/`  | Boards and folders from before the database, as they were. They were read in once and are no longer used |
 | `data/.session-secret` | Signs the sign-in cookies. Made on first start with a sign-in mode; keep it private |
 
 Changes are written 0.8 s after the last one, and only what changed is written. Everything still
@@ -232,12 +231,6 @@ through a write; the files in `data/backups/` are always whole.
 **Deleted boards** are kept, only hidden. To bring one back, stop the server and run
 `node scripts/restore-board.js` to list them, then `node scripts/restore-board.js <board id>`. It
 comes back at the top level of its workspace.
-
-**Upgrading from the JSON files** (step by step in [UPGRADING.md](UPGRADING.md)). Versions before the database kept each board in
-`data/boards/*.json` and the folders in `data/folders.json`. Stop the server and run
-`node scripts/import-json.js` once: it reads them into the database and moves the files to
-`data/legacy/`. The server says so at startup if it finds any. A board deleted back then is still a
-JSON file in `data/trash/`; copy it into `data/boards/` as `<board id>.json` and run the script again.
 
 ## The catalogue
 
@@ -302,6 +295,6 @@ public/home.js     Board list
 public/common.js   Shared helpers
 public/login.html  Sign-in page (password and Google modes)
 public/style.css   All styling
-scripts/           restore-board.js: bring back a deleted board; import-json.js: boards from before the database
+scripts/           restore-board.js: bring back a deleted board
 test/              npm test: sign-in, uploads, live sync, workspaces, links, the database, catalogue and notifications
 ```

@@ -308,7 +308,7 @@
   async function removeBoard(board) {
     const sure = await WB.dialog({
       title: `Delete "${board.name}"?`,
-      text: 'It disappears for everyone. The board is moved to the trash folder on the server, so whoever runs the server can still restore it.',
+      text: 'It disappears for everyone. The server keeps it hidden, so whoever runs the server can still restore it.',
       ok: 'Delete board',
       danger: true,
     });
@@ -527,7 +527,7 @@
       render();
     }
   });
-  window.addEventListener('hashchange', () => { if (lib.folders) render(); });
+  window.addEventListener('hashchange', render);
   await refresh();
   setInterval(() => { if (!document.hidden && !dragging && !document.querySelector('dialog[open], .menu')) refresh(true); }, 15000);
 })();

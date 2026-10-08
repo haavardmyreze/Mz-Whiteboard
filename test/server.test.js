@@ -142,7 +142,7 @@ test('behind sign-in the server answers the health check but nothing else withou
   await s.ready;
   assert.equal((await fetch(`${s.base}/healthz`)).status, 200);
   assert.equal((await fetch(`${s.base}/`)).status, 401);
-  assert.equal((await fetch(`${s.base}/api/boards`)).status, 401);
+  assert.equal((await fetch(`${s.base}/api/library`)).status, 401);
   assert.equal((await fetch(`${s.base}/api/me`, { headers: { 'x-goog-iap-jwt-assertion': 'junk' } })).status, 401);
 });
 
@@ -314,7 +314,7 @@ test('with google sign-in nothing is served to strangers except the sign-in page
     PUBLIC_URL: 'http://localhost:4797', ALLOWED_EMAILS: 'anna@example.com',
   }, (data) => {
     const store = openStore(data);
-    store.saveBoard({ id: 'boardone1', name: 'Secret plans', workspace: 'myreze', shareToken, createdAt: 1, updatedAt: 1 });
+    store.saveBoard({ id: 'boardone1', name: 'Secret plans', workspace: 'myreze', shareToken, shareAccess: 'view', createdAt: 1, updatedAt: 1 });
     store.close();
   });
   t.after(s.stop);
@@ -325,7 +325,6 @@ test('with google sign-in nothing is served to strangers except the sign-in page
   assert.equal(home.status, 302);
   assert.match(home.headers.get('location'), /^\/auth\/login\?next=%2F$/);
   assert.equal((await get('/b/boardone1')).status, 302);
-  assert.equal((await get('/api/boards')).status, 401);
   assert.equal((await get('/api/library')).status, 401);
   assert.equal((await get('/uploads/abc.png')).status, 401);
   assert.equal((await get('/auth/login')).status, 200);
@@ -553,7 +552,7 @@ test('with a shared password strangers see the sign-in page, and each name has i
   await s.ready;
   const get = (p, opts) => fetch(s.base + p, { redirect: 'manual', ...opts });
   assert.equal((await get('/')).status, 302);
-  assert.equal((await get('/api/boards')).status, 401);
+  assert.equal((await get('/api/library')).status, 401);
   assert.deepEqual(await (await get('/auth/info')).json(), { mode: 'password' });
 
   const login = async (name) => {
@@ -790,39 +789,6 @@ test('moving a board to a personal workspace shows everybody else on it the door
 
 // ---------------------------------------------------------------- the database and the catalogue
 
-test('the import script reads boards and folders kept as JSON files into the database once, and keeps the files aside', async (t) => {
-  const s = start(4820, {}, (data) => {
-    fs.mkdirSync(path.join(data, 'boards'));
-    fs.writeFileSync(path.join(data, 'folders.json'), JSON.stringify([{ id: 'folderone', name: 'Studio', parentId: null, workspace: 'myreze', createdAt: 1 }]));
-    fs.writeFileSync(path.join(data, 'boards', 'oldboard1.json'), JSON.stringify({
-      id: 'oldboard1', name: 'From before', folderId: 'folderone', workspace: 'myreze', createdAt: 1, updatedAt: 2,
-      items: [
-        { id: 'frameone1', type: 'frame', x: 0, y: 0, w: 400, h: 300, title: 'Desk' },
-        { id: 'imageone1', type: 'image', x: 10, y: 40, w: 200, h: 100, src: '/uploads/abc.png', name: 'desk_v001.png', fid: 'frameone1' },
-      ],
-    }));
-    fs.writeFileSync(path.join(data, 'boards', 'broken.json'), '{nope');
-    const run = () => require('node:child_process').execFileSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'import-json.js')], { env: { ...process.env, WIPBOARD_DATA: data }, stdio: 'pipe' });
-    run();
-    assert.ok(fs.existsSync(path.join(data, 'legacy', 'boards', 'oldboard1.json')));
-    assert.ok(fs.existsSync(path.join(data, 'legacy', 'folders.json')));
-    assert.ok(!fs.existsSync(path.join(data, 'boards', 'oldboard1.json')));
-    // a second run finds nothing more to do
-    assert.match(run().toString(), /Read 0 board/);
-  });
-  t.after(s.stop);
-  await s.ready;
-  const lib = await (await fetch(`${s.base}/api/library`)).json();
-  assert.deepEqual(lib.folders.map((f) => f.name), ['Studio']);
-  const board = lib.boards.find((b) => b.id === 'oldboard1');
-  assert.equal(board.name, 'From before');
-  assert.equal(board.folderId, 'folderone');
-  assert.equal(board.count, 2);
-  assert.deepEqual(board.thumbs, ['/uploads/abc.png']);
-  const found = await (await fetch(`${s.base}/api/catalog?type=frame&name=desk`)).json();
-  assert.deepEqual(found.items.map((r) => [r.board.name, r.item.title]), [['From before', 'Desk']]);
-});
-
 test('the catalogue finds frames by name across boards, what they hold, and words in anything', async (t) => {
   const s = start(4821);
   t.after(s.stop);
@@ -1022,11 +988,11 @@ test('people hear about replies, comments on their work and boards, and mentions
     await pause(80);
   };
   await say('Anna', [{ t: 'add', item: { id: 'annaimage', type: 'image', x: 0, y: 0, w: 100, h: 100, src: '/uploads/a.png', name: 'desk_v002.png' } }]);
-  await say('Ben', [{ t: 'add', item: { id: 'bennote01', type: 'note', x: 0, y: 0, w: 100, h: 0, text: 'Lighting notes' } }]);
+  await say('Ben', [{ t: 'add', item: { id: 'benimage1', type: 'image', x: 200, y: 0, w: 100, h: 100, src: '/uploads/b.png', name: 'lighting_v001.png' } }]);
   await say('Ben', [{ t: 'add', item: { id: 'bencom001', type: 'comment', on: 'annaimage', text: 'Rim light is too hot' } }]);
-  await say('Anna', [{ t: 'add', item: { id: 'annacom01', type: 'comment', on: 'bennote01', text: 'Agree, @cleo can you look?' } }]);
+  await say('Anna', [{ t: 'add', item: { id: 'annacom01', type: 'comment', on: 'benimage1', text: 'Agree, @cleo can you look?' } }]);
   await say('Cleo', [{ t: 'add', item: { id: 'cleorep01', type: 'comment', on: 'annaimage', re: 'bencom001', text: 'Fixed in v3' } }]);
-  await say('Dave', [{ t: 'add', item: { id: 'davecom01', type: 'comment', on: 'bennote01', text: 'Nice notes' } }]);
+  await say('Dave', [{ t: 'add', item: { id: 'davecom01', type: 'comment', on: 'benimage1', text: 'Nice notes' } }]);
 
   const notices = async (name) => (await fetch(`${s.base}/api/notifications?name=${name}`)).json();
   const kinds = (n) => n.items.map((i) => [i.id, i.kind]).sort();

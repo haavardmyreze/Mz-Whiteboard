@@ -33,10 +33,6 @@
   const THUMB_MAX = 480;
   // A video's poster: big enough to look sharp filling the screen on a laptop, small enough to load at once.
   const POSTER_MAX = 1600;
-  // Stills made here for videos whose own still is missing or came out black: video id -> picture.
-  const fixedStill = new Map();
-  const vetting = new Set();
-  let vetQueue = Promise.resolve();
   // What a video looks and sounds like along its length: the colours of its picture and the loudness of its
   // sound, drawn along the timeline of the video that is open. Out on the board the scrub bar stays plain.
   // Made from the file as it is uploaded, then kept with the video.
@@ -45,13 +41,10 @@
   const LASER_LIFE = 450;
   const INK = ['ink', '#e5484d', '#f59e0b', '#16a34a', '#2f7df6', '#8b5cf6'];
   const NOTE_FILLS = ['note', '#fff2a8', '#ffd3d1', '#d4f1d2', '#d0e6ff', '#e7dbff'];
-  // 'ink' and 'note' stand for the theme's own text and note colours, so a board reads well in either
-  // theme. The literal greys and whites earlier versions stored are treated the same way.
+  // 'ink' and 'note' stand for the theme's own text and note colours, so a board reads well in either theme.
   const isLight = () => document.documentElement.dataset.theme === 'light';
-  const INK_DEFAULTS = new Set(['ink', '#f2f2f3', '#f5f5f6', '#1f1f23']);
-  const NOTE_DEFAULTS = new Set(['note', '#2f2f33', '#2c2c31', '#ffffff']);
-  const inkColor = (c) => (!c || INK_DEFAULTS.has(c) ? (isLight() ? '#171717' : '#ededed') : c);
-  const isPlainNote = (c) => !c || NOTE_DEFAULTS.has(c);
+  const inkColor = (c) => (c === 'ink' ? (isLight() ? '#171717' : '#ededed') : c);
+  const isPlainNote = (c) => c === 'note';
   const noteColor = (c) => (isPlainNote(c) ? (isLight() ? '#ffffff' : '#2a2a2a') : c);
   const NOTE_INK = { light: '#1a1a1a', dark: '#f0f0f0' };
 
@@ -169,7 +162,6 @@
     pen: icon('<path d="M4 20l1-4L16 5l3 3L8 19z"/><path d="M14 7l3 3"/>'),
     arrow: icon('<path d="M5 19L19 5M9 5h10v10"/>'),
     laser: icon('<circle cx="12" cy="12" r="3" fill="currentColor"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2 2M16.4 16.4l2 2M5.6 18.4l2-2M16.4 7.6l2-2"/>'),
-    boards: icon('<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>'),
     prev: icon('<path d="M15 5l-7 7 7 7"/>'),
     next: icon('<path d="M9 5l7 7-7 7"/>'),
     front: icon('<rect x="8" y="8" width="12" height="12" fill="currentColor"/><path d="M4 14V5a1 1 0 0 1 1-1h9"/>'),
@@ -213,7 +205,6 @@
   const pointer = { sx: innerWidth / 2, sy: innerHeight / 2, inside: false };
   const pen = store('wb:pen') || { color: INK[1], size: PEN_SIZES[1] };
   const textPref = store('wb:text') || { lvl: 2 };
-  if (!PEN_SIZES.includes(pen.size)) pen.size = PEN_SIZES.reduce((a, b) => (Math.abs(b - pen.size) < Math.abs(a - pen.size) ? b : a));
 
   let me = null;
   let ws = null;
@@ -586,7 +577,7 @@
     // The slider is for the pointer only. Left holding the keyboard after a click, it would turn the arrow
     // keys into a scrub and keep them from the board.
     const seek = el('input', { type: 'range', min: 0, max: 1000, step: 1, value: 0, tabindex: -1, 'aria-label': 'Seek' });
-    // Where the video's comments and frame drawings are; filled in by placeMarks.
+    // Where the video's comments are; filled in by placeMarks.
     const marks = el('div', { class: 'vmarks' });
     const time = el('button', { class: 'vtime', text: '0:00', title: 'Show minutes and seconds, frame number or timecode', onclick: cycleTimeMode });
     const sound = el('button', { class: 'vbtn', html: ICON.muted, title: 'Sound on / off (M)', onclick: () => { video.muted = !video.muted; } });
@@ -704,7 +695,7 @@
     st.zIndex = it.z || 0;
     const isEditing = editing && editing.id === it.id;
     node.classList.toggle('dim', !!focusId && it.id !== focusId && it.pid !== focusId);
-    if (it.pid && (it.cid || it.fr != null)) markAnnotation(it, node);
+    if (it.pid && it.cid) markAnnotation(it, node);
 
     if (it.type === 'image') {
       st.width = `${it.w}px`;
@@ -719,8 +710,7 @@
       st.width = `${it.w}px`;
       st.height = `${it.h}px`;
       const video = node.firstChild;
-      const still = fixedStill.get(it.id) || it.poster || it.th;
-      vetStill(it);
+      const still = it.poster || it.th;
       if (still && !node.classList.contains('started') && video.getAttribute('poster') !== still) video.poster = still;
       const post = node.querySelector('.vpost');
       if (post && post.dataset.src !== (still || '')) {
@@ -747,27 +737,27 @@
       st.color = isLight() ? NOTE_INK.light : NOTE_INK.dark;
       if (!isEditing) fillText(node.firstChild, it.text);
     } else if (it.type === 'text') {
-      node.dataset.lvl = it.lvl ?? 2;
+      node.dataset.lvl = it.lvl;
       st.fontSize = `${it.fs}px`;
       st.color = inkColor(it.color);
       if (!isEditing) fillText(node.firstChild, it.text);
     } else if (it.type === 'frame') {
       st.width = `${it.w}px`;
       st.height = `${it.h}px`;
-      const tinted = !!it.color && it.color !== FRAME_COLORS[0];
+      const tinted = it.color !== FRAME_COLORS[0];
       const headColor = tinted ? deepen(it.color) : FRAME_COLORS[0];
       st.setProperty('--c', headColor);
       node.dataset.tint = tinted ? '1' : '';
       st.setProperty('--head-ink', '#fff');
       if (!isEditing) node.firstChild.firstChild.textContent = it.title || '';
     } else if (it.type === 'block') {
-      const fill = mute(it.color || BLOCK_COLORS[0]);
+      const fill = mute(it.color);
       st.width = `${it.w}px`;
       st.height = `${it.h}px`;
       st.fontSize = `${BLOCK_FS}px`;
       st.background = fill;
       st.color = '#ffffff';
-      node.dataset.align = it.align || 'center';
+      node.dataset.align = it.align;
       if (!isEditing) fillText(node.firstChild, it.text);
     } else if (it.type === 'stroke') {
       st.width = `${it.w}px`;
@@ -812,7 +802,7 @@
     const view = viewRect();
     for (const it of items.values()) {
       if (it.type !== 'image' || !it.prev || fullRes.has(it.id)) continue;
-      if (it.w * cam.z * dpr > (it.pw || PREVIEW_MAX) * 1.1 && intersects(view, it)) {
+      if (it.w * cam.z * dpr > it.pw * 1.1 && intersects(view, it)) {
         fullRes.add(it.id);
         renderItem(it);
       }
@@ -1151,7 +1141,7 @@
     const list = [...sel].map((id) => items.get(id)).filter(Boolean);
     const types = new Set(list.map((it) => it.type));
     const one = list.length === 1 ? list[0] : null;
-    const sig = `${[...types].sort().join()}|${Math.min(list.length, 2)}|${one ? `${one.lvl ?? ''}${one.auto ?? ''}${one.align ?? ''}` : ''}`;
+    const sig = `${[...types].sort().join()}|${Math.min(list.length, 2)}|${one ? `${one.lvl}${one.auto}${one.align}` : ''}`;
     if (seltools.dataset.sig === sig) return;
     seltools.dataset.sig = sig;
 
@@ -1167,13 +1157,13 @@
     }
     if (types.has('text')) {
       for (const l of TEXT_LEVELS) {
-        kids.push(el('button', { class: `lvl${one && (one.lvl ?? 2) === l.lvl ? ' active' : ''}`, title: l.title, text: l.label, onclick: () => setLevel(l.lvl) }));
+        kids.push(el('button', { class: `lvl${one && one.lvl === l.lvl ? ' active' : ''}`, title: l.title, text: l.label, onclick: () => setLevel(l.lvl) }));
       }
       kids.push(el('span', { class: 'sep' }));
     }
     if (one && one.type === 'block') {
       for (const [a, html, title] of [['left', ICON.alignL, 'Align left'], ['center', ICON.alignC, 'Centre']]) {
-        kids.push(el('button', { class: `iconbtn${(one.align || 'center') === a ? ' active' : ''}`, html, title, onclick: () => exec([{ t: 'set', id: one.id, patch: { align: a } }]) }));
+        kids.push(el('button', { class: `iconbtn${one.align === a ? ' active' : ''}`, html, title, onclick: () => exec([{ t: 'set', id: one.id, patch: { align: a } }]) }));
       }
       kids.push(el('span', { class: 'sep' }));
     }
@@ -1400,11 +1390,6 @@
   const area = (r) => r.w * r.h;
   const overlapArea = (a, b) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x))
     * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
-  // Distance between two rects: 0 when they touch or overlap.
-  const rectGap = (a, b) => Math.hypot(
-    Math.max(0, b.x - (a.x + a.w), a.x - (b.x + b.w)),
-    Math.max(0, b.y - (a.y + a.h), a.y - (b.y + b.h)),
-  );
 
   // True when at least half of the item's bounding box is over the rect.
   const halfIn = (it, r) => {
@@ -2072,7 +2057,7 @@
   let filmSig = '';
   let filmQueued = false;
   // The smallest picture there is of a piece: its thumbnail, else what the board shows for it.
-  const stillOf = (it) => (it.type === 'video' && fixedStill.get(it.id)) || it.th || (it.type === 'video' ? it.poster : it.prev || it.src) || '';
+  const stillOf = (it) => it.th || (it.type === 'video' ? it.poster : it.prev || it.src) || '';
 
   function queueViewer() {
     if (filmQueued) return;
@@ -2101,8 +2086,6 @@
           el('span', { class: 'fs-num', text: String(i + 1) }),
           el('span', { class: 'fs-thumb', style: { aspectRatio: String(clamp(it.w / (it.h || 1), 0.6, 2.4)) } },
             still && el('img', { src: still, alt: '', decoding: 'async', draggable: 'false' }),
-            // A video added before stills were kept for them shows its own first frame.
-            !still && it.type === 'video' && it.src && el('video', { src: it.src, preload: 'metadata', muted: true, playsinline: true, tabindex: -1 }),
             it.type === 'video' && el('span', { class: 'fs-badge', html: ICON.play }),
             n && el('span', { class: 'fs-count', text: String(n), title: n > 1 ? `${n} open comments` : '1 open comment' })));
       }));
@@ -2830,7 +2813,7 @@
     for (const id of sel) {
       const it = items.get(id);
       if (it && it.type === 'text') {
-        ops.push({ t: 'set', id, patch: { lvl, fs: round(it.fs * (levelSize(lvl) / levelSize(it.lvl ?? 2))) } });
+        ops.push({ t: 'set', id, patch: { lvl, fs: round(it.fs * (levelSize(lvl) / levelSize(it.lvl))) } });
       }
     }
     if (!ops.length) return;
@@ -3054,7 +3037,7 @@
     afterChange();
   }
 
-  // Marks on each video's timeline where its comments and frame drawings are; clicking one goes there.
+  // Marks on each video's timeline where its comments are; clicking one goes there.
   let marksQueued = false;
   function queueMarks() {
     if (marksQueued) return;
@@ -3065,15 +3048,10 @@
     marksQueued = false;
     const on = new Map();
     const add = (id, mark) => (on.get(id) || on.set(id, []).get(id)).push(mark);
-    // Drawings first, so a comment on a drawn-on frame sits on top of its tick.
-    for (const it of items.values()) {
-      const fps = it.fr != null && it.pid ? fpsOf(it.pid) : 0;
-      if (fps) add(it.pid, { at: frameTime(it.fr, fps), kind: 'draw', title: 'Drawing on this frame' });
-    }
     if (canRead()) {
       for (const c of rootsInOrder()) {
         const at = momentOf(c);
-        if (at != null) add(c.on, { at, kind: 'comment', title: `${c.name}: ${c.text}`, c });
+        if (at != null) add(c.on, { at, title: `${c.name}: ${c.text}`, c });
       }
     }
     for (const [id, node] of els) {
@@ -3086,15 +3064,11 @@
       const stacks = new Map(); // a moment -> the threads about it, on the open video
       for (const m of isFinite(dur) && dur > 0 ? on.get(id) || [] : []) {
         const left = `${clamp(m.at / dur, 0, 1) * 100}%`;
-        if (id === focusId) {
-          const moment = Math.round(m.at * 1000);
-          if (m.c) (stacks.get(moment) || stacks.set(moment, { left, threads: [] }).get(moment)).threads.push(m.c);
-          else if (!seen.has(`draw:${moment}`)) open.push(el('button', { class: 'tl-mark draw', title: m.title, style: { left }, onclick: () => seekVideo(id, m.at) }));
-        }
-        const key = `${m.kind}:${Math.round(m.at * 1000)}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        kids.push(el('button', { class: `vmark ${m.kind}`, title: m.title, style: { left }, onclick: () => seekVideo(id, m.at) }));
+        const moment = Math.round(m.at * 1000);
+        if (id === focusId) (stacks.get(moment) || stacks.set(moment, { left, threads: [] }).get(moment)).threads.push(m.c);
+        if (seen.has(moment)) continue;
+        seen.add(moment);
+        kids.push(el('button', { class: 'vmark', title: m.title, style: { left }, onclick: () => seekVideo(id, m.at) }));
       }
       node.querySelector('.vmarks').replaceChildren(...kids);
       // On the open video's timeline a comment has a mark in its writer's colour, and picking it picks
@@ -3218,12 +3192,12 @@
     }
   }
 
-  const seekFrame = (video, t, settle = true) => new Promise((resolve, reject) => {
+  const seekFrame = (video, t) => new Promise((resolve, reject) => {
     const timer = setTimeout(reject, 5000);
     video.onseeked = () => { clearTimeout(timer); resolve(); };
     video.onerror = () => { clearTimeout(timer); reject(); };
     video.currentTime = t;
-  }).then(() => (settle && video.requestVideoFrameCallback
+  }).then(() => (video.requestVideoFrameCallback
     ? new Promise((done) => { const late = setTimeout(done, 250); video.requestVideoFrameCallback(() => { clearTimeout(late); done(); }); })
     : null));
 
@@ -3265,49 +3239,6 @@
     return true;
   }
 
-  // A video's still can be black although the video is not: it was taken before the browser had painted a
-  // frame, or on a fade in. Any still that is missing or too dark is replaced by one made from a bright
-  // frame of the video itself, one video at a time.
-  function vetStill(it) {
-    if (it.type !== 'video' || !it.src) return;
-    const key = `${it.id} ${it.src} ${it.poster || ''} ${it.th || ''}`;
-    if (vetting.has(key)) return;
-    vetting.add(key);
-    vetQueue = vetQueue.then(async () => {
-      try {
-        const stored = it.th || it.poster;
-        if (stored) {
-          const img = await loadImage(stored).catch(() => null);
-          if (img && brightness(img) >= 14) return;
-        }
-        const video = el('video', { muted: '', playsinline: '', preload: 'auto' });
-        video.muted = true;
-        const ready = new Promise((resolve, reject) => {
-          video.addEventListener('loadeddata', resolve, { once: true });
-          video.addEventListener('error', reject, { once: true });
-          setTimeout(reject, 15000);
-        });
-        video.src = it.src;
-        try {
-          await ready;
-          if (!(await pickFrame(video))) return;
-          const k = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
-          const canvas = el('canvas', { width: Math.max(1, Math.round(video.videoWidth * k)), height: Math.max(1, Math.round(video.videoHeight * k)) });
-          canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-          fixedStill.set(it.id, canvas.toDataURL('image/jpeg', 0.8));
-        } finally {
-          video.removeAttribute('src');
-          video.load();
-        }
-        const now = items.get(it.id);
-        if (now && els.has(it.id)) renderItem(now);
-        if (focusId) queueViewer();
-      } catch {
-        // Without a better still the one it has stays.
-      }
-    });
-  }
-
   async function videoThumb(video) {
     try {
       if (!(await pickFrame(video))) return null;
@@ -3331,8 +3262,6 @@
   const VIDEO_SHORT_SIDE = 1080;
   let mediabunny;
 
-  const fmtSize = (bytes) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`);
-
   // Whether the key frames, as far as the first two minutes show, are never much more than a second apart.
   async function closeKeyFrames(mb, track, duration) {
     try {
@@ -3353,8 +3282,6 @@
     }
   }
 
-  // `plan` hears what is about to be done, before any of it is: 'wrap' or 'encode', how long the video is,
-  // and about how large the copy will be. It hears nothing when the file goes up as it is.
   // ---- what a browser cannot do
   //
   // A video only belongs on a board as its review copy: without one it is the file as it came, many times
@@ -3398,7 +3325,9 @@
     });
   }
 
-  async function reviewCopy(file, report, note, plan = () => {}) {
+  // `plan` hears what is about to be done, before any of it is: 'wrap' or 'encode', how long the video is,
+  // and about how large the copy will be. It hears nothing when the file goes up as it is.
+  async function reviewCopy(file, report, plan = () => {}) {
     let mb;
     try {
       mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
@@ -3482,13 +3411,13 @@
     return blob ? (await upload(blob, EXT_BY_TYPE[blob.type] || '.webp')).url : null;
   }
 
-  async function ingest(file, onProgress, { onPhase = () => {}, onStrip = () => {}, onPlan = () => {}, note = () => {} } = {}) {
+  async function ingest(file, onProgress, { onPhase = () => {}, onStrip = () => {}, onPlan = () => {} } = {}) {
     const ext = fileExt(file);
     const url = URL.createObjectURL(file);
     try {
       if (VID_EXT.test(ext)) {
         let planned = false;
-        const prepared = await reviewCopy(file, onPhase, note, (...plan) => {
+        const prepared = await reviewCopy(file, onPhase, (...plan) => {
           planned = true;
           onPlan(...plan);
         });
@@ -3539,8 +3468,7 @@
     }
   }
 
-  // Lays new media out in rows starting at `at`. Everything comes in at the same width.
-  // Where each of several pieces of media goes, in rows from `at`; a single one is centred on it.
+  // Where each of several pieces of media goes, in rows from `at`, all at the same width; a single one is centred on it.
   function mediaRects(sizes, at, centre = true) {
     const gap = 24;
     const maxRow = clamp((vp.clientWidth * 0.9) / cam.z, IMG_W, 4 * (IMG_W + gap));
@@ -3831,7 +3759,6 @@
           onPhase: (k) => ghost.status('enc', k),
           onStrip: (k) => ghost.status('strip', k),
           onPlan: ghost.plan,
-          note: (text) => toast(text, { ms: 6000 }),
         });
         ghost.done(made);
       } catch (err) {
@@ -4555,9 +4482,7 @@
   function hostLabel(c) {
     const h = items.get(c.on);
     if (!h) return 'something removed';
-    const first = (t) => (t || '').split('\n')[0].trim().slice(0, 32);
-    const named = h.type === 'frame' ? h.title : h.type === 'image' || h.type === 'video' ? h.name : first(h.text);
-    return named || { image: 'an image', video: 'a video', frame: 'a frame', note: 'a note', text: 'a heading', block: 'a block' }[h.type] || 'an item';
+    return h.name || (h.type === 'video' ? 'a video' : 'an image');
   }
 
   // ---- what is drawn for a comment
@@ -4620,8 +4545,6 @@
       if (at == null) return true;
       return video.paused && Math.abs(video.currentTime - at) < 0.6 / (fpsOf(c.on) || 24);
     }
-    // Drawn on one frame of a video before drawings went with comments: on that frame still.
-    if (!it.cid && it.fr != null) return heldFrame(it.pid) === it.fr;
     return true;
   }
 
@@ -4631,7 +4554,7 @@
 
   function refreshAnnotations(hostId) {
     for (const it of items.values()) {
-      if (!it.pid || (hostId && it.pid !== hostId) || (!it.cid && it.fr == null)) continue;
+      if (!it.pid || (hostId && it.pid !== hostId) || !it.cid) continue;
       const node = els.get(it.id);
       if (node) markAnnotation(it, node);
     }
@@ -4721,16 +4644,8 @@
   }
 
   function openComments(id) {
-    const host = items.get(id);
-    if (!host) return;
-    if (host.type === 'image' || host.type === 'video') {
-      enterFocus(id);
-      if (!panelShown()) togglePanel(true);
-    } else {
-      // A comment from before they were made in the viewer, on a note or a heading.
-      const first = rootsInOrder().find((c) => c.on === id);
-      if (first) goToComment(first.id);
-    }
+    enterFocus(id);
+    if (focusId === id && !panelShown()) togglePanel(true);
   }
 
   // ---- the panel
@@ -4973,20 +4888,13 @@
     revealCard(id);
   }
 
-  // Goes to where a comment was left. An image or video opens in the viewer, on the comment's frame,
-  // with its thread picked in the panel. (A comment from before they were made in the viewer may sit on
-  // a note or a heading: the board goes there, and its thread is picked in the list of them all.)
+  // Goes to where a comment was left: what it is on opens in the viewer, on the comment's frame, with
+  // its thread picked in the panel.
   function goToComment(id) {
     const c = comments.get(comments.get(id)?.re || id);
     const host = c && items.get(c.on);
-    if (!host) return;
-    if (host.type === 'image' || host.type === 'video') {
-      if (focusId !== host.id) enterFocus(host.id);
-    } else {
-      if (focusId) exitFocus();
-      userMovedView();
-      fitRect(bounds(host), { dur: 420, maxZ: 1.5 });
-    }
+    if (!host || (host.type !== 'image' && host.type !== 'video')) return;
+    if (focusId !== host.id) enterFocus(host.id);
     if (activeThread !== c.id) replyBox.value = '';
     activeThread = c.id;
     seekTo(c);
@@ -5868,7 +5776,7 @@
       toggle.checked = !!share.token;
       toggle.addEventListener('change', () => call(toggle.checked ? 'POST' : 'DELETE', ''));
       const expiry = share.expiresAt
-        ? [['set', `On ${new Date(share.expiresAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`], ...EXPIRY.filter((e) => e[0] !== 'set')]
+        ? [['set', `On ${new Date(share.expiresAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`], ...EXPIRY]
         : EXPIRY;
       const team = meta.workspace === 'personal' ? 'Only you: it is in your personal workspace.' : 'Everyone on the team who can sign in.';
       dlg.replaceChildren(el('form', { method: 'dialog', onsubmit: (e) => e.preventDefault() },

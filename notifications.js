@@ -30,8 +30,6 @@ function mentions(text, name) {
   return at(full) || (first.length >= 2 && at(first));
 }
 
-const VIDEO_OR_IMAGE = new Set(['image', 'video']);
-
 // `who` is { user, name }: the key their read state is kept under, and the name they comment as.
 function noticesFor(store, who, spaces, now = Date.now()) {
   const since = now - DAYS * 864e5;
@@ -63,7 +61,7 @@ function noticesFor(store, who, spaces, now = Date.now()) {
       id: c.id,
       kind,
       board: { id: r.board_id, name: r.board_name },
-      on: r.host_label || (VIDEO_OR_IMAGE.has(r.host_type) ? r.host_type : 'a note'),
+      on: r.host_label || (r.host_type === 'video' ? 'a video' : 'an image'),
       author: c.name,
       color: c.color,
       guest: !!c.guest,

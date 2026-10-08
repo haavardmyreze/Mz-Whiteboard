@@ -5,9 +5,8 @@
 // A board's items are stored one row each, so a change writes only what changed. Each row keeps the item
 // exactly as the browser sent it (`data`) plus a few columns worked out from it (what it is called, which
 // frame holds it, which uploaded file it shows). Those columns are what make questions across boards
-// cheap, such as "every frame titled Desk" or "every board this file is on". They are derived, never
-// edited: to catalogue something new, add a column to `derive` and raise DERIVE_VERSION, and every item
-// is worked out again on the next start.
+// cheap, such as "every frame titled Desk" or "every board this file is on". They are derived from
+// `data` when an item is written, never edited on their own.
 
 const fs = require('fs');
 const path = require('path');
@@ -28,12 +27,7 @@ try {
   process.emitWarning = emitWarning;
 }
 
-const SCHEMA_VERSION = 1;
-const DERIVE_VERSION = 1;
-
 const SCHEMA = `
-CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
-
 CREATE TABLE IF NOT EXISTS folders (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -180,10 +174,6 @@ function openStore(dataDir) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
-
-  const getMeta = db.prepare('SELECT value FROM meta WHERE key = ?');
-  const setMeta = db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value');
-  if (!getMeta.get('schema')) setMeta.run('schema', String(SCHEMA_VERSION));
 
   function transaction(fn) {
     db.exec('BEGIN IMMEDIATE');
@@ -354,51 +344,9 @@ function openStore(dataDir) {
   });
 
   const putMedia = db.prepare('INSERT OR IGNORE INTO media (name, kind, size, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?)');
-  const addMedia = ({ name, size, by = null, at = Date.now() }) => putMedia.run(name, VIDEO_EXT.test(name) ? 'video' : 'image', size ?? null, by, at);
+  const addMedia = ({ name, size, by = null }) => putMedia.run(name, VIDEO_EXT.test(name) ? 'video' : 'image', size ?? null, by, Date.now());
   const readMedia = db.prepare('SELECT * FROM media WHERE name = ?');
   const media = (name) => readMedia.get(name) || null;
-  const readMediaNames = db.prepare('SELECT name FROM media');
-
-  // Every stored file has a row, including those uploaded before there was a catalogue.
-  function catalogueUploads(uploadDir) {
-    const known = new Set(readMediaNames.all().map((r) => r.name));
-    const missing = [];
-    for (const name of fs.readdirSync(uploadDir)) {
-      if (known.has(name) || name.startsWith('.') || !UPLOAD_NAME.test(`/uploads/${name}`)) continue;
-      try {
-        const st = fs.statSync(path.join(uploadDir, name));
-        if (st.isFile()) missing.push({ name, size: st.size, at: Math.round(st.mtimeMs) });
-      } catch {
-        // gone already
-      }
-    }
-    if (!missing.length) return 0;
-    transaction(() => {
-      for (const m of missing) addMedia(m);
-      // Fill in what the boards already know about them.
-      for (const r of db.prepare("SELECT data FROM items WHERE media IS NOT NULL").all()) {
-        const it = JSON.parse(r.data);
-        learnMedia.run(text(it.name), num(it.nw), num(it.nh), num(it.dur), num(it.fps), uploadName(it.src));
-      }
-    });
-    return missing.length;
-  }
-
-  // After `derive` learns something new, every item is worked out again from what was stored.
-  function rederive() {
-    if (Number(getMeta.get('derive')?.value) === DERIVE_VERSION) return 0;
-    const rows = db.prepare('SELECT board_id, id, data FROM items').all();
-    const update = db.prepare(`UPDATE items SET type = ?, label = ?, label_key = ?, frame_id = ?, parent_id = ?, media = ?, thumb = ?
-      WHERE board_id = ? AND id = ?`);
-    transaction(() => {
-      for (const r of rows) {
-        const d = derive(JSON.parse(r.data));
-        update.run(d.type, d.label, d.label_key, d.frame_id, d.parent_id, d.media, d.thumb, r.board_id, r.id);
-      }
-      setMeta.run('derive', String(DERIVE_VERSION));
-    });
-    return rows.length;
-  }
 
   // ---------------------------------------------------------------- catalogue
 
@@ -501,14 +449,12 @@ function openStore(dataDir) {
     db.close();
   }
 
-  rederive();
-
   return {
-    file, saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media,
-    catalogueUploads, find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
+    saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media,
+    find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,
     grants, setGrant, removeGrant, removeGrantsOn,
   };
 }
 
-module.exports = { openStore, derive, nameKey };
+module.exports = { openStore };

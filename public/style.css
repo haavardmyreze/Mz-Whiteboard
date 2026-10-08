@@ -916,7 +916,7 @@ body.focus .pin { transition: none; }
 #toolbar .iconbtn.active { background: var(--accent-fill); color: #fff; }
 #toolbar .iconbtn[data-tool="note"], #toolbar .iconbtn[data-tool="text"], #toolbar .iconbtn[data-tool="block"], #toolbar .iconbtn[data-tool="frame"], #toolbar .iconbtn[data-tool="comment"] { cursor: grab; }
 /* While an image is open there is no board to put frames or colour blocks on. */
-body.focus #toolbar [data-tool="frame"], body.focus #toolbar [data-tool="block"], body.focus #toolbar [data-tool="upload"], body.focus #toolbar [data-tool="pan"] { display: none; }
+body.focus #toolbar [data-tool="frame"], body.focus #toolbar [data-tool="block"], body.focus #toolbar [data-tool="upload"] { display: none; }
 
 /* Brush and text options stack in a narrow column beside the strip, so they stay out of the way of
    whatever is open in the middle of the board. */
@@ -970,6 +970,7 @@ body.dragging-tool, body.dragging-tool * { cursor: grabbing !important; }
 .live { flex: none; width: 8px; height: 8px; border-radius: 50%; }
 #focusname { max-width: 28ch; margin-right: 4px; overflow: hidden; font-weight: 600; text-overflow: ellipsis; }
 #focusbar .hint { margin-right: 8px; color: var(--muted); }
+#focuszoom { min-width: 52px; font-variant-numeric: tabular-nums; }
 
 #helppanel { right: 12px; top: calc(var(--bar) + 12px); width: 440px; max-width: calc(100vw - 24px); max-height: calc(100vh - var(--bar) - 24px); padding: 16px 20px 8px; overflow: auto; animation: rise 0.14s var(--ease); }
 #helppanel h2 { margin: 0 0 8px; font-size: 15px; font-weight: 650; line-height: 1.3; letter-spacing: -0.012em; }

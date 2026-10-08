@@ -310,6 +310,7 @@
   // ------------------------------------------------------------- camera
 
   function applyCam() {
+    if (focusId) keepOnFocus();
     world.style.transform = `translate(${-cam.x * cam.z}px, ${-cam.y * cam.z}px) scale(${cam.z})`;
     world.style.setProperty('--z', cam.z);
     world.style.setProperty('--inv', 1 / cam.z);
@@ -318,6 +319,7 @@
     vp.style.backgroundSize = `${grid}px ${grid}px`;
     vp.style.backgroundPosition = `${-cam.x * cam.z}px ${-cam.y * cam.z}px`;
     $('zoom').textContent = `${Math.round(cam.z * 100)}%`;
+    if (focusId) showFocusZoom();
     updateOverlay();
     if (comments.size || openThread) placePins();
     for (const peer of peers.values()) placeCursor(peer);
@@ -1798,13 +1800,63 @@
     enterFocus(list[(i + dir + list.length) % list.length].id);
   }
 
-  // An open image or video fills the space between the bars and stays put: the view cannot be
-  // panned or zoomed away from it, only closed. It is the board's viewer, not a zoomed-in board.
+  // An open image or video fills the space between the bars. The view can zoom into it and move
+  // around it, but never out past it nor off it onto the board: it is the board's viewer, not a
+  // zoomed-in board, and only closing it goes back.
+  function focusInsets() {
+    return vp.clientWidth < 700 ? { t: 104, r: 12, b: 76, l: 12 } : { t: 112, r: 48, b: 48, l: 120 };
+  }
+
+  // The zoom at which the open piece just fits between the bars.
+  function focusFitZ() {
+    const r = bounds(items.get(focusId));
+    const i = focusInsets();
+    return Math.min(MAX_Z, (vp.clientWidth - i.l - i.r) / Math.max(r.w, 1), (vp.clientHeight - i.t - i.b) / Math.max(r.h, 1));
+  }
+
+  const focusZoomed = () => !!focusId && cam.z > focusFitZ() * 1.02;
+
+  // Zoom one image pixel to one screen pixel: actual size.
+  function actualSizeZ(it) {
+    return it.nw ? it.nw / it.w / (window.devicePixelRatio || 1) : focusFitZ() * 2;
+  }
+
+  // Applied to every view while something is open: while it fits it stays in the middle, and once it
+  // is larger its edges never come in further than the bars.
+  function keepOnFocus() {
+    const it = items.get(focusId);
+    if (!it) return;
+    const r = bounds(it);
+    const i = focusInsets();
+    cam.z = clamp(cam.z, focusFitZ(), MAX_Z);
+    const axis = (pos, size, lo, span, at) => {
+      const shown = size * cam.z;
+      const start = shown <= span ? lo + (span - shown) / 2 : clamp((pos - at) * cam.z, lo + span - shown, lo);
+      return pos - start / cam.z;
+    };
+    cam.x = axis(r.x, r.w, i.l, vp.clientWidth - i.l - i.r, cam.x);
+    cam.y = axis(r.y, r.h, i.t, vp.clientHeight - i.t - i.b, cam.y);
+  }
+
   function fitFocus() {
     const it = focusId && items.get(focusId);
+    if (it) fitRect(bounds(it), { inset: focusInsets(), dur: 0 });
+  }
+
+  // Between fitting the screen and actual size (or twice the fit, for something small), around a point.
+  function toggleFocusZoom(sx = vp.clientWidth / 2, sy = vp.clientHeight / 2) {
+    const it = focusId && items.get(focusId);
     if (!it) return;
-    const narrow = vp.clientWidth < 700;
-    fitRect(bounds(it), { inset: narrow ? { t: 104, r: 12, b: 76, l: 12 } : { t: 112, r: 48, b: 48, l: 120 }, dur: 0 });
+    if (focusZoomed()) return fitFocus();
+    const fit = focusFitZ();
+    const actual = actualSizeZ(it);
+    zoomAt(sx, sy, (actual > fit * 1.1 ? actual : fit * 2) / cam.z);
+  }
+
+  function showFocusZoom() {
+    const it = items.get(focusId);
+    if (!it) return;
+    $('focuszoom').textContent = focusZoomed() ? `${Math.round((cam.z / actualSizeZ(it)) * 100)}%` : 'Fit';
   }
 
   // `followed` is true when it opens because the person being followed opened it.
@@ -2285,7 +2337,7 @@
   // and a key frame every half second. Browsers can only show a frame by decoding from the key frame
   // before it, and renders and camera files often have one every few seconds, so stepping or scrubbing
   // backwards through them stalls. With key frames this close together it is instant both ways.
-  // Holding Shift uploads the file as it is; so does a browser that cannot encode video.
+  // A browser that cannot encode video uploads the file as it is.
   const VIDEO_BITRATE = 10e6;
   const VIDEO_MIN_BITRATE = 3e6;
   const VIDEO_KEY_INTERVAL = 0.5;
@@ -2351,12 +2403,12 @@
     return blob ? (await upload(blob, EXT_BY_TYPE[blob.type] || '.webp')).url : null;
   }
 
-  async function ingest(file, onProgress, { original = false, onPhase = () => {}, note = () => {} } = {}) {
+  async function ingest(file, onProgress, { onPhase = () => {}, note = () => {} } = {}) {
     const ext = fileExt(file);
     const url = URL.createObjectURL(file);
     try {
       if (VID_EXT.test(ext)) {
-        const prepared = original ? file : await reviewCopy(file, onPhase, note);
+        const prepared = await reviewCopy(file, onPhase, note);
         const preparedUrl = prepared === file ? url : URL.createObjectURL(prepared);
         try {
           const { w, h, video } = await probeVideo(preparedUrl);
@@ -2438,8 +2490,7 @@
     setSel(list.map((item) => item.id));
   }
 
-  // Hold Shift while dropping to upload video exactly as it is, without making a review copy first.
-  async function addFiles(fileList, at, { original = false } = {}) {
+  async function addFiles(fileList, at) {
     const files = [...fileList].filter(fileExt);
     if (!files.length) {
       toast('Only images and MP4, WebM or MOV video can be added.');
@@ -2452,7 +2503,6 @@
       const label = files.length > 1 ? `Uploading ${i + 1} of ${files.length}` : 'Uploading';
       try {
         made.push(await ingest(file, (k) => status.set(`${label} · ${Math.round(k * 100)}%`), {
-          original,
           onPhase: (k) => status.set(`${files.length > 1 ? `File ${i + 1} of ${files.length}: ` : ''}Making a review copy · ${Math.round(k * 100)}%`),
           note: (text) => toast(text, { ms: 6000 }),
         }));
@@ -2584,11 +2634,9 @@
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     const p = s2w(e.clientX, e.clientY);
     if (e.pointerType === 'touch' && touchStart(e)) return;
-    const pan = !focusId && (e.button === 1 || e.button === 2 || (e.button === 0 && ((viewOnly && tool !== 'comment') || spaceDown || tool === 'pan' || tool === 'laser')));
+    const pan = e.button === 1 || e.button === 2 || (e.button === 0 && ((viewOnly && tool !== 'comment') || spaceDown || tool === 'pan' || tool === 'laser'));
     e.preventDefault();
     if (gesture) return;
-    // Someone with a link only looks at an open image or video, or comments on it; clicks on it are handled on release.
-    if (viewOnly && focusId && tool !== 'comment') return;
     // Touching the board catches it.
     if (coasting) stopCamAnim();
     if (e.button === 2 && !viewOnly && (tool === 'pen' || tool === 'arrow')) {
@@ -2668,7 +2716,7 @@
         gesture = null;
         document.body.classList.remove('panning');
       }
-      if (!gesture && !focusId && touches.size === 2) {
+      if (!gesture && touches.size === 2) {
         const [a, b] = [...touches.values()];
         stopCamAnim();
         userMovedView();
@@ -2677,16 +2725,18 @@
       return true;
     }
     if ((tool !== 'select' && tool !== 'pan') || e.target.closest('.handle')) return false;
-    if (focusId) {
-      begin({ type: 'swipe', sx: e.clientX, sy: e.clientY }, e);
+    const play = !!e.target.closest('.vplay');
+    // In the viewer one finger swipes to the next piece, or moves around it once zoomed in.
+    if (focusId && !focusZoomed()) {
+      begin({ type: 'swipe', sx: e.clientX, sy: e.clientY, play }, e);
       return true;
     }
     const node = e.target.closest('.item');
     const id = node ? node.dataset.id : null;
-    if (id && sel.has(id) && !viewOnly && tool === 'select') return false;
+    if (!focusId && id && sel.has(id) && !viewOnly && tool === 'select') return false;
     if (coasting) stopCamAnim();
     userMovedView();
-    begin({ type: 'pan', touch: true, id, play: !!e.target.closest('.vplay'), moved: false, sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, lx: e.clientX, ly: e.clientY, t: performance.now(), vx: 0, vy: 0 }, e);
+    begin({ type: 'pan', touch: true, id, play, moved: false, sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, lx: e.clientX, ly: e.clientY, t: performance.now(), vx: 0, vy: 0 }, e);
     return true;
   }
 
@@ -2695,6 +2745,7 @@
     let it = g.id && items.get(g.id);
     if (it && it.type === 'stroke' && it.pid) it = items.get(it.pid);
     if (it && it.type === 'video' && g.play) toggleVideo(it.id);
+    else if (focusId) return;
     else if (it && (it.type === 'image' || it.type === 'video')) enterFocus(it.id);
     else if (it && !viewOnly && selectable(it)) setSel([it.id]);
     else if (!viewOnly) setSel([]);
@@ -2920,6 +2971,7 @@
       const dx = e ? e.clientX - g.sx : 0;
       const dy = e ? e.clientY - g.sy : 0;
       if (e && e.type === 'pointerup' && Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) stepFocus(dx < 0 ? 1 : -1);
+      else if (e && e.type === 'pointerup' && g.play && Math.hypot(dx, dy) < 8) toggleVideo(focusId);
     } else if (g.type === 'move') {
       clearGuides();
       if (!g.started) {
@@ -3010,7 +3062,6 @@
 
   vp.addEventListener('wheel', (e) => {
     e.preventDefault();
-    if (focusId) return;
     const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
     userMovedView();
     zoomAt(e.clientX, e.clientY, Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)));
@@ -3028,6 +3079,7 @@
     if (viewOnly && it.type !== 'video' && it.type !== 'image') return;
     if (it.type === 'note' || it.type === 'text' || it.type === 'block') startEdit(it.id);
     else if (it.type === 'frame') { if (hit.closest('.frame-head')) startEdit(it.id); }
+    else if (it.id === focusId) toggleFocusZoom(e.clientX, e.clientY);
     else if (it.type === 'video' || it.type === 'image') enterFocus(it.id);
   });
 
@@ -3073,7 +3125,7 @@
     dragDepth = 0;
     $('dropzone').hidden = true;
     const at = s2w(e.clientX, e.clientY);
-    if (e.dataTransfer.files.length) return addFiles(e.dataTransfer.files, at, { original: e.shiftKey });
+    if (e.dataTransfer.files.length) return addFiles(e.dataTransfer.files, at);
     const text = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
     if (text) pasteText(text.split('\n')[0], at);
   });
@@ -3679,7 +3731,10 @@
       else if (k === 'a') { setTool('select'); setSel([...items.values()].filter((it) => selectable(it) && (focusId || !it.pid)).map((it) => it.id)); }
       else if (k === 'd') duplicate();
       else if (k === 'p') packSelection();
-      else if (k === '0') { if (!focusId) { userMovedView(); zoomAt(vp.clientWidth / 2, vp.clientHeight / 2, 1 / cam.z); } }
+      else if (k === '0') {
+        if (focusId) zoomAt(vp.clientWidth / 2, vp.clientHeight / 2, actualSizeZ(items.get(focusId)) / cam.z);
+        else { userMovedView(); zoomAt(vp.clientWidth / 2, vp.clientHeight / 2, 1 / cam.z); }
+      }
       else return;
       e.preventDefault();
       return;
@@ -3695,7 +3750,7 @@
 
     // The selected video, or the open one: while a video is open its keys work whatever else is selected on it.
     const video = selectedVideo() || (focusId && items.get(focusId)?.type === 'video' ? focusId : null);
-    if (focusId && ((e.shiftKey && (e.code === 'Digit1' || e.code === 'Digit2')) || k === 'home')) { /* the open piece stays framed */ }
+    if (focusId && ((e.shiftKey && (e.code === 'Digit1' || e.code === 'Digit2')) || k === 'home')) fitFocus();
     else if (e.shiftKey && e.code === 'Digit1') { userMovedView(); fitAll(); }
     else if (e.shiftKey && e.code === 'Digit2') { const r = selBounds(); if (r) { userMovedView(); fitRect(r); } }
     else if (k === 'home') { userMovedView(); fitAll(); }
@@ -3747,7 +3802,6 @@
     ['Smart snapping on / off', 'S, hold Ctrl to bypass'],
     ['Add media', 'Drop files, or paste from the clipboard'],
     ['Place a note, heading, block or frame', 'Drag it out of the tool strip'],
-    ['Upload video exactly as it is', 'Hold Shift while dropping'],
     ['Note / Heading / Colour block', 'N / T / B'],
     ['Frame the selection, or draw a frame', 'F'],
     ['Change heading level', 'Select it, then H1 / H2 / H3 / Text'],
@@ -3761,6 +3815,7 @@
     ['Bring to front / send to back', '] / [  or  PgUp / PgDn'],
     ['Scale a note with its text', 'Shift + drag a corner'],
     ['Play or pause video', 'Click the play button, or K'],
+    ['Zoom in an open image or video', 'Wheel or pinch. Double-click for actual size and back'],
     ['Step video one frame', ', and .'],
     ['Show time, frame number or timecode', 'Click the time on a video'],
     ['Draw on one frame of a video', 'Open it, pause, then draw'],
@@ -3789,6 +3844,7 @@
     if (button && e.detail) button.blur();
   });
   $('zoom').addEventListener('click', () => {
+    if (focusId) return fitFocus();
     userMovedView();
     fitAll();
   });
@@ -4124,7 +4180,7 @@
       }
       if ('s' in msg.p) refreshPeerSel();
       if ('f' in msg.p && following === peer.id) followFocus(peer.p.f);
-      if ('v' in msg.p && following === peer.id && !gesture && !focusId) followView(peer.p.v);
+      if ('v' in msg.p && following === peer.id && !gesture) followView(peer.p.v);
     } else if (msg.t === 'laser') {
       const peer = peers.get(msg.id);
       if (peer) addRemoteLaser(peer, msg.pts);
@@ -4310,6 +4366,7 @@
   $('focusprev').addEventListener('click', () => stepFocus(-1));
   $('focusnext').addEventListener('click', () => stepFocus(1));
   $('focusclear').addEventListener('click', clearDrawing);
+  $('focuszoom').addEventListener('click', () => toggleFocusZoom());
   buildToolbar();
   setTool('select');
   applyCam();

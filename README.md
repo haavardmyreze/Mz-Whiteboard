@@ -41,8 +41,7 @@ private networks, otherwise only the host machine can connect.
   MP4 (VP9 WebM where the browser cannot encode H.264), 1080p at most, about 10 Mbps, audio kept, and a
   key frame every half second. A browser can only show a frame by decoding from the key frame before
   it, and renders and camera files often have one every few seconds, so stepping or scrubbing
-  backwards through them stalls; through the review copy it is instant in both directions. Holding
-  Shift while dropping uploads the file exactly as it is.
+  backwards through them stalls; through the review copy it is instant in both directions.
 - **Frame-accurate video.** Each video knows its frame rate, read from the file when it is added. `,` and `.` step one frame,
   and scrubbing lands on whole frames. Click the time on a video to switch between minutes and seconds,
   the frame number and a timecode; the choice is remembered per browser. Open a video, pause on a frame
@@ -51,8 +50,11 @@ private networks, otherwise only the host machine can connect.
   it on the frame showing. The timeline shows a mark for every comment and every drawn-on frame; click
   one to go there. Whoever follows you sees exactly the frame you stop on.
 - **The viewer.** Double-click an image or video (or tap it on a phone) and it opens on its own: the
-  rest of the board is hidden behind a plain backdrop and the view stays put, it cannot be panned or
-  zoomed away, until Esc or Done closes it and the board comes back where it was. Annotate with the
+  rest of the board is hidden behind a plain backdrop until Esc or Done closes it and the board comes
+  back where it was. Zoom in with the wheel or a pinch and move around with the middle button, Space or
+  the hand (one finger on a phone); the view never zooms out past the piece or wanders off it onto the
+  board. Double-click (or the zoom button in the bar) switches between fitting the screen and actual
+  size, and zooming in on a large image loads its original. Annotate with the
   brush or arrows; the drawing belongs to the image, so it moves and scales with it on the board, and
   everyone sees it live. The arrow keys (or the arrows in the bar, or a swipe) go to the next or previous
   image or video, in the order the board reads: frame by frame, rows first and then left to right, with

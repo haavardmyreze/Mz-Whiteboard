@@ -168,7 +168,7 @@ through a write; the files in `data/backups/` are always whole.
 `node scripts/restore-board.js` to list them, then `node scripts/restore-board.js <board id>`. It
 comes back at the top level of its workspace.
 
-**Upgrading from the JSON files.** Versions before the database kept each board in
+**Upgrading from the JSON files** (step by step in [UPGRADING.md](UPGRADING.md)). Versions before the database kept each board in
 `data/boards/*.json` and the folders in `data/folders.json`. Stop the server and run
 `node scripts/import-json.js` once: it reads them into the database and moves the files to
 `data/legacy/`. The server says so at startup if it finds any. A board deleted back then is still a

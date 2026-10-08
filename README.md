@@ -148,6 +148,15 @@ board, which suits a trusted studio network. Set `AUTH_MODE` to change that:
 Signed in, everybody shares the **Myreze** workspace and each person also has a **Personal** one that
 only they can see.
 
+### Admin area
+
+With `google` or `iap` sign-in, the people named in `ADMIN_EMAILS` get an **Admin** link on the home
+page. At `/admin` they see everyone who has signed in, add people ahead of time, make other admins, put
+people in groups, and give people or groups a role (viewer, commenter, editor or manager) on boards and
+folders in the Myreze workspace. These groups and permissions are recorded but **not enforced yet**:
+who gets in is still decided by the sign-in, and everyone signed in sees the whole Myreze workspace.
+Without a sign-in that says who people are (`none`, `password`) the admin area stays closed.
+
 On a board, **Share** turns on a link that needs no sign-in, and sets what its holders can do: only
 look, also read the team's comments, or also comment (under a name they type, without resolving or
 deleting anything). A link can end after a day, a week or a month, can be replaced by a new one

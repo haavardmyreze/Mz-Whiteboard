@@ -21,6 +21,7 @@
   let me = await WB.askName();
   // Personal workspaces belong to a signed-in account, so without sign-in there is only the shared one.
   const hasPersonal = !!WB.info().user;
+  $('adminlink').hidden = !WB.info().admin;
   if (hasPersonal && store('wb:workspace') === 'personal') space = 'personal';
   const paintMe = () => $('me').replaceChildren(
     el('span', { class: 'avatar sm', style: { background: me.color }, text: WB.initials(me.name) }),

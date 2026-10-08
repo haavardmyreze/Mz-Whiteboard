@@ -2120,10 +2120,74 @@
   };
   const fromB64 = (text) => Uint8Array.from(atob(text), (ch) => ch.charCodeAt(0));
 
-  // The average colour of the top and of the bottom of the picture, at evenly spaced moments.
-  async function colourStrip(url) {
+  // The average colour of the top and of the bottom of a small copy of a frame.
+  function frameColours(ctx) {
+    const { data } = ctx.getImageData(0, 0, 16, 8);
+    const sum = [0, 0, 0, 0, 0, 0];
+    for (let p = 0; p < 128; p++) {
+      const half = p < 64 ? 0 : 3;
+      for (let c = 0; c < 3; c++) sum[half + c] += data[p * 4 + c];
+    }
+    return sum.map((v) => Math.round(v / 64));
+  }
+
+  // A strip with holes in it is worse than none: a missed moment takes its neighbour's colour, and if
+  // more than a few are missed there is no strip at all, to be tried again another time.
+  function closeHoles(cols) {
+    const missed = cols.filter((c) => !c).length;
+    if (missed > cols.length * 0.05) return null;
+    const out = new Uint8Array(cols.length * 6);
+    for (let i = 0; i < cols.length; i++) {
+      let c = cols[i];
+      for (let d = 1; !c && d < cols.length; d++) c = cols[i - d] || cols[i + d];
+      if (!c) return null;
+      out.set(c, i * 6);
+    }
+    return out;
+  }
+
+  // The picture at evenly spaced moments along the timeline, each column the frame that is on show at the
+  // middle of its stretch. The frames are decoded here by their timestamps, and each one's own timestamp is
+  // checked against the moment asked for, so a column can only ever hold the colour of its own moment.
+  // (Seeking a video element and copying what it shows is not that: the browser may report the seek done
+  // while the old frame is still on show, and the same colour then runs on for minutes.)
+  async function colourStrip(url, dur) {
+    let input;
+    try {
+      const mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
+      input = new mb.Input({ source: new mb.UrlSource(url), formats: mb.ALL_FORMATS });
+      const track = await input.getPrimaryVideoTrack();
+      if (!track || !(await track.canDecode())) throw new Error('cannot decode');
+      const first = await track.getFirstTimestamp();
+      if (!(dur > 0)) dur = await input.computeDuration();
+      if (!(dur > 0)) return null;
+      const step = dur / WAVE_COLS;
+      const times = Array.from({ length: WAVE_COLS }, (_, i) => Math.max(first, step * (i + 0.5)));
+      const sink = new mb.CanvasSink(track, { width: 16, height: 8, fit: 'fill', poolSize: 1 });
+      const cols = [];
+      let before = -Infinity;
+      for await (const frame of sink.canvasesAtTimestamps(times)) {
+        // The frame on show at a moment starts at or before it, and never before the one for the moment earlier.
+        const right = frame && frame.timestamp <= times[cols.length] + 0.001 && frame.timestamp >= before;
+        if (right) before = frame.timestamp;
+        cols.push(right ? frameColours(frame.canvas.getContext('2d', { willReadFrequently: true })) : null);
+      }
+      const colours = cols.length === WAVE_COLS ? closeHoles(cols) : null;
+      if (colours) return { colours, dur };
+    } catch {
+      // A browser that cannot decode it here still has its video element.
+    } finally {
+      if (input) input.dispose?.();
+    }
+    return colourStripByElement(url);
+  }
+
+  // The same from a video element, for a browser that cannot decode the file itself. Each seek is only
+  // believed once the element says which frame it has put on show.
+  async function colourStripByElement(url) {
     const video = el('video', { muted: '', playsinline: '', preload: 'auto' });
     video.muted = true;
+    if (!video.requestVideoFrameCallback) return null;
     const ready = new Promise((resolve, reject) => {
       video.addEventListener('loadeddata', resolve, { once: true });
       video.addEventListener('error', reject, { once: true });
@@ -2136,26 +2200,28 @@
       if (!(dur > 0) || !isFinite(dur)) return null;
       const canvas = el('canvas', { width: 16, height: 8 });
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      const out = new Uint8Array(WAVE_COLS * 6);
-      let last = null;
-      for (let i = 0; i < WAVE_COLS; i++) {
-        let rgb = last;
-        try {
-          await seekFrame(video, (dur * (i + 0.5)) / WAVE_COLS, false);
+      const step = dur / WAVE_COLS;
+      const cols = [];
+      let missed = 0;
+      for (let i = 0; i < WAVE_COLS && missed <= WAVE_COLS * 0.05; i++) {
+        const t = step * (i + 0.5);
+        const shown = await new Promise((resolve) => {
+          const late = setTimeout(() => resolve(null), 3000);
+          video.requestVideoFrameCallback((now, meta) => { clearTimeout(late); resolve(meta.mediaTime); });
+          video.currentTime = t;
+        });
+        if (shown != null && Math.abs(shown - t) <= Math.max(1, step * 2)) {
           ctx.drawImage(video, 0, 0, 16, 8);
-          const { data } = ctx.getImageData(0, 0, 16, 8);
-          const sum = [0, 0, 0, 0, 0, 0];
-          for (let p = 0; p < 128; p++) {
-            const half = p < 64 ? 0 : 3;
-            for (let c = 0; c < 3; c++) sum[half + c] += data[p * 4 + c];
-          }
-          rgb = sum.map((v) => Math.round(v / 64));
-        } catch {
-          // Keeps the colours of the moment before.
+          cols.push(frameColours(ctx));
+        } else {
+          cols.push(null);
+          missed++;
         }
-        if (rgb) { out.set(rgb, i * 6); last = rgb; }
       }
-      return out;
+      const colours = cols.length === WAVE_COLS ? closeHoles(cols) : null;
+      return colours ? { colours, dur } : null;
+    } catch {
+      return null;
     } finally {
       video.removeAttribute('src');
       video.load();
@@ -2163,15 +2229,13 @@
   }
 
   // How loud the sound is, in even steps along the video; null where there is none.
-  async function soundPeaks(url) {
+  async function soundPeaks(url, dur) {
     let input;
     try {
       const mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
       input = new mb.Input({ source: new mb.UrlSource(url), formats: mb.ALL_FORMATS });
       const track = await input.getPrimaryAudioTrack();
       if (!track || !(await track.canDecode())) return null;
-      const dur = await input.computeDuration([track]);
-      if (!(dur > 0)) return null;
       const peaks = new Float32Array(WAVE_BARS);
       const sink = new mb.AudioSampleSink(track);
       for await (const sample of sink.samples()) {
@@ -2202,7 +2266,9 @@
 
   function showWave(canvas, wf) {
     if (!waveOf.has(canvas)) waveWatch.observe(canvas);
+    if (waveOf.get(canvas) === wf && canvas.dataset.drawn) return;
     waveOf.set(canvas, wf);
+    delete canvas.dataset.drawn;
     fitWave(canvas);
   }
 
@@ -2213,10 +2279,10 @@
     const dpr = window.devicePixelRatio || 1;
     const w = Math.round(box.width * dpr);
     const h = Math.round(box.height * dpr);
-    if (canvas.width === w && canvas.height === h && canvas.dataset.drawn === wf.c) return;
+    if (canvas.width === w && canvas.height === h && canvas.dataset.drawn) return;
     canvas.width = w;
     canvas.height = h;
-    canvas.dataset.drawn = wf.c;
+    canvas.dataset.drawn = '1';
     drawWave(canvas, wf, dpr);
   }
 
@@ -2254,7 +2320,7 @@
   }
 
   // Strips made before this version have fewer bars; they show until a finer one is made.
-  const WAVE_VERSION = 6;
+  const WAVE_VERSION = 7;
   const waveFor = (it) => {
     const own = waveCache.get(it.src);
     return own || it.wf || null;
@@ -2265,9 +2331,7 @@
     if (!wf || wf.v !== WAVE_VERSION) ensureWave(it);
     if (!wf) return;
     const box = node.querySelector('.vseek');
-    const key = `${it.src}${wf.c.length}${wf.p.length}`;
-    if (!box || box.dataset.wf === key) return;
-    box.dataset.wf = key;
+    if (!box) return;
     box.classList.add('wave');
     showWave(box.querySelector('.vwave'), wf);
   }
@@ -2275,14 +2339,8 @@
   function paintFocusWave() {
     const it = focusId ? items.get(focusId) : null;
     const wf = it && it.type === 'video' ? waveFor(it) : null;
-    const key = wf ? `${it.src}${wf.c.length}${wf.p.length}` : '';
-    if (wf && tlTrack.dataset.wf !== key) {
-      tlTrack.dataset.wf = key;
-      tlTrack.classList.add('wave');
-      showWave(tlWave, wf);
-    }
     tlTrack.classList.toggle('wave', !!wf);
-    if (!wf) delete tlTrack.dataset.wf;
+    if (wf) showWave(tlWave, wf);
   }
 
   function ensureWave(it) {
@@ -2290,9 +2348,10 @@
     waving.add(it.src);
     waveQueue = waveQueue.then(async () => {
       try {
-        const colours = await colourStrip(it.src);
-        if (!colours) return;
-        const peaks = await soundPeaks(it.src);
+        const strip = await colourStrip(it.src, it.dur);
+        if (!strip) return;
+        const { colours, dur } = strip;
+        const peaks = await soundPeaks(it.src, dur);
         const wf = { v: WAVE_VERSION, c: toB64(colours), p: peaks ? toB64(peaks) : '' };
         waveCache.set(it.src, wf);
         const now = items.get(it.id);

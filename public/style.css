@@ -1192,3 +1192,24 @@ body.login { display: grid; place-items: center; min-height: 100%; padding: 24px
   #thread { left: 8px !important; right: 8px; top: auto !important; bottom: calc(8px + env(safe-area-inset-bottom)); width: auto; max-width: none; max-height: 62vh; }
   #commentpanel { left: 8px; right: 8px; width: auto; max-width: none; }
   #followpill { max-width: calc(100vw - 16px); }
+}
+
+/* A video on its way in: dimmed, with a ring that fills as it is made ready. */
+.item.ghost { overflow: hidden; background: var(--thumb-bg); cursor: grab; touch-action: none; }
+.item.ghost:active { cursor: grabbing; }
+.item.ghost.remote { cursor: default; pointer-events: none; transition: transform 0.15s linear; }
+.item.ghost video { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: fill; opacity: 0.35; filter: saturate(0.6); pointer-events: none; }
+.item.ghost::before { content: ''; position: absolute; inset: 0; background: rgba(0, 0, 0, 0.28); pointer-events: none; }
+.item.ghost::after { content: ''; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.14) 50%, transparent 65%); background-size: 250% 100%; animation: ghostsweep 2.2s ease-in-out infinite; pointer-events: none; }
+@keyframes ghostsweep { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+.ghostname { position: absolute; z-index: 1; left: 0; top: 0; padding: calc(8px * var(--inv)) calc(10px * var(--inv)); max-width: 100%; box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(12px * var(--inv)); color: #fff; text-shadow: 0 0 calc(4px * var(--inv)) rgba(0, 0, 0, 0.7); pointer-events: none; }
+.ghostring { position: absolute; z-index: 1; left: 50%; top: 50%; width: calc(84px * var(--inv)); height: calc(84px * var(--inv)); margin: calc(-48px * var(--inv)) 0 0 calc(-42px * var(--inv)); display: grid; place-items: center; pointer-events: none; animation: ghostpulse 2.2s ease-in-out infinite; }
+.ringsvg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; filter: drop-shadow(0 0 calc(6px * var(--inv)) rgba(0, 0, 0, 0.5)); }
+.ringsvg circle { fill: none; stroke-width: 4; stroke-linecap: round; }
+.ringsvg .track { stroke: rgba(255, 255, 255, 0.25); }
+.ringsvg .arc { stroke: #fff; transition: stroke-dashoffset 0.35s ease-out; }
+.ghost.waiting .ringsvg { animation: ghostspin 1.1s linear infinite; }
+@keyframes ghostspin { to { transform: rotate(270deg); } }
+@keyframes ghostpulse { 50% { opacity: 0.82; } }
+.ghostpct { position: relative; font-size: calc(15px * var(--inv)); font-weight: 600; font-variant-numeric: tabular-nums; color: #fff; text-shadow: 0 0 calc(4px * var(--inv)) rgba(0, 0, 0, 0.6); }
+.ghostphase { position: absolute; z-index: 1; left: 0; right: 0; top: 50%; margin-top: calc(52px * var(--inv)); text-align: center; font-size: calc(12px * var(--inv)); letter-spacing: 0.02em; color: rgba(255, 255, 255, 0.9); text-shadow: 0 0 calc(4px * var(--inv)) rgba(0, 0, 0, 0.7); pointer-events: none; }

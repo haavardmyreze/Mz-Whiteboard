@@ -310,7 +310,7 @@
   // ------------------------------------------------------------- camera
 
   function applyCam() {
-    if (focusId) keepOnFocus();
+    if (focusId && !camEasing) keepOnFocus();
     world.style.transform = `translate(${-cam.x * cam.z}px, ${-cam.y * cam.z}px) scale(${cam.z})`;
     world.style.setProperty('--z', cam.z);
     world.style.setProperty('--inv', 1 / cam.z);
@@ -339,9 +339,16 @@
     }, 200);
   }
 
+  // True while the camera eases, so the clamp that keeps an open piece in view does not cut the move short.
+  let camEasing = false;
+
   function stopCamAnim() {
     cancelAnimationFrame(camAnim);
     clearTimeout(camTimer);
+    if (camEasing) {
+      camEasing = false;
+      if (focusId) applyCam();
+    }
     coasting = false;
   }
 
@@ -397,7 +404,11 @@
     if (document.hidden) return setCam(to.x, to.y, to.z);
     // Occluded or background windows may get no animation frames at all; land on the
     // target anyway so a follower who is not looking stays in step with the person they follow.
-    camTimer = setTimeout(() => setCam(to.x, to.y, to.z), dur + 150);
+    camEasing = true;
+    camTimer = setTimeout(() => {
+      camEasing = false;
+      setCam(to.x, to.y, to.z);
+    }, dur + 150);
     const vw = vp.clientWidth;
     const vh = vp.clientHeight;
     const z0 = cam.z;
@@ -416,7 +427,11 @@
       cam.y = c0.y + (c1.y - c0.y) * u - vh / 2 / cam.z;
       applyCam();
       if (k < 1) camAnim = requestAnimationFrame(tick);
-      else clearTimeout(camTimer);
+      else {
+        clearTimeout(camTimer);
+        camEasing = false;
+        if (focusId) applyCam();
+      }
     };
     camAnim = requestAnimationFrame(tick);
   }
@@ -1792,12 +1807,23 @@
   }
 
   // Moves on to the next or previous piece of media while one is open, going round at the ends.
+  // Steps pile up while a frame is being drawn and are made together, so a held key skips ahead
+  // instead of building the whole view for every piece it passes.
+  let stepPending = 0;
   function stepFocus(dir) {
-    const list = mediaOrder();
-    const i = list.findIndex((it) => it.id === focusId);
-    if (i < 0 || list.length < 2) return;
-    closeThread();
-    enterFocus(list[(i + dir + list.length) % list.length].id);
+    if (!focusId) return;
+    if (!stepPending) {
+      requestAnimationFrame(() => {
+        const n = stepPending;
+        stepPending = 0;
+        const list = mediaOrder();
+        const i = list.findIndex((it) => it.id === focusId);
+        if (i < 0 || list.length < 2) return;
+        closeThread();
+        enterFocus(list[(((i + n) % list.length) + list.length) % list.length].id);
+      });
+    }
+    stepPending += dir;
   }
 
   // An open image or video fills the space between the bars. The view can zoom into it and move
@@ -1838,9 +1864,9 @@
     cam.y = axis(r.y, r.h, i.t, vp.clientHeight - i.t - i.b, cam.y);
   }
 
-  function fitFocus() {
+  function fitFocus(dur = 0) {
     const it = focusId && items.get(focusId);
-    if (it) fitRect(bounds(it), { inset: focusInsets(), dur: 0 });
+    if (it) fitRect(bounds(it), { inset: focusInsets(), dur });
   }
 
   // Between fitting the screen and actual size (or twice the fit, for something small), around a point.
@@ -1860,6 +1886,7 @@
   }
 
   // `followed` is true when it opens because the person being followed opened it.
+  let preloadTimer = 0;
   function enterFocus(id, followed = false) {
     const it = items.get(id);
     if (!it || (it.type !== 'image' && it.type !== 'video')) return;
@@ -1894,10 +1921,14 @@
     if (it.type === 'video') {
       setSel([id]);
       // Open, it is scrubbed and stepped through: worth having all of it rather than just its start.
-      const video = videoOf(id);
-      if (video) video.preload = 'auto';
+      // Held back a moment so stepping quickly past videos does not start loading every one of them.
+      clearTimeout(preloadTimer);
+      preloadTimer = setTimeout(() => {
+        const video = focusId === id && videoOf(id);
+        if (video) video.preload = 'auto';
+      }, 300);
     }
-    fitFocus();
+    fitFocus(followed || wasOpen ? 0 : 450);
     sendP({ f: id });
   }
 
@@ -1916,7 +1947,7 @@
     sendP({ f: null });
     const leader = following && peers.get(following);
     if (leader && leader.p.v) followView(leader.p.v, 0);
-    else if (focusReturn) setCam(focusReturn.x, focusReturn.y, focusReturn.z);
+    else if (focusReturn) animateCam(focusReturn, 520);
     focusReturn = null;
   }
 
@@ -2334,18 +2365,38 @@
   // Every video is turned into a review copy here, on the uploader's own machine, before it goes
   // anywhere: H.264 in an MP4 that starts playing before it has all arrived (VP9 in WebM where the
   // browser cannot encode H.264), at most 1080p, audio kept,
-  // and a key frame every half second. Browsers can only show a frame by decoding from the key frame
+  // and a key frame every quarter of a second. Browsers can only show a frame by decoding from the key frame
   // before it, and renders and camera files often have one every few seconds, so stepping or scrubbing
   // backwards through them stalls. With key frames this close together it is instant both ways.
   // A browser that cannot encode video uploads the file as it is.
-  const VIDEO_BITRATE = 10e6;
+  const VIDEO_BITRATE = 12e6;
   const VIDEO_MIN_BITRATE = 3e6;
-  const VIDEO_KEY_INTERVAL = 0.5;
+  const VIDEO_KEY_INTERVAL = 0.25;
   const VIDEO_LONG_SIDE = 1920;
   const VIDEO_SHORT_SIDE = 1080;
   let mediabunny;
 
   const fmtSize = (bytes) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`);
+
+  // Whether the key frames, as far as the first two minutes show, are never much more than a second apart.
+  async function closeKeyFrames(mb, track, duration) {
+    try {
+      const sink = new mb.EncodedPacketSink(track);
+      let last = -1;
+      let keys = 0;
+      let widest = 0;
+      for await (const packet of sink.packets(undefined, undefined, { metadataOnly: true })) {
+        if (packet.timestamp > 120) break;
+        if (packet.type !== 'key') continue;
+        if (last >= 0) widest = Math.max(widest, packet.timestamp - last);
+        last = packet.timestamp;
+        keys++;
+      }
+      return keys >= 2 ? widest <= VIDEO_KEY_INTERVAL * 2.1 : keys === 1 && duration <= VIDEO_KEY_INTERVAL * 2;
+    } catch {
+      return false;
+    }
+  }
 
   async function reviewCopy(file, report, note) {
     let mb;
@@ -2366,6 +2417,17 @@
       const k = Math.min(1, VIDEO_LONG_SIDE / Math.max(w, h), VIDEO_SHORT_SIDE / Math.min(w, h));
       const width = Math.max(2, Math.round((w * k) / 2) * 2);
       const height = Math.max(2, Math.round((h * k) / 2) * 2);
+      // A file that is already H.264 within 1080p with a key frame about every half second needs no new
+      // encode, only a new wrapper: seconds instead of minutes.
+      if (track.codec === 'avc' && k === 1 && (await closeKeyFrames(mb, track, duration))) {
+        const output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new mb.BufferTarget() });
+        const conversion = await mb.Conversion.init({ input, output });
+        if (conversion.isValid && !conversion.discardedTracks.some((d) => d.track.type === 'video')) {
+          conversion.onProgress = (p) => report(p);
+          await conversion.execute();
+          return new File([output.target.buffer], `${file.name.replace(/\.[^.]+$/, '')}.mp4`, { type: 'video/mp4' });
+        }
+      }
       // Close key frames cost bits, so a lean source gets some headroom rather than losing detail.
       const target = Math.round(Math.min(VIDEO_BITRATE, Math.max(VIDEO_MIN_BITRATE, bitrate * 1.5)));
       const codec = await mb.getFirstEncodableVideoCodec(['avc', 'vp9'], { width, height, bitrate: target });
@@ -2374,17 +2436,33 @@
         return file;
       }
       const mp4 = codec === 'avc';
-      const format = mp4 ? new mb.Mp4OutputFormat({ fastStart: 'in-memory' }) : new mb.WebMOutputFormat();
-      const output = new mb.Output({ format, target: new mb.BufferTarget() });
-      const conversion = await mb.Conversion.init({
-        input, output,
-        video: { codec, width, height, fit: 'contain', bitrate: target, keyFrameInterval: VIDEO_KEY_INTERVAL, forceTranscode: true },
-      });
-      if (!conversion.isValid) return file;
-      conversion.onProgress = (p) => report(p);
-      await conversion.execute();
+      const encode = async (hardwareAcceleration) => {
+        const format = mp4 ? new mb.Mp4OutputFormat({ fastStart: 'in-memory' }) : new mb.WebMOutputFormat();
+        const output = new mb.Output({ format, target: new mb.BufferTarget() });
+        const conversion = await mb.Conversion.init({
+          input, output,
+          video: { codec, width, height, fit: 'contain', bitrate: target, keyFrameInterval: VIDEO_KEY_INTERVAL, forceTranscode: true, hardwareAcceleration },
+        });
+        if (!conversion.isValid) return null;
+        conversion.onProgress = (p) => report(p);
+        await conversion.execute();
+        return output.target.buffer;
+      };
+      // The graphics card's encoder (NVENC, Quick Sync, AMD) is several times faster than the processor
+      // where the browser has one. Otherwise, or if it gives up part way, the processor does it.
+      let buffer = null;
+      if (await mb.canEncodeVideo(codec, { width, height, bitrate: target, hardwareAcceleration: 'prefer-hardware' }).catch(() => false)) {
+        try {
+          buffer = await encode('prefer-hardware');
+        } catch (err) {
+          console.warn('The hardware encoder failed, using the processor:', err);
+          report(0);
+        }
+      }
+      if (!buffer) buffer = await encode('no-preference');
+      if (!buffer) return file;
       const ext = mp4 ? 'mp4' : 'webm';
-      return new File([output.target.buffer], `${file.name.replace(/\.[^.]+$/, '')}.${ext}`, { type: `video/${ext}` });
+      return new File([buffer], `${file.name.replace(/\.[^.]+$/, '')}.${ext}`, { type: `video/${ext}` });
     } catch (err) {
       console.warn('Could not make a review copy, uploading the original:', err);
       note('Could not make a review copy of this video, so it is uploaded as it is.');
@@ -2453,15 +2531,14 @@
   }
 
   // Lays new media out in rows starting at `at`. Everything comes in at the same width.
-  function placeMedia(made, at) {
-    if (focusId) exitFocus();
+  // Where each of several pieces of media goes, in rows from `at`; a single one is centred on it.
+  function mediaRects(sizes, at, centre = true) {
     const gap = 24;
     const maxRow = clamp((vp.clientWidth * 0.9) / cam.z, IMG_W, 4 * (IMG_W + gap));
-    let z = topZ();
     let x = 0;
     let y = 0;
     let tallest = 0;
-    const list = made.map((m) => {
+    const rects = sizes.map((m) => {
       let w = IMG_W;
       let h = IMG_W * (m.nh / m.nw);
       if (h > IMG_MAX_H) {
@@ -2473,21 +2550,154 @@
         y += tallest + gap;
         tallest = 0;
       }
-      const item = { ...m, id: uid(), x: at.x + x, y: at.y + y, w: round(w), h: round(h), z: ++z };
+      const r = { x: at.x + x, y: at.y + y, w: round(w), h: round(h) };
       x += w + gap;
       tallest = Math.max(tallest, h);
-      return item;
+      return r;
     });
-    if (list.length === 1) {
-      list[0].x -= list[0].w / 2;
-      list[0].y -= list[0].h / 2;
+    if (centre && rects.length === 1) {
+      rects[0].x -= rects[0].w / 2;
+      rects[0].y -= rects[0].h / 2;
     }
-    for (const item of list) {
-      item.x = round(item.x);
-      item.y = round(item.y);
+    for (const r of rects) {
+      r.x = round(r.x);
+      r.y = round(r.y);
     }
+    return rects;
+  }
+
+  function placeMedia(made, at, centre = true) {
+    if (focusId) exitFocus();
+    let z = topZ();
+    const rects = mediaRects(made, at, centre);
+    const list = made.map((m, i) => ({ ...m, id: uid(), ...rects[i], z: ++z }));
     exec(addOps(list));
     setSel(list.map((item) => item.id));
+  }
+
+  // ---- stand-ins for videos on their way in
+  // A video shows up on the board the moment it is chosen, dimmed, with a ring that fills as its review
+  // copy is made and uploaded. The one who chose it can drag it to where it should go; everybody on the
+  // board sees it move. When it is ready the real video takes its place.
+  const RING = 2 * Math.PI * 28;
+  const standIns = new Set(); // this browser's own
+  const remoteStandIns = new Map(); // peer id -> (stand-in id -> node)
+
+  function standInNode() {
+    const track = svgEl('circle', { class: 'track', cx: 32, cy: 32, r: 28 });
+    const arc = svgEl('circle', { class: 'arc', cx: 32, cy: 32, r: 28, 'stroke-dasharray': RING, 'stroke-dashoffset': RING });
+    const ring = svgEl('svg', { class: 'ringsvg', viewBox: '0 0 64 64' });
+    ring.append(track, arc);
+    return el('div', { class: 'item video ghost waiting' },
+      el('div', { class: 'ghostname' }),
+      el('div', { class: 'ghostring' }, ring, el('div', { class: 'ghostpct' })),
+      el('div', { class: 'ghostphase' }));
+  }
+
+  function paintStandIn(node, { x, y, w, h, k, ph }) {
+    node.style.transform = `translate(${x}px, ${y}px)`;
+    node.style.width = `${w}px`;
+    node.style.height = `${h}px`;
+    const waiting = !(k > 0);
+    node.classList.toggle('waiting', waiting);
+    node.querySelector('.arc').style.strokeDashoffset = RING * (1 - (waiting ? 0.25 : clamp(k, 0, 1)));
+    node.querySelector('.ghostpct').textContent = waiting ? '' : `${Math.round(clamp(k, 0, 1) * 100)}%`;
+    node.querySelector('.ghostphase').textContent = ph === 'up' ? 'Uploading' : ph === 'enc' ? 'Preparing' : 'Waiting';
+  }
+
+  function shareStandIns() {
+    sendP({ u: [...standIns].map((g) => ({ i: g.id, x: round(g.x), y: round(g.y), w: g.w, h: g.h, k: Math.round(g.k * 100) / 100, ph: g.ph })) });
+  }
+
+  // What the others on the board have on its way in. They send it as it is, so every value is checked.
+  function showRemoteStandIns(peer) {
+    let nodes = remoteStandIns.get(peer.id);
+    if (!nodes) remoteStandIns.set(peer.id, (nodes = new Map()));
+    const list = Array.isArray(peer.p.u) ? peer.p.u.slice(0, 20) : [];
+    const seen = new Set();
+    for (const u of list) {
+      if (!u || typeof u.i !== 'string' || ![u.x, u.y, u.w, u.h].every(Number.isFinite) || u.w <= 0 || u.h <= 0) continue;
+      seen.add(u.i);
+      let node = nodes.get(u.i);
+      if (!node) {
+        node = standInNode();
+        node.classList.add('remote');
+        node.querySelector('.ghostname').textContent = `${peer.name} is adding a video`;
+        itemsLayer.append(node);
+        nodes.set(u.i, node);
+      }
+      paintStandIn(node, { x: u.x, y: u.y, w: u.w, h: u.h, k: Number(u.k) || 0, ph: u.ph });
+    }
+    for (const [id, node] of nodes) {
+      if (seen.has(id)) continue;
+      node.remove();
+      nodes.delete(id);
+    }
+    if (!nodes.size) remoteStandIns.delete(peer.id);
+  }
+
+  function dropRemoteStandIns(id) {
+    const nodes = remoteStandIns.get(id);
+    if (!nodes) return;
+    for (const node of nodes.values()) node.remove();
+    remoteStandIns.delete(id);
+  }
+
+  async function videoStandIn(file, rect) {
+    const url = URL.createObjectURL(file);
+    const node = standInNode();
+    node.querySelector('.ghostname').textContent = file.name;
+    const g = { id: uid(), node, ...rect, k: 0, ph: 'wait', sent: 0 };
+    const paint = () => paintStandIn(node, g);
+    paint();
+    itemsLayer.append(node);
+    standIns.add(g);
+    shareStandIns();
+    node.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      e.preventDefault();
+      node.setPointerCapture(e.pointerId);
+      const from = { px: e.clientX, py: e.clientY, x: g.x, y: g.y };
+      const move = (ev) => {
+        g.x = from.x + (ev.clientX - from.px) / cam.z;
+        g.y = from.y + (ev.clientY - from.py) / cam.z;
+        paint();
+        shareStandIns();
+      };
+      const stop = () => {
+        node.removeEventListener('pointermove', move);
+        node.removeEventListener('pointerup', stop);
+        node.removeEventListener('pointercancel', stop);
+      };
+      node.addEventListener('pointermove', move);
+      node.addEventListener('pointerup', stop);
+      node.addEventListener('pointercancel', stop);
+    });
+    // A still from the file itself, where this browser can show it.
+    const video = el('video', { muted: '', playsinline: '', preload: 'metadata' });
+    video.muted = true;
+    video.addEventListener('loadeddata', () => node.prepend(video), { once: true });
+    video.src = `${url}#t=0.1`;
+    // `k` is how far along the whole job is: making the copy is the first 60%, the upload the rest.
+    g.status = (ph, p) => {
+      const k = ph === 'enc' ? 0.6 * p : ph === 'up' ? 0.6 + 0.4 * p : 0;
+      const phaseChanged = ph !== g.ph;
+      g.ph = ph;
+      g.k = Math.max(k, 0.005);
+      paint();
+      if (phaseChanged || Math.abs(g.k - g.sent) >= 0.01) {
+        g.sent = g.k;
+        shareStandIns();
+      }
+    };
+    g.done = () => {
+      standIns.delete(g);
+      shareStandIns();
+      node.remove();
+      URL.revokeObjectURL(url);
+    };
+    return g;
   }
 
   async function addFiles(fileList, at) {
@@ -2496,23 +2706,57 @@
       toast('Only images and MP4, WebM or MOV video can be added.');
       return;
     }
-    const status = toast('Uploading…', { sticky: true });
-    const made = [];
+    const videos = files.filter((f) => VID_EXT.test(fileExt(f)));
+    const pictures = files.filter((f) => !videos.includes(f));
     const errors = [];
-    for (const [i, file] of files.entries()) {
-      const label = files.length > 1 ? `Uploading ${i + 1} of ${files.length}` : 'Uploading';
+    // Videos take a while, so each one is on the board straight away, ready to be placed.
+    const sizes = await Promise.all(videos.map(async (f) => {
+      const url = URL.createObjectURL(f);
       try {
-        made.push(await ingest(file, (k) => status.set(`${label} · ${Math.round(k * 100)}%`), {
-          onPhase: (k) => status.set(`${files.length > 1 ? `File ${i + 1} of ${files.length}: ` : ''}Making a review copy · ${Math.round(k * 100)}%`),
+        const { w, h } = await probeVideo(url);
+        return { nw: w, nh: h };
+      } catch {
+        return { nw: 16, nh: 9 };
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }));
+    if (focusId) exitFocus();
+    const rects = mediaRects(sizes, at, !pictures.length && videos.length === 1);
+    const ghosts = await Promise.all(videos.map((f, i) => videoStandIn(f, rects[i])));
+    if (pictures.length) {
+      const below = rects.reduce((y, r) => Math.max(y, r.y + r.h + 24), at.y);
+      const status = toast('Uploading…', { sticky: true });
+      const made = [];
+      for (const [i, file] of pictures.entries()) {
+        const label = pictures.length > 1 ? `Uploading ${i + 1} of ${pictures.length}` : 'Uploading';
+        try {
+          made.push(await ingest(file, (k) => status.set(`${label} · ${Math.round(k * 100)}%`)));
+        } catch (err) {
+          errors.push(`${file.name}: ${err.message}`);
+        }
+      }
+      status.close();
+      if (made.length) placeMedia(made, videos.length ? { x: at.x, y: below } : at, !videos.length);
+    }
+    for (const [i, file] of videos.entries()) {
+      const ghost = ghosts[i];
+      try {
+        ghost.status('enc', 0);
+        const made = await ingest(file, (k) => ghost.status('up', k), {
+          onPhase: (k) => ghost.status('enc', k),
           note: (text) => toast(text, { ms: 6000 }),
-        }));
+        });
+        const item = { ...made, id: uid(), x: round(ghost.x), y: round(ghost.y), w: round(ghost.w), h: round(ghost.h), z: topZ() + 1 };
+        exec(addOps([item]));
+        setSel([item.id]);
+        ghost.done();
       } catch (err) {
+        ghost.done();
         errors.push(`${file.name}: ${err.message}`);
       }
     }
-    status.close();
     for (const message of errors.slice(0, 3)) toast(message, { ms: 9000 });
-    if (made.length) placeMedia(made, at);
   }
 
   async function addImageUrl(url, at) {
@@ -2945,10 +3189,22 @@
           g.pts.push(q.x, q.y);
           g.lt = ev.timeStamp;
         }
-        g.path.setAttribute('d', outlinePath(g.pts, g.ws, 1, 1, g.size));
+        // Holding shift swaps what was drawn for a straight line from where it began; letting go of shift
+        // brings the freehand stroke back.
+        g.line = e.shiftKey ? straightLine(g.pts[0], g.pts[1], p.x, p.y) : null;
+        if (g.line) g.path.setAttribute('d', outlinePath(g.line.pts, g.line.ws, 1, 1, g.size));
+        else g.path.setAttribute('d', outlinePath(g.pts, g.ws, 1, 1, g.size));
       }
     }
   });
+
+  // A brush line between two points, with enough points along it for the outline to follow.
+  function straightLine(x0, y0, x1, y1) {
+    const n = 12;
+    const pts = [];
+    for (let i = 0; i <= n; i++) pts.push(x0 + ((x1 - x0) * i) / n, y0 + ((y1 - y0) * i) / n);
+    return { pts, ws: new Array(n + 1).fill(0.6) };
+  }
 
   function endGesture(e) {
     const g = gesture;
@@ -3009,7 +3265,7 @@
       makeFrameLike(g.kind, r);
     } else if (g.type === 'draw') {
       g.svg.remove();
-      const pts = g.pts;
+      const pts = g.line ? g.line.pts : g.pts;
       let x0 = Infinity;
       let y0 = Infinity;
       let x1 = -Infinity;
@@ -3027,8 +3283,8 @@
         const item = { id: uid(), type: 'stroke', x: round(x0), y: round(y0), w: round(w), h: round(h), pts: norm, color: pen.color, size: round(g.size), arrow: g.arrow, z: topZ() + 1 };
         if (!g.arrow) {
           // The stroke ends in a flick: the last few points taper off.
-          const ws = g.ws.slice();
-          if (ws.length > 4) [0.8, 0.6, 0.4].forEach((k, i) => { ws[ws.length - 1 - i] *= k; });
+          const ws = (g.line ? g.line.ws : g.ws).slice();
+          if (!g.line && ws.length > 4) [0.8, 0.6, 0.4].forEach((k, i) => { ws[ws.length - 1 - i] *= k; });
           item.ws = ws.map((v) => Math.round(v * 100) / 100);
         }
         if (focusId) {
@@ -3945,12 +4201,14 @@
   function addPeer(data) {
     peers.set(data.id, { id: data.id, name: data.name, color: data.color, p: data.p || {}, cur: null, viewer: !!data.viewer });
     placeCursor(peers.get(data.id));
+    if (data.p && data.p.u) showRemoteStandIns(peers.get(data.id));
   }
 
   function dropPeer(id) {
     const peer = peers.get(id);
     if (!peer) return;
     if (peer.cur) peer.cur.remove();
+    dropRemoteStandIns(id);
     peers.delete(id);
     trails.delete(id);
     requestLaser();
@@ -4179,6 +4437,7 @@
         requestLaser();
       }
       if ('s' in msg.p) refreshPeerSel();
+      if ('u' in msg.p) showRemoteStandIns(peer);
       if ('f' in msg.p && following === peer.id) followFocus(peer.p.f);
       if ('v' in msg.p && following === peer.id && !gesture) followView(peer.p.v);
     } else if (msg.t === 'laser') {

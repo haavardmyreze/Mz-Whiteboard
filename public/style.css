@@ -32,14 +32,14 @@
 
 :root {
   /* dark (default) */
-  --bg: #0f0f0f;
-  --canvas: #161616;
-  --surface-1: #1e1e1e;
-  --surface-2: #272727;
-  --surface-3: #313131;
-  --frame-fill: #202020;
+  --bg: #090909;
+  --canvas: #0e0e0e;
+  --surface-1: #161616;
+  --surface-2: #1f1f1f;
+  --surface-3: #292929;
+  --frame-fill: #161616;
   --frame-rim: rgba(255, 255, 255, 0.07);
-  --note-fill: #2a2a2a;
+  --note-fill: #222222;
 
   --line: rgba(255, 255, 255, 0.08);
   --line-strong: rgba(255, 255, 255, 0.15);
@@ -612,6 +612,8 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport { cursor: c
 .image, .video { box-shadow: 0 0 0 calc(1px * var(--inv)) var(--ring-c), 0 calc(1px * var(--inv)) calc(3px * var(--inv)) color-mix(in srgb, var(--lift-c) 55%, transparent), 0 calc(10px * var(--inv)) calc(24px * var(--inv)) calc(-10px * var(--inv)) var(--lift-c); }
 .image img, .video video { display: block; width: 100%; height: 100%; object-fit: fill; background: var(--thumb-bg); }
 /* The frame a video was showing, held over it for the moment it takes to change to another source. */
+.video .vpost { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
+.video.started .vpost { display: none; }
 .video .vhold { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
 
 .video .vbar {
@@ -1013,7 +1015,7 @@ body.focus .item:is(.image, .video).peersel { outline: none; }
 #filmstrip[hidden] { display: none; }
 .fs-item { flex: none; display: flex; align-items: flex-start; gap: 4px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
 .fs-num { flex: none; width: 16px; padding-top: 1px; font-size: 10px; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; text-align: right; }
-.fs-thumb { position: relative; flex: 1; min-width: 0; display: block; overflow: hidden; border-radius: var(--r-1); background: var(--thumb-bg); box-shadow: 0 0 0 1px var(--line); opacity: 0.7; transition: opacity 0.12s, box-shadow 0.12s; }
+.fs-thumb { position: relative; flex: 1; min-width: 0; display: block; overflow: hidden; border-radius: var(--r-1); background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); opacity: 0.7; transition: opacity 0.12s, box-shadow 0.12s; }
 .fs-thumb img, .fs-thumb video { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
 .fs-item:hover .fs-thumb { opacity: 1; box-shadow: 0 0 0 1px var(--line-strong); }
 .fs-item.current .fs-thumb { opacity: 1; box-shadow: 0 0 0 2px var(--accent); }
@@ -1284,9 +1286,7 @@ body.login { display: grid; place-items: center; min-height: 100%; padding: 24px
 }
 
 /* A video on its way in: dimmed, with a ring that fills as it is made ready. */
-.item.ghost { overflow: hidden; background: var(--thumb-bg); cursor: grab; touch-action: none; }
-.item.ghost:active { cursor: grabbing; }
-.item.ghost.remote { cursor: default; pointer-events: none; transition: transform 0.15s linear; }
+.item.ghost { overflow: hidden; background: var(--thumb-bg); }
 .item.ghost video { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: fill; opacity: 0.35; filter: saturate(0.6); pointer-events: none; }
 .item.ghost::before { content: ''; position: absolute; inset: 0; background: rgba(0, 0, 0, 0.28); pointer-events: none; }
 .item.ghost::after { content: ''; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.14) 50%, transparent 65%); background-size: 250% 100%; animation: ghostsweep 2.2s ease-in-out infinite; pointer-events: none; }
@@ -1302,3 +1302,19 @@ body.login { display: grid; place-items: center; min-height: 100%; padding: 24px
 @keyframes ghostpulse { 50% { opacity: 0.82; } }
 .ghostpct { position: relative; font-size: calc(15px * var(--inv)); font-weight: 600; font-variant-numeric: tabular-nums; color: #fff; text-shadow: 0 0 calc(4px * var(--inv)) rgba(0, 0, 0, 0.6); }
 .ghostphase { position: absolute; z-index: 1; left: 0; right: 0; top: 50%; margin-top: calc(52px * var(--inv)); text-align: center; font-size: calc(12px * var(--inv)); letter-spacing: 0.02em; color: rgba(255, 255, 255, 0.9); text-shadow: 0 0 calc(4px * var(--inv)) rgba(0, 0, 0, 0.7); pointer-events: none; }
+
+/* The picture and sound of a video behind its scrub bar: its colours, its loudness. */
+.vwave, .tl-wave { display: none; }
+.vseek.wave { height: 40px; }
+.vseek.wave .vwave { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; border-radius: 3px; }
+.vbar .vseek.wave input[type="range"] { height: 40px; }
+.vbar .vseek.wave input[type="range"]::-webkit-slider-runnable-track { height: 40px; background: transparent; }
+.vbar .vseek.wave input[type="range"]::-webkit-slider-thumb { width: 3px; height: 40px; margin-top: 0; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45); }
+.vbar .vseek.wave input[type="range"]::-moz-range-track { height: 40px; background: transparent; }
+.vbar .vseek.wave input[type="range"]::-moz-range-progress { background: transparent; }
+.vbar .vseek.wave input[type="range"]::-moz-range-thumb { width: 3px; height: 40px; border-radius: 2px; }
+.vseek.wave .vmarks { top: -2px; bottom: auto; height: 0; }
+.tl-track.wave .tl-rail { display: none; }
+.tl-track.wave .tl-wave { display: block; position: absolute; top: 50%; height: 40px; margin-top: -20px; }
+.tl-track.wave .tl-wave { left: 0; width: 100%; border-radius: 5px; }
+.tl-track.wave .tl-head { width: 3px; height: 44px; margin: -22px 0 0 -1.5px; border-radius: 2px; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); }

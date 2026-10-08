@@ -91,7 +91,7 @@ function start(port, env = {}, seed) {
   })();
   const stop = () => {
     child.kill();
-    fs.rmSync(data, { recursive: true, force: true });
+    fs.rmSync(data, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   };
   return { base, ready, stop };
 }
@@ -195,17 +195,21 @@ test('comments are stamped with who wrote them, and only ever sit on a piece of 
     // not on anything, and empty: both refused
     { t: 'add', item: { id: 'comment02', type: 'comment', x: 5, y: 5, text: 'floating' } },
     { t: 'add', item: { id: 'comment03', type: 'comment', on: 'imageone1', text: '   ' } },
+    // about the image as a whole, pointing at no spot on it
+    { t: 'add', item: { id: 'comment04', type: 'comment', on: 'imageone1', text: 'Overall: lovely' } },
   ] }));
   await wait(300);
 
   const added = reviewer.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).filter((o) => o.item && o.item.type === 'comment');
-  assert.equal(added.length, 1);
+  assert.equal(added.length, 2);
   const c = added[0].item;
   assert.equal(c.name, 'Anna');
   assert.equal(c.color, '#336699');
   assert.equal(c.text, 'Lovely');
   assert.equal(c.rx, 1);
   assert.equal(c.extra, undefined);
+  assert.equal(added[1].item.text, 'Overall: lovely');
+  assert.ok(!('rx' in added[1].item) && !('ry' in added[1].item));
 
   // the only thing about a comment that can change afterwards is whether it is resolved
   reviewer.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'set', id: 'comment01', patch: { text: 'rewritten', name: 'Ben', done: true } }] }));
@@ -603,7 +607,7 @@ test('a malformed request is refused and the server carries on', async (t) => {
 test('a change made just before shutdown is on disk when the server comes back', async (t) => {
   const WebSocket = require('ws');
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'wipboard-test-'));
-  t.after(() => fs.rmSync(data, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(data, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   const run = () => spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
     env: { ...process.env, PORT: '4814', HOST: '127.0.0.1', WIPBOARD_DATA: data, WIPBOARD_ENV_FILE: path.join(data, 'no.env') },
     stdio: 'ignore',

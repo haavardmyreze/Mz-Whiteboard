@@ -29,7 +29,6 @@
     <canvas id="laser"></canvas>
     <svg id="guides" aria-hidden="true"><path id="guidepath"/></svg>
     <div id="eraser" hidden></div>
-    <div id="pins"></div>
     <div id="cursors"></div>
     <div id="followring" hidden></div>
     <div id="dropzone" hidden><span>Drop to add to the board</span></div>
@@ -42,7 +41,7 @@
     <div class="spacer"></div>
     <div id="peers"></div>
     <span class="sep"></span>
-    <button id="comments" class="btn ghost" title="All comments (Shift+C)"><span id="commentsicon"></span><span class="lbl">Comments</span><span id="commentcount" class="count" hidden></span></button>
+    <button id="comments" class="btn ghost" title="Comments (Shift+C)"><span id="commentsicon"></span><span class="lbl">Comments</span><span id="commentcount" class="count" hidden></span></button>
     <button id="snap" class="iconbtn" title="Smart snapping. Hold Ctrl while dragging to bypass (S)"></button>
     <button id="zoom" class="btn ghost" title="Fit everything (Shift+1)">100%</button>
     <span id="themeslot"></span>
@@ -54,18 +53,18 @@
   <nav id="toolbar" class="chrome"></nav>
   <div id="tooloptions" class="chrome" hidden></div>
   <div id="seltools" hidden></div>
-  <div id="thread" class="chrome" hidden></div>
-  <aside id="commentpanel" class="chrome" hidden></aside>
+  <nav id="filmstrip" class="chrome" aria-label="Images and video on this board" hidden></nav>
+  <div id="timeline" class="chrome" hidden></div>
+  <aside id="commentpanel" class="chrome" aria-label="Comments" hidden></aside>
 
   <div id="followpill" hidden></div>
   <div id="focusbar" hidden>
-    <button class="iconbtn" id="focusprev" title="Previous (←)"></button>
+    <button class="iconbtn" id="focusprev" title="Previous image or video (←)"></button>
     <span id="focuspos"></span>
-    <button class="iconbtn" id="focusnext" title="Next (→)"></button>
+    <button class="iconbtn" id="focusnext" title="Next image or video (→)"></button>
     <span class="sep"></span>
     <span id="focusname"></span>
-    <span class="hint" id="focushint"></span>
-    <button class="btn small ghost" id="focuszoom" title="Fit to the screen, or actual size (double-click)">Fit</button>
+    <button class="btn small ghost" id="focuszoom" title="Fit to the screen, or actual size">Fit</button>
     <button class="btn small ghost" id="focusclear" title="Delete everything drawn on this image">Clear drawing</button>
     <button class="btn small primary" id="focusdone" title="Close (Esc)">Done</button>
   </div>

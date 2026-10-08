@@ -301,8 +301,11 @@ function cleanComment(it, peer) {
   // Written by somebody with a link, under a name they typed themselves.
   if (peer && peer.viewer) clean.guest = true;
   if (typeof it.re === 'string' && ID_RE.test(it.re)) clean.re = it.re;
-  clean.rx = Math.min(1, Math.max(0, num(it.rx) ?? 0.5));
-  clean.ry = Math.min(1, Math.max(0, num(it.ry) ?? 0.5));
+  // Where on the piece it points, when it points at a spot: a comment can also be about the piece as a whole.
+  if (num(it.rx) !== null && num(it.ry) !== null) {
+    clean.rx = Math.min(1, Math.max(0, it.rx));
+    clean.ry = Math.min(1, Math.max(0, it.ry));
+  }
   if (num(it.at) !== null && it.at >= 0) clean.at = it.at;
   // On a video whose frame rate is known, the exact frame as well.
   if (Number.isSafeInteger(it.fr) && it.fr >= 0) clean.fr = it.fr;

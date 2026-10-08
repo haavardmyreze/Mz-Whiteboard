@@ -42,23 +42,38 @@ private networks, otherwise only the host machine can connect.
   key frame every half second. A browser can only show a frame by decoding from the key frame before
   it, and renders and camera files often have one every few seconds, so stepping or scrubbing
   backwards through them stalls; through the review copy it is instant in both directions.
-- **Frame-accurate video.** Each video knows its frame rate, read from the file when it is added. `,` and `.` step one frame,
+- **Frame-accurate video.** Each video knows its frame rate, read from the file when it is added. `,` and `.` step one frame
+  (with Shift, one second), Space or K plays and pauses, M turns the sound on and off,
   and scrubbing lands on whole frames. Click the time on a video to switch between minutes and seconds,
-  the frame number and a timecode; the choice is remembered per browser. Open a video, pause on a frame
-  and draw or write on it: what you make belongs to that frame and only shows when the video is stopped
-  there, like frame annotations in a review tool. Starting to draw or comment on a playing video stops
-  it on the frame showing. The timeline shows a mark for every comment and every drawn-on frame; click
-  one to go there. Whoever follows you sees exactly the frame you stop on.
-- **The viewer.** Double-click an image or video (or tap it on a phone) and it opens on its own: the
-  rest of the board is hidden behind a plain backdrop until Esc or Done closes it and the board comes
-  back where it was. Zoom in with the wheel or a pinch and move around with the middle button, Space or
-  the hand (one finger on a phone); the view never zooms out past the piece or wanders off it onto the
-  board. Double-click (or the zoom button in the bar) switches between fitting the screen and actual
-  size, and zooming in on a large image loads its original. Annotate with the
-  brush or arrows; the drawing belongs to the image, so it moves and scales with it on the board, and
-  everyone sees it live. The arrow keys (or the arrows in the bar, or a swipe) go to the next or previous
-  image or video, in the order the board reads: frame by frame, rows first and then left to right, with
-  loose media taking its place among the frames.
+  the frame number and a timecode; the choice is remembered per browser. Starting to draw or comment
+  on a playing video stops it on the frame showing. Whoever follows you sees exactly the frame you stop on.
+- **The viewer.** Double-click an image or video (or tap it on a phone) and it opens on its own, laid
+  out like a review tool: the rest of the board is hidden behind a plain backdrop, every image and
+  video on the board runs down the left edge as a strip of small numbered thumbnails, the comments on
+  the open piece sit in a panel on the right, and under a video is its timeline. Esc or Done closes it
+  and the board comes back where it was. There is no tool strip in here, because there is one tool:
+  a press on the piece is a brush stroke (right-drag rubs strokes out, and the brush's colours are
+  beside the comment box). Zoom in with the wheel or a pinch and move around with Space and a drag, or
+  the middle button (two fingers on a phone); the view never zooms out past the piece or wanders off
+  it onto the board. The zoom button in the bar switches between fitting the screen and actual size,
+  and zooming in on a large image loads its original. What is drawn belongs to the piece, so it moves
+  and scales with it, and everyone who has it open sees it live. The laser (L, and L again for the
+  brush) still points for everyone. Somebody holding a link has the hand instead of the brush.
+- **One meaning per key.** In the viewer the arrow keys always go to the next or previous image or
+  video (so do the arrows in the bar, a click in the strip, or a swipe), in the order the board reads:
+  frame by frame, rows first and then left to right, with loose media taking its place among the
+  frames. They never scrub a video and never nudge anything in there; out on the board they nudge the
+  selection. Moving through a video has its own keys (`,` and `.`), the same in the viewer and for a
+  video selected on the board.
+- **The timeline.** Under an open video: play, a frame back, a frame on, the time, and a track to drag
+  along. Every comment has a small mark above the track in its writer's colour, at the moment it is
+  about; click one to go there. Nothing lies over the picture while it is open.
+- **Scrubbing that does not wait for the network.** A browser keeps only a little of a paused video
+  in hand and fetches the rest as it is asked for, so a scrub keeps landing on moments it has not got,
+  which drags badly over a tunnel or any slow link. A video that is opened is therefore fetched whole,
+  in one go, and then played from memory, without losing its place. The track shows it: lighter where
+  the video is loaded, and all the way along once it is held whole. Videos over 400 MB stay on the
+  server, and the ones opened longest ago go back to it once a gigabyte is held.
 - **Uniform sizes.** New images come in at the same width, a new frame starts at the width it
   needs to hold one such image and a new colour block at the same width as a frame, so it sits flush above one as its header, notes and headings at fixed sizes
   and the brush at a fixed width (small while an image is open, so annotating stays fine), whatever the zoom was when you made them. Text is sized
@@ -78,14 +93,24 @@ private networks, otherwise only the host machine can connect.
   Once in, it stays in until it has been pulled completely out of the frame, and the frame closes up again. Drawing a frame around
   loose items gathers them. Resizing a frame by hand switches its fit-to-content button
   off; the toolbar button turns it back on.
-- **Comments.** Pick the Comment tool (C) and click an image, video, note or heading where the
-  comment belongs, or drag the tool from the strip and drop it there (both also work on an opened image). Comments are
-  always on one piece of content, show as numbered pins that follow it, and start a thread that
-  anyone can reply to or resolve. On a video the comment remembers the frame it was left on,
-  and clicking it jumps there. The Comments button in the top bar (Shift+C) lists every message
-  oldest first. Who wrote a comment comes from the sign-in, not from the browser. Comments go
-  when the thing they are on is deleted, and come back with it on undo, still in their author's name
-  whoever pressed undo.
+- **Comments.** Comments are made in the viewer, on the image or video that is open: type in the box
+  at the bottom of the panel (C goes there) and press Enter. On a video a comment is about the frame
+  showing, which the chip under the box says (click the chip to make it about the whole video
+  instead); starting to type stops the video there. Each comment starts a thread that anyone can
+  reply to or resolve. Out on the board, whatever has comments carries a small chip in its corner:
+  the number of open threads, or a tick once they are all resolved; click it to open the piece with
+  its comments beside it. The Comments button in the top bar (Shift+C) lists every thread on the
+  board; picking one opens what it is about. Who wrote a comment comes from the sign-in, not from the
+  browser. Comments go when the thing they are on is deleted, and come back with it on undo, still in
+  their author's name whoever pressed undo.
+- **Drawings go with comments.** To point at something, circle it. A stroke on the open piece
+  belongs to the comment being written, and starts one if none is: the box takes the keyboard, so
+  draw, type what it is about, Enter. On a video the comment is about the frame that was drawn on,
+  and its drawing shows only while the video is stopped there. What is drawn for a comment is part
+  of the review, not of the board: it shows in the viewer only, never out on the board, and a copy of
+  the piece does not take it along. Deleting a thread deletes its drawing. A drawing whose comment
+  was never sent is not thrown away: it stays on the piece as an ordinary drawing, there on every
+  frame and out on the board too.
 - **Smart snapping.** Dragged items snap to the edges and centres of their neighbours and
   to equal gaps, with guide lines. Toggle with S, hold Ctrl while dragging to bypass.
 - **Live collaboration.** Everyone sees edits, cursors and selections as they happen.
@@ -97,7 +122,9 @@ private networks, otherwise only the host machine can connect.
   @mention your name. Opening one goes straight to the comment. What you have read is remembered
   for you, on any device.
 - **Phones.** One finger moves the board, two zoom, a tap opens an image or video and a swipe goes
-  to the next. The tools sit along the bottom and comments open as a sheet from the bottom.
+  to the next. On the board the tools sit along the bottom. In the viewer one finger draws on the
+  piece, a swipe beside it goes to the next, a video's timeline sits at the bottom, and the comments
+  come up as a sheet from the bottom.
 - **Tidy.** Select some images and press Ctrl+P. A vertical line becomes an evenly sized
   column, a horizontal line a row, and a grid keeps its number of columns. Select two or more
   frames and the same shortcut tidies the frames themselves, each as one piece with its contents and

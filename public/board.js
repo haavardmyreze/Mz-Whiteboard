@@ -23,7 +23,6 @@
   const itemsLayer = $('items');
   const inksLayer = $('inks'); // drawings, always above the content whatever its order
   const cursorsLayer = $('cursors');
-  const pinsLayer = $('pins');
   const selbox = $('selbox');
   const seltools = $('seltools');
   const marquee = $('marquee');
@@ -183,6 +182,8 @@
     check: icon('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
     close: icon('<path d="M6 6l12 12M18 6L6 18"/>'),
     fit: icon('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><rect x="9" y="9" width="6" height="6"/>'),
+    frameBack: icon('<path d="M18 5.5l-9 6.5 9 6.5z" fill="currentColor"/><path d="M6 5v14"/>'),
+    frameFwd: icon('<path d="M6 5.5l9 6.5-9 6.5z" fill="currentColor"/><path d="M18 5v14"/>'),
   };
   const CURSOR_SVG = '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M1 1l4.5 13 2.2-5.3L13 6.5z" fill="var(--c)" stroke="#fff" stroke-width="1"/></svg>';
 
@@ -234,7 +235,9 @@
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const round = (v) => Math.round(v * 10) / 10;
-  const isTyping = (t) => t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+  // Somewhere text goes. A slider or a tick box is not: clicking one must not take the keyboard away from the board.
+  const isTyping = (t) => t && (t.isContentEditable || /^(TEXTAREA|SELECT)$/.test(t.tagName)
+    || (t.tagName === 'INPUT' && !/^(range|checkbox|radio|button)$/.test(t.type)));
 
   // crypto.randomUUID needs HTTPS; boards are usually served over plain HTTP on the LAN.
   function uid() {
@@ -294,11 +297,6 @@
     return z;
   }
 
-  function luminance(hex) {
-    const n = parseInt(hex.slice(1), 16);
-    return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
-  }
-
   function toast(text, { sticky = false, ms = 4000 } = {}) {
     const node = el('div', { class: 'toast', text });
     $('toasts').append(node);
@@ -314,6 +312,10 @@
     world.style.transform = `translate(${-cam.x * cam.z}px, ${-cam.y * cam.z}px) scale(${cam.z})`;
     world.style.setProperty('--z', cam.z);
     world.style.setProperty('--inv', 1 / cam.z);
+    // What sits on a piece at a size of its own (the chip that says it has comments) follows the zoom
+    // within limits: close in it does not cover the piece, further out it stays large enough to read, and
+    // only from very far away does it shrink away with everything else.
+    world.style.setProperty('--chip', Math.min(clamp(0.55 + 0.6 * cam.z, 0.6, 1.2), cam.z * 5) / cam.z);
     let grid = 32 * cam.z;
     while (grid < 20) grid *= 4;
     vp.style.backgroundSize = `${grid}px ${grid}px`;
@@ -321,7 +323,6 @@
     $('zoom').textContent = `${Math.round(cam.z * 100)}%`;
     if (focusId) showFocusZoom();
     updateOverlay();
-    if (comments.size || openThread) placePins();
     for (const peer of peers.values()) placeCursor(peer);
     const v = viewRect();
     sendP({ v: [round(v.x), round(v.y), round(v.w), round(v.h)] });
@@ -334,7 +335,8 @@
     clearTimeout(settleTimer);
     settleTimer = setTimeout(() => {
       // Not before the board has loaded and been framed: the view remembered from last time is still waiting to be read.
-      if (!firstInit && !unframed) store(`wb:cam:${boardId}`, { x: cam.x, y: cam.y, z: cam.z });
+      // Nor while something is open in the viewer: what is remembered is where the board was left, not a close-up of one piece.
+      if (!firstInit && !unframed && !focusId) store(`wb:cam:${boardId}`, { x: cam.x, y: cam.y, z: cam.z });
       checkRes();
     }, 200);
   }
@@ -572,35 +574,42 @@
     const video = el('video', { playsinline: true, loop: true, preload: 'metadata' });
     video.muted = true;
     const play = el('button', { class: 'vbtn', html: ICON.play, title: 'Play / pause (K)', onclick: () => toggleVideo(it.id) });
-    const seek = el('input', { type: 'range', min: 0, max: 1000, step: 1, value: 0, 'aria-label': 'Seek' });
+    // The slider is for the pointer only. Left holding the keyboard after a click, it would turn the arrow
+    // keys into a scrub and keep them from the board.
+    const seek = el('input', { type: 'range', min: 0, max: 1000, step: 1, value: 0, tabindex: -1, 'aria-label': 'Seek' });
     // Where the video's comments and frame drawings are; filled in by placeMarks.
     const marks = el('div', { class: 'vmarks' });
     const time = el('button', { class: 'vtime', text: '0:00', title: 'Show minutes and seconds, frame number or timecode', onclick: cycleTimeMode });
-    const sound = el('button', {
-      class: 'vbtn', html: ICON.muted, title: 'Sound on / off',
-      onclick: () => { video.muted = !video.muted; sound.innerHTML = video.muted ? ICON.muted : ICON.sound; },
+    const sound = el('button', { class: 'vbtn', html: ICON.muted, title: 'Sound on / off (M)', onclick: () => { video.muted = !video.muted; } });
+    video.addEventListener('volumechange', () => {
+      sound.innerHTML = video.muted ? ICON.muted : ICON.sound;
+      if (focusId === it.id) syncTimeline();
     });
     const tick = (at = video.currentTime) => {
       if (video.duration && !seek.matches(':active')) seek.value = Math.round((at / video.duration) * 1000);
       seek.style.setProperty('--p', `${seek.value / 10}%`);
       time.textContent = timeLabel(at, video.duration, fpsOf(it.id));
+      if (focusId === it.id) syncTimeline(at);
     };
     video.wbTick = tick;
     seek.addEventListener('input', () => {
       if (!video.duration) return;
-      const fps = fpsOf(it.id);
-      const at = (seek.value / 1000) * video.duration;
-      // Scrubbing lands on whole frames when the frame rate is known.
-      video.currentTime = fps ? frameTime(Math.min(frameIndex(at, fps), lastFrame(video, fps)), fps) : at;
+      video.currentTime = wholeFrame(it.id, (seek.value / 1000) * video.duration);
       seek.style.setProperty('--p', `${seek.value / 10}%`);
       sendMedia(it.id);
     });
+    seek.addEventListener('change', () => seek.blur());
+    for (const type of ['progress', 'suspend', 'loadedmetadata', 'seeked']) {
+      video.addEventListener(type, () => {
+        if (focusId === it.id) syncLoaded();
+      });
+    }
     video.addEventListener('timeupdate', () => tick());
     video.addEventListener('loadedmetadata', () => {
       tick();
       queueMarks();
       // Drawings that arrived before their video could not tell which frame it was on.
-      showFrameMarks(it.id);
+      refreshAnnotations(it.id);
     });
     // While it plays the counter follows each frame as it is shown, where the browser says which that is.
     const onFrame = (now, meta) => {
@@ -609,7 +618,8 @@
     };
     video.addEventListener('seeked', () => {
       tick();
-      showFrameMarks(it.id);
+      // What was drawn for a comment shows on the frame the comment is about.
+      refreshAnnotations(it.id);
     });
     // Clicks on the big button are handled by the pointer gesture so the video can still be dragged by it.
     const center = el('div', { class: 'vplay', html: ICON.play, 'aria-hidden': 'true' });
@@ -618,7 +628,8 @@
         play.innerHTML = video.paused ? ICON.play : ICON.pause;
         center.innerHTML = video.paused ? ICON.play : ICON.pause;
         node.classList.toggle('playing', !video.paused);
-        showFrameMarks(it.id);
+        refreshAnnotations(it.id);
+        if (focusId === it.id) syncTimeline();
         if (!video.paused && video.requestVideoFrameCallback) video.requestVideoFrameCallback(onFrame);
       });
     }
@@ -655,10 +666,9 @@
     const st = node.style;
     st.transform = `translate(${it.x}px, ${it.y}px)`;
     st.zIndex = it.z || 0;
-    if (comments.size) queuePins();
     const isEditing = editing && editing.id === it.id;
     node.classList.toggle('dim', !!focusId && it.id !== focusId && it.pid !== focusId);
-    if (it.fr != null && it.pid) node.classList.toggle('offframe', !onShownFrame(it));
+    if (it.pid && (it.cid || it.fr != null)) markAnnotation(it, node);
 
     if (it.type === 'image') {
       st.width = `${it.w}px`;
@@ -676,6 +686,7 @@
       if (it.poster && video.getAttribute('poster') !== it.poster) video.poster = it.poster;
       if (video.dataset.src !== it.src) {
         video.dataset.src = it.src;
+        delete video.dataset.whole;
         video.src = it.src;
       }
     } else if (it.type === 'note') {
@@ -834,6 +845,7 @@
     updateFrameCounts();
     updateOverlay();
     queueMarks();
+    if (focusId) queueViewer();
     scheduleSettle();
   }
 
@@ -937,7 +949,6 @@
     glides.clear();
     for (const id of ids) if (items.has(id) && els.has(id)) renderItem(items.get(id));
     updateOverlay();
-    if (comments.size) placePins();
   }
 
   function glideTick(now) {
@@ -966,13 +977,12 @@
       else node.style.transform = `translate(${cur.x}px, ${cur.y}px)`;
     }
     updateOverlay();
-    if (comments.size) placePins();
     if (glides.size) glideRaf = requestAnimationFrame(glideTick);
     else clearTimeout(glideTimer);
   }
 
   // Where a piece is drawn right now, which during a glide is not yet where the document has it. For
-  // what follows a piece on screen (the selection box, comment pins), never for working anything out.
+  // what follows a piece on screen (the selection box), never for working anything out.
   function shownBounds(it) {
     const b = bounds(it);
     const g = glides.get(it.id);
@@ -1036,7 +1046,9 @@
     }
     sel.clear();
     for (const id of ids) {
-      if (!items.has(id)) continue;
+      // What is open in the viewer is the page being looked at, not a thing on it: it is never selected,
+      // so nothing done to a selection (delete, nudge, duplicate, reorder) can reach it from in there.
+      if (!items.has(id) || id === focusId) continue;
       sel.add(id);
       els.get(id).classList.add('sel');
     }
@@ -1124,7 +1136,7 @@
     kids.push(btn(ICON.front, 'Bring to front ( ] or PgUp )', () => reorder(1)), btn(ICON.back, 'Send to back ( [ or PgDn )', () => reorder(-1)));
     if (list.length > 1) kids.push(btn(ICON.tidy, 'Tidy into a grid (Ctrl+P)', packSelection));
     kids.push(btn(ICON.dup, 'Duplicate (Ctrl+D)', duplicate));
-    if (one && (one.type === 'image' || one.type === 'video')) kids.push(btn(ICON.focus, 'Open it and draw on it (double-click)', () => enterFocus(one.id)));
+    if (one && (one.type === 'image' || one.type === 'video')) kids.push(btn(ICON.focus, 'Open it, to comment and draw on it (double-click)', () => enterFocus(one.id)));
     // Only ever an address: a file here, or a picture that was pasted in by its link.
     if (one && (one.type === 'image' || one.type === 'video') && /^(\/|https?:\/\/)/.test(one.src || '')) {
       kids.push(btn(ICON.open, 'Open the original file in a new tab', () => window.open(one.src, '_blank', 'noopener')));
@@ -1160,7 +1172,7 @@
   // Copies of the items plus whatever travels with them (frame contents, drawings on images).
   function cloneItems(ids, offset) {
     let z = topZ();
-    const list = [...withDependents(ids)].map((id) => items.get(id)).filter(Boolean)
+    const list = [...withDependents(ids)].map((id) => items.get(id)).filter((it) => it && !commentOf(it))
       .sort((a, b) => (a.z || 0) - (b.z || 0));
     const picked = new Set(ids);
     const copies = reid(list).map((it) => ({ ...it, x: round(it.x + offset), y: round(it.y + offset), z: ++z }));
@@ -1357,9 +1369,12 @@
     return f && f.type === 'frame' ? f : null;
   }
 
-  // While an image is open, only it and its drawings take part in anything.
+  // While an image is open, only it and its drawings take part in anything. Nor does what is out of sight:
+  // something drawn for a comment on another frame of a video than the one showing.
   function selectable(it) {
-    return !focusId || it.id === focusId || it.pid === focusId;
+    if (focusId && it.id !== focusId && it.pid !== focusId) return false;
+    const node = els.get(it.id);
+    return !node || !node.classList.contains('offframe');
   }
 
   function frameIds() {
@@ -1819,7 +1834,6 @@
         const list = mediaOrder();
         const i = list.findIndex((it) => it.id === focusId);
         if (i < 0 || list.length < 2) return;
-        closeThread();
         enterFocus(list[(((i + n) % list.length) + list.length) % list.length].id);
       });
     }
@@ -1829,8 +1843,28 @@
   // An open image or video fills the space between the bars. The view can zoom into it and move
   // around it, but never out past it nor off it onto the board: it is the board's viewer, not a
   // zoomed-in board, and only closing it goes back.
-  function focusInsets() {
-    return vp.clientWidth < 700 ? { t: 104, r: 12, b: 76, l: 12 } : { t: 112, r: 48, b: 48, l: 120 };
+  //
+  // Around it the viewer is laid out like a review tool: every image and video on the board down the
+  // left edge, the comments on the open one in a panel on the right, and under a video its timeline.
+  // What is left in the middle belongs to the piece. Measured when the layout changes, not on every
+  // move of the camera.
+  let viewerPad = { t: 112, r: 48, b: 48, l: 120 };
+  function layoutViewer() {
+    const below = timeline.hidden ? 0 : timeline.offsetHeight + 12;
+    viewerPad = vp.clientWidth < 700
+      ? { t: 104, r: 12, b: 20 + below, l: 12 }
+      : { t: 112, r: (panel.hidden ? 0 : panel.offsetWidth) + 32, b: 32 + below, l: $('filmstrip').offsetWidth + 32 };
+  }
+  const focusInsets = () => viewerPad;
+
+  // After the space around the piece has changed: a piece that filled it fills it again, and one that
+  // was zoomed into stays as it was.
+  function relayoutViewer() {
+    if (!focusId) return;
+    const fitted = !focusZoomed();
+    layoutViewer();
+    if (fitted) fitFocus();
+    else applyCam();
   }
 
   // The zoom at which the open piece just fits between the bars.
@@ -1905,45 +1939,64 @@
     }
     const prev = focusId && videoOf(focusId);
     if (prev && focusId !== id) prev.pause();
+    if (focusId && focusId !== id) dropWhole(focusId);
+    if (focusId !== id) {
+      // What was being written or read belongs to the piece before.
+      dropDraft();
+      activeThread = null;
+    }
     focusId = id;
+    // Whatever was selected on the board is left behind: nothing is selected in here.
+    setSel([]);
     document.body.classList.add('focus');
+    document.body.classList.toggle('focus-video', it.type === 'video');
     $('focusname').textContent = it.name || (it.type === 'video' ? 'Video' : 'Image');
-    const order = mediaOrder();
-    $('focuspos').textContent = `${order.findIndex((m) => m.id === id) + 1} / ${order.length}`;
-    $('focusprev').disabled = $('focusnext').disabled = order.length < 2;
+    $('focusclear').title = `Delete everything drawn on this ${it.type}`;
     $('focusbar').hidden = false;
+    $('filmstrip').hidden = false;
+    $('timeline').hidden = it.type !== 'video';
     for (const [nid, node] of els) node.classList.toggle('dim', nid !== id && items.get(nid).pid !== id);
-    $('focushint').textContent = it.type === 'image' ? 'Draw, write notes or comment' : 'Pause on a frame and draw: the drawing stays on that frame';
-    // Opening starts with the brush on an image, ready to mark it up, and the select tool on a video so
-    // its play button works. With a finger, one finger swipes between pieces, so it starts on select
-    // too. Going on to the next piece keeps whatever tool is in hand.
-    if (!wasOpen) setTool(it.type === 'image' && !viewOnly && !matchMedia('(pointer: coarse)').matches ? 'pen' : 'select');
+    // In here there is one tool, the brush: a press on the piece draws. (Somebody holding a link has the hand instead.)
+    if (!wasOpen) setTool('pen');
     if (it.type === 'video') {
-      setSel([id]);
       // Open, it is scrubbed and stepped through: worth having all of it rather than just its start.
       // Held back a moment so stepping quickly past videos does not start loading every one of them.
       clearTimeout(preloadTimer);
       preloadTimer = setTimeout(() => {
         const video = focusId === id && videoOf(id);
-        if (video) video.preload = 'auto';
+        if (!video) return;
+        // One fetch of the whole of it, rather than that and the browser's own reading ahead side by side.
+        if (wholeable(items.get(id))) holdWhole(id);
+        else video.preload = 'auto';
       }, 300);
     }
+    syncFilmstrip(!wasOpen);
+    syncComments();
+    syncTimeline();
+    syncLoaded();
+    queueMarks();
+    layoutViewer();
     fitFocus(followed || wasOpen ? 0 : 450);
     sendP({ f: id });
   }
 
   function exitFocus() {
     if (!focusId) return;
-    closeThread();
+    dropWhole(focusId);
+    dropDraft();
+    activeThread = null;
     focusId = null;
-    document.body.classList.remove('focus');
+    document.body.classList.remove('focus', 'focus-video');
     $('focusbar').hidden = true;
+    $('filmstrip').hidden = true;
+    $('timeline').hidden = true;
     for (const node of els.values()) node.classList.remove('dim');
     if (penBeforeFocus !== null) {
       pen.size = penBeforeFocus;
       penBeforeFocus = null;
     }
-    if (tool === 'pen' || tool === 'arrow') setTool('select');
+    setTool('select');
+    syncComments();
     sendP({ f: null });
     const leader = following && peers.get(following);
     if (leader && leader.p.v) followView(leader.p.v, 0);
@@ -1964,6 +2017,296 @@
     const ids = [...items.values()].filter((it) => it.pid === focusId).map((it) => it.id);
     if (ids.length) exec([{ t: 'del', ids }]);
   }
+
+  // ---- the strip down the left of the viewer: every image and video, in the order the arrows take them
+
+  const film = $('filmstrip');
+  let filmSig = '';
+  let filmQueued = false;
+  // The smallest picture there is of a piece: its thumbnail, else what the board shows for it.
+  const stillOf = (it) => it.th || (it.type === 'video' ? it.poster : it.prev || it.src) || '';
+
+  function queueViewer() {
+    if (filmQueued) return;
+    filmQueued = true;
+    queueMicrotask(() => {
+      filmQueued = false;
+      if (!focusId) return;
+      syncFilmstrip();
+      syncComposer();
+    });
+  }
+
+  // `jump` puts the open piece in view at once, as when the viewer opens; otherwise the strip glides to it.
+  function syncFilmstrip(jump = false) {
+    const list = mediaOrder();
+    const open = new Map();
+    if (canRead()) for (const c of comments.values()) if (!c.re && !c.done) open.set(c.on, (open.get(c.on) || 0) + 1);
+    const sig = list.map((it) => `${it.id} ${stillOf(it)} ${open.get(it.id) || 0}`).join('|');
+    if (sig !== filmSig) {
+      filmSig = sig;
+      film.replaceChildren(...list.map((it, i) => {
+        const still = stillOf(it);
+        const n = open.get(it.id);
+        return el('button', { class: 'fs-item', 'data-id': it.id, title: it.name || (it.type === 'video' ? 'Video' : 'Image'), onclick: () => enterFocus(it.id) },
+          el('span', { class: 'fs-num', text: String(i + 1) }),
+          el('span', { class: 'fs-thumb', style: { aspectRatio: String(clamp(it.w / (it.h || 1), 0.6, 2.4)) } },
+            still && el('img', { src: still, alt: '', loading: 'lazy', decoding: 'async', draggable: 'false' }),
+            // A video added before stills were kept for them shows its own first frame.
+            !still && it.type === 'video' && it.src && el('video', { src: it.src, preload: 'metadata', muted: true, playsinline: true, tabindex: -1 }),
+            it.type === 'video' && el('span', { class: 'fs-badge', html: ICON.play }),
+            n && el('span', { class: 'fs-count', text: String(n), title: n > 1 ? `${n} open comments` : '1 open comment' })));
+      }));
+    }
+    const i = list.findIndex((it) => it.id === focusId);
+    $('focuspos').textContent = `${i + 1} / ${list.length}`;
+    $('focusprev').disabled = $('focusnext').disabled = list.length < 2;
+    for (const node of film.children) {
+      const current = node.dataset.id === focusId;
+      if (current === node.classList.contains('current')) continue;
+      node.classList.toggle('current', current);
+      if (!current) {
+        node.removeAttribute('aria-current');
+        continue;
+      }
+      node.setAttribute('aria-current', 'true');
+      // Kept in the middle of the strip, so what comes next and what came before are both in sight.
+      film.scrollTo({ top: node.offsetTop - (film.clientHeight - node.offsetHeight) / 2, behavior: jump || calm.matches ? 'auto' : 'smooth' });
+    }
+  }
+
+  // ---- the timeline under an open video
+
+  // Not a slider: it never holds the keyboard, so the keys go on meaning what they mean everywhere else.
+  const timeline = $('timeline');
+  const tlPlay = el('button', { class: 'iconbtn', html: ICON.play, title: 'Play or pause (Space, or K)', onclick: () => toggleVideo(focusId) });
+  const tlSound = el('button', { class: 'iconbtn', html: ICON.muted, title: 'Sound on / off (M)', onclick: () => toggleSound(focusId) });
+  const tlTime = el('button', { class: 'tl-time', text: '0:00', title: 'Show minutes and seconds, frame number or timecode', onclick: cycleTimeMode });
+  const tlMarks = el('div', { class: 'tl-marks' });
+  const tlTip = el('span', { class: 'tl-tip', hidden: true });
+  const tlLoaded = el('i', { class: 'tl-loaded' });
+  const tlTrack = el('div', { class: 'tl-track' }, el('i', { class: 'tl-rail' }, tlLoaded, el('i', { class: 'tl-played' })), tlMarks, el('i', { class: 'tl-head' }), tlTip);
+  timeline.append(
+    tlPlay,
+    el('button', { class: 'iconbtn', html: ICON.frameBack, title: 'Back one frame ( , )   With Shift, one second', onclick: (e) => stepVideo(focusId, -1, e.shiftKey) }),
+    el('button', { class: 'iconbtn', html: ICON.frameFwd, title: 'Forward one frame ( . )   With Shift, one second', onclick: (e) => stepVideo(focusId, 1, e.shiftKey) }),
+    tlTime, tlTrack, tlSound);
+
+  // How much of the open video the browser has by now, drawn lighter along the track. Going to a moment
+  // it has is immediate; anywhere else it has to be fetched first, which is what makes a scrub drag.
+  // Once the video is held whole (see below) that is all of it.
+  function syncLoaded() {
+    const video = focusId ? videoOf(focusId) : null;
+    const dur = video ? video.duration : 0;
+    const parts = [];
+    const it = video ? items.get(focusId) : null;
+    const entry = it ? wholes.get(it.src) : null;
+    if (video && video.dataset.whole === it.src) {
+      // All of it is in memory.
+      parts.push(el('i', { style: { left: '0', width: '100%' } }));
+    } else if (dur > 0 && isFinite(dur)) {
+      for (let i = 0; i < video.buffered.length; i++) {
+        const from = video.buffered.start(i) / dur;
+        parts.push(el('i', { style: { left: `${from * 100}%`, width: `${(video.buffered.end(i) / dur - from) * 100}%` } }));
+      }
+      // On its way in whole: how far that has come.
+      if (entry && entry.total) parts.push(el('i', { class: 'coming', style: { left: '0', width: `${(entry.loaded / entry.total) * 100}%` } }));
+    }
+    tlLoaded.replaceChildren(...parts);
+  }
+
+  // ---- the open video, all of it
+
+  // A browser keeps only a little of a paused video in hand and fetches the rest as it is asked for.
+  // That suits watching, but a scrub keeps landing on moments it has not got yet, and drags until the
+  // hand has been over the whole length once. So a video that is opened is fetched whole, in one go,
+  // and then played from memory: every moment of it is there at once. Until it has arrived the video
+  // plays from the server as before.
+  const WHOLE_MAX = 400 * 1024 * 1024;   // larger than this stays on the server
+  const WHOLE_KEPT = 1024 * 1024 * 1024; // how much is held in memory across videos
+  const wholes = new Map();              // a video's address -> { loaded, total, url, size, ctl, ready }
+
+  function fetchWhole(src) {
+    let entry = wholes.get(src);
+    if (entry) return entry;
+    entry = { loaded: 0, total: 0, url: null, size: 0, ctl: new AbortController() };
+    wholes.set(src, entry);
+    entry.ready = (async () => {
+      const res = await fetch(src, { signal: entry.ctl.signal });
+      entry.total = Number(res.headers.get('content-length')) || 0;
+      if (!res.ok || !res.body || !entry.total || entry.total > WHOLE_MAX) throw new Error('not one to hold in memory');
+      const reader = res.body.getReader();
+      const pieces = [];
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        pieces.push(value);
+        entry.loaded += value.length;
+        if (focusId && items.get(focusId)?.src === src) syncLoaded();
+      }
+      entry.size = entry.loaded;
+      entry.url = URL.createObjectURL(new Blob(pieces, { type: res.headers.get('content-type') || 'video/mp4' }));
+      return entry.url;
+    })().catch(() => {
+      entry.ctl.abort();
+      if (wholes.get(src) === entry) wholes.delete(src);
+      return null;
+    });
+    return entry;
+  }
+
+  // Puts a video on another source without a flash: the frame it shows is held over it until the same
+  // frame is back, and it carries on from where it was.
+  function switchSource(video, url) {
+    const at = video.currentTime;
+    const playing = !video.paused;
+    const hold = el('canvas', { class: 'vhold', width: video.videoWidth || 1, height: video.videoHeight || 1 });
+    try {
+      if (video.readyState >= 2 && video.videoWidth) {
+        hold.getContext('2d').drawImage(video, 0, 0);
+        video.after(hold);
+      }
+    } catch {
+      // without the still the change shows for a moment, that is all
+    }
+    const settle = () => {
+      clearTimeout(timer);
+      hold.remove();
+      video.removeEventListener('seeked', settle);
+      video.removeEventListener('error', settle);
+    };
+    const timer = setTimeout(settle, 3000);
+    video.addEventListener('error', settle);
+    video.addEventListener('loadeddata', () => {
+      if (playing) video.play().catch(() => {});
+      if (at > 0.001) {
+        video.addEventListener('seeked', settle);
+        video.currentTime = at;
+      } else {
+        settle();
+      }
+    }, { once: true });
+    video.src = url;
+  }
+
+  // Only what this server keeps: anything else may not let itself be fetched.
+  const wholeable = (it) => !!it && it.type === 'video' && /^\/uploads\//.test(it.src || '');
+
+  async function holdWhole(id) {
+    const it = items.get(id);
+    if (!wholeable(it)) return;
+    const src = it.src;
+    const entry = fetchWhole(src);
+    entry.used = performance.now();
+    const url = await entry.ready;
+    // Not in the middle of a scrub, which would be thrown back to where it started.
+    while (scrub) await new Promise((resolve) => setTimeout(resolve, 120));
+    const video = videoOf(id);
+    if (!url || !video || items.get(id)?.src !== src || video.dataset.whole === src) return;
+    video.dataset.whole = src;
+    switchSource(video, url);
+    if (focusId === id) syncLoaded();
+    // Memory is not for hoarding: the videos opened longest ago go back to playing from the server.
+    let kept = 0;
+    for (const e of wholes.values()) kept += e.size;
+    for (const [other, e] of [...wholes].sort((a, b) => a[1].used - b[1].used)) {
+      if (kept <= WHOLE_KEPT || other === src || !e.url) continue;
+      for (const [nid, node] of els) {
+        const v = node.classList.contains('video') ? node.firstChild : null;
+        if (!v || v.dataset.whole !== other) continue;
+        delete v.dataset.whole;
+        switchSource(v, items.get(nid).src);
+      }
+      URL.revokeObjectURL(e.url);
+      wholes.delete(other);
+      kept -= e.size;
+    }
+  }
+
+  // Going on before a video has arrived whole lets go of the fetch, rather than have every video
+  // stepped past arrive at once.
+  function dropWhole(id) {
+    const it = items.get(id);
+    const entry = it && wholes.get(it.src);
+    if (!entry || entry.url) return;
+    entry.ctl.abort();
+    wholes.delete(it.src);
+  }
+
+  // Shows where the open video is: the playhead, the time, and which way the buttons point.
+  function syncTimeline(at) {
+    const video = focusId ? videoOf(focusId) : null;
+    if (!video) return;
+    if (at == null) at = video.currentTime;
+    const dur = video.duration;
+    const fps = fpsOf(focusId);
+    tlTrack.style.setProperty('--p', `${(dur > 0 && isFinite(dur) ? clamp(at / dur, 0, 1) : 0) * 100}%`);
+    const label = timeLabel(at, dur, fps);
+    if (tlTime.textContent !== label) tlTime.textContent = label;
+    const state = `${video.paused}${video.muted}`;
+    if (timeline.dataset.state !== state) {
+      timeline.dataset.state = state;
+      tlPlay.innerHTML = video.paused ? ICON.play : ICON.pause;
+      tlSound.innerHTML = video.muted ? ICON.muted : ICON.sound;
+    }
+    // The moment a comment written now would be about.
+    if (!panel.hidden && !momentChip.hidden && !(draft && draft.at != null)) {
+      const moment = fmtMoment(at, fps);
+      if (momentChip.lastChild.textContent !== moment) momentChip.lastChild.textContent = moment;
+    }
+  }
+
+  let scrub = null;
+  function trackMoment(e) {
+    const video = videoOf(focusId);
+    const r = tlTrack.getBoundingClientRect();
+    const k = clamp((e.clientX - r.left) / Math.max(1, r.width), 0, 1);
+    return { k, at: wholeFrame(focusId, k * video.duration) };
+  }
+  function scrubTo(e) {
+    const video = videoOf(focusId);
+    const { at } = trackMoment(e);
+    video.currentTime = at;
+    syncTimeline(at);
+    sendMedia(focusId);
+  }
+  const scrubbable = () => {
+    const video = focusId ? videoOf(focusId) : null;
+    return video && video.duration > 0 && isFinite(video.duration) ? video : null;
+  };
+  tlTrack.addEventListener('pointerdown', (e) => {
+    const video = scrubbable();
+    if (!video || e.button !== 0 || e.target.closest('.tl-mark')) return;
+    e.preventDefault();
+    try {
+      tlTrack.setPointerCapture(e.pointerId);
+    } catch {
+      // capture is a nicety; the scrub still works while the pointer stays over the track
+    }
+    // Dragging through a playing video holds it still while the hand moves, and lets it run on after.
+    scrub = { pid: e.pointerId, resume: !video.paused };
+    video.pause();
+    scrubTo(e);
+  });
+  tlTrack.addEventListener('pointermove', (e) => {
+    if (!scrubbable()) return;
+    const { k, at } = trackMoment(e);
+    tlTip.hidden = false;
+    tlTip.textContent = fmtMoment(at, fpsOf(focusId));
+    tlTip.style.left = `${k * 100}%`;
+    if (scrub && e.pointerId === scrub.pid) scrubTo(e);
+  });
+  const endScrub = (e) => {
+    if (!scrub || e.pointerId !== scrub.pid) return;
+    const video = scrubbable();
+    if (video && scrub.resume) video.play().catch(() => {});
+    scrub = null;
+    tlTip.hidden = !tlTrack.matches(':hover');
+    if (video) sendMedia(focusId);
+  };
+  tlTrack.addEventListener('pointerup', endScrub);
+  tlTrack.addEventListener('pointercancel', endScrub);
+  tlTrack.addEventListener('pointerleave', () => { if (!scrub) tlTip.hidden = true; });
 
   function setLevel(lvl) {
     const ops = [];
@@ -2040,14 +2383,8 @@
 
   function createTextItem(type, p, text = '') {
     const base = { id: uid(), type, x: round(p.x), y: round(p.y), text, z: topZ() + 1 };
-    // While an image is open, what you write goes with the image, like a drawing does.
-    const frame = focusId ? null : frameAt(p);
+    const frame = frameAt(p);
     if (frame) base.fid = frame.id;
-    if (focusId) {
-      base.pid = focusId;
-      holdFrame(focusId);
-      tagFrame(base);
-    }
     const item = type === 'note'
       ? { ...base, w: NOTE_W, h: 0, fs: NOTE_FS, color: NOTE_FILLS[0] }
       : { ...base, fs: levelSize(textPref.lvl), lvl: textPref.lvl, color: INK[0] };
@@ -2082,19 +2419,32 @@
     sendMedia(id);
   }
 
-  function stepVideo(id, dir) {
+  // One frame on or back; with `second`, about a second's worth of them.
+  function stepVideo(id, dir, second = false) {
     const video = videoOf(id);
     if (!video) return;
     video.pause();
     const fps = fpsOf(id);
     if (fps) {
-      const f = clamp(frameIndex(video.currentTime, fps) + dir, 0, lastFrame(video, fps));
+      const f = clamp(frameIndex(video.currentTime, fps) + dir * (second ? Math.round(fps) : 1), 0, lastFrame(video, fps));
       video.currentTime = frameTime(f, fps);
     } else {
       // A video whose frame rate could not be read steps a 24th of a second.
-      video.currentTime = clamp(video.currentTime + dir / 24, 0, video.duration || 0);
+      video.currentTime = clamp(video.currentTime + dir * (second ? 1 : 1 / 24), 0, video.duration || 0);
     }
     sendMedia(id);
+  }
+
+  function toggleSound(id) {
+    const video = videoOf(id);
+    if (video) video.muted = !video.muted;
+  }
+
+  // Where a seek to `at` lands: on the frame showing then, when the frame rate is known.
+  function wholeFrame(id, at) {
+    const video = videoOf(id);
+    const fps = fpsOf(id);
+    return video && fps ? frameTime(Math.min(frameIndex(at, fps), lastFrame(video, fps)), fps) : at;
   }
 
   function seekVideo(id, at) {
@@ -2182,28 +2532,9 @@
     timeMode = TIME_MODES[(TIME_MODES.indexOf(timeMode) + 1) % TIME_MODES.length];
     store('wb:timemode', timeMode);
     for (const node of els.values()) if (node.classList.contains('video')) node.firstChild.wbTick();
+    // The comments say when they are about, written the same way.
     cmDirty = true;
     afterChange();
-    if (openThread) renderThread();
-  }
-
-  // Drawings and notes made on an open, paused video belong to the frame they were made on, and show on that frame only.
-  function onShownFrame(it) {
-    const f = heldFrame(it.pid);
-    return f !== null && f === it.fr;
-  }
-  function showFrameMarks(id) {
-    for (const it of items.values()) {
-      if (it.pid !== id || it.fr == null) continue;
-      const node = els.get(it.id);
-      if (node) node.classList.toggle('offframe', !onShownFrame(it));
-    }
-  }
-  function tagFrame(item) {
-    const host = items.get(item.pid);
-    if (!host || host.type !== 'video') return;
-    const f = heldFrame(host.id);
-    if (f !== null) item.fr = f;
   }
 
   // Marks on each video's timeline where its comments and frame drawings are; clicking one goes there.
@@ -2217,13 +2548,16 @@
     marksQueued = false;
     const on = new Map();
     const add = (id, mark) => (on.get(id) || on.set(id, []).get(id)).push(mark);
-    for (const c of comments.values()) {
-      const at = c.re ? null : momentOf(c);
-      if (at != null) add(c.on, { at, kind: 'comment', title: `${c.name}: ${c.text}` });
-    }
+    // Drawings first, so a comment on a drawn-on frame sits on top of its tick.
     for (const it of items.values()) {
       const fps = it.fr != null && it.pid ? fpsOf(it.pid) : 0;
       if (fps) add(it.pid, { at: frameTime(it.fr, fps), kind: 'draw', title: 'Drawing on this frame' });
+    }
+    if (canRead()) {
+      for (const c of rootsInOrder()) {
+        const at = momentOf(c);
+        if (at != null) add(c.on, { at, kind: 'comment', title: `${c.name}: ${c.text}`, c });
+      }
     }
     for (const [id, node] of els) {
       if (!node.classList.contains('video')) continue;
@@ -2231,16 +2565,26 @@
       const dur = video.duration;
       const seen = new Set();
       const kids = [];
+      const open = [];
       for (const m of isFinite(dur) && dur > 0 ? on.get(id) || [] : []) {
+        const left = `${clamp(m.at / dur, 0, 1) * 100}%`;
+        // On the open video's timeline every comment has its own mark, in its writer's colour, and
+        // picking one picks its thread.
+        if (id === focusId) {
+          open.push(m.c
+            ? el('button', {
+              class: `tl-mark comment${m.c.done ? ' done' : ''}${m.c.id === activeThread ? ' active' : ''}`, title: m.title,
+              style: { left, background: hexOk(m.c.color) ? m.c.color : '#8a8a8a' }, onclick: () => pickThread(m.c.id),
+            })
+            : !seen.has(`draw:${Math.round(m.at * 1000)}`) && el('button', { class: 'tl-mark draw', title: m.title, style: { left }, onclick: () => seekVideo(id, m.at) }));
+        }
         const key = `${m.kind}:${Math.round(m.at * 1000)}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        kids.push(el('button', {
-          class: `vmark ${m.kind}`, title: m.title, style: { left: `${clamp(m.at / dur, 0, 1) * 100}%` },
-          onclick: () => seekVideo(id, m.at),
-        }));
+        kids.push(el('button', { class: `vmark ${m.kind}`, title: m.title, style: { left }, onclick: () => seekVideo(id, m.at) }));
       }
       node.querySelector('.vmarks').replaceChildren(...kids);
+      if (id === focusId) tlMarks.replaceChildren(...open.filter(Boolean));
     }
   }
 
@@ -2796,6 +3140,7 @@
     }
     const trimmed = text.trim();
     if (!trimmed) return;
+    if (focusId) return void typeComment(trimmed);
     if (/^https?:\/\/\S+$/.test(trimmed) && IMG_EXT.test(trimmed.split(/[?#]/)[0])) return addImageUrl(trimmed, at);
     createTextItem('note', at, trimmed.slice(0, 20000));
   }
@@ -2868,9 +3213,22 @@
     marquee.style.height = `${Math.abs(b.y - a.y) * cam.z}px`;
   }
 
+  function beginPan(e, more = {}) {
+    userMovedView();
+    begin({ type: 'pan', sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, lx: e.clientX, ly: e.clientY, t: performance.now(), vx: 0, vy: 0, ...more }, e);
+    document.body.classList.add('panning');
+  }
+
+  // With the hand, which is what somebody holding a link has in the viewer, a click on the open video
+  // that went nowhere plays or pauses it. (With the brush a press on it draws.)
+  function clickedOpenVideo(g, e) {
+    return !!g.onPiece && !!e && e.type === 'pointerup' && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) < 4 && !!focusId && !!videoOf(focusId);
+  }
+
   vp.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.vbar, a, .pin')) return;
-    closeThread();
+    if (e.target.closest('.vbar, a, .cchip')) return;
+    // A hand on the board while Space is down is a pan, not a tap of the key.
+    spaceTap = false;
     if (editing) {
       if (editing.node.contains(e.target)) return;
       finishEdit();
@@ -2878,7 +3236,7 @@
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     const p = s2w(e.clientX, e.clientY);
     if (e.pointerType === 'touch' && touchStart(e)) return;
-    const pan = e.button === 1 || e.button === 2 || (e.button === 0 && ((viewOnly && tool !== 'comment') || spaceDown || tool === 'pan' || tool === 'laser'));
+    const pan = e.button === 1 || e.button === 2 || (e.button === 0 && (viewOnly || spaceDown || tool === 'pan' || tool === 'laser'));
     e.preventDefault();
     if (gesture) return;
     // Touching the board catches it.
@@ -2892,10 +3250,8 @@
       return;
     }
     if (pan) {
-      userMovedView();
-      begin({ type: 'pan', sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, lx: e.clientX, ly: e.clientY, t: performance.now(), vx: 0, vy: 0 }, e);
-      document.body.classList.add('panning');
-      return;
+      const hit = e.target.closest('.item');
+      return beginPan(e, { onPiece: e.button === 0 && !spaceDown && tool !== 'laser' && !!focusId && !!hit && hit.dataset.id === focusId });
     }
     if (e.button !== 0) return;
 
@@ -2920,16 +3276,19 @@
     } else if (tool === 'note' || tool === 'text') {
       createTextItem(tool, p);
       setTool('select');
-    } else if (tool === 'comment') {
-      const host = contentAt(e.clientX, e.clientY);
-      if (!host) return void toast('A comment goes on an image, video, note or heading', { ms: 2500 });
-      setTool('select');
-      commentOn(host, p);
     } else if (tool === 'frame' || tool === 'block') {
       begin({ type: 'frame', kind: tool, p0: p, p1: p }, e);
     } else if (tool === 'pen' || tool === 'arrow') {
-      // Drawing on an open video stops it on a frame, and the drawing belongs to that frame.
-      if (focusId) holdFrame(focusId);
+      if (focusId) {
+        // In the viewer the brush is for the piece. Off it, a finger swipes on to the next one and a
+        // mouse moves the view.
+        if (!onOpenPiece(e.clientX, e.clientY)) {
+          if (e.pointerType === 'touch') return begin({ type: 'swipe', sx: e.clientX, sy: e.clientY }, e);
+          return beginPan(e);
+        }
+        // Drawing on a video stops it, on the frame the drawing is about.
+        holdFrame(focusId);
+      }
       const arrow = tool === 'arrow';
       const size = pen.size;
       const path = svgEl('path', arrow
@@ -2940,7 +3299,7 @@
       inksLayer.append(svg);
       // Brush width follows pen pressure when there is any, otherwise how fast the stroke moves.
       const w0 = e.pointerType === 'pen' && e.pressure > 0 ? 0.25 + 0.75 * e.pressure : 0.5;
-      const g = { type: 'draw', arrow, pts: [p.x, p.y], ws: [w0], lt: e.timeStamp, svg, path, size };
+      const g = { type: 'draw', arrow, pts: [p.x, p.y], ws: [w0], lt: e.timeStamp, svg, path, size, t0: performance.now() };
       begin(g, e);
       if (!arrow) path.setAttribute('d', outlinePath(g.pts, g.ws, 1, 1, size));
     }
@@ -2955,7 +3314,12 @@
   function touchStart(e) {
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (touches.size >= 2) {
-      // A second finger turns looking around into zooming; it leaves a drawing or a move alone.
+      // A second finger turns looking around into zooming; it leaves a drawing or a move alone, unless
+      // the drawing has only just begun: that was the first of two fingers arriving, not a stroke.
+      if (gesture && gesture.type === 'draw' && performance.now() - gesture.t0 < 250) {
+        gesture.svg.remove();
+        gesture = null;
+      }
       if (gesture && (gesture.type === 'pan' || gesture.type === 'swipe')) {
         gesture = null;
         document.body.classList.remove('panning');
@@ -2970,13 +3334,13 @@
     }
     if ((tool !== 'select' && tool !== 'pan') || e.target.closest('.handle')) return false;
     const play = !!e.target.closest('.vplay');
-    // In the viewer one finger swipes to the next piece, or moves around it once zoomed in.
-    if (focusId && !focusZoomed()) {
-      begin({ type: 'swipe', sx: e.clientX, sy: e.clientY, play }, e);
-      return true;
-    }
+    // In the viewer, with the hand, one finger swipes to the next piece, or moves around it once zoomed in.
     const node = e.target.closest('.item');
     const id = node ? node.dataset.id : null;
+    if (focusId && !focusZoomed()) {
+      begin({ type: 'swipe', sx: e.clientX, sy: e.clientY, onPiece: id === focusId }, e);
+      return true;
+    }
     if (!focusId && id && sel.has(id) && !viewOnly && tool === 'select') return false;
     if (coasting) stopCamAnim();
     userMovedView();
@@ -2988,7 +3352,8 @@
   function touchTap(g) {
     let it = g.id && items.get(g.id);
     if (it && it.type === 'stroke' && it.pid) it = items.get(it.pid);
-    if (it && it.type === 'video' && g.play) toggleVideo(it.id);
+    // Open, a tap anywhere on a video plays or pauses it; on the board, only its play button does.
+    if (it && it.type === 'video' && (g.play || it.id === focusId)) toggleVideo(it.id);
     else if (focusId) return;
     else if (it && (it.type === 'image' || it.type === 'video')) enterFocus(it.id);
     else if (it && !viewOnly && selectable(it)) setSel([it.id]);
@@ -3157,7 +3522,7 @@
       const r = { x: Math.min(g.p0.x, p.x), y: Math.min(g.p0.y, p.y), w: Math.abs(p.x - g.p0.x), h: Math.abs(p.y - g.p0.y) };
       const ids = new Set(g.base);
       for (const it of items.values()) {
-        if (!selectable(it)) continue;
+        if (!selectable(it) || it.id === focusId) continue;
         const b = bounds(it);
         if (it.type === 'frame' ? contains(r, b) : intersects(r, b)) ids.add(it.id);
       }
@@ -3220,14 +3585,15 @@
     } else if (g.type === 'pan') {
       if (g.touch && !g.moved) {
         if (e && e.type === 'pointerup') touchTap(g);
+      } else if (clickedOpenVideo(g, e)) toggleVideo(focusId);
       // Only if the hand was still moving when it let go: a pan brought to rest stays where it was put.
-      } else if (e && e.type === 'pointerup' && performance.now() - g.t < 60) coast(g.vx, g.vy);
+      else if (e && e.type === 'pointerup' && performance.now() - g.t < 60) coast(g.vx, g.vy);
     } else if (g.type === 'swipe') {
-      // In the viewer a sideways swipe goes to the next or previous piece.
+      // In the viewer a sideways swipe goes to the next or previous piece, and a tap on a video plays or pauses it.
       const dx = e ? e.clientX - g.sx : 0;
       const dy = e ? e.clientY - g.sy : 0;
       if (e && e.type === 'pointerup' && Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) stepFocus(dx < 0 ? 1 : -1);
-      else if (e && e.type === 'pointerup' && g.play && Math.hypot(dx, dy) < 8) toggleVideo(focusId);
+      else if (e && e.type === 'pointerup' && g.onPiece && Math.hypot(dx, dy) < 8) toggleVideo(focusId);
     } else if (g.type === 'move') {
       clearGuides();
       if (!g.started) {
@@ -3289,12 +3655,13 @@
         }
         if (focusId) {
           item.pid = focusId;
-          tagFrame(item);
+          tagComment(item);
         } else {
           const host = hostFor(item);
           item.pid = host ? host.id : null;
         }
         exec(addOps([item]));
+        if (item.cid) drewForComment(e);
       }
     }
     updateOverlay();
@@ -3335,7 +3702,6 @@
     if (viewOnly && it.type !== 'video' && it.type !== 'image') return;
     if (it.type === 'note' || it.type === 'text' || it.type === 'block') startEdit(it.id);
     else if (it.type === 'frame') { if (hit.closest('.frame-head')) startEdit(it.id); }
-    else if (it.id === focusId) toggleFocusZoom(e.clientX, e.clientY);
     else if (it.type === 'video' || it.type === 'image') enterFocus(it.id);
   });
 
@@ -3343,7 +3709,7 @@
   if (viewOnly) {
     let down = null;
     vp.addEventListener('pointerdown', (e) => {
-      down = e.button === 0 && tool !== 'comment' ? { x: e.clientX, y: e.clientY, skip: !!e.target.closest('.vbar, a, .pin'), play: !!e.target.closest('.vplay') } : null;
+      down = e.button === 0 ? { x: e.clientX, y: e.clientY, skip: !!e.target.closest('.vbar, a, .cchip'), play: !!e.target.closest('.vplay') } : null;
     }, true);
     vp.addEventListener('pointerup', (e) => {
       const start = down;
@@ -3396,7 +3762,7 @@
 
   function copySel(e) {
     if (isTyping(e.target) || !sel.size) return false;
-    e.clipboardData.setData('text/plain', JSON.stringify({ wipboard: 1, items: [...withDependents(sel)].map((id) => items.get(id)) }));
+    e.clipboardData.setData('text/plain', JSON.stringify({ wipboard: 1, items: [...withDependents(sel)].map((id) => items.get(id)).filter((it) => !commentOf(it)) }));
     e.preventDefault();
     return true;
   }
@@ -3412,25 +3778,37 @@
 
   // ------------------------------------------------------------- comments
 
-  // A comment is a pin fixed to a point on one piece of content (an image, a video, a note, a heading),
-  // never to a spot on the bare canvas. The first message starts a thread and replies hang off it. They
-  // are shared, saved and undone like everything else, but kept apart from the items so they never take
-  // part in layout, snapping or fitting.
+  // Comments are made in the viewer. An image or a video is opened, and what people say about it is
+  // kept in a panel beside it, the way a review tool does it. A comment belongs to the piece, and on a
+  // video to the frame it was written on. To point at something you circle it: in the viewer a press
+  // on the piece is a brush stroke, and a stroke belongs to the comment being written, starting one if
+  // none is. On a video, what was drawn for a comment shows on that comment's frame only.
+  // The first message starts a thread and replies hang off it. They are shared, saved and undone like
+  // everything else, but kept apart from the items so they never take part in layout, snapping or
+  // fitting.
+  //
+  // Out on the board whatever has comments carries a chip in its corner, and the same panel lists every
+  // thread there is. Picking one opens what it is about.
 
-  let showPins = store('wb:pins') !== false;
-  let openThread = null;   // { id } for a thread, { draft } while a new comment is being written
-  let hideDone = false;
-  let pinsQueued = false;
-  const pinNodes = new Map();
-  const draftPin = el('div', { class: 'pin draft', html: ICON.comment, hidden: true });
-  pinsLayer.append(draftPin);
-  const threadBox = $('thread');
+  let hideDone = store('wb:hidedone') === true;
+  let activeThread = null;  // the thread picked in the panel, by the id of its first message
+  let draft = null;         // { id, on, at, fr }: the comment being written, from the first stroke drawn for it
+  let drawnIds = new Set(); // the comments something has been drawn for
+  let timed = true;         // whether a new comment on a video is about the frame showing
+  let boardPanel = false;   // the list of every thread, out on the board
+  // Beside the viewer the panel starts open, and afterwards stays as it was left.
+  let viewerPanel = store('wb:cpanel') !== false;
+  let sheetOpen = false;    // the same panel on a narrow screen, where it lies over the piece
   const panel = $('commentpanel');
 
-  const rootsInOrder = () => [...comments.values()].filter((c) => !c.re).sort((a, b) => (a.t || 0) - (b.t || 0) || (a.id < b.id ? -1 : 1));
-  const repliesOf = (id) => [...comments.values()].filter((c) => c.re === id).sort((a, b) => (a.t || 0) - (b.t || 0));
+  // Somebody holding a link reads the comments only if the link says so, and writes only if it says that too.
+  const canRead = () => !viewOnly || guestReads();
+  const canWrite = () => !viewOnly || guestWrites();
+  const byTime = (a, b) => (a.t || 0) - (b.t || 0) || (a.id < b.id ? -1 : 1);
+  const rootsInOrder = () => [...comments.values()].filter((c) => !c.re).sort(byTime);
+  const repliesOf = (id) => [...comments.values()].filter((c) => c.re === id).sort(byTime);
   const hexOk = (c) => /^#[0-9a-f]{6}$/i.test(c || '');
-  const pinInk = (c) => (hexOk(c) && luminance(c) > 0.6 ? '#1a1a1a' : '#ffffff');
+  const drawnFor = (id) => [...items.values()].filter((it) => it.cid === id);
 
   function hostLabel(c) {
     const h = items.get(c.on);
@@ -3440,224 +3818,482 @@
     return named || { image: 'an image', video: 'a video', frame: 'a frame', note: 'a note', text: 'a heading', block: 'a block' }[h.type] || 'an item';
   }
 
-  // A pin is part of the board, so it grows and shrinks with the zoom, within limits: far out it stays
-  // large enough to hit, and close in it does not cover what it points at.
-  const pinScale = () => clamp(cam.z, 0.6, 1.4);
+  // ---- what is drawn for a comment
 
-  // Where a comment sits on the board, which follows the thing it was left on.
-  function anchorOf(c) {
-    const host = items.get(c.on);
-    if (!host) return null;
-    const r = shownBounds(host);
-    return { x: r.x + c.rx * r.w, y: r.y + c.ry * r.h };
+  // On a video a comment is about the frame showing: the exact frame when the rate is known, and the
+  // time either way. Unless it is about the video as a whole.
+  function stampMoment(c) {
+    delete c.at;
+    delete c.fr;
+    const video = videoOf(c.on);
+    if (!video || !timed) return;
+    holdFrame(c.on);
+    if (isFinite(video.currentTime)) c.at = Math.round(video.currentTime * 100) / 100;
+    const fr = heldFrame(c.on);
+    if (fr !== null) c.fr = fr;
   }
 
-  // ---- pins on the board
+  // A stroke on the open piece belongs to the comment being written, and starts one if none is. On a
+  // video that comment is about the frame its latest stroke was drawn on.
+  function tagComment(item) {
+    if (!draft || draft.on !== item.pid) {
+      draft = { id: uid(), on: item.pid };
+      // Writing a new one now, not reading that one.
+      activeThread = null;
+    }
+    stampMoment(draft);
+    item.cid = draft.id;
+  }
+
+  // After a stroke the panel is there with its box ready, so what the drawing is about can be typed at once.
+  function drewForComment(e) {
+    if (!panelShown() && !narrow()) togglePanel(true);
+    else syncComments();
+    // Not on a phone, where the keyboard would come up over the picture after every stroke.
+    if (!narrow() && !(e && e.pointerType === 'touch')) setTimeout(() => composer.focus({ preventScroll: true }), 0);
+  }
+
+  // The comment something on a piece was drawn for, while there is such a comment on that piece. There
+  // may not be: it was never sent, it is gone, or this is a copy of the piece, which takes the drawings
+  // along but not the comments. What is left then is an ordinary drawing.
+  function commentOf(it) {
+    if (!it.cid) return null;
+    const c = draft && draft.id === it.cid ? draft : comments.get(it.cid);
+    return c && c.on === it.pid ? c : null;
+  }
+
+  function annotationShows(it) {
+    const c = commentOf(it);
+    if (c) {
+      // What is drawn for a comment is part of the review, not of the board: it is there while its piece is open.
+      if (c.on !== focusId) return false;
+      const video = videoOf(c.on);
+      // On an image there is no other moment to be on, and what is being drawn is in sight while it is drawn.
+      if (c === draft || !video) return true;
+      const at = momentOf(c);
+      // About the whole video: there with its thread.
+      if (at == null) return c.id === activeThread;
+      return video.paused && Math.abs(video.currentTime - at) < 0.6 / (fpsOf(c.on) || 24);
+    }
+    // Drawn on one frame of a video before drawings went with comments: on that frame still.
+    if (!it.cid && it.fr != null) return heldFrame(it.pid) === it.fr;
+    return true;
+  }
+
+  function markAnnotation(it, node) {
+    node.classList.toggle('offframe', !annotationShows(it));
+  }
+
+  function refreshAnnotations(hostId) {
+    for (const it of items.values()) {
+      if (!it.pid || (hostId && it.pid !== hostId) || (!it.cid && it.fr == null)) continue;
+      const node = els.get(it.id);
+      if (node) markAnnotation(it, node);
+    }
+  }
+
+  // Takes back what was drawn for the comment being written.
+  function discardDrawing() {
+    if (!draft) return;
+    const ids = drawnFor(draft.id).map((it) => it.id);
+    draft = null;
+    if (ids.length) exec([{ t: 'del', ids }]);
+    syncComments();
+  }
+
+  // Lets go of the comment being written, as when going on to another piece. What was drawn for it is
+  // not thrown away: it stays on the piece as an ordinary drawing.
+  function dropDraft() {
+    if (!draft) return;
+    const left = draft;
+    draft = null;
+    if (drawnFor(left.id).length) toast('The drawing stays on the picture, without a comment', { ms: 3500 });
+    refreshAnnotations(left.on);
+    syncComposer();
+  }
+
+  // Whether a screen point is on the open piece, or on something drawn or written on it.
+  function onOpenPiece(x, y) {
+    const t = document.elementFromPoint(x, y);
+    const node = t && t.closest ? t.closest('.item') : null;
+    const it = node ? items.get(node.dataset.id) : null;
+    return !!it && !!focusId && (it.id === focusId || it.pid === focusId);
+  }
 
   function syncComments() {
     const roots = rootsInOrder();
-    const live = new Set(roots.map((c) => c.id));
-    roots.forEach((c) => {
-      let node = pinNodes.get(c.id);
-      if (!node) {
-        node = el('button', { class: 'pin', onclick: (e) => { e.stopPropagation(); toggleThread(c.id); } });
-        pinsLayer.append(node);
-        pinNodes.set(c.id, node);
+    if (activeThread && !comments.has(activeThread)) activeThread = null;
+    const open = roots.filter((c) => !c.done).length;
+    const badge = $('commentcount');
+    badge.hidden = !open;
+    badge.textContent = String(open);
+    renderPanel();
+    refreshAnnotations();
+    syncChips();
+    queueMarks();
+    if (focusId) queueViewer();
+  }
+
+  // ---- out on the board: what has comments says so
+
+  // A small chip in the corner of anything with comments on it: how many threads are open, or a tick
+  // once they are all resolved. Clicking it opens the piece with its comments beside it.
+  const chips = new Map(); // the id of a piece -> its chip
+  function syncChips() {
+    const counts = new Map();
+    if (canRead()) {
+      for (const c of comments.values()) {
+        if (c.re) continue;
+        const n = counts.get(c.on) || counts.set(c.on, { open: 0, all: 0 }).get(c.on);
+        n.all++;
+        if (!c.done) n.open++;
       }
-      node.classList.toggle('done', !!c.done);
-      node.innerHTML = c.done ? ICON.check : ICON.comment;
-      node.title = `${c.name}: ${c.text.slice(0, 80)}`;
-    });
-    for (const [id, node] of pinNodes) {
-      if (live.has(id)) continue;
-      node.remove();
-      pinNodes.delete(id);
     }
-    updateCommentUI();
-    placePins();
-  }
-
-  function queuePins() {
-    if (pinsQueued) return;
-    pinsQueued = true;
-    queueMicrotask(placePins);
-  }
-
-  function placePins() {
-    pinsQueued = false;
-    const w = vp.clientWidth;
-    const h = vp.clientHeight;
-    for (const c of comments.values()) {
-      if (c.re) continue;
-      const node = pinNodes.get(c.id);
+    for (const [id, chip] of chips) {
+      // Gone with its comments, or left behind on a piece that has been drawn afresh.
+      if (counts.has(id) && chip.isConnected) continue;
+      chip.remove();
+      chips.delete(id);
+    }
+    for (const [id, n] of counts) {
+      const node = els.get(id);
       if (!node) continue;
-      const pos = anchorOf(c);
-      const s = pos && w2s(pos.x, pos.y);
-      // While something is open only its own comments are shown.
-      const hide = !s || !showPins || (focusId && c.on !== focusId) || s.x < -40 || s.y < -10 || s.x > w + 40 || s.y > h + 40;
-      node.hidden = !!hide;
-      // Scaled from its tip, so the tip stays on its point.
-      if (!hide) node.style.transform = `translate(${s.x}px, ${s.y}px) scale(${pinScale()})`;
+      let chip = chips.get(id);
+      if (!chip) {
+        chip = el('button', { class: 'cchip', onclick: () => openComments(id) }, el('span'), el('b'));
+        node.append(chip);
+        chips.set(id, chip);
+      }
+      chip.classList.toggle('done', !n.open);
+      chip.firstChild.innerHTML = n.open ? ICON.comment : ICON.check;
+      chip.lastChild.textContent = n.open ? String(n.open) : '';
+      chip.title = n.open ? `${n.open > 1 ? `${n.open} open comments` : '1 open comment'}. Click to read`
+        : `${n.all > 1 ? `All ${n.all} comments are` : 'The comment is'} resolved. Click to read`;
     }
-    const d = openThread && openThread.draft;
-    const dp = d && anchorOf(d);
-    draftPin.hidden = !dp;
-    if (dp) {
-      const s = w2s(dp.x, dp.y);
-      draftPin.style.transform = `translate(${s.x}px, ${s.y}px) scale(${pinScale()})`;
+  }
+
+  function openComments(id) {
+    const host = items.get(id);
+    if (!host) return;
+    if (host.type === 'image' || host.type === 'video') {
+      enterFocus(id);
+      if (!panelShown()) togglePanel(true);
+    } else {
+      // A comment from before they were made in the viewer, on a note or a heading.
+      const first = rootsInOrder().find((c) => c.on === id);
+      if (first) goToComment(first.id);
     }
-    placeThread();
   }
 
-  // ---- the thread box
+  // ---- the panel
 
-  function openThreadFor(id) {
-    openThread = { id };
-    renderThread();
-    syncOpenPin();
+  // Built once. After that only its list is drawn again, so what is being typed in it survives other
+  // people's comments arriving.
+  const cpTitle = el('h2');
+  const cpCount = el('span', { class: 'count', hidden: true });
+  const cpList = el('div', { class: 'cp-list' });
+  const cpFoot = el('div', { class: 'cp-foot' });
+  const composer = el('textarea', { rows: 1, maxlength: 2000, placeholder: 'Leave a comment…', 'aria-label': 'Comment' });
+  const replyBox = el('textarea', { rows: 1, maxlength: 2000, placeholder: 'Reply…', 'aria-label': 'Reply' });
+  const momentChip = el('button', {
+    class: 'tchip', onclick: () => {
+      timed = !timed;
+      if (draft) stampMoment(draft);
+      refreshAnnotations(focusId);
+      syncComposer();
+    },
+  }, el('span', { html: ICON.play }), el('b'));
+  // What has been drawn for the comment in the box, with a way to take it back.
+  const drawnChip = el('button', { class: 'tchip drawn', title: 'Take the drawing back', onclick: discardDrawing }, el('span', { html: ICON.pen }), el('b'), el('span', { html: ICON.close }));
+  // The brush is the one tool the viewer has, so its colours are here, with the reminder of what it is for.
+  const cpInks = el('span', { class: 'cp-inks' });
+  const cpBrush = el('div', { class: 'cp-brush' }, cpInks, el('span', { text: 'Draw on the picture to point at what you mean' }));
+  const cpCompose = el('div', { class: 'cp-compose' }, cpBrush, composer,
+    el('div', { class: 'cp-actions' }, momentChip, drawnChip, el('button', { class: 'btn small primary', text: 'Comment', title: 'Send (Enter)', onclick: submitComment })));
+  // A link opens a piece with one click; on the board itself, where a click selects, it takes two.
+  const openHow = viewOnly ? 'click' : 'double-click';
+  const cpHint = el('p', { class: 'cp-hint', text: `Comments are written where the work is looked at: ${openHow} an image or video to open it.` });
+
+  function buildInks() {
+    cpInks.replaceChildren(...INK.map((c) => el('button', {
+      class: `swatch${c === pen.color ? ' active' : ''}`, style: { background: swatchColor(c) }, title: 'Brush colour',
+      onclick: () => {
+        pen.color = c;
+        // The fine brush an opened piece is drawn on with is for the viewer only; the usual size is what is kept.
+        store('wb:pen', { ...pen, size: penBeforeFocus ?? pen.size });
+        buildInks();
+        buildToolOptions();
+      },
+    })));
   }
 
-  function toggleThread(id) {
-    if (openThread && openThread.id === id) closeThread();
-    else openThreadFor(id);
+  function autosize(input) {
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
   }
-
-  function closeThread() {
-    if (!openThread) return;
-    openThread = null;
-    threadBox.hidden = true;
-    threadBox.dataset.key = '';
-    threadBox.replaceChildren();
-    draftPin.hidden = true;
-    syncOpenPin();
-  }
-
-  function syncOpenPin() {
-    for (const [id, node] of pinNodes) node.classList.toggle('open', !!openThread && openThread.id === id);
-  }
-
-  function renderThread() {
-    const t = openThread;
-    if (!t) return;
-    const root = t.id ? comments.get(t.id) : null;
-    if (t.id && !root) return closeThread();
-    const key = t.id || 'draft';
-    if (threadBox.dataset.key !== key) buildThreadShell(key, !!root);
-    fillThread(root);
-    threadBox.hidden = false;
-    placeThread();
-  }
-
-  // The box around a thread is built once per thread, so a reply that is half written survives
-  // other people's comments arriving.
-  function buildThreadShell(key, isThread) {
-    threadBox.dataset.key = key;
-    const input = el('textarea', { rows: 1, maxlength: 2000, placeholder: isThread ? 'Reply…' : 'Write a comment…', 'aria-label': 'Comment' });
+  // Enter sends, Shift+Enter starts a new line, Esc lets go of the box and gives the keys back to the viewer.
+  function wireBox(input, send) {
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
-        submitComment();
+        send();
       } else if (e.key === 'Escape') {
         e.stopPropagation();
-        closeThread();
+        input.blur();
+      } else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'z' && !input.value) {
+        // Nothing typed to take back, so undo is for the board: the stroke just drawn, say.
+        e.preventDefault();
+        if (e.shiftKey) stepHistory(redoStack, undoStack);
+        else stepHistory(undoStack, redoStack);
       }
     });
-    input.addEventListener('input', () => {
-      input.style.height = 'auto';
-      input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
-      placeThread();
-    });
-    threadBox.replaceChildren(...[
-      el('div', { class: 'th-head' }),
-      el('div', { class: 'th-msgs' }),
-      (!viewOnly || guestWrites()) && el('div', { class: 'th-compose' }, input, el('button', { class: 'btn small primary', text: isThread ? 'Reply' : 'Comment', onclick: submitComment })),
-    ].filter(Boolean));
-    if (!isThread) setTimeout(() => input.focus({ preventScroll: true }), 0);
+    input.addEventListener('input', () => autosize(input));
   }
+  wireBox(composer, submitComment);
+  wireBox(replyBox, submitReply);
+  // Starting to write about a video stops it, so the comment is about the frame that was showing.
+  composer.addEventListener('focus', () => {
+    if (focusId && timed) holdFrame(focusId);
+  });
 
-  function timeChip(c) {
-    const chip = el('button', { class: 'tchip', title: 'Jump to this moment in the video', onclick: () => seekTo(c) }, el('span', { html: ICON.play }), fmtMoment(momentOf(c), fpsOf(c.on)));
-    return chip;
-  }
+  const cpToggle = (label, title, checked, onchange) => {
+    const box = el('input', { type: 'checkbox' });
+    box.checked = checked;
+    box.addEventListener('change', () => onchange(box.checked));
+    return el('label', { class: 'cp-show', title }, box, label);
+  };
+  panel.append(
+    el('div', { class: 'cp-head' }, cpTitle, cpCount,
+      el('button', { class: 'iconbtn', html: ICON.close, title: 'Hide the comments (Shift+C)', onclick: () => togglePanel(false) })),
+    el('div', { class: 'cp-opts' },
+      cpToggle('Hide resolved', 'Leave out threads that have been resolved', hideDone, (v) => {
+        hideDone = v;
+        store('wb:hidedone', v);
+        renderPanel();
+      })),
+    cpList, cpFoot);
 
-  function fillThread(root) {
-    const head = threadBox.querySelector('.th-head');
-    const msgs = threadBox.querySelector('.th-msgs');
-    const close = el('button', { class: 'iconbtn', html: ICON.close, title: 'Close (Esc)', onclick: closeThread });
-    if (!root) {
-      const d = openThread.draft;
-      head.replaceChildren(el('span', { class: 'th-title', text: `New comment on ${hostLabel(d)}` }), close);
-      msgs.replaceChildren(...(d.at != null ? [el('div', { class: 'th-at' }, el('span', { text: 'At' }), timeChip({ on: d.on, at: d.at, fr: d.fr }))] : []));
-      msgs.hidden = d.at == null;
-      return;
+  // On a narrow screen there is no room beside the piece: the panel is a sheet over it, brought up when
+  // wanted and never open to begin with.
+  const narrow = () => vp.clientWidth < 700;
+  const panelShown = () => canRead() && (focusId ? (narrow() ? sheetOpen : viewerPanel) : boardPanel);
+
+  function togglePanel(show = !panelShown()) {
+    if (focusId && narrow()) {
+      sheetOpen = show;
+    } else if (focusId) {
+      viewerPanel = show;
+      store('wb:cpanel', show);
+    } else {
+      boardPanel = show;
+      if (show) $('helppanel').hidden = true;
     }
-    msgs.hidden = false;
-    const list = [root, ...repliesOf(root.id)];
-    const mine = (c) => c.name === me.name;
-    const canDelete = (c) => !viewOnly && mine(c) && (c.re || repliesOf(c.id).every(mine));
-    head.replaceChildren(...[
-      el('span', { class: 'th-title', text: `On ${hostLabel(root)}` }),
-      !viewOnly && el('button', {
-        class: 'btn small ghost', html: `${ICON.check}${root.done ? 'Reopen' : 'Resolve'}`,
-        title: root.done ? 'Mark as open again' : 'Mark as dealt with',
-        onclick: () => exec([{ t: 'set', id: root.id, patch: { done: !root.done } }]),
-      }),
-      close].filter(Boolean));
-    const grew = Number(msgs.dataset.n || 0) < list.length;
-    msgs.dataset.n = list.length;
-    msgs.replaceChildren(...list.map((c, i) => el('div', { class: 'msg' },
+    // Beside the viewer the panel takes room from the piece, which makes the most of what is left.
+    const fitted = !!focusId && !focusZoomed();
+    syncComments();
+    if (focusId) {
+      layoutViewer();
+      if (fitted) fitFocus(calm.matches ? 0 : 160);
+      else applyCam();
+    }
+  }
+
+  function syncComposer() {
+    const video = focusId ? videoOf(focusId) : null;
+    const strokes = draft && draft.on === focusId ? drawnFor(draft.id).length : 0;
+    momentChip.hidden = !video;
+    if (video) {
+      // Once something is drawn for it, the comment is about the frame that was drawn on.
+      const held = strokes && draft.at != null;
+      momentChip.classList.toggle('off', !timed);
+      momentChip.title = !timed ? 'The comment is about the whole video. Click to tie it to the frame showing'
+        : held ? 'The comment is about the frame that was drawn on. Click to make it about the whole video'
+          : 'The comment is about the frame showing. Click to make it about the whole video';
+      momentChip.lastChild.textContent = fmtMoment(held ? momentOf(draft) : video.currentTime, fpsOf(focusId));
+    }
+    drawnChip.hidden = !strokes;
+    drawnChip.children[1].textContent = strokes > 1 ? `Drawing · ${strokes}` : 'Drawing';
+    composer.placeholder = strokes ? 'Say what the drawing is about…' : 'Leave a comment…';
+    cpCompose.classList.toggle('drafting', strokes > 0);
+    // Somebody holding a link writes comments but cannot draw.
+    cpBrush.hidden = viewOnly;
+  }
+
+  function messageNode(c, root, showHost) {
+    const first = c === root;
+    const mine = (m) => m.name === me.name;
+    const canDelete = !viewOnly && mine(c) && (!first || repliesOf(c.id).every(mine));
+    const text = el('div', { class: 'msg-text' });
+    fillText(text, c.text);
+    const moment = first && videoOf(c.on) ? momentOf(c) : null;
+    return el('div', { class: `msg${first ? '' : ' reply'}` },
       el('span', { class: 'avatar sm', style: { background: hexOk(c.color) ? c.color : '#8a8a8a' }, text: WB.initials(c.name) }),
       el('div', { class: 'msg-main' },
         el('div', { class: 'msg-top' },
           el('strong', { text: c.name }),
+          c.guest && el('span', { class: 'notice-guest', text: 'Guest', title: 'Written by somebody holding a link, under a name they typed' }),
           el('span', { class: 'msg-time', text: WB.ago(c.t), title: new Date(c.t).toLocaleString() }),
-          canDelete(c) && el('button', { class: 'iconbtn mini', html: ICON.trash, title: 'Delete', onclick: () => removeComment(c) })),
-        i === 0 && c.at != null && timeChip(c),
-        el('div', { class: 'msg-text', text: c.text })))));
-    if (grew) msgs.scrollTop = msgs.scrollHeight;
+          first && drawnIds.has(c.id) && el('span', { class: 'msg-drawn', html: ICON.pen, title: 'Has a drawing on the picture' }),
+          el('span', { class: 'msg-acts' },
+            first && !viewOnly && el('button', {
+              class: `iconbtn mini${c.done ? ' active' : ''}`, html: ICON.check, title: c.done ? 'Resolved. Click to open it again' : 'Mark as resolved',
+              onclick: () => exec([{ t: 'set', id: c.id, patch: { done: !c.done } }]),
+            }),
+            canDelete && el('button', { class: 'iconbtn mini', html: ICON.trash, title: first ? 'Delete the thread, and what was drawn for it' : 'Delete', onclick: () => removeComment(c) }))),
+        first && (moment != null || showHost) && el('div', { class: 'msg-where' },
+          moment != null && el('button', { class: 'tchip', title: 'Go to this frame', onclick: () => pickThread(c.id) }, el('span', { html: ICON.play }), fmtMoment(moment, fpsOf(c.on))),
+          showHost && el('span', { class: 'msg-on', text: hostLabel(c) })),
+        text));
   }
 
-  function placeThread() {
-    if (!openThread || threadBox.hidden) return;
-    const a = openThread.id ? comments.get(openThread.id) : openThread.draft;
-    const pos = a && anchorOf(a);
-    if (!pos) return closeThread();
-    const s = w2s(pos.x, pos.y);
-    const w = threadBox.offsetWidth;
-    const h = threadBox.offsetHeight;
-    threadBox.style.visibility = s.x < -60 || s.y < -60 || s.x > innerWidth + 60 || s.y > innerHeight + 60 ? 'hidden' : '';
-    const pinW = 28 * pinScale();
-    let x = s.x + pinW + 10;
-    if (x + w > innerWidth - 12) x = Math.max(12, s.x - w - 10);
-    threadBox.style.left = `${x}px`;
-    threadBox.style.top = `${clamp(s.y - pinW - 6, 60, Math.max(60, innerHeight - h - 12))}px`;
+  function threadCard(root, showHost) {
+    const active = activeThread === root.id;
+    return el('div', {
+      class: `cp-card${active ? ' active' : ''}${root.done ? ' done' : ''}`, 'data-id': root.id,
+      onclick: (e) => {
+        if (!e.target.closest('button, a, textarea')) pickThread(root.id);
+      },
+    },
+    messageNode(root, root, showHost),
+    repliesOf(root.id).map((r) => messageNode(r, root, false)),
+    active && canWrite() && el('div', { class: 'cp-reply' }, replyBox, el('button', { class: 'btn small', text: 'Reply', onclick: submitReply })));
+  }
+
+  function renderPanel() {
+    const shown = panelShown();
+    panel.hidden = !shown;
+    document.body.classList.toggle('cp-open', shown);
+    $('comments').classList.toggle('active', shown);
+    if (!shown) return;
+    const host = focusId ? items.get(focusId) : null;
+    let roots = rootsInOrder().filter((c) => (host ? c.on === host.id : items.has(c.on)));
+    const any = roots.length > 0;
+    const open = roots.filter((c) => !c.done).length;
+    if (hideDone) roots = roots.filter((c) => !c.done);
+    // Beside a video the threads follow the film; anywhere else, the order they were started in.
+    if (host && host.type === 'video') roots.sort((a, b) => (momentOf(a) ?? -1) - (momentOf(b) ?? -1) || byTime(a, b));
+    cpTitle.textContent = host ? 'Comments' : 'All comments';
+    cpCount.hidden = !open;
+    cpCount.textContent = String(open);
+    const empty = any ? 'Everything here has been resolved.'
+      : !host || !canWrite() ? 'No comments yet.'
+        : viewOnly ? 'No comments yet. Write the first one below.'
+          : 'No comments yet. Write the first one below, or draw on the picture to point at something.';
+    drawnIds = new Set();
+    for (const it of items.values()) if (it.cid) drawnIds.add(it.cid);
+    // A reply half written keeps the keyboard and its place while the list is drawn again around it.
+    const typing = document.activeElement === replyBox ? [replyBox.selectionStart, replyBox.selectionEnd] : null;
+    const top = cpList.scrollTop;
+    cpList.replaceChildren(...(roots.length ? roots.map((c) => threadCard(c, !host)) : [el('p', { class: 'cp-empty', text: empty })]));
+    cpList.scrollTop = top;
+    if (typing && replyBox.isConnected) {
+      replyBox.focus({ preventScroll: true });
+      replyBox.setSelectionRange(typing[0], typing[1]);
+    }
+    const foot = !host ? cpHint : canWrite() ? cpCompose : null;
+    if (cpFoot.firstChild !== foot) cpFoot.replaceChildren(...(foot ? [foot] : []));
+    cpFoot.hidden = !foot || (foot === cpHint && !canWrite());
+    if (foot === cpCompose) buildInks();
+    syncComposer();
+  }
+
+  function revealCard(id) {
+    const card = [...cpList.children].find((node) => node.dataset.id === id);
+    if (card) card.scrollIntoView({ block: 'nearest' });
+  }
+
+  // Picks a thread: its card is raised and, on a video, the film goes to its frame, where what was drawn for it shows.
+  function pickThread(id) {
+    const c = comments.get(id);
+    if (!c) return;
+    if (c.on !== focusId) return goToComment(id);
+    if (activeThread !== id) replyBox.value = '';
+    activeThread = id;
+    seekTo(c);
+    syncComments();
+    revealCard(id);
+  }
+
+  // Goes to where a comment was left. An image or video opens in the viewer, on the comment's frame,
+  // with its thread picked in the panel. (A comment from before they were made in the viewer may sit on
+  // a note or a heading: the board goes there, and its thread is picked in the list of them all.)
+  function goToComment(id) {
+    const c = comments.get(comments.get(id)?.re || id);
+    const host = c && items.get(c.on);
+    if (!host) return;
+    if (host.type === 'image' || host.type === 'video') {
+      if (focusId !== host.id) enterFocus(host.id);
+    } else {
+      if (focusId) exitFocus();
+      userMovedView();
+      fitRect(bounds(host), { dur: 420, maxZ: 1.5 });
+    }
+    if (activeThread !== c.id) replyBox.value = '';
+    activeThread = c.id;
+    seekTo(c);
+    if (panelShown()) syncComments();
+    else togglePanel(true);
+    revealCard(c.id);
   }
 
   // ---- writing, resolving, deleting
 
-  function submitComment() {
-    const t = openThread;
-    const input = threadBox.querySelector('textarea');
-    const text = input ? input.value.trim() : '';
-    if (!t || !text) return;
-    const item = { id: uid(), type: 'comment', text: text.slice(0, 2000), name: me.name, color: me.color, t: Date.now(), done: false };
-    if (t.id) {
-      const root = comments.get(t.id);
-      if (!root) return;
-      item.re = root.id;
-      item.on = root.on;
-      input.value = '';
-      input.style.height = 'auto';
-      exec([{ t: 'add', item }]);
-    } else {
-      Object.assign(item, t.draft);
-      exec([{ t: 'add', item }]);
-      openThreadFor(item.id);
+  // C: to the comment box of what is open, opening what is selected first if need be.
+  function startComment() {
+    if (!canWrite()) return;
+    if (!focusId) {
+      const one = sel.size === 1 ? items.get([...sel][0]) : null;
+      if (!one || (one.type !== 'image' && one.type !== 'video')) return void toast(`Open an image or video to comment on it: ${openHow} it`, { ms: 3200 });
+      enterFocus(one.id);
     }
+    if (!panelShown()) togglePanel(true);
+    composer.focus({ preventScroll: true });
   }
 
+  // Text pasted or dropped while a piece is open is on its way into a comment.
+  function typeComment(text) {
+    if (!canWrite()) return;
+    if (!panelShown()) togglePanel(true);
+    composer.focus({ preventScroll: true });
+    composer.setRangeText(text.slice(0, 2000), composer.selectionStart, composer.selectionEnd, 'end');
+    autosize(composer);
+  }
+
+  // A new thread on what is open. With something drawn for it, it is the comment the drawing was
+  // waiting for, about the frame that was drawn on; otherwise it is about the frame showing.
+  function submitComment() {
+    const text = composer.value.trim();
+    const host = focusId && items.get(focusId);
+    if (!text || !host || !canWrite()) return;
+    const drawn = draft && draft.on === host.id && drawnFor(draft.id).length ? draft : null;
+    const item = { id: drawn ? drawn.id : uid(), type: 'comment', text: text.slice(0, 2000), name: me.name, color: me.color, t: Date.now(), done: false, on: host.id };
+    if (!drawn) stampMoment(item);
+    if (drawn && drawn.at != null) item.at = drawn.at;
+    if (drawn && drawn.fr != null) item.fr = drawn.fr;
+    composer.value = '';
+    autosize(composer);
+    draft = null;
+    activeThread = item.id;
+    replyBox.value = '';
+    exec([{ t: 'add', item }]);
+    // Back to the frame it is about, if the video has been moved since it was drawn on.
+    if (drawn) seekTo(item);
+    revealCard(item.id);
+  }
+
+  function submitReply() {
+    const root = comments.get(activeThread);
+    const text = replyBox.value.trim();
+    if (!root || !text || !canWrite()) return;
+    replyBox.value = '';
+    autosize(replyBox);
+    exec([{ t: 'add', item: { id: uid(), type: 'comment', text: text.slice(0, 2000), name: me.name, color: me.color, t: Date.now(), done: false, re: root.id, on: root.on } }]);
+    revealCard(root.id);
+  }
+
+  // A thread goes with its replies and with what was drawn for it.
   function removeComment(c) {
-    const ids = c.re ? [c.id] : [c.id, ...repliesOf(c.id).map((r) => r.id)];
+    const ids = c.re ? [c.id] : [c.id, ...repliesOf(c.id).map((r) => r.id), ...drawnFor(c.id).filter((it) => it.pid === c.on).map((it) => it.id)];
     exec([{ t: 'del', ids }]);
   }
 
@@ -3665,119 +4301,9 @@
     if (c.on) seekVideo(c.on, momentOf(c));
   }
 
-  // A comment belongs to one piece of content: pick the Comment tool and click an image, video, note or
-  // heading where the comment goes, or drag the tool out of the strip and drop it there.
-  const COMMENTABLE = new Set(['image', 'video', 'note', 'text']);
-
-  // The piece of content under a screen point that can take a comment, if any.
-  function contentAt(x, y) {
-    const t = document.elementFromPoint(x, y);
-    const node = t && t.closest ? t.closest('.item') : null;
-    let host = node ? items.get(node.dataset.id) : null;
-    if (host && host.type === 'stroke') host = host.pid ? items.get(host.pid) : null;
-    if (!host || !COMMENTABLE.has(host.type)) return null;
-    if (focusId && host.id !== focusId) return null;
-    return host;
-  }
-
-  function commentOn(host, p) {
-    const r = bounds(host);
-    const frac = (v) => Math.round(clamp(v, 0, 1) * 10000) / 10000;
-    const draft = { on: host.id, rx: frac((p.x - r.x) / (r.w || 1)), ry: frac((p.y - r.y) / (r.h || 1)) };
-    // A comment on a video stops it, and remembers the moment it was left on: the exact frame when the rate is known.
-    const video = host.type === 'video' ? videoOf(host.id) : null;
-    if (video) holdFrame(host.id);
-    if (video && isFinite(video.currentTime)) draft.at = Math.round(video.currentTime * 100) / 100;
-    const fr = video ? heldFrame(host.id) : null;
-    if (fr !== null) draft.fr = fr;
-    closeThread();
-    openThread = { draft };
-    renderThread();
-    syncOpenPin();
-    placePins();
-  }
-
-  // ---- the list of every comment
-
-  function updateCommentUI() {
-    const open = [...comments.values()].filter((c) => !c.re && !c.done).length;
-    const badge = $('commentcount');
-    badge.hidden = !open;
-    badge.textContent = String(open);
-    renderPanel();
-    if (openThread) renderThread();
-    syncOpenPin();
-  }
-
-  function togglePanel() {
-    panel.hidden = !panel.hidden;
-    $('comments').classList.toggle('active', !panel.hidden);
-    if (panel.hidden) return;
-    $('helppanel').hidden = true;
-    panel.dataset.n = '';
-    renderPanel();
-  }
-
-  // Every message on the board in the order it was written, replies included, newest at the bottom.
-  function renderPanel() {
-    if (panel.hidden) return;
-    const all = [...comments.values()].sort((a, b) => (a.t || 0) - (b.t || 0) || (a.id < b.id ? -1 : 1));
-    const feed = all.filter((c) => comments.get(c.re || c.id) && !(hideDone && comments.get(c.re || c.id).done));
-    const toggle = (label, title, checked, onchange) => {
-      const box = el('input', { type: 'checkbox' });
-      box.checked = checked;
-      box.addEventListener('change', () => onchange(box.checked));
-      return el('label', { class: 'cp-show', title }, box, label);
-    };
-    const row = (c) => {
-      const root = comments.get(c.re || c.id);
-      const color = hexOk(c.color) ? c.color : '#8a8a8a';
-      const where = c.re ? `Reply on ${hostLabel(root)}` : `On ${hostLabel(c)}${c.at != null ? ` · ${fmtMoment(momentOf(c), fpsOf(c.on))}` : ''}`;
-      return el('button', { class: `cp-row${c.re ? ' reply' : ''}${root.done ? ' done' : ''}`, onclick: () => goToComment(root.id) },
-        el('span', { class: 'cp-num', style: { background: color, color: pinInk(color) }, text: WB.initials(c.name) }),
-        el('span', { class: 'cp-body' },
-          el('span', { class: 'cp-top' }, el('strong', { text: c.name }), el('span', { class: 'msg-time', text: WB.ago(c.t), title: new Date(c.t).toLocaleString() }), root.done && el('span', { class: 'cp-done', html: ICON.check, title: 'Resolved' })),
-          el('span', { class: 'cp-text', text: c.text }),
-          el('span', { class: 'cp-meta', text: where })));
-    };
-    const list = el('div', { class: 'cp-list' }, ...(feed.length
-      ? feed.map(row)
-      : [el('p', { class: 'cp-empty', text: comments.size ? 'Everything has been resolved.' : 'No comments yet. Pick the Comment tool (C) and click an image, video, note or heading.' })]));
-    const keep = panel.querySelector('.cp-list');
-    const grew = Number(panel.dataset.n || 0) < feed.length;
-    const top = keep ? keep.scrollTop : 0;
-    panel.dataset.n = feed.length;
-    panel.replaceChildren(
-      el('div', { class: 'cp-head' },
-        el('h2', { text: 'Comments' }),
-        el('button', { class: 'iconbtn', html: ICON.close, title: 'Close (Shift+C)', onclick: togglePanel })),
-      el('div', { class: 'cp-opts' },
-        toggle('Show pins', 'Show or hide the pins on the board', showPins, (v) => { showPins = v; store('wb:pins', v); placePins(); }),
-        toggle('Hide resolved', 'Leave out threads that have been resolved', hideDone, (v) => { hideDone = v; renderPanel(); })),
-      list);
-    list.scrollTop = grew ? list.scrollHeight : top;
-  }
-
-  // Flies to where a comment was left, opens it, and for a video jumps to the moment it is about.
-  // Shows a comment's thread where it was left: an image or video opens in the viewer, at the comment's frame.
-  function goToComment(id) {
-    const c = comments.get(comments.get(id)?.re || id);
-    if (!c) return;
-    const host = items.get(c.on);
-    if (!host) return;
-    if (host.type === 'image' || host.type === 'video') {
-      enterFocus(host.id);
-    } else {
-      if (focusId) exitFocus();
-      userMovedView();
-      fitRect(bounds(host), { dur: 420, maxZ: 1.5 });
-    }
-    seekTo(c);
-    openThreadFor(c.id);
-  }
-
   // ------------------------------------------------------------- tools and keyboard
 
+  // Commenting is not among them: it is done in the viewer, beside what is being looked at.
   const TOOLS = [
     ['select', 'Select and move (V)', ICON.select],
     ['pan', 'Pan. Or hold Space and drag (H)', ICON.pan],
@@ -3791,15 +4317,13 @@
     ['pen', 'Draw. Right-drag to erase (P)', ICON.pen],
     ['arrow', 'Arrow (A)', ICON.arrow],
     ['laser', 'Laser pointer, visible to everyone (L)', ICON.laser],
-    null,
-    ['comment', 'Comment. Click an image, video or note where it belongs, or drag this onto it (C)', ICON.comment],
   ];
 
-  const TOOL_LABELS = { select: 'Select', pan: 'Pan', upload: 'Media', note: 'Note', text: 'Heading', block: 'Block', frame: 'Frame', pen: 'Draw', arrow: 'Arrow', laser: 'Laser', comment: 'Comment' };
+  const TOOL_LABELS = { select: 'Select', pan: 'Pan', upload: 'Media', note: 'Note', text: 'Heading', block: 'Block', frame: 'Frame', pen: 'Draw', arrow: 'Arrow', laser: 'Laser' };
 
   // Drag a note, heading, block or frame out of the strip and drop it where you want it, instead of
   // choosing the tool and then clicking. A plain click on the tool still works as before.
-  const DRAGGABLE_TOOLS = new Set(['note', 'text', 'block', 'frame', 'comment']);
+  const DRAGGABLE_TOOLS = new Set(['note', 'text', 'block', 'frame']);
   let toolDrag = null;
   let suppressToolClick = false;
 
@@ -3809,14 +4333,6 @@
   }
 
   function makeToolGhost(name) {
-    if (name === 'comment') {
-      const pin = el('div', { class: 'tool-ghost comment', html: ICON.comment });
-      const k = pinScale();
-      Object.assign(pin.style, { width: `${28 * k}px`, height: `${28 * k}px`, margin: `${-28 * k}px 0 0` });
-      pin.firstChild.style.width = pin.firstChild.style.height = `${14 * k}px`;
-      document.body.append(pin);
-      return pin;
-    }
     const size = {
       note: [NOTE_W, NOTE_W * 0.45],
       text: [levelSize(textPref.lvl) * 4.5, levelSize(textPref.lvl) * 1.35],
@@ -3833,18 +4349,7 @@
     return ghost;
   }
 
-  function markDropTarget(host) {
-    const id = host ? host.id : null;
-    if (!toolDrag || toolDrag.target === id) return;
-    const old = toolDrag.target && els.get(toolDrag.target);
-    if (old) old.classList.remove('drop-target');
-    const node = id && els.get(id);
-    if (node) node.classList.add('drop-target');
-    toolDrag.target = id;
-  }
-
   function endToolDrag() {
-    markDropTarget(null);
     if (toolDrag && toolDrag.ghost) toolDrag.ghost.remove();
     document.body.classList.remove('dragging-tool');
     toolDrag = null;
@@ -3861,7 +4366,7 @@
   $('toolbar').addEventListener('pointerdown', (e) => {
     const btn = e.target.closest('[data-tool]');
     if (!btn || e.button !== 0 || e.pointerType === 'touch' || !DRAGGABLE_TOOLS.has(btn.dataset.tool)) return;
-    if (focusId && !['note', 'text', 'comment'].includes(btn.dataset.tool)) return;
+    if (focusId) return;
     toolDrag = { tool: btn.dataset.tool, x0: e.clientX, y0: e.clientY, ghost: null };
   });
   window.addEventListener('pointermove', (e) => {
@@ -3871,31 +4376,19 @@
       toolDrag.ghost = makeToolGhost(toolDrag.tool);
       document.body.classList.add('dragging-tool');
     }
-    toolDrag.ghost.style.transform = `translate(${e.clientX}px, ${e.clientY}px)${toolDrag.tool === 'comment' ? '' : ' translate(-50%, -50%)'}`;
-    if (toolDrag.tool === 'comment') {
-      const host = overBoard(e.clientX, e.clientY) ? contentAt(e.clientX, e.clientY) : null;
-      markDropTarget(host);
-      toolDrag.ghost.classList.toggle('off', !host);
-    } else {
-      toolDrag.ghost.classList.toggle('off', !overBoard(e.clientX, e.clientY));
-    }
+    toolDrag.ghost.style.transform = `translate(${e.clientX}px, ${e.clientY}px) translate(-50%, -50%)`;
+    toolDrag.ghost.classList.toggle('off', !overBoard(e.clientX, e.clientY));
   });
   window.addEventListener('pointerup', (e) => {
     if (!toolDrag) return;
     const drag = toolDrag;
     const dragged = !!drag.ghost;
     const drop = dragged && overBoard(e.clientX, e.clientY);
-    const host = drag.tool === 'comment' && drop ? contentAt(e.clientX, e.clientY) : null;
     endToolDrag();
     if (!dragged) return;
     suppressToolClick = true;
     setTimeout(() => { suppressToolClick = false; }, 0);
-    if (drag.tool === 'comment') {
-      if (host) commentOn(host, s2w(e.clientX, e.clientY));
-      else if (drop) toast('A comment goes on an image, video, note or heading', { ms: 2500 });
-    } else if (drop) {
-      dropTool(drag.tool, s2w(e.clientX, e.clientY));
-    }
+    if (drop) dropTool(drag.tool, s2w(e.clientX, e.clientY));
   });
   window.addEventListener('keydown', (e) => {
     if (toolDrag && e.key === 'Escape') {
@@ -3905,7 +4398,7 @@
   }, true);
 
   function buildToolbar() {
-    $('toolbar').replaceChildren(...TOOLS.filter((t) => !viewOnly || (t && (t[0] === 'pan' || t[0] === 'laser' || (t[0] === 'comment' && guestWrites())))).map((t) => {
+    $('toolbar').replaceChildren(...TOOLS.filter((t) => !viewOnly || (t && (t[0] === 'pan' || t[0] === 'laser'))).map((t) => {
       if (!t) return el('span', { class: 'sep' });
       const [name, title, html] = t;
       return el('button', {
@@ -3942,10 +4435,10 @@
   }
 
   function setTool(name) {
-    // The only tools a link has are the hand and the laser, and the comment tool when it lets them comment.
-    if (viewOnly && name !== 'laser' && !(name === 'comment' && guestWrites())) name = 'pan';
-    // While an image is open there is nothing to place notes or frames on.
-    if (focusId && (name === 'frame' || name === 'block')) return;
+    // The only tools a link has are the hand and the laser.
+    if (viewOnly && name !== 'laser') name = 'pan';
+    // The viewer has one tool, the brush: a press on the open piece draws. (And the laser, for pointing while talking.)
+    else if (focusId && name !== 'laser') name = 'pen';
     tool = name;
     document.body.dataset.tool = name;
     for (const b of $('toolbar').querySelectorAll('[data-tool]')) b.classList.toggle('active', b.dataset.tool === name);
@@ -3956,8 +4449,19 @@
     requestLaser();
   }
 
-  const TOOL_KEYS = { v: 'select', h: 'pan', n: 'note', t: 'text', b: 'block', f: 'frame', p: 'pen', a: 'arrow', l: 'laser', c: 'comment' };
+  const TOOL_KEYS = { v: 'select', h: 'pan', n: 'note', t: 'text', b: 'block', f: 'frame', p: 'pen', a: 'arrow', l: 'laser' };
 
+  // The video the keys are for: the open one in the viewer, the selected one out on the board.
+  const keyVideo = () => (focusId ? (videoOf(focusId) ? focusId : null) : selectedVideo());
+
+  // Space held is the hand for moving around; tapped, it plays or pauses, as in any player.
+  let spaceTap = false;
+  let spaceAt = 0;
+
+  // Each key means one thing in the viewer and one thing on the board, whatever was clicked last:
+  //   arrows      in the viewer, the next or previous image or video; on the board, nudge the selection
+  //   , and .     one frame back or on (with Shift, a second), on the open or the selected video
+  //   Space, K    play or pause
   window.addEventListener('keydown', (e) => {
     if (isTyping(e.target)) return;
     // A dialog is open over the board: its keys are its own, and Delete must not reach what is selected behind it.
@@ -3965,17 +4469,21 @@
     const k = e.key.toLowerCase();
     // A control reached with Tab is pressed with Space or Enter, as anywhere else. (One clicked with the
     // mouse never keeps the focus, so on the board itself both stay canvas shortcuts.)
-    if ((e.code === 'Space' || k === 'enter') && e.target.closest && e.target.closest('button, a[href]')) return;
+    if ((e.code === 'Space' || k === 'enter') && e.target.closest && e.target.closest('button, a[href], input')) return;
     // Looking around is all a read-only link allows.
     if (viewOnly) {
       const plain = !e.shiftKey && !e.ctrlKey && !e.metaKey;
       const look = e.code === 'Space' || k === 'escape' || k === 'home' || k === '?' || k === 'h' || (k === 'l' && plain) || (focusId && k.startsWith('arrow'))
         || (e.shiftKey && e.code === 'Digit1') || ((e.ctrlKey || e.metaKey) && k === '0')
-        || k === ',' || k === '.' || k === 'k' || (k === 'c' && plain && guestWrites()) || (k === 'c' && e.shiftKey && guestReads());
+        || e.code === 'Comma' || e.code === 'Period' || k === 'k' || k === 'm' || (k === 'c' && plain && guestWrites()) || (k === 'c' && e.shiftKey && guestReads());
       if (!look) return;
     }
     if (e.code === 'Space') {
       e.preventDefault();
+      if (!spaceDown) {
+        spaceTap = true;
+        spaceAt = performance.now();
+      }
       spaceDown = true;
       document.body.classList.add('space');
       return;
@@ -3984,6 +4492,7 @@
     if ((e.ctrlKey || e.metaKey) && !altGr) {
       if (k === 'z') e.shiftKey ? stepHistory(redoStack, undoStack) : stepHistory(undoStack, redoStack);
       else if (k === 'y') stepHistory(redoStack, undoStack);
+      else if (k === 'a' && focusId) return;
       else if (k === 'a') { setTool('select'); setSel([...items.values()].filter((it) => selectable(it) && (focusId || !it.pid)).map((it) => it.id)); }
       else if (k === 'd') duplicate();
       else if (k === 'p') packSelection();
@@ -3997,15 +4506,13 @@
     }
     if (e.altKey && !altGr) return;
 
-    // With an image or video open the arrows go through the media. A note or drawing selected on it
-    // is still nudged by them.
-    if (focusId && [...sel].every((id) => id === focusId)) {
-      if (k === 'arrowright' || k === 'arrowdown') return void (e.preventDefault(), stepFocus(1));
-      if (k === 'arrowleft' || k === 'arrowup') return void (e.preventDefault(), stepFocus(-1));
+    // With an image or video open the arrows go through the media, always: never a nudge, never a scrub.
+    if (focusId && k.startsWith('arrow')) {
+      e.preventDefault();
+      return void stepFocus(k === 'arrowright' || k === 'arrowdown' ? 1 : -1);
     }
 
-    // The selected video, or the open one: while a video is open its keys work whatever else is selected on it.
-    const video = selectedVideo() || (focusId && items.get(focusId)?.type === 'video' ? focusId : null);
+    const video = keyVideo();
     if (focusId && ((e.shiftKey && (e.code === 'Digit1' || e.code === 'Digit2')) || k === 'home')) fitFocus();
     else if (e.shiftKey && e.code === 'Digit1') { userMovedView(); fitAll(); }
     else if (e.shiftKey && e.code === 'Digit2') { const r = selBounds(); if (r) { userMovedView(); fitRect(r); } }
@@ -4014,12 +4521,14 @@
     else if (k === 's' && !e.shiftKey) toggleSnap();
     else if (k === 'f' && !e.shiftKey) activateFrame();
     else if (k === 'c' && e.shiftKey) togglePanel();
+    else if (k === 'c') startComment();
     else if (k === 'delete' || k === 'backspace') deleteSel();
     else if (k === 'escape') {
+      // One thing at a time, the nearest first.
       if (!$('helppanel').hidden) toggleHelp();
-      else if (openThread) closeThread();
-      else if (!$('commentpanel').hidden) togglePanel();
+      else if (focusId && tool === 'laser') setTool('pen');
       else if (focusId) exitFocus();
+      else if (boardPanel) togglePanel(false);
       else if (tool !== 'select') setTool('select');
       else setSel([]);
     }
@@ -4029,75 +4538,84 @@
       const step = (e.shiftKey ? 10 : 1) / cam.z;
       nudge(k === 'arrowleft' ? -step : k === 'arrowright' ? step : 0, k === 'arrowup' ? -step : k === 'arrowdown' ? step : 0);
     }
-    else if (video && (k === 'k' || k === 'enter')) toggleVideo(video);
-    else if (video && k === ',') stepVideo(video, -1);
-    else if (video && k === '.') stepVideo(video, 1);
     else if (k === 'enter' && sel.size === 1 && els.get([...sel][0]).querySelector('.txt')) startEdit([...sel][0]);
-    else if (TOOL_KEYS[k] && !e.shiftKey) setTool(TOOL_KEYS[k]);
+    else if (video && (k === 'k' || k === 'enter')) toggleVideo(video);
+    else if (video && e.code === 'Comma') stepVideo(video, -1, e.shiftKey);
+    else if (video && e.code === 'Period') stepVideo(video, 1, e.shiftKey);
+    else if (video && k === 'm') toggleSound(video);
+    // In the viewer there are no tools to change between, bar the laser, which L turns on and off.
+    else if (focusId && k === 'l' && !e.shiftKey) setTool(tool === 'laser' ? 'pen' : 'laser');
+    else if (TOOL_KEYS[k] && !e.shiftKey && !focusId) setTool(TOOL_KEYS[k]);
     else return;
     e.preventDefault();
   });
 
   window.addEventListener('keyup', (e) => {
     if (e.code !== 'Space') return;
+    const tapped = spaceDown && spaceTap && performance.now() - spaceAt < 400;
     spaceDown = false;
+    spaceTap = false;
     document.body.classList.remove('space');
+    const video = tapped ? keyVideo() : null;
+    if (video) toggleVideo(video);
   });
   window.addEventListener('blur', () => {
     spaceDown = false;
+    spaceTap = false;
     document.body.classList.remove('space');
   });
-  window.addEventListener('resize', () => (unframed ? frameFirst() : focusId ? fitFocus() : applyCam()));
+  window.addEventListener('resize', () => (unframed ? frameFirst() : focusId ? relayoutViewer() : applyCam()));
 
   const HELP = [
     ['Pan', 'Space + drag, or middle drag'],
     ['Zoom', 'Mouse wheel'],
     ['Fit everything / selection', 'Shift+1 / Shift+2'],
-    ['Open an image or video and draw on it', 'Double-click it, Esc to close'],
-    ['Next / previous image or video while one is open', '→ / ←'],
-    ['Smart snapping on / off', 'S, hold Ctrl to bypass'],
     ['Add media', 'Drop files, or paste from the clipboard'],
     ['Place a note, heading, block or frame', 'Drag it out of the tool strip'],
     ['Note / Heading / Colour block', 'N / T / B'],
     ['Frame the selection, or draw a frame', 'F'],
     ['Change heading level', 'Select it, then H1 / H2 / H3 / Text'],
     ['Draw / Arrow / Laser', 'P / A / L'],
-    ['Comment on an image, video, note or heading', 'C, then click it. Or drag the tool onto it'],
-    ['All comments, oldest first', 'Shift+C'],
     ['Erase drawings', 'Right-drag while drawing'],
     ['Edit text', 'Double-click or Enter'],
     ['Duplicate', 'Ctrl+D, or Alt + drag'],
     ['Tidy into a grid (frames tidy as whole pieces)', 'Ctrl+P'],
     ['Bring to front / send to back', '] / [  or  PgUp / PgDn'],
     ['Scale a note with its text', 'Shift + drag a corner'],
-    ['Play or pause video', 'Click the play button, or K'],
-    ['Zoom in an open image or video', 'Wheel or pinch. Double-click for actual size and back'],
-    ['Step video one frame', ', and .'],
-    ['Show time, frame number or timecode', 'Click the time on a video'],
-    ['Draw on one frame of a video', 'Open it, pause, then draw'],
+    ['Smart snapping on / off', 'S, hold Ctrl to bypass'],
     ['Undo / redo', 'Ctrl+Z / Ctrl+Shift+Z'],
     ['Follow someone\'s view', 'Click their picture at the top'],
+    ['Open an image or video in the viewer', 'Double-click it, Esc to close'],
+    ['In the viewer: next / previous image or video', '→ / ←, or click one in the strip'],
+    ['In the viewer: zoom, and move around', 'Wheel or pinch. Space + drag, or middle drag'],
+    ['Play or pause video', 'Space or K'],
+    ['Step video one frame / one second', ', and .  /  Shift + , and .'],
+    ['Sound on / off', 'M'],
+    ['Show time, frame number or timecode', 'Click the time on a video'],
+    ['Comment on what is open', 'C, type, Enter'],
+    ['Point at something in a comment', 'Draw on the picture: the drawing goes with the comment'],
+    ['Erase a drawing in the viewer', 'Right-drag over it'],
+    ['Laser pointer in the viewer', 'L, and L again for the brush'],
+    ['Show or hide the comments', 'Shift+C'],
   ];
 
   function toggleHelp() {
-    const panel = $('helppanel');
-    if (!panel.children.length) {
-      panel.append(el('h2', { text: 'Shortcuts' }),
+    const help = $('helppanel');
+    if (!help.children.length) {
+      help.append(el('h2', { text: 'Shortcuts' }),
         el('dl', {}, HELP.flatMap(([what, keys]) => [el('dt', { text: what }), el('dd', { text: keys })])));
     }
-    panel.hidden = !panel.hidden;
-    if (!panel.hidden) {
-      $('commentpanel').hidden = true;
-      $('comments').classList.remove('active');
-    }
+    help.hidden = !help.hidden;
+    // Out on the board the two would sit on top of each other.
+    if (!help.hidden && boardPanel && !focusId) togglePanel(false);
   }
   $('help').addEventListener('click', toggleHelp);
-  // A button left focused by a click would swallow Space and Enter, which are canvas shortcuts here.
-  // Only for the pointer (a click made from the keyboard has no click count): someone tabbing through
-  // the controls keeps their place.
+  // A button left focused by a click would swallow Space and Enter, which are canvas shortcuts here, and
+  // a tick box would too. Only for the pointer (a click made from the keyboard has no click count):
+  // someone tabbing through the controls keeps their place.
   document.addEventListener('click', (e) => {
-    const button = e.target.closest('button');
-    if (button && e.detail) button.blur();
+    const control = e.target.closest('button, input[type="checkbox"]');
+    if (control && e.detail) control.blur();
   });
   $('zoom').addEventListener('click', () => {
     if (focusId) return fitFocus();
@@ -4615,7 +5133,7 @@
     syncComments();
   });
   $('commentsicon').innerHTML = ICON.comment;
-  $('comments').addEventListener('click', togglePanel);
+  $('comments').addEventListener('click', () => togglePanel());
   $('snap').innerHTML = ICON.snap;
   $('snap').classList.toggle('active', snapOn);
   $('snap').addEventListener('click', toggleSnap);
@@ -4631,5 +5149,5 @@
   applyCam();
   connect();
   // Text is measured from the page, so measure again once the typeface has arrived.
-  typeface.then(() => { updateOverlay(); queuePins(); });
+  typeface.then(updateOverlay);
 })();

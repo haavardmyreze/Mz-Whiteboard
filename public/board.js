@@ -38,12 +38,9 @@
   const vetting = new Set();
   let vetQueue = Promise.resolve();
   // What a video looks and sounds like along its length: the colours of its picture and the loudness of its
-  // sound, drawn behind the scrub bar. Made once per video by whoever opens it first, then kept with it.
+  // sound, drawn behind the scrub bar. Made from the file as it is uploaded, then kept with the video.
   const WAVE_COLS = 512;
   const WAVE_BARS = 1024;
-  const waveCache = new Map(); // src -> { c, p }
-  const waving = new Set();
-  let waveQueue = Promise.resolve();
   const LASER_LIFE = 450;
   const INK = ['ink', '#e5484d', '#f59e0b', '#16a34a', '#2f7df6', '#8b5cf6'];
   const NOTE_FILLS = ['note', '#fff2a8', '#ffd3d1', '#d4f1d2', '#d0e6ff', '#e7dbff'];
@@ -2151,11 +2148,11 @@
   // checked against the moment asked for, so a column can only ever hold the colour of its own moment.
   // (Seeking a video element and copying what it shows is not that: the browser may report the seek done
   // while the old frame is still on show, and the same colour then runs on for minutes.)
-  async function colourStrip(url, dur) {
+  async function colourStrip(file, url, dur) {
     let input;
     try {
       const mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
-      input = new mb.Input({ source: new mb.UrlSource(url), formats: mb.ALL_FORMATS });
+      input = new mb.Input({ source: new mb.BlobSource(file), formats: mb.ALL_FORMATS });
       const track = await input.getPrimaryVideoTrack();
       if (!track || !(await track.canDecode())) throw new Error('cannot decode');
       const first = await track.getFirstTimestamp();
@@ -2229,11 +2226,11 @@
   }
 
   // How loud the sound is, in even steps along the video; null where there is none.
-  async function soundPeaks(url, dur) {
+  async function soundPeaks(file, dur) {
     let input;
     try {
       const mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
-      input = new mb.Input({ source: new mb.UrlSource(url), formats: mb.ALL_FORMATS });
+      input = new mb.Input({ source: new mb.BlobSource(file), formats: mb.ALL_FORMATS });
       const track = await input.getPrimaryAudioTrack();
       if (!track || !(await track.canDecode())) return null;
       const peaks = new Float32Array(WAVE_BARS);
@@ -2319,49 +2316,31 @@
     ctx.fill();
   }
 
-  // Strips made before this version have fewer bars; they show until a finer one is made.
-  const WAVE_VERSION = 7;
-  const waveFor = (it) => {
-    const own = waveCache.get(it.src);
-    return own || it.wf || null;
-  };
-
   function applyWave(it, node) {
-    const wf = waveFor(it);
-    if (!wf || wf.v !== WAVE_VERSION) ensureWave(it);
-    if (!wf) return;
+    if (!it.wf) return;
     const box = node.querySelector('.vseek');
     if (!box) return;
     box.classList.add('wave');
-    showWave(box.querySelector('.vwave'), wf);
+    showWave(box.querySelector('.vwave'), it.wf);
   }
 
   function paintFocusWave() {
     const it = focusId ? items.get(focusId) : null;
-    const wf = it && it.type === 'video' ? waveFor(it) : null;
+    const wf = it && it.type === 'video' ? it.wf : null;
     tlTrack.classList.toggle('wave', !!wf);
     if (wf) showWave(tlWave, wf);
   }
 
-  function ensureWave(it) {
-    if (it.type !== 'video' || !it.src || !/^\/uploads\//.test(it.src) || waving.has(it.src)) return;
-    waving.add(it.src);
-    waveQueue = waveQueue.then(async () => {
-      try {
-        const strip = await colourStrip(it.src, it.dur);
-        if (!strip) return;
-        const { colours, dur } = strip;
-        const peaks = await soundPeaks(it.src, dur);
-        const wf = { v: WAVE_VERSION, c: toB64(colours), p: peaks ? toB64(peaks) : '' };
-        waveCache.set(it.src, wf);
-        const now = items.get(it.id);
-        if (now && now.src === it.src && canWrite()) exec([{ t: 'set', id: it.id, patch: { wf } }], false);
-        else if (now && els.has(it.id)) renderItem(now);
-        paintFocusWave();
-      } catch {
-        // The bar stays plain.
-      }
-    });
+  // The strip for a video file about to be uploaded; null if it cannot be made, and the bar stays plain.
+  async function videoWave(file, url, dur) {
+    try {
+      const strip = await colourStrip(file, url, dur);
+      if (!strip) return null;
+      const peaks = await soundPeaks(file, strip.dur);
+      return { c: toB64(strip.colours), p: peaks ? toB64(peaks) : '' };
+    } catch {
+      return null;
+    }
   }
 
   // ---- the timeline under an open video
@@ -3213,8 +3192,9 @@
           // Read from the file as it came: a re-encoded copy keeps the rate, but not every container records it as exactly.
           const fps = await readRate(file);
           const dur = isFinite(video.duration) ? Math.round(video.duration * 1000) / 1000 : 0;
-          const up = await upload(prepared, fileExt(prepared), onProgress);
-          return { type: 'video', src: up.url, nw: w, nh: h, name: file.name, ...(th && { th }), ...(poster && { poster }), ...(fps && { fps }), ...(dur && { dur }) };
+          // The strip is read from the copy here while it uploads, so it costs no wait of its own.
+          const [up, wf] = await Promise.all([upload(prepared, fileExt(prepared), onProgress), videoWave(prepared, preparedUrl, dur)]);
+          return { type: 'video', src: up.url, nw: w, nh: h, name: file.name, ...(th && { th }), ...(poster && { poster }), ...(fps && { fps }), ...(dur && { dur }), ...(wf && { wf }) };
         } finally {
           if (preparedUrl !== url) URL.revokeObjectURL(preparedUrl);
         }

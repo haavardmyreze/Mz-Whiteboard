@@ -176,6 +176,7 @@
 
   function render() {
     const counts = { people: data.users.length, groups: data.groups.length, permissions: data.grants.length };
+    $('localnote').hidden = !data.local;
     $('tabs').hidden = false;
     $('tabs').replaceChildren(...Object.entries(TABS).map(([key, label]) => el('button', {
       class: `space${key === tab ? ' current' : ''}`,

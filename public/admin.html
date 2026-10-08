@@ -11,13 +11,14 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body class="home admin">
-  <header class="home-bar">
+  <header class="appbar home-bar">
     <div class="home-head">
       <a class="brand" href="/" aria-label="All boards">
         <span class="logomark" data-logo-slot></span>
-        <span>Wipboard</span>
+        <span class="wordmark">Wipboard</span>
       </a>
-      <span class="admin-title">Admin</span>
+      <span class="bar-slash" aria-hidden="true">/</span>
+      <span class="bar-here">Admin</span>
       <div class="spacer"></div>
       <span id="themeslot"></span>
       <a class="btn" href="/">All boards</a>
@@ -26,6 +27,8 @@
   <main>
     <p class="admin-note">Groups and permissions are kept here but not enforced yet. Who can sign in is still set by the
       sign-in settings, and everyone signed in sees the shared workspace.</p>
+    <p id="localnote" class="admin-note" hidden>This server has no sign-in, so the admin area is open on this machine only, to be
+      looked at and filled in ahead of time. With Google sign-in on, people show up here as they sign in.</p>
     <nav id="tabs" class="spaces" aria-label="Admin sections" hidden></nav>
     <p id="status" class="admin-status" role="status" hidden></p>
     <div id="content"></div>

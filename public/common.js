@@ -220,7 +220,7 @@ const WB = (() => {
   }
 
   function themeButton() {
-    const btn = el('button', { class: 'iconbtn' });
+    const btn = el('button', { class: 'iconbtn themebtn' });
     const paint = () => {
       const dark = theme() === 'dark';
       btn.innerHTML = dark ? SUN : MOON;

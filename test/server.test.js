@@ -151,7 +151,7 @@ test('without sign-in /api/me reports no user', async (t) => {
   t.after(s.stop);
   await s.ready;
   const { shareBases, ...me } = await (await fetch(`${s.base}/api/me`)).json();
-  assert.deepEqual(me, { auth: 'none', user: null, admin: false, canShare: true, publicUrl: null, signOut: false });
+  assert.deepEqual(me, { auth: 'none', user: null, admin: true, canShare: true, publicUrl: null, signOut: false });
   // share links never point at localhost: only at addresses other computers can reach
   assert.ok(shareBases.every((b) => /^http:\/\/\d+\.\d+\.\d+\.\d+:4794$/.test(b) && !b.includes('127.0.0.1')));
 });
@@ -1053,14 +1053,38 @@ test('people hear about replies, comments on their work and boards, and mentions
   assert.equal((await notices('Ben')).items.some((i) => i.id === 'bencom002'), false);
 });
 
-test('the admin area stays closed without a sign-in that says who people are', async (t) => {
+test('with no sign-in the admin area opens on the machine that runs the server, and nowhere else', async (t) => {
   const s = start(4830, { ADMIN_EMAILS: 'anna@x.com' });
   t.after(s.stop);
   await s.ready;
-  const res = await fetch(`${s.base}/api/admin`);
+  assert.equal((await fetch(`${s.base}/admin`)).status, 200);
+  assert.equal((await (await fetch(`${s.base}/api/me`)).json()).admin, true);
+  let res = await fetch(`${s.base}/api/admin`);
+  assert.equal(res.status, 200);
+  let view = await res.json();
+  assert.equal(view.me, null);
+  assert.equal(view.local, true);
+  res = await fetch(`${s.base}/api/admin/users`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'ben@x.com', name: 'Ben' }) });
+  view = await res.json();
+  assert.deepEqual(view.users.map((u) => u.email), ['anna@x.com', 'ben@x.com']);
+  // through a tunnel or proxy it is anybody at all
+  const far = { 'X-Forwarded-For': '203.0.113.9' };
+  res = await fetch(`${s.base}/api/admin`, { headers: far });
   assert.equal(res.status, 403);
   assert.match((await res.json()).error, /sign-in/);
-  assert.equal((await fetch(`${s.base}/admin`)).status, 200);
+  assert.equal((await (await fetch(`${s.base}/api/me`, { headers: far })).json()).admin, false);
+});
+
+test('the admin area stays closed with a sign-in that does not say who people are', async (t) => {
+  const s = start(4832, { AUTH_MODE: 'password', SITE_PASSWORD: 'open sesame' });
+  t.after(s.stop);
+  await s.ready;
+  const signIn = await fetch(`${s.base}/auth/password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Anna', password: 'open sesame' }) });
+  assert.equal(signIn.status, 200);
+  const cookie = signIn.headers.get('set-cookie').split(';')[0];
+  const res = await fetch(`${s.base}/api/admin`, { headers: { Cookie: cookie } });
+  assert.equal(res.status, 403);
+  assert.match((await res.json()).error, /sign-in/);
 });
 
 test('admins manage people, groups and permissions on shared boards and folders, and nobody else can', async (t) => {

@@ -427,6 +427,7 @@ function moveFolderToSpace(folder, key) {
 // People, groups and permissions: see admin.js. Permissions go on the boards and folders of the shared workspace.
 const admin = createAdmin({
   store, adminEmails: process.env.ADMIN_EMAILS, newId, readJson, sendJson, cleanName, sameOrigin: fromOurPages,
+  local: (req) => auth.mode === 'none' && fromThisMachine(req),
   targets: () => ({
     boards: [...boards.values()].filter((b) => b.workspace === 'myreze').map((b) => ({ id: b.id, name: b.name, folderId: b.folderId || null })),
     folders: [...folders.values()].filter((f) => f.workspace === 'myreze').map((f) => ({ id: f.id, name: f.name, parentId: f.parentId || null })),
@@ -716,7 +717,7 @@ function shareBases() {
 async function handleApi(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean); // ['api', ...]
   if (parts[1] === 'me') {
-    return sendJson(res, 200, { auth: auth.mode, user: req.user || null, admin: admin.isAdmin(req.user), canShare: SHARING, publicUrl: auth.publicUrl || null, shareBases: shareBases(), signOut: !!auth.interactive });
+    return sendJson(res, 200, { auth: auth.mode, user: req.user || null, admin: admin.allows(req), canShare: SHARING, publicUrl: auth.publicUrl || null, shareBases: shareBases(), signOut: !!auth.interactive });
   }
   if (parts[1] === 'admin') return admin.handle(req, res, parts.slice(2));
   if (parts[1] === 'library' && req.method === 'GET') {
@@ -915,10 +916,7 @@ async function handleRequest(req, res) {
   }
   // Used by stop.bat: only accepted from this machine, so nobody on the network can stop it.
   if (pathname === '/__shutdown' && req.method === 'POST') {
-    const addr = req.socket.remoteAddress || '';
-    // A tunnel or proxy on this machine also arrives from loopback, but it adds forwarding headers.
-    const proxied = req.headers['x-forwarded-for'] || req.headers['cf-connecting-ip'] || req.headers['x-real-ip'];
-    if (proxied || !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(addr)) return sendJson(res, 403, { error: 'Local only' });
+    if (!fromThisMachine(req)) return sendJson(res, 403, { error: 'Local only' });
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('stopping');
     console.log('\nStop requested from this machine. Saving boards and shutting down...');
@@ -1014,6 +1012,13 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 }
 
 // Browsers say which page is opening a connection. It has to be one of ours: a page on another site
 // must not be able to open a board from a visitor's browser, with the visitor's sign-in.
+// Whether a request was made on the machine the server runs on, by someone sitting at it.
+function fromThisMachine(req) {
+  // A tunnel or proxy on this machine also arrives from loopback, but it adds forwarding headers.
+  const proxied = req.headers['x-forwarded-for'] || req.headers['cf-connecting-ip'] || req.headers['x-real-ip'];
+  return !proxied && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress || '');
+}
+
 function fromOurPages(req) {
   if (!req.headers.origin) return true; // not a browser
   let origin;

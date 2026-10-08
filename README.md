@@ -25,6 +25,10 @@ private networks, otherwise only the host machine can connect.
 
 ## What it does
 
+- **One bar across the top, the same on every page.** The mark in the corner goes to all boards, and
+  beside it is where you are, as a path: the board, and with an image or video open, the board and
+  then the piece. On the right is what can be done there, ending in the one thing set in ink (New
+  board, Share, Done). What is under the bar slides beneath it.
 - **Dark by default, light on request.** The sun/moon button in the header switches theme and is
   remembered per browser. Everything is set in Inter, served from this machine (`public/fonts`), so text
   measures the same on every screen and nothing is fetched from the internet. The greys carry no hue in
@@ -35,8 +39,11 @@ private networks, otherwise only the host machine can connect.
 - **Images and video.** Drop files on the board, paste screenshots from the clipboard, or
   paste an image URL. Large images get a 2K preview so heavy boards stay fast; the
   original loads when you zoom in past the preview's resolution. Videos have a play
-  button in the middle and a scrub bar on hover, and show a still until they are played, so a board
-  never opens on black rectangles.
+  button in the middle and a plain scrub bar on hover to drag through them where they sit, and show
+  a still until they are played, so a board never opens on black rectangles. A video on its way in
+  shows a ring that counts all of the work (making the review copy, sending it, reading it for its
+  timeline) at an even pace, and is only full when the video lands. If whoever was adding it leaves
+  before it is done, what is left behind says so instead of waiting for ever.
 - **Review copies of video.** Every video is re-encoded in the browser before it is uploaded: H.264
   MP4 (VP9 WebM where the browser cannot encode H.264), 1080p at most, about 10 Mbps, audio kept, and a
   key frame every half second. A browser can only show a frame by decoding from the key frame before
@@ -50,7 +57,10 @@ private networks, otherwise only the host machine can connect.
 - **The viewer.** Double-click an image or video (or tap it on a phone) and it opens on its own, laid
   out like a review tool: the rest of the board is hidden behind a plain backdrop, every image and
   video on the board runs down the left edge as a strip of small numbered thumbnails, the comments on
-  the open piece sit in a panel on the right, and under a video is its timeline. Esc or Done closes it
+  the open piece sit in a panel on the right, and under a video is its timeline. The bar across the
+  top becomes the viewer's: the piece's name, the way to the next and the one before, its zoom, and
+  Done. Nothing else lies over the piece. The comments fold away and back with the tab on their edge
+  (Shift+C), so the piece can have the whole width. Esc, Done or the board's name in the bar closes it
   and the board comes back where it was. There is no tool strip in here, because there is one tool:
   a press on the piece is a brush stroke (right-drag rubs strokes out, and the brush's colours are
   beside the comment box). Zoom in with the wheel or a pinch and move around with Space and a drag, or
@@ -60,14 +70,28 @@ private networks, otherwise only the host machine can connect.
   and scales with it, and everyone who has it open sees it live. The laser (L, and L again for the
   brush) still points for everyone. Somebody holding a link has the hand instead of the brush.
 - **One meaning per key.** In the viewer the arrow keys always go to the next or previous image or
-  video (so do the arrows in the bar, a click in the strip, or a swipe), in the order the board reads:
+  video (so do a click in the strip, a swipe, or, on a window too narrow for the strip, the arrows in the bar), in the order the board reads:
   frame by frame, rows first and then left to right, with loose media taking its place among the
   frames. They never scrub a video and never nudge anything in there; out on the board they nudge the
   selection. Moving through a video has its own keys (`,` and `.`), the same in the viewer and for a
   video selected on the board.
 - **The timeline.** Under an open video: play, a frame back, a frame on, the time, and a track to drag
-  along. Every comment has a small mark above the track in its writer's colour, at the moment it is
-  about; click one to go there. Nothing lies over the picture while it is open.
+  along, drawn as the video's picture and sound: bands of its colours with its loudness above them, on
+  a dark bed in both themes so the colours read the same. Every comment has a small mark above the track in its writer's colour, at the moment it is
+  about; click one to go there, and the comments open on it if they were folded away. Comments about
+  the same moment share one mark with their number on it, and each click goes to the next of them. Nothing lies over the picture while it is open.
+- **The board's videos are fetched ahead.** Once a board is open its videos are fetched quietly in
+  the background, one at a time in the order the viewer steps through them, and kept on the
+  computer's disk (up to 4 GB, the longest unused making room). Opening one then finds it there
+  already, at once, this time and every time after, which is what makes scrubbing quick over the
+  internet and not only on the office network. Whatever is opened has the line to itself and never
+  waits for this. It needs an https address (or the server's own machine); on a plain http address,
+  or with the browser asked to save data, nothing is fetched ahead. A small ring in the bar fills as
+  the videos are cached and turns to a tick once the whole board is; hover or press it and it says so.
+  A video that is more than the browser can process (a very large frame in Safari, say) is not added:
+  a message names it and says which browsers to add it from instead, rather than putting the bare
+  file on the board. (On a plain http address, where no browser can make review copies, videos still
+  go up as they are.)
 - **Scrubbing that does not wait for the network.** A browser keeps only a little of a paused video
   in hand and fetches the rest as it is asked for, so a scrub keeps landing on moments it has not got,
   which drags badly over a tunnel or any slow link. A video that is opened is therefore fetched whole,
@@ -99,14 +123,17 @@ private networks, otherwise only the host machine can connect.
   instead); starting to type stops the video there. Each comment starts a thread that anyone can
   reply to or resolve. Out on the board, whatever has comments carries a small chip in its corner:
   the number of open threads, or a tick once they are all resolved; click it to open the piece with
-  its comments beside it. The Comments button in the top bar (Shift+C) lists every thread on the
-  board; picking one opens what it is about. Who wrote a comment comes from the sign-in, not from the
+  its comments beside it. Comments belong to the viewer, so there is no button for them out on the
+  board; Shift+C there still lists every thread on the board, and picking one opens what it is about. Who wrote a comment comes from the sign-in, not from the
   browser. Comments go when the thing they are on is deleted, and come back with it on undo, still in
   their author's name whoever pressed undo.
 - **Drawings go with comments.** To point at something, circle it. A stroke on the open piece
   belongs to the comment being written, and starts one if none is: the box takes the keyboard, so
   draw, type what it is about, Enter. On a video the comment is about the frame that was drawn on,
-  and its drawing shows only while the video is stopped there. What is drawn for a comment is part
+  and its drawing shows only while the video is stopped there. Only the drawing of the comment being
+  read is on the picture: pick another thread and its drawing takes the other's place, so two
+  comments about the same frame never draw over one another. Whoever follows you reads the thread
+  you are reading, and sees its drawing with you. What is drawn for a comment is part
   of the review, not of the board: it shows in the viewer only, never out on the board, and a copy of
   the piece does not take it along. Deleting a thread deletes its drawing. A drawing whose comment
   was never sent is not thrown away: it stays on the piece as an ordinary drawing, there on every
@@ -155,7 +182,9 @@ page. At `/admin` they see everyone who has signed in, add people ahead of time,
 people in groups, and give people or groups a role (viewer, commenter, editor or manager) on boards and
 folders in the Myreze workspace. These groups and permissions are recorded but **not enforced yet**:
 who gets in is still decided by the sign-in, and everyone signed in sees the whole Myreze workspace.
-Without a sign-in that says who people are (`none`, `password`) the admin area stays closed.
+With the shared password (`password`) the admin area stays closed, as that sign-in does not say who
+people are. With no sign-in at all (`none`, for local use) it opens on the machine that runs the server
+and nowhere else, so it can be looked at and filled in before a sign-in is set up.
 
 On a board, **Share** turns on a link that needs no sign-in, and sets what its holders can do: only
 look, also read the team's comments, or also comment (under a name they type, without resolving or

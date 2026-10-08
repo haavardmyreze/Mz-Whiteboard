@@ -38,7 +38,8 @@
   const vetting = new Set();
   let vetQueue = Promise.resolve();
   // What a video looks and sounds like along its length: the colours of its picture and the loudness of its
-  // sound, drawn behind the scrub bar. Made from the file as it is uploaded, then kept with the video.
+  // sound, drawn along the timeline of the video that is open. Out on the board the scrub bar stays plain.
+  // Made from the file as it is uploaded, then kept with the video.
   const WAVE_COLS = 512;
   const WAVE_BARS = 1024;
   const LASER_LIFE = 450;
@@ -603,12 +604,22 @@
     video.wbTick = tick;
     seek.addEventListener('input', () => {
       if (!video.duration) return;
-      video.currentTime = wholeFrame(it.id, (seek.value / 1000) * video.duration);
+      const at = wholeFrame(it.id, (seek.value / 1000) * video.duration);
+      video.currentTime = at;
       seek.style.setProperty('--p', `${seek.value / 10}%`);
       if (seek.parentNode) seek.parentNode.style.setProperty('--p', `${seek.value / 10}%`);
+      // The time follows the hand, not the picture, which may still be on its way.
+      time.textContent = timeLabel(at, video.duration, fpsOf(it.id));
       sendMedia(it.id);
     });
     seek.addEventListener('change', () => seek.blur());
+    // Taken hold of, the video is wanted whole: from the disk if it is kept there, otherwise fetched, so
+    // that the next drag through it does not wait for the network. It changes over once the hand lets go.
+    seek.addEventListener('pointerdown', () => {
+      boardScrub = it.id;
+      holdWhole(it.id);
+    });
+    for (const type of ['pointerup', 'pointercancel', 'change']) seek.addEventListener(type, () => { if (boardScrub === it.id) boardScrub = null; });
     for (const type of ['progress', 'suspend', 'loadedmetadata', 'seeked']) {
       video.addEventListener(type, () => {
         if (focusId === it.id) syncLoaded();
@@ -646,8 +657,17 @@
     // The still the video was filed with stays over it until it is played or scrubbed, so what shows is
     // never the bare first frame, or nothing at all while it loads.
     const post = el('img', { class: 'vpost', alt: '', draggable: 'false', decoding: 'async' });
-    for (const type of ['play', 'seeking']) video.addEventListener(type, () => { if (type === 'play' || video.currentTime > 0.05) node.classList.add('started'); });
-    node.append(video, post, center, el('div', { class: 'vbar' }, play, el('div', { class: 'vseek' }, el('canvas', { class: 'vwave', width: WAVE_W, height: WAVE_H }), seek, marks), time, sound));
+    // From then on the video has no still of its own either. Safari goes on showing a video's poster
+    // through every seek until it is played, so a video that was moved to another source while stopped
+    // (as an open one is, once it has arrived whole) would sit on its still while the playhead moved.
+    for (const type of ['play', 'seeking']) {
+      video.addEventListener(type, () => {
+        if (type !== 'play' && !(video.currentTime > 0.05)) return;
+        node.classList.add('started');
+        video.removeAttribute('poster');
+      });
+    }
+    node.append(video, post, center, el('div', { class: 'vbar' }, play, el('div', { class: 'vseek' }, seek, marks), time, sound));
   }
 
   function createNode(it) {
@@ -701,8 +721,7 @@
       const video = node.firstChild;
       const still = fixedStill.get(it.id) || it.poster || it.th;
       vetStill(it);
-      applyWave(it, node);
-      if (still && video.getAttribute('poster') !== still) video.poster = still;
+      if (still && !node.classList.contains('started') && video.getAttribute('poster') !== still) video.poster = still;
       const post = node.querySelector('.vpost');
       if (post && post.dataset.src !== (still || '')) {
         post.dataset.src = still || '';
@@ -714,6 +733,7 @@
         video.dataset.src = it.src;
         delete video.dataset.whole;
         video.src = it.src;
+        queueAhead();
       }
     } else if (it.type === 'upload') {
       st.width = `${it.w}px`;
@@ -1882,8 +1902,8 @@
   function layoutViewer() {
     const below = timeline.hidden ? 0 : timeline.offsetHeight + 12;
     viewerPad = vp.clientWidth < 700
-      ? { t: 104, r: 12, b: 20 + below, l: 12 }
-      : { t: 112, r: (panel.hidden ? 0 : panel.offsetWidth) + 32, b: 32 + below, l: $('filmstrip').offsetWidth + 32 };
+      ? { t: 64, r: 12, b: 20 + below, l: 12 }
+      : { t: 72, r: (panel.hidden ? 0 : panel.offsetWidth) + 40, b: 32 + below, l: $('filmstrip').offsetWidth + 40 };
   }
   const focusInsets = () => viewerPad;
 
@@ -1982,7 +2002,6 @@
     document.body.classList.toggle('focus-video', it.type === 'video');
     $('focusname').textContent = it.name || (it.type === 'video' ? 'Video' : 'Image');
     $('focusclear').title = `Delete everything drawn on this ${it.type}`;
-    $('focusbar').hidden = false;
     $('filmstrip').hidden = false;
     $('timeline').hidden = it.type !== 'video';
     for (const [nid, node] of els) node.classList.toggle('dim', nid !== id && items.get(nid).pid !== id);
@@ -2017,7 +2036,6 @@
     activeThread = null;
     focusId = null;
     document.body.classList.remove('focus', 'focus-video');
-    $('focusbar').hidden = true;
     $('filmstrip').hidden = true;
     $('timeline').hidden = true;
     for (const node of els.values()) node.classList.remove('dim');
@@ -2091,6 +2109,8 @@
     }
     const i = list.findIndex((it) => it.id === focusId);
     $('focuspos').textContent = `${i + 1} / ${list.length}`;
+    // As wide as the last one needs, so the arrow after it stays put from 9 to 10.
+    $('focuspos').style.minWidth = `${String(list.length).length * 2 + 3}ch`;
     $('focusprev').disabled = $('focusnext').disabled = list.length < 2;
     for (const node of film.children) {
       const current = node.dataset.id === focusId;
@@ -2109,6 +2129,7 @@
   // ---- the picture and sound of a video, along its scrub bar
   const WAVE_W = 480;
   const WAVE_H = 80;
+  const STRIP_PICTURE = 0.85;
 
   const toB64 = (bytes) => {
     let out = '';
@@ -2148,7 +2169,7 @@
   // checked against the moment asked for, so a column can only ever hold the colour of its own moment.
   // (Seeking a video element and copying what it shows is not that: the browser may report the seek done
   // while the old frame is still on show, and the same colour then runs on for minutes.)
-  async function colourStrip(file, url, dur) {
+  async function colourStrip(file, url, dur, report = () => {}, fallback = true) {
     let input;
     try {
       const mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
@@ -2168,6 +2189,7 @@
         const right = frame && frame.timestamp <= times[cols.length] + 0.001 && frame.timestamp >= before;
         if (right) before = frame.timestamp;
         cols.push(right ? frameColours(frame.canvas.getContext('2d', { willReadFrequently: true })) : null);
+        report(cols.length / WAVE_COLS);
       }
       const colours = cols.length === WAVE_COLS ? closeHoles(cols) : null;
       if (colours) return { colours, dur };
@@ -2176,12 +2198,12 @@
     } finally {
       if (input) input.dispose?.();
     }
-    return colourStripByElement(url);
+    return fallback ? colourStripByElement(url, report) : null;
   }
 
   // The same from a video element, for a browser that cannot decode the file itself. Each seek is only
   // believed once the element says which frame it has put on show.
-  async function colourStripByElement(url) {
+  async function colourStripByElement(url, report = () => {}) {
     const video = el('video', { muted: '', playsinline: '', preload: 'auto' });
     video.muted = true;
     if (!video.requestVideoFrameCallback) return null;
@@ -2214,6 +2236,7 @@
           cols.push(null);
           missed++;
         }
+        report(cols.length / WAVE_COLS);
       }
       const colours = cols.length === WAVE_COLS ? closeHoles(cols) : null;
       return colours ? { colours, dur } : null;
@@ -2226,7 +2249,7 @@
   }
 
   // How loud the sound is, in even steps along the video; null where there is none.
-  async function soundPeaks(file, dur) {
+  async function soundPeaks(file, dur, report = () => {}) {
     let input;
     try {
       const mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
@@ -2235,7 +2258,9 @@
       if (!track || !(await track.canDecode())) return null;
       const peaks = new Float32Array(WAVE_BARS);
       const sink = new mb.AudioSampleSink(track);
+      let told = 0;
       for await (const sample of sink.samples()) {
+        if (sample.timestamp / dur - told >= 0.02) report((told = sample.timestamp / dur));
         const data = new Float32Array(sample.numberOfFrames);
         sample.copyTo(data, { planeIndex: 0, format: 'f32-planar' });
         const rate = sample.sampleRate;
@@ -2286,6 +2311,12 @@
   function drawWave(canvas, wf, dpr) {
     const ctx = canvas.getContext('2d');
     const { width: W, height: H } = canvas;
+    // Colours are read against what is around them, and on a white panel they wash out. So in the light
+    // theme the strip keeps a dark bed of its own, like a strip of film, and reads as it does in the dark one.
+    if (isLight()) {
+      ctx.fillStyle = '#161616';
+      ctx.fillRect(0, 0, W, H);
+    }
     const stripTop = Math.round(H * 0.62);
     const colours = fromB64(wf.c);
     const cols = colours.length / 6;
@@ -2316,14 +2347,6 @@
     ctx.fill();
   }
 
-  function applyWave(it, node) {
-    if (!it.wf) return;
-    const box = node.querySelector('.vseek');
-    if (!box) return;
-    box.classList.add('wave');
-    showWave(box.querySelector('.vwave'), it.wf);
-  }
-
   function paintFocusWave() {
     const it = focusId ? items.get(focusId) : null;
     const wf = it && it.type === 'video' ? it.wf : null;
@@ -2332,14 +2355,17 @@
   }
 
   // The strip for a video file about to be uploaded; null if it cannot be made, and the bar stays plain.
-  async function videoWave(file, url, dur) {
+  // `report` hears how far along it is, from 0 to 1: the picture is most of the work, the sound the rest.
+  async function videoWave(file, url, dur, report = () => {}, fallback = true) {
     try {
-      const strip = await colourStrip(file, url, dur);
+      const strip = await colourStrip(file, url, dur, (k) => report(k * STRIP_PICTURE), fallback);
       if (!strip) return null;
-      const peaks = await soundPeaks(file, strip.dur);
+      const peaks = await soundPeaks(file, strip.dur, (k) => report(STRIP_PICTURE + k * (1 - STRIP_PICTURE)));
       return { c: toB64(strip.colours), p: peaks ? toB64(peaks) : '' };
     } catch {
       return null;
+    } finally {
+      report(1);
     }
   }
 
@@ -2354,6 +2380,10 @@
   const tlTip = el('span', { class: 'tl-tip', hidden: true });
   const tlLoaded = el('i', { class: 'tl-loaded' });
   const tlWave = el('canvas', { class: 'tl-wave', width: WAVE_W, height: WAVE_H });
+  window.addEventListener('wb:theme', () => {
+    delete tlWave.dataset.drawn;
+    fitWave(tlWave);
+  });
   const tlTrack = el('div', { class: 'tl-track' }, tlWave, el('i', { class: 'tl-rail' }, tlLoaded, el('i', { class: 'tl-played' })), tlMarks, el('i', { class: 'tl-head' }), tlTip);
   timeline.append(
     tlPlay,
@@ -2395,26 +2425,193 @@
   const WHOLE_KEPT = 1024 * 1024 * 1024; // how much is held in memory across videos
   const wholes = new Map();              // a video's address -> { loaded, total, url, size, ctl, ready }
 
+  // ---- the board's videos, kept on this machine
+  //
+  // Over the internet the wait is for a video to arrive, and it is longest just when it is opened. So
+  // once a board is open its videos are fetched ahead, quietly, one at a time and in the order the
+  // viewer steps through them, and kept on this machine's disk. Opening one then finds it here: it
+  // comes from the disk at once, this time and every time after. A file's address is made from what is
+  // in it, so a copy kept here can never be out of date.
+  //
+  // What is opened never waits for this: it has the line to itself, and what was being fetched ahead
+  // gives way to it. Where the browser has nowhere to keep things (a plain http address that is not
+  // this machine) or has been asked to save data, nothing is fetched ahead and all is as it was.
+  const KEPT_MAX = 4 * 1024 * 1024 * 1024; // how much is kept on disk across boards
+  const mediaCache = 'caches' in window ? caches.open('wb-media-1').catch(() => null) : Promise.resolve(null);
+  const kept = store('wb:kept') || {};     // a video's address -> [its size, when it was last wanted]
+  const aheadFailed = new Set();
+  const onDisk = new Set();                // which of them are known to be there
+  let diskReady = false;
+  mediaCache.then((cache) => {
+    diskReady = !!cache;
+    paintKept();
+  });
+  let ahead = null;                        // what is being fetched ahead: { src, ctl, done, loaded, total }
+  let aheadTimer = 0;
+  let aheadRunning = false;
+  let aheadOff = !!(navigator.connection && navigator.connection.saveData);
+
+  async function keepOnDisk(cache, src, blob) {
+    try {
+      await cache.put(src, new Response(blob, { headers: { 'Content-Type': blob.type || 'video/mp4', 'Content-Length': String(blob.size) } }));
+    } catch {
+      // No room, or no leave to keep things here: nothing more is fetched ahead this time.
+      aheadOff = true;
+      paintKept();
+      return;
+    }
+    kept[src] = [blob.size, Date.now()];
+    onDisk.add(src);
+    paintKept();
+    // What has gone longest unwanted makes room, though never what is on the board that is open.
+    const here = new Set([...items.values()].map((it) => it.src));
+    let total = Object.values(kept).reduce((sum, k) => sum + k[0], 0);
+    for (const [old, k] of Object.entries(kept).sort((a, b) => a[1][1] - b[1][1])) {
+      if (total <= KEPT_MAX) break;
+      if (here.has(old)) continue;
+      await cache.delete(old).catch(() => {});
+      delete kept[old];
+      onDisk.delete(old);
+      total -= k[0];
+    }
+    store('wb:kept', kept);
+  }
+
+  function queueAhead() {
+    paintKept();
+    if (aheadOff) return;
+    clearTimeout(aheadTimer);
+    aheadTimer = setTimeout(fetchAhead, 2500);
+  }
+
+  async function fetchAhead() {
+    const cache = await mediaCache;
+    if (!cache || aheadRunning || aheadOff) return;
+    aheadRunning = true;
+    try {
+      for (;;) {
+        // What has been opened has the line to itself.
+        while ([...wholes.values()].some((e) => !e.url)) await new Promise((resolve) => setTimeout(resolve, 400));
+        if (aheadOff) break;
+        // From the piece that is open onwards, since the next one is the likeliest to be wanted next.
+        const order = mediaOrder().filter(wholeable);
+        const from = Math.max(0, order.findIndex((it) => it.id === focusId));
+        let next = null;
+        for (const it of [...order.slice(from), ...order.slice(0, from)]) {
+          if (aheadFailed.has(it.src) || onDisk.has(it.src)) continue;
+          if (await cache.match(it.src).catch(() => null)) onDisk.add(it.src);
+          else if (!next && !wholes.has(it.src)) next = it.src;
+        }
+        paintKept();
+        if (!next) break;
+        const ctl = new AbortController();
+        const job = (ahead = { src: next, ctl, loaded: 0, total: 0 });
+        job.done = (async () => {
+          const res = await fetch(next, { signal: ctl.signal });
+          job.total = Number(res.headers.get('content-length')) || 0;
+          if (!res.ok || !res.body || !job.total || job.total > WHOLE_MAX) throw new Error('not one to keep');
+          const reader = res.body.getReader();
+          const pieces = [];
+          let told = 0;
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            pieces.push(value);
+            job.loaded += value.length;
+            if (job.loaded - told > job.total / 50) {
+              told = job.loaded;
+              paintKept();
+            }
+          }
+          await keepOnDisk(cache, next, new Blob(pieces, { type: res.headers.get('content-type') || 'video/mp4' }));
+        })().catch(() => {
+          // Given up for something that was opened, it is tried again; anything else is left alone.
+          if (!ctl.signal.aborted) aheadFailed.add(next);
+        });
+        await job.done;
+        if (ahead === job) ahead = null;
+      }
+    } finally {
+      aheadRunning = false;
+      paintKept();
+    }
+  }
+
+  // The ring in the bar: how much of this board's video is on this computer already.
+  const keptRing = $('kept');
+  // A press says the same as hovering does, for a finger, and for anyone who wonders what the tick is.
+  keptRing.addEventListener('click', () => toast(keptRing.dataset.tip, { ms: 6000 }));
+  const KEPT_RING = 2 * Math.PI * 7;
+  keptRing.querySelector('.arc').style.strokeDasharray = KEPT_RING;
+  function paintKept() {
+    const srcs = new Set(mediaOrder().filter(wholeable).map((it) => it.src));
+    for (const src of aheadFailed) srcs.delete(src);
+    const total = srcs.size;
+    keptRing.hidden = !diskReady || !total;
+    if (keptRing.hidden) return;
+    const done = [...srcs].filter((src) => onDisk.has(src)).length;
+    // What is on its way counts for as much of itself as has arrived.
+    let coming = 0;
+    if (ahead && ahead.total && srcs.has(ahead.src) && !onDisk.has(ahead.src)) coming += ahead.loaded / ahead.total;
+    for (const [src, e] of wholes) if (!e.url && e.total && srcs.has(src) && !onDisk.has(src)) coming += e.loaded / e.total;
+    const k = clamp((done + coming) / total, 0, 1);
+    const full = done >= total;
+    const videos = total === 1 ? 'video' : 'videos';
+    keptRing.querySelector('.arc').style.strokeDashoffset = KEPT_RING * (1 - k);
+    keptRing.classList.toggle('full', full);
+    keptRing.classList.toggle('off', aheadOff && !full);
+    const tip = full
+      ? `${total === 1 ? 'The video' : `All ${total} videos`} on this board ${total === 1 ? 'is' : 'are'} cached on this computer, so ${total === 1 ? 'it opens' : 'they open'} and scrub instantly`
+      : aheadOff
+        ? `${done} of ${total} ${videos} cached on this computer. Caching has stopped: the disk is full, or the browser is saving data`
+        : `Caching this board's videos on this computer so they open and scrub instantly: ${done} of ${total} done`;
+    if (keptRing.dataset.tip !== tip) {
+      keptRing.dataset.tip = tip;
+      keptRing.setAttribute('aria-label', tip);
+    }
+  }
+
   function fetchWhole(src) {
     let entry = wholes.get(src);
     if (entry) return entry;
     entry = { loaded: 0, total: 0, url: null, size: 0, ctl: new AbortController() };
     wholes.set(src, entry);
     entry.ready = (async () => {
-      const res = await fetch(src, { signal: entry.ctl.signal });
-      entry.total = Number(res.headers.get('content-length')) || 0;
-      if (!res.ok || !res.body || !entry.total || entry.total > WHOLE_MAX) throw new Error('not one to hold in memory');
-      const reader = res.body.getReader();
-      const pieces = [];
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        pieces.push(value);
-        entry.loaded += value.length;
-        if (focusId && items.get(focusId)?.src === src) syncLoaded();
+      const cache = await mediaCache;
+      // On its way in ahead already: that is the copy to wait for, not a second one beside it. Anything
+      // else being fetched ahead gives up the line.
+      if (ahead && ahead.src === src) await ahead.done;
+      else if (ahead) ahead.ctl.abort();
+      const hit = cache ? await cache.match(src).catch(() => null) : null;
+      let blob;
+      if (hit) {
+        blob = await hit.blob();
+        entry.total = entry.loaded = blob.size;
+        if (kept[src]) kept[src][1] = Date.now();
+        onDisk.add(src);
+      } else {
+        onDisk.delete(src);
+        const res = await fetch(src, { signal: entry.ctl.signal });
+        entry.total = Number(res.headers.get('content-length')) || 0;
+        if (!res.ok || !res.body || !entry.total || entry.total > WHOLE_MAX) throw new Error('not one to hold in memory');
+        const reader = res.body.getReader();
+        const pieces = [];
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          pieces.push(value);
+          entry.loaded += value.length;
+          if (focusId && items.get(focusId)?.src === src) syncLoaded();
+          paintKept();
+        }
+        blob = new Blob(pieces, { type: res.headers.get('content-type') || 'video/mp4' });
+        if (cache) keepOnDisk(cache, src, blob);
       }
-      entry.size = entry.loaded;
-      entry.url = URL.createObjectURL(new Blob(pieces, { type: res.headers.get('content-type') || 'video/mp4' }));
+      // Stepped past while it was on its way.
+      if (entry.ctl.signal.aborted || blob.size > WHOLE_MAX) throw new Error('not wanted any more');
+      entry.size = blob.size;
+      entry.url = URL.createObjectURL(blob);
+      if (focusId && items.get(focusId)?.src === src) syncLoaded();
       return entry.url;
     })().catch(() => {
       entry.ctl.abort();
@@ -2445,6 +2642,8 @@
       video.removeEventListener('error', settle);
     };
     const timer = setTimeout(settle, 3000);
+    // It is about to be scrubbed through, stopped: every frame of it is wanted, not only what playing would fetch.
+    video.preload = 'auto';
     video.addEventListener('error', settle);
     video.addEventListener('loadeddata', () => {
       if (playing) video.play().catch(() => {});
@@ -2469,11 +2668,12 @@
     entry.used = performance.now();
     const url = await entry.ready;
     // Not in the middle of a scrub, which would be thrown back to where it started.
-    while (scrub) await new Promise((resolve) => setTimeout(resolve, 120));
+    while (scrub || boardScrub === id) await new Promise((resolve) => setTimeout(resolve, 120));
     const video = videoOf(id);
     if (!url || !video || items.get(id)?.src !== src || video.dataset.whole === src) return;
     video.dataset.whole = src;
     switchSource(video, url);
+    mendStrip(id, url);
     if (focusId === id) syncLoaded();
     // Memory is not for hoarding: the videos opened longest ago go back to playing from the server.
     let kept = 0;
@@ -2489,6 +2689,22 @@
       URL.revokeObjectURL(e.url);
       wholes.delete(other);
       kept -= e.size;
+    }
+  }
+
+  // A video that came in without the strip for its timeline, because the browser it was added from could
+  // not read it, is given one by the first browser that can, when it is opened there.
+  const mending = new Set();
+  async function mendStrip(id, url) {
+    const it = items.get(id);
+    if (!it || it.wf || viewOnly || mending.has(it.src)) return;
+    mending.add(it.src);
+    try {
+      const wf = await videoWave(await (await fetch(url)).blob(), null, it.dur || 0, undefined, false);
+      const now = items.get(id);
+      if (wf && now && now.src === it.src && !now.wf) exec([{ t: 'set', id, patch: { wf } }], false);
+    } catch {
+      // it stays plain
     }
   }
 
@@ -2526,6 +2742,7 @@
   }
 
   let scrub = null;
+  let boardScrub = null; // the video whose bar out on the board is being dragged
   function trackMoment(e) {
     const video = videoOf(focusId);
     const r = tlTrack.getBoundingClientRect();
@@ -2543,10 +2760,7 @@
     const video = focusId ? videoOf(focusId) : null;
     return video && video.duration > 0 && isFinite(video.duration) ? video : null;
   };
-  tlTrack.addEventListener('pointerdown', (e) => {
-    const video = scrubbable();
-    if (!video || e.button !== 0 || e.target.closest('.tl-mark')) return;
-    e.preventDefault();
+  function beginScrub(e, video) {
     try {
       tlTrack.setPointerCapture(e.pointerId);
     } catch {
@@ -2556,16 +2770,50 @@
     scrub = { pid: e.pointerId, resume: !video.paused };
     video.pause();
     scrubTo(e);
+  }
+  // A press on a mark picks its comment, unless the hand then moves. Picking a comment leaves the
+  // playhead right under that comment's mark, and taking hold of it there has to drag it like anywhere
+  // else on the track: otherwise the timeline seems to stop working the moment a comment has been read.
+  let markPress = null;
+  let dragFromMark = false;
+  tlTrack.addEventListener('pointerdown', (e) => {
+    const video = scrubbable();
+    if (!video || e.button !== 0) return;
+    dragFromMark = false;
+    // Taking hold of the timeline is working the video. A comment box left holding the keyboard would
+    // go on taking the keys that step and play it; what was typed in it stays where it is.
+    const held = document.activeElement;
+    if (held && held.tagName === 'TEXTAREA' && panel.contains(held)) held.blur();
+    if (e.target.closest('.tl-mark')) {
+      markPress = { pid: e.pointerId, x: e.clientX };
+      return;
+    }
+    e.preventDefault();
+    beginScrub(e, video);
   });
   tlTrack.addEventListener('pointermove', (e) => {
-    if (!scrubbable()) return;
+    const video = scrubbable();
+    if (!video) return;
+    if (markPress && e.pointerId === markPress.pid && Math.abs(e.clientX - markPress.x) > 3) {
+      markPress = null;
+      dragFromMark = true;
+      beginScrub(e, video);
+    }
     const { k, at } = trackMoment(e);
     tlTip.hidden = false;
     tlTip.textContent = fmtMoment(at, fpsOf(focusId));
     tlTip.style.left = `${k * 100}%`;
     if (scrub && e.pointerId === scrub.pid) scrubTo(e);
   });
+  // The click that ends a drag begun on a mark is not a click on the mark.
+  tlTrack.addEventListener('click', (e) => {
+    if (!dragFromMark) return;
+    dragFromMark = false;
+    e.stopPropagation();
+    e.preventDefault();
+  }, true);
   const endScrub = (e) => {
+    if (markPress && e.pointerId === markPress.pid) markPress = null;
     if (!scrub || e.pointerId !== scrub.pid) return;
     const video = scrubbable();
     if (video && scrub.resume) video.play().catch(() => {});
@@ -2835,17 +3083,13 @@
       const seen = new Set();
       const kids = [];
       const open = [];
+      const stacks = new Map(); // a moment -> the threads about it, on the open video
       for (const m of isFinite(dur) && dur > 0 ? on.get(id) || [] : []) {
         const left = `${clamp(m.at / dur, 0, 1) * 100}%`;
-        // On the open video's timeline every comment has its own mark, in its writer's colour, and
-        // picking one picks its thread.
         if (id === focusId) {
-          open.push(m.c
-            ? el('button', {
-              class: `tl-mark comment${m.c.done ? ' done' : ''}${m.c.id === activeThread ? ' active' : ''}`, title: m.title,
-              style: { left, background: hexOk(m.c.color) ? m.c.color : '#8a8a8a' }, onclick: () => pickThread(m.c.id),
-            })
-            : !seen.has(`draw:${Math.round(m.at * 1000)}`) && el('button', { class: 'tl-mark draw', title: m.title, style: { left }, onclick: () => seekVideo(id, m.at) }));
+          const moment = Math.round(m.at * 1000);
+          if (m.c) (stacks.get(moment) || stacks.set(moment, { left, threads: [] }).get(moment)).threads.push(m.c);
+          else if (!seen.has(`draw:${moment}`)) open.push(el('button', { class: 'tl-mark draw', title: m.title, style: { left }, onclick: () => seekVideo(id, m.at) }));
         }
         const key = `${m.kind}:${Math.round(m.at * 1000)}`;
         if (seen.has(key)) continue;
@@ -2853,7 +3097,21 @@
         kids.push(el('button', { class: `vmark ${m.kind}`, title: m.title, style: { left }, onclick: () => seekVideo(id, m.at) }));
       }
       node.querySelector('.vmarks').replaceChildren(...kids);
-      if (id === focusId) tlMarks.replaceChildren(...open.filter(Boolean));
+      // On the open video's timeline a comment has a mark in its writer's colour, and picking it picks
+      // its thread. Comments about the same moment would lie exactly on top of one another, so they
+      // share a mark that says how many they are, and each click on it goes to the next of them.
+      for (const { left, threads } of stacks.values()) {
+        const reading = threads.findIndex((c) => c.id === activeThread);
+        const shown = threads[Math.max(reading, 0)];
+        const many = threads.length > 1;
+        const title = many ? `${threads.length} comments at this moment. Click again for the next` : `${shown.name}: ${shown.text}`;
+        open.push(el('button', {
+          class: `tl-mark comment${threads.every((c) => c.done) ? ' done' : ''}${reading >= 0 ? ' active' : ''}`, title, 'aria-label': title,
+          style: { left, background: hexOk(shown.color) ? shown.color : '#8a8a8a' },
+          onclick: () => pickThread(threads[(reading + 1) % threads.length].id),
+        }, many && el('span', { class: 'tl-n', text: String(threads.length) })));
+      }
+      if (id === focusId) tlMarks.replaceChildren(...open);
     }
   }
 
@@ -3095,7 +3353,52 @@
     }
   }
 
-  async function reviewCopy(file, report, note) {
+  // `plan` hears what is about to be done, before any of it is: 'wrap' or 'encode', how long the video is,
+  // and about how large the copy will be. It hears nothing when the file goes up as it is.
+  // ---- what a browser cannot do
+  //
+  // A video only belongs on a board as its review copy: without one it is the file as it came, many times
+  // the size, slow to scrub and with no strip for its timeline. Browsers differ in what they can read
+  // (Safari stops at frames that Chrome and Firefox take in their stride), so a video this browser cannot
+  // make a copy of is not added at all, and whoever brought it is told to bring it in another browser.
+  //
+  // The one exception is a browser with no way of making copies of anything: a plain http address, where
+  // browsers withhold that machinery, or a very old browser. There every video goes up as it is, as it
+  // always has, since refusing would mean no video at all.
+  const canCopyVideo = typeof VideoDecoder !== 'undefined' && typeof VideoEncoder !== 'undefined';
+  const OTHER_BROWSERS = /Firefox\//.test(navigator.userAgent) ? 'Chrome or Edge'
+    : /Safari\//.test(navigator.userAgent) && !/Chrom(e|ium)\//.test(navigator.userAgent) ? 'Chrome, Edge or Firefox'
+      : 'Firefox';
+  const refusal = (dims) => Object.assign(new Error('This browser cannot process this video'), { refused: true, dims });
+
+  // The size of a video's picture if this browser cannot read it to make a copy; otherwise nothing.
+  async function beyondThisBrowser(file) {
+    if (!canCopyVideo) return null;
+    let input;
+    try {
+      const mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
+      input = new mb.Input({ source: new mb.BlobSource(file), formats: mb.ALL_FORMATS });
+      const track = await input.getPrimaryVideoTrack();
+      if (!track || (await track.canDecode())) return null;
+      return `${track.displayWidth}×${track.displayHeight}`;
+    } catch {
+      return null;
+    } finally {
+      if (input) input.dispose();
+    }
+  }
+
+  function tellRefused(list) {
+    if (!list.length) return;
+    const one = list.length === 1;
+    WB.dialog({
+      title: one ? 'This video needs a different browser' : 'These videos need a different browser',
+      text: `${list.map((r) => (r.dims ? `${r.name} (${r.dims})` : r.name)).join(', ')} ${one ? 'is' : 'are'} more than this browser can process, so ${one ? 'it was' : 'they were'} not added. Add ${one ? 'it' : 'them'} from ${OTHER_BROWSERS} instead.`,
+      cancellable: false,
+    });
+  }
+
+  async function reviewCopy(file, report, note, plan = () => {}) {
     let mb;
     try {
       mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
@@ -3105,7 +3408,8 @@
     const input = new mb.Input({ source: new mb.BlobSource(file), formats: mb.ALL_FORMATS });
     try {
       const track = await input.getPrimaryVideoTrack();
-      if (!track || !(await track.canDecode())) return file;
+      if (!track || !canCopyVideo) return file;
+      if (!(await track.canDecode())) throw refusal(`${track.displayWidth}×${track.displayHeight}`);
       const w = track.displayWidth;
       const h = track.displayHeight;
       const duration = await input.computeDuration();
@@ -3120,6 +3424,7 @@
         const output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new mb.BufferTarget() });
         const conversion = await mb.Conversion.init({ input, output });
         if (conversion.isValid && !conversion.discardedTracks.some((d) => d.track.type === 'video')) {
+          plan('wrap', duration, file.size);
           conversion.onProgress = (p) => report(p);
           await conversion.execute();
           return new File([output.target.buffer], `${file.name.replace(/\.[^.]+$/, '')}.mp4`, { type: 'video/mp4' });
@@ -3128,11 +3433,9 @@
       // Close key frames cost bits, so a lean source gets some headroom rather than losing detail.
       const target = Math.round(Math.min(VIDEO_BITRATE, Math.max(VIDEO_MIN_BITRATE, bitrate * 1.5)));
       const codec = await mb.getFirstEncodableVideoCodec(['avc', 'vp9'], { width, height, bitrate: target });
-      if (!codec) {
-        note('This browser cannot make a review copy of video, so it is uploaded as it is. Scrubbing backwards may be slow.');
-        return file;
-      }
+      if (!codec) throw refusal(`${w}×${h}`);
       const mp4 = codec === 'avc';
+      plan('encode', duration, (target * duration) / 8);
       const encode = async (hardwareAcceleration) => {
         const format = mp4 ? new mb.Mp4OutputFormat({ fastStart: 'in-memory' }) : new mb.WebMOutputFormat();
         const output = new mb.Output({ format, target: new mb.BufferTarget() });
@@ -3157,13 +3460,14 @@
         }
       }
       if (!buffer) buffer = await encode('no-preference');
-      if (!buffer) return file;
+      if (!buffer) throw refusal(`${w}×${h}`);
       const ext = mp4 ? 'mp4' : 'webm';
       return new File([buffer], `${file.name.replace(/\.[^.]+$/, '')}.${ext}`, { type: `video/${ext}` });
     } catch (err) {
-      console.warn('Could not make a review copy, uploading the original:', err);
-      note('Could not make a review copy of this video, so it is uploaded as it is.');
-      return file;
+      if (err.refused) throw err;
+      // It read the file and then gave up part way: the same answer as not being able to read it.
+      console.warn('Could not make a review copy:', err);
+      throw refusal();
     } finally {
       input.dispose();
     }
@@ -3178,12 +3482,16 @@
     return blob ? (await upload(blob, EXT_BY_TYPE[blob.type] || '.webp')).url : null;
   }
 
-  async function ingest(file, onProgress, { onPhase = () => {}, note = () => {} } = {}) {
+  async function ingest(file, onProgress, { onPhase = () => {}, onStrip = () => {}, onPlan = () => {}, note = () => {} } = {}) {
     const ext = fileExt(file);
     const url = URL.createObjectURL(file);
     try {
       if (VID_EXT.test(ext)) {
-        const prepared = await reviewCopy(file, onPhase, note);
+        let planned = false;
+        const prepared = await reviewCopy(file, onPhase, note, (...plan) => {
+          planned = true;
+          onPlan(...plan);
+        });
         const preparedUrl = prepared === file ? url : URL.createObjectURL(prepared);
         try {
           const { w, h, video } = await probeVideo(preparedUrl);
@@ -3192,8 +3500,11 @@
           // Read from the file as it came: a re-encoded copy keeps the rate, but not every container records it as exactly.
           const fps = await readRate(file);
           const dur = isFinite(video.duration) ? Math.round(video.duration * 1000) / 1000 : 0;
-          // The strip is read from the copy here while it uploads, so it costs no wait of its own.
-          const [up, wf] = await Promise.all([upload(prepared, fileExt(prepared), onProgress), videoWave(prepared, preparedUrl, dur)]);
+          if (!planned) onPlan('none', dur, prepared.size);
+          onPhase(1);
+          onProgress(0);
+          // The strip is read from the copy here while it uploads, so it only costs a wait where the upload is the quicker of the two.
+          const [up, wf] = await Promise.all([upload(prepared, fileExt(prepared), onProgress), videoWave(prepared, preparedUrl, dur, onStrip)]);
           return { type: 'video', src: up.url, nw: w, nh: h, name: file.name, ...(th && { th }), ...(poster && { poster }), ...(fps && { fps }), ...(dur && { dur }), ...(wf && { wf }) };
         } finally {
           if (preparedUrl !== url) URL.revokeObjectURL(preparedUrl);
@@ -3280,6 +3591,17 @@
   const RING = 2 * Math.PI * 28;
   const standIns = new Set(); // this browser's own
   const progress = new Map(); // stand-in id -> { k, ph }, from this browser and from the others
+  // How fast this browser made and sent its last video: seconds of encoding for a second of video, and
+  // seconds to send a megabyte. The ring is paced by them, so they are kept from one video to the next.
+  const pace = { enc: 0.3, up: 0.02, ...store('wb:pace') };
+  pace.enc = clamp(Number(pace.enc) || 0.3, 0.02, 20);
+  pace.up = clamp(Number(pace.up) || 0.02, 0.0005, 20);
+  // Each says what is being done, not how far along it is: the last step, reading the video for its
+  // timeline, is often the longest of the three, and "finishing" at 13% was no way to say so.
+  const PHASES = { enc: 'Preparing', up: 'Uploading', fin: 'Building timeline' };
+  // A stand-in nobody is working on any more is said to be so, once it has been that way this long.
+  const ORPHAN_MS = 8000;
+  const orphans = new Map(); // stand-in id -> when it was first seen with nobody behind it
 
   function buildUpload(node) {
     const track = svgEl('circle', { class: 'track', cx: 32, cy: 32, r: 28 });
@@ -3295,12 +3617,32 @@
 
   function paintUpload(node, it) {
     const { k = 0, ph = 'wait' } = progress.get(it.id) || {};
-    const waiting = !(k > 0);
+    const stopped = orphaned(it.id);
+    const waiting = !stopped && !(k > 0);
     node.classList.toggle('waiting', waiting);
+    node.classList.toggle('stopped', stopped);
     node.querySelector('.ghostname').textContent = it.name || '';
-    node.querySelector('.arc').style.strokeDashoffset = RING * (1 - (waiting ? 0.25 : clamp(k, 0, 1)));
-    node.querySelector('.ghostpct').textContent = waiting ? '' : `${Math.round(clamp(k, 0, 1) * 100)}%`;
-    node.querySelector('.ghostphase').textContent = ph === 'up' ? 'Uploading' : ph === 'enc' ? 'Preparing' : 'Waiting';
+    node.querySelector('.arc').style.strokeDashoffset = RING * (1 - (stopped ? 0 : waiting ? 0.25 : clamp(k, 0, 1)));
+    // Full only when it is: until then there is always a little left to say so.
+    node.querySelector('.ghostpct').textContent = stopped || waiting ? '' : `${k >= 1 ? 100 : Math.min(99, Math.round(k * 100))}%`;
+    node.querySelector('.ghostphase').textContent = stopped ? `Upload interrupted${viewOnly ? '' : '. Delete this and add the video again'}` : PHASES[ph] || 'Waiting';
+  }
+
+  // Whether a stand-in has been left behind: whoever was adding the video closed the board or lost it
+  // part way, so nothing is coming. It takes a moment to be sure, since word of who is working on what
+  // comes a little after the stand-in itself.
+  function orphaned(id) {
+    if (progress.has(id)) {
+      orphans.delete(id);
+      return false;
+    }
+    const since = orphans.get(id);
+    if (since == null) {
+      orphans.set(id, performance.now());
+      setTimeout(() => (items.has(id) ? repaintUpload(id) : orphans.delete(id)), ORPHAN_MS + 50);
+      return false;
+    }
+    return performance.now() - since >= ORPHAN_MS;
   }
 
   function repaintUpload(id) {
@@ -3324,7 +3666,11 @@
       progress.set(u.i, { k: Number(u.k) || 0, ph: u.ph });
       repaintUpload(u.i);
     }
-    for (const id of was) if (!peer.up.has(id)) progress.delete(id);
+    for (const id of was) {
+      if (peer.up.has(id)) continue;
+      progress.delete(id);
+      repaintUpload(id);
+    }
   }
 
   function dropRemoteStandIns(id) {
@@ -3355,17 +3701,53 @@
       if (node) node.prepend(video);
     }, { once: true });
     video.src = `${url}#t=0.1`;
-    // `k` is how far along the whole job is: making the copy is the first 60%, the upload the rest.
-    g.status = (ph, p) => {
-      const k = ph === 'enc' ? 0.6 * p : ph === 'up' ? 0.6 + 0.4 * p : 0;
+    // `k` is how far along the whole job is: making the review copy, then sending it while its timeline
+    // strip is read. Each part counts for the time it is expected to take, so the ring moves at an even
+    // pace; it never goes back, and it is only full when the video is about to land.
+    const part = { enc: 0, up: 0, strip: 0 };
+    const began = {};
+    const took = {};
+    let job = null;
+    let secs = { enc: 0, up: 1, strip: 1 };
+    g.plan = (kind, dur, bytes) => {
+      const mb = Math.max(0, bytes) / 1048576;
+      dur = dur > 0 && isFinite(dur) ? dur : 0;
+      job = { kind, dur, mb };
+      secs = {
+        enc: kind === 'encode' ? Math.max(1, dur * pace.enc) : kind === 'wrap' ? 0.2 + mb * 0.004 : 0,
+        up: 0.1 + mb * pace.up,
+        strip: 1.5 + dur * 0.012,
+      };
+      began.enc = performance.now();
+    };
+    g.status = (name, p) => {
+      const now = performance.now();
+      if (!(name in began)) began[name] = now;
+      part[name] = clamp(p, 0, 1);
+      if (p >= 1 && !(name in took)) took[name] = (now - began[name]) / 1000;
+      // The upload and the strip go on side by side, so what is left of the two is the longer of what is left of each.
+      const both = Math.max(secs.up, secs.strip);
+      const left = Math.max(secs.up * (1 - part.up), secs.strip * (1 - part.strip));
+      const k = (secs.enc * part.enc + both - left) / (secs.enc + both);
+      const ph = !('up' in began) ? 'enc' : part.up < 1 ? 'up' : 'fin';
       const phaseChanged = ph !== g.ph;
       g.ph = ph;
-      g.k = Math.max(k, 0.005);
-      repaintUpload(id);
+      g.k = Math.max(g.k, k, 0.005);
+      // Word of progress can come many times a frame; the ring only needs it when it would show.
+      if (phaseChanged || g.k >= 1 || g.k - (g.shown || 0) >= 0.002) {
+        g.shown = g.k;
+        repaintUpload(id);
+      }
       if (phaseChanged || Math.abs(g.k - g.sent) >= 0.01) {
         g.sent = g.k;
         shareStandIns();
       }
+    };
+    const learn = () => {
+      if (!job) return;
+      if (job.kind === 'encode' && job.dur > 1 && took.enc > 0) pace.enc = clamp(took.enc / job.dur, 0.02, 20);
+      if (job.mb >= 1 && took.up > 0) pace.up = clamp(took.up / job.mb, 0.0005, 20);
+      store('wb:pace', pace);
     };
     const finish = () => {
       standIns.delete(g);
@@ -3376,6 +3758,7 @@
     // The real video takes the place of the stand-in, wherever it has been moved to, frame and all.
     g.done = (made) => {
       const was = items.get(id);
+      learn();
       finish();
       if (!was) return false; // it was deleted while on its way
       const item = { ...made, id, x: was.x, y: was.y, w: was.w, h: was.h, z: was.z };
@@ -3399,21 +3782,27 @@
       toast('Only images and MP4, WebM or MOV video can be added.');
       return;
     }
-    const videos = files.filter((f) => VID_EXT.test(fileExt(f)));
-    const pictures = files.filter((f) => !videos.includes(f));
+    const chosen = files.filter((f) => VID_EXT.test(fileExt(f)));
+    const pictures = files.filter((f) => !chosen.includes(f));
     const errors = [];
     // Videos take a while, so each one is on the board straight away, ready to be placed.
-    const sizes = await Promise.all(videos.map(async (f) => {
+    const probed = await Promise.all(chosen.map(async (f) => {
       const url = URL.createObjectURL(f);
       try {
         const { w, h } = await probeVideo(url);
-        return { nw: w, nh: h };
+        // One this browser can show but cannot make a review copy of is turned away before anything is
+        // put on the board for it. (One it cannot even show gets its own message further on.)
+        return { nw: w, nh: h, beyond: await beyondThisBrowser(f) };
       } catch {
         return { nw: 16, nh: 9 };
       } finally {
         URL.revokeObjectURL(url);
       }
     }));
+    const refused = chosen.map((f, i) => ({ name: f.name, dims: probed[i].beyond })).filter((r) => r.dims);
+    const videos = chosen.filter((f, i) => !probed[i].beyond);
+    const sizes = probed.filter((p) => !p.beyond);
+    tellRefused(refused);
     if (focusId) exitFocus();
     const rects = mediaRects(sizes, at, !pictures.length && videos.length === 1);
     const ghosts = await Promise.all(videos.map((f, i) => videoStandIn(f, rects[i])));
@@ -3432,20 +3821,26 @@
       status.close();
       if (made.length) placeMedia(made, videos.length ? { x: at.x, y: below } : at, !videos.length);
     }
+    // Those that looked fine and then could not be finished: said together, once they have all been tried.
+    const late = [];
     for (const [i, file] of videos.entries()) {
       const ghost = ghosts[i];
       try {
         ghost.status('enc', 0);
         const made = await ingest(file, (k) => ghost.status('up', k), {
           onPhase: (k) => ghost.status('enc', k),
+          onStrip: (k) => ghost.status('strip', k),
+          onPlan: ghost.plan,
           note: (text) => toast(text, { ms: 6000 }),
         });
         ghost.done(made);
       } catch (err) {
         ghost.fail();
-        errors.push(`${file.name}: ${err.message}`);
+        if (err.refused) late.push({ name: file.name, dims: err.dims });
+        else errors.push(`${file.name}: ${err.message}`);
       }
     }
+    tellRefused(late);
     for (const message of errors.slice(0, 3)) toast(message, { ms: 9000 });
   }
 
@@ -4138,6 +4533,7 @@
 
   let hideDone = store('wb:hidedone') === true;
   let activeThread = null;  // the thread picked in the panel, by the id of its first message
+  let toldThread = null;    // what the others were last told it is
   let draft = null;         // { id, on, at, fr }: the comment being written, from the first stroke drawn for it
   let drawnIds = new Set(); // the comments something has been drawn for
   let timed = true;         // whether a new comment on a video is about the frame showing
@@ -4213,12 +4609,15 @@
     if (c) {
       // What is drawn for a comment is part of the review, not of the board: it is there while its piece is open.
       if (c.on !== focusId) return false;
+      // What is being drawn is in sight while it is drawn.
+      if (c === draft) return true;
+      // One thread at a time. Two comments about the same frame, or the same image, each with something
+      // drawn, would lie over one another: only what was drawn for the thread being read is there.
+      if (c.id !== activeThread) return false;
       const video = videoOf(c.on);
-      // On an image there is no other moment to be on, and what is being drawn is in sight while it is drawn.
-      if (c === draft || !video) return true;
-      const at = momentOf(c);
-      // About the whole video: there with its thread.
-      if (at == null) return c.id === activeThread;
+      const at = video ? momentOf(c) : null;
+      // On an image there is no other moment to be on, and a comment about the whole video is there with its thread.
+      if (at == null) return true;
       return video.paused && Math.abs(video.currentTime - at) < 0.6 / (fpsOf(c.on) || 24);
     }
     // Drawn on one frame of a video before drawings went with comments: on that frame still.
@@ -4269,8 +4668,11 @@
   function syncComments() {
     const roots = rootsInOrder();
     if (activeThread && !comments.has(activeThread)) activeThread = null;
-    const open = roots.filter((c) => !c.done).length;
-    const badge = $('commentcount');
+    // Whoever follows reads the thread being read here, so what was drawn for it is on their screen too.
+    if (toldThread !== activeThread) sendP({ t: (toldThread = activeThread) });
+    // On the tab at the side of the viewer: how many threads on the open piece are still to be settled.
+    const open = roots.filter((c) => !c.done && c.on === focusId).length;
+    const badge = $('cptabcount');
     badge.hidden = !open;
     badge.textContent = String(open);
     renderPanel();
@@ -4478,6 +4880,8 @@
         el('div', { class: 'msg-top' },
           el('strong', { text: c.name }),
           c.guest && el('span', { class: 'notice-guest', text: 'Guest', title: 'Written by somebody holding a link, under a name they typed' }),
+          // The moment it is about sits on the same line as who wrote it, so a short comment is two lines, not three.
+          moment != null && el('button', { class: 'tchip', title: 'Go to this frame', onclick: () => pickThread(c.id) }, el('span', { html: ICON.play }), fmtMoment(moment, fpsOf(c.on))),
           el('span', { class: 'msg-time', text: WB.ago(c.t), title: new Date(c.t).toLocaleString() }),
           first && drawnIds.has(c.id) && el('span', { class: 'msg-drawn', html: ICON.pen, title: 'Has a drawing on the picture' }),
           el('span', { class: 'msg-acts' },
@@ -4486,9 +4890,7 @@
               onclick: () => exec([{ t: 'set', id: c.id, patch: { done: !c.done } }]),
             }),
             canDelete && el('button', { class: 'iconbtn mini', html: ICON.trash, title: first ? 'Delete the thread, and what was drawn for it' : 'Delete', onclick: () => removeComment(c) }))),
-        first && (moment != null || showHost) && el('div', { class: 'msg-where' },
-          moment != null && el('button', { class: 'tchip', title: 'Go to this frame', onclick: () => pickThread(c.id) }, el('span', { html: ICON.play }), fmtMoment(moment, fpsOf(c.on))),
-          showHost && el('span', { class: 'msg-on', text: hostLabel(c) })),
+        first && showHost && el('div', { class: 'msg-where' }, el('span', { class: 'msg-on', text: hostLabel(c) })),
         text));
   }
 
@@ -4509,7 +4911,16 @@
     const shown = panelShown();
     panel.hidden = !shown;
     document.body.classList.toggle('cp-open', shown);
-    $('comments').classList.toggle('active', shown);
+    const tab = $('cptab');
+    tab.hidden = !canRead();
+    tab.title = `${shown ? 'Hide' : 'Show'} the comments (Shift+C)`;
+    tab.setAttribute('aria-expanded', String(shown));
+    // Open, the tab points the way the panel goes; shut, it says what is behind it.
+    const face = shown ? 'next' : 'comment';
+    if (tab.dataset.face !== face) {
+      tab.dataset.face = face;
+      $('cptabicon').innerHTML = ICON[face];
+    }
     if (!shown) return;
     const host = focusId ? items.get(focusId) : null;
     let roots = rootsInOrder().filter((c) => (host ? c.on === host.id : items.has(c.on)));
@@ -4556,7 +4967,9 @@
     if (activeThread !== id) replyBox.value = '';
     activeThread = id;
     seekTo(c);
-    syncComments();
+    // Picked from its mark on the timeline with the comments folded away: they come out, or there is nothing to read.
+    if (panelShown()) syncComments();
+    else togglePanel(true);
     revealCard(id);
   }
 
@@ -4974,12 +5387,24 @@
   function follow(id) {
     following = id;
     const peer = peers.get(id);
-    if (peer && peer.p.f && items.has(peer.p.f)) followFocus(peer.p.f);
-    else {
+    if (peer && peer.p.f && items.has(peer.p.f)) {
+      followFocus(peer.p.f);
+      followThread(peer.p.t);
+    } else {
       if (focusId) exitFocus();
       if (peer && peer.p.v) followView(peer.p.v, 380);
     }
     updateFollowUI();
+  }
+
+  // Following someone means reading the thread they are reading: a drawing only shows with its thread.
+  function followThread(id) {
+    const c = typeof id === 'string' ? comments.get(id) : null;
+    const next = c && !c.re && c.on === focusId ? c.id : null;
+    if (next === activeThread) return;
+    activeThread = next;
+    syncComments();
+    if (next) revealCard(next);
   }
 
   // Shows at least everything the followed person can see, whatever our window shape.
@@ -5200,6 +5625,7 @@
   function setBoardName(name) {
     document.title = `${name} · Wipboard`;
     if (document.activeElement !== $('boardname')) $('boardname').value = name;
+    $('focusboard').textContent = name;
   }
 
   $('boardname').addEventListener('change', (e) => {
@@ -5273,7 +5699,9 @@
     } else {
       applyCam();
     }
-    sendP({ l: tool === 'laser' ? 1 : 0, f: focusId });
+    sendP({ l: tool === 'laser' ? 1 : 0, f: focusId, t: (toldThread = activeThread) });
+    // After a dropped connection the others have forgotten what is on its way in from here.
+    if (standIns.size) shareStandIns();
     updateFollowUI();
   }
 
@@ -5303,6 +5731,7 @@
       if ('s' in msg.p) refreshPeerSel();
       if ('u' in msg.p) showRemoteStandIns(peer);
       if ('f' in msg.p && following === peer.id) followFocus(peer.p.f);
+      if ('t' in msg.p && following === peer.id) followThread(peer.p.t);
       if ('v' in msg.p && following === peer.id && !gesture) followView(peer.p.v);
     } else if (msg.t === 'laser') {
       const peer = peers.get(msg.id);
@@ -5478,8 +5907,8 @@
     updateOverlay();
     syncComments();
   });
-  $('commentsicon').innerHTML = ICON.comment;
-  $('comments').addEventListener('click', () => togglePanel());
+  $('cptab').addEventListener('click', () => togglePanel());
+  $('focusboard').addEventListener('click', exitFocus);
   $('snap').innerHTML = ICON.snap;
   $('snap').classList.toggle('active', snapOn);
   $('snap').addEventListener('click', toggleSnap);

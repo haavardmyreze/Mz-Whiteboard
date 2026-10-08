@@ -34,20 +34,39 @@
     <div id="dropzone" hidden><span>Drop to add to the board</span></div>
   </div>
 
-  <header id="topbar" class="chrome">
-    <a class="iconbtn" href="/" title="All boards" id="back" data-logo-slot></a>
-    <input id="boardname" type="text" maxlength="120" spellcheck="false" aria-label="Board name">
+  <!-- One bar, the same on every page: where you are on the left, what you can do there on the right.
+       With an image or video open it is the viewer's bar too, so nothing else lies over the piece. -->
+  <header id="topbar" class="appbar chrome">
+    <a class="brand" href="/" title="All boards" id="back"><span class="logomark" data-logo-slot></span><span class="wordmark">Wipboard</span></a>
+    <span class="bar-slash" aria-hidden="true">/</span>
+    <input id="boardname" class="board-only" type="text" maxlength="120" spellcheck="false" aria-label="Board name">
+    <button id="focusboard" class="bar-crumb viewer-only" title="Back to the board (Esc)"></button>
+    <span class="bar-slash viewer-only" aria-hidden="true">/</span>
+    <!-- Shown only on a window too narrow for the strip of thumbnails. It comes before the name: the name
+         is a different length every time, and what is pressed over and over must not move. -->
+    <span class="stepper viewer-only">
+      <button class="iconbtn" id="focusprev" title="Previous image or video (←)"></button>
+      <span id="focuspos"></span>
+      <button class="iconbtn" id="focusnext" title="Next image or video (→)"></button>
+    </span>
+    <span id="focusname" class="viewer-only"></span>
     <span id="conn" hidden>Reconnecting…</span>
     <div class="spacer"></div>
+    <!-- How much of the board's video is cached on this computer: a small ring that fills, and stays out of the way. -->
+    <button id="kept" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><circle class="track" cx="10" cy="10" r="7"/><circle class="arc" cx="10" cy="10" r="7"/><path class="tick" d="M6.6 10.3l2.3 2.3 4.6-5"/></svg></button>
     <div id="peers"></div>
-    <span class="sep"></span>
-    <button id="comments" class="btn ghost" title="Comments (Shift+C)"><span id="commentsicon"></span><span class="lbl">Comments</span><span id="commentcount" class="count" hidden></span></button>
-    <button id="snap" class="iconbtn" title="Smart snapping. Hold Ctrl while dragging to bypass (S)"></button>
-    <button id="zoom" class="btn ghost" title="Fit everything (Shift+1)">100%</button>
+    <span class="bar-group board-only">
+      <button id="snap" class="iconbtn" title="Smart snapping. Hold Ctrl while dragging to bypass (S)"></button>
+      <button id="zoom" class="btn ghost" title="Fit everything (Shift+1)">100%</button>
+    </span>
+    <span class="bar-group viewer-only">
+      <button class="btn ghost" id="focusclear" title="Delete everything drawn on this image">Clear drawing</button>
+      <button class="btn ghost" id="focuszoom" title="Fit to the screen, or actual size">Fit</button>
+    </span>
     <span id="themeslot"></span>
     <button id="help" class="iconbtn" title="Keyboard shortcuts (?)">?</button>
-    <span class="sep"></span>
-    <button id="share" class="btn ghost" title="Make a view-only link anyone can open" hidden>Share</button>
+    <button id="share" class="btn primary board-only" title="Make a view-only link anyone can open" hidden>Share</button>
+    <button id="focusdone" class="btn primary viewer-only" title="Back to the board (Esc)">Done</button>
   </header>
 
   <nav id="toolbar" class="chrome"></nav>
@@ -57,17 +76,10 @@
   <div id="timeline" class="chrome" hidden></div>
   <aside id="commentpanel" class="chrome" aria-label="Comments" hidden></aside>
 
+  <!-- The comments are part of the viewer, so the way to them is on its side, not up in the bar. -->
+  <button id="cptab" title="Show the comments (Shift+C)" aria-controls="commentpanel" aria-expanded="false" hidden><span id="cptabicon"></span><span id="cptabcount" class="count" hidden></span></button>
+
   <div id="followpill" hidden></div>
-  <div id="focusbar" hidden>
-    <button class="iconbtn" id="focusprev" title="Previous image or video (←)"></button>
-    <span id="focuspos"></span>
-    <button class="iconbtn" id="focusnext" title="Next image or video (→)"></button>
-    <span class="sep"></span>
-    <span id="focusname"></span>
-    <button class="btn small ghost" id="focuszoom" title="Fit to the screen, or actual size">Fit</button>
-    <button class="btn small ghost" id="focusclear" title="Delete everything drawn on this image">Clear drawing</button>
-    <button class="btn small primary" id="focusdone" title="Close (Esc)">Done</button>
-  </div>
 
   <div id="helppanel" hidden></div>
   <div id="toasts"></div>

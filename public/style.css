@@ -395,9 +395,33 @@ kbd {
    A plain index: a strong left edge, one column width, and nothing coloured but the artwork. */
 
 body.home { overflow-y: auto; }
-.home-bar { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 84%, transparent); backdrop-filter: blur(16px) saturate(1.4); }
-.home-head { display: flex; align-items: center; gap: 8px; max-width: 1264px; height: 56px; margin: 0 auto; padding: 0 32px; }
+/* The bar across the top is one bar, the same on every page: the same height, the same frosted glass
+   that what is under it slides beneath, the mark in the same corner. On the left it says where you
+   are, as a path from the mark; on the right is what can be done there, ending in the one thing set
+   in ink. */
+.appbar { border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 78%, transparent); -webkit-backdrop-filter: blur(18px) saturate(1.5); backdrop-filter: blur(18px) saturate(1.5); }
+.home-bar { position: sticky; top: 0; z-index: 20; }
+.home-head, #topbar { display: flex; align-items: center; gap: 8px; height: var(--bar); padding: 0 12px; }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); font-size: 15px; font-weight: 650; line-height: 1; letter-spacing: -0.02em; text-decoration: none; }
+.appbar .brand { flex: none; gap: 9px; height: var(--h); margin-left: -4px; padding: 0 8px 0 4px; border-radius: var(--r-2); font-size: 14px; transition: background 0.12s var(--ease); }
+.appbar a.brand[href]:hover { background: var(--hover); }
+/* The mark sits on a tile of ink: the one solid thing at this end of the bar, as the main action is at the other. */
+.appbar .logomark { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; background: var(--ink-bg); color: var(--ink-fg); transition: background 0.3s var(--ease); }
+.appbar .logomark > svg { width: 18px; height: 18px; }
+body.welcoming .appbar .logomark { background: transparent; }
+/* Along the path the place you are in is in full ink, and what leads to it is quieter. */
+.appbar .wordmark { color: var(--text-2); }
+body.home:not(.admin) .appbar .wordmark { color: var(--text); }
+.bar-slash { flex: none; margin: 0 -2px; color: var(--muted); font-size: 17px; font-weight: 300; line-height: 1; opacity: 0.55; user-select: none; }
+.bar-here { font-size: 14px; font-weight: 600; letter-spacing: -0.012em; }
+.bar-crumb { flex: 0 1 auto; min-width: 0; max-width: 26ch; height: var(--h); padding: 0 8px; overflow: hidden; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text-2); font: inherit; font-size: 14px; font-weight: 600; letter-spacing: -0.012em; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; transition: background 0.12s var(--ease), color 0.12s var(--ease); }
+.bar-crumb:hover { background: var(--hover); color: var(--text); }
+/* Controls that belong together share a tray. */
+.bar-group, .stepper { flex: none; display: inline-flex; align-items: center; padding: 2px; border-radius: 7px; background: var(--hover); }
+.bar-group .btn, .bar-group .iconbtn, .stepper .iconbtn { height: var(--h-sm); border-radius: var(--r-2); }
+.bar-group .iconbtn, .stepper .iconbtn { width: var(--h-sm); }
+.bar-group .btn { padding: 0 10px; }
+.bar-group .iconbtn svg, .stepper .iconbtn svg { width: 16px; height: 16px; }
 
 .search { position: relative; display: flex; align-items: center; width: min(360px, 32vw); margin-left: 24px; }
 .search svg { position: absolute; left: 10px; width: 15px; height: 15px; color: var(--muted); pointer-events: none; }
@@ -556,7 +580,6 @@ body.home { overflow-y: auto; }
 
 @media (max-width: 760px) {
   .search { display: none; }
-  .home-head { padding: 0 16px; }
   .home main { padding: 32px 16px 64px; }
   .crumb { font-size: 22px; }
   #newfolder { display: none; }
@@ -564,7 +587,7 @@ body.home { overflow-y: auto; }
 /* A phone: the header keeps its buttons as icons, boards sit two to a row, and the list of
    notifications spans the screen. */
 @media (max-width: 560px) {
-  .home-head { gap: 4px; padding: 0 12px; }
+  .home-head { gap: 4px; }
   .brand > span:last-child, #me > span:last-child, #new .lbl { display: none; }
   #me { padding: 0 4px; }
   #new { width: var(--h); padding: 0; justify-content: center; }
@@ -712,11 +735,18 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport { cursor: c
 
 /* A frame is a mat board: an opaque card that lifts off the table, with a header for its title and a
    count. A coloured frame colours its header band; the card beneath never changes, so colour is never
-   poured over the work. */
+   poured over the work.
+
+   Nothing on it is decoration. Colour is a flat plane, with no sheen and no bevel. The title is set
+   flush left on the same edge as the work beneath it, so the header and what it holds read as one
+   column, and the count sits opposite on the same baseline, said quietly. */
 .frame {
   --c: #8a8a8a;
+  /* Frames and blocks are cut from the same board: one corner, which is part of the thing and so grows
+     and shrinks with it, where a hairline is a hairline at any distance. */
+  --corner: 8px;
   pointer-events: none;
-  border-radius: calc(6px * var(--inv));
+  border-radius: var(--corner);
   background: var(--frame-fill);
   box-shadow:
     0 0 0 calc(1px * var(--inv)) var(--frame-rim),
@@ -729,23 +759,25 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport { cursor: c
   right: 0;
   top: 0;
   height: 80px;
+  /* One line, set on its baseline and centred in the band. */
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  align-content: center;
+  justify-content: space-between;
+  gap: 0 24px;
   padding: 0 28px;
-  border-bottom: 1px solid var(--line);
-  border-radius: calc(6px * var(--inv)) calc(6px * var(--inv)) 0 0;
+  border-bottom: calc(1px * var(--inv)) solid var(--line);
+  border-radius: var(--corner) var(--corner) 0 0;
   pointer-events: auto;
   cursor: move;
 }
-.frame-title { max-width: 100%; overflow: hidden; font-size: 34px; font-weight: 650; line-height: 1.15; letter-spacing: -0.028em; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.frame-title { flex: 0 1 auto; min-width: 0; overflow: hidden; font-size: 34px; font-weight: 600; line-height: 1.15; letter-spacing: -0.03em; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .frame-title[contenteditable="plaintext-only"], .frame-title[contenteditable="true"] { overflow: visible; text-overflow: clip; }
 .frame-title:empty::before { content: "Untitled"; opacity: 0.38; }
-.frame-sub { color: var(--muted); font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.frame-sub { flex: none; color: var(--muted); font-size: 15px; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; line-height: 1.15; }
 .frame[data-tint="1"] .frame-head { border-bottom-color: transparent; background: var(--c); color: var(--head-ink, #fff); }
-.frame[data-tint="1"] .frame-sub { color: inherit; opacity: 0.7; }
+.frame[data-tint="1"] .frame-sub { color: inherit; opacity: 0.66; }
 .frame .edge { position: absolute; pointer-events: auto; cursor: move; }
 .frame .edge.t, .frame .edge.b { left: 0; right: 0; height: calc(12px * var(--inv)); }
 .frame .edge.l, .frame .edge.r { top: 0; bottom: 0; width: calc(12px * var(--inv)); }
@@ -754,14 +786,15 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport { cursor: c
 .frame .edge.l { left: calc(-6px * var(--inv)); }
 .frame .edge.r { right: calc(-6px * var(--inv)); }
 
-/* Blocks: free-standing coloured bands for headings, like the banners that run across a board. */
+/* Blocks: free-standing coloured bands for headings, like the banners that run across a board. A flat
+   plane of colour and a line of type, and nothing else. */
 .block {
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0 0.5em;
-  border-radius: 6px;
-  box-shadow: 0 0 0 1px var(--ring-c), 0 2px 4px color-mix(in srgb, var(--lift-c) 60%, transparent), 0 14px 26px -14px var(--lift-c);
+  border-radius: 8px;
+  box-shadow: 0 0 0 calc(1px * var(--inv)) var(--ring-c), 0 2px 4px color-mix(in srgb, var(--lift-c) 60%, transparent), 0 14px 26px -14px var(--lift-c);
   font-weight: 700;
   line-height: 1.1;
   letter-spacing: -0.032em;
@@ -860,7 +893,7 @@ body.focus #viewport { background-image: none; background-color: var(--viewer-bg
 
 /* ---------------------------------------------------------------- chrome: panels over the canvas */
 
-.chrome, #seltools, #followpill, #focusbar, #helppanel, .toast {
+.chrome, #seltools, #followpill, #helppanel, .toast {
   position: fixed;
   border: 1px solid var(--line);
   border-radius: var(--r-3);
@@ -868,11 +901,13 @@ body.focus #viewport { background-image: none; background-color: var(--viewer-bg
   box-shadow: var(--shadow-2);
 }
 
-#topbar { left: 0; right: 0; top: 0; height: var(--bar); display: flex; align-items: center; gap: 4px; padding: 0 8px; border-width: 0 0 1px; border-radius: 0; box-shadow: none; }
+#topbar { left: 0; right: 0; top: 0; z-index: 35; border-width: 0 0 1px; border-radius: 0; background: color-mix(in srgb, var(--bg) 78%, transparent); box-shadow: none; }
+/* What the bar holds depends on whether a piece is open: the board's things, or the viewer's. */
+body:not(.focus) .viewer-only, body.focus .board-only { display: none !important; }
 #boardname {
   width: min(400px, 34vw);
   height: var(--h);
-  margin-left: 4px;
+  margin-left: -4px;
   padding: 0 8px;
   border: 1px solid transparent;
   border-radius: var(--r-2);
@@ -887,22 +922,37 @@ body.focus #viewport { background-image: none; background-color: var(--viewer-bg
 #boardname:focus { border-color: var(--accent); background: var(--surface-2); box-shadow: 0 0 0 3px var(--accent-soft); }
 @keyframes blink { 50% { opacity: 0.55; } }
 #conn { padding: 3px 8px; border-radius: var(--r-2); background: var(--warn-bg); color: var(--warn-fg); font-size: 12px; font-weight: 500; animation: blink 1.6s ease-in-out infinite; }
-#topbar .sep { margin: 14px 6px; }
-#commentsicon { display: grid; }
-#zoom { min-width: 56px; padding: 0 8px; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+#zoom { min-width: 52px; padding: 0 8px; font-variant-numeric: tabular-nums; letter-spacing: 0; }
 #help { font-size: 14px; }
 #peers { display: flex; align-items: center; padding: 0 2px 0 8px; }
+#share, #focusdone { margin-left: 4px; }
+/* The ring for what is kept on this computer. Quiet while it fills, quieter still once it is full. */
+#kept { flex: none; display: grid; place-items: center; width: 28px; height: var(--h-sm); padding: 0; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text-2); cursor: pointer; transition: background 0.12s var(--ease); }
+#kept:hover { background: var(--hover); }
+#kept svg { width: 18px; height: 18px; transform: rotate(-90deg); }
+#kept circle { fill: none; stroke-width: 2; }
+#kept .track { stroke: var(--line-strong); }
+#kept .arc { stroke: currentColor; stroke-linecap: round; }
+#kept .tick { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; opacity: 0; transform: rotate(90deg); transform-origin: 10px 10px; }
+#kept.full { color: var(--muted); }
+#kept.full .tick { opacity: 1; }
+#kept.off .arc { stroke-dasharray: 2 3 !important; stroke-dashoffset: 0 !important; }
 
 /* A narrow window keeps what matters within reach: labels go first, then the conveniences, so the
    board's name, who is here and Share never slide off the edge. */
 @media (max-width: 900px) {
-  #boardname { flex: 0 1 min(400px, 34vw); width: auto; min-width: 72px; }
-  #comments .lbl { display: none; }
-  #topbar .sep { margin: 14px 2px; }
+  #boardname { flex: 0 1 min(400px, 34vw); width: auto; min-width: 72px; margin-left: 0; }
+  #topbar .wordmark, #topbar .bar-slash, #focusboard { display: none !important; }
+  #topbar .brand { padding-right: 4px; }
 }
 @media (max-width: 640px) {
-  #snap, #zoom, #help, #topbar .sep { display: none; }
+  #topbar { gap: 4px; padding: 0 8px; }
+  #topbar .bar-group.board-only, #help, #focusclear, #kept { display: none !important; }
   #peers .avatar:not(.me) { display: none; }
+  /* With a piece open the bar is the viewer's: its name gets the room, and who is here and the theme can wait. */
+  body.focus #peers, body.focus #topbar .themebtn { display: none; }
+  #focusname { flex: 1 1 0; }
+  #share, #focusdone { margin-left: 0; }
 }
 
 }
@@ -964,13 +1014,15 @@ body.dragging-tool, body.dragging-tool * { cursor: grabbing !important; }
 
 #pstep { min-width: 120px; max-width: 46vw; padding: 0 8px; overflow: hidden; color: var(--text-2); font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; text-align: center; text-overflow: ellipsis; white-space: pre; }
 
-#followpill, #focusbar { left: 50%; top: calc(var(--bar) + 12px); transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 5px 5px 5px 14px; white-space: nowrap; animation: rise 0.18s var(--ease); }
-#focusbar { gap: 4px; padding-left: 5px; }
-#focusbar .iconbtn { width: var(--h-sm); height: var(--h-sm); }
-#focusbar .sep { margin: 4px 6px; }
-#focuspos { min-width: 44px; color: var(--text-2); font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; text-align: center; }
+#followpill { left: 50%; top: calc(var(--bar) + 12px); transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 5px 5px 5px 14px; white-space: nowrap; animation: rise 0.18s var(--ease); }
+/* The viewer's part of the bar: which piece is open, and the way to the ones either side of it. */
+.stepper { margin: 0 4px; }
+/* Only where the strip down the left has no room: with the strip in sight it says which piece is open
+   and is the way to the others, and the bar need not say it twice. */
+@media (min-width: 961px) { .stepper { display: none; } }
+#focuspos { padding: 0 2px; color: var(--text-2); font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; text-align: center; }
 .live { flex: none; width: 8px; height: 8px; border-radius: 50%; }
-#focusname { max-width: 28ch; margin-right: 4px; overflow: hidden; font-weight: 600; text-overflow: ellipsis; }
+#focusname { flex: 0 1 auto; min-width: 0; max-width: 36ch; padding: 0 4px; overflow: hidden; font-size: 14px; font-weight: 600; letter-spacing: -0.012em; text-overflow: ellipsis; white-space: nowrap; }
 #focuszoom { min-width: 52px; font-variant-numeric: tabular-nums; }
 
 #helppanel { right: 12px; top: calc(var(--bar) + 12px); width: 440px; max-width: calc(100vw - 24px); max-height: calc(100vh - var(--bar) - 24px); padding: 16px 20px 8px; overflow: auto; animation: rise 0.14s var(--ease); }
@@ -996,14 +1048,10 @@ body.focus.cp-open { --side: 320px; }
 /* In here a press on the piece draws: there is one tool, so there is no strip of them. The brush's
    colours are with the comment box. */
 body.focus #toolbar, body.focus #tooloptions { display: none; }
-body.focus #focusbar { left: calc((100vw + var(--film) - var(--side)) / 2); max-width: calc(100vw - var(--film) - var(--side) - 24px); }
-body.focus #focusname { flex: 0 1 auto; min-width: 0; }
 body.focus #toasts { left: calc((100vw + var(--film) - var(--side)) / 2); bottom: 112px; }
-/* Following somebody in here, the pill gives the top to the viewer's own bar. */
+/* Following somebody in here, the pill keeps to the bottom, out of the way of the piece. */
 body.focus #followpill { left: calc((100vw + var(--film) - var(--side)) / 2); top: auto; bottom: 12px; }
 body.focus-video #followpill { bottom: 72px; }
-/* The viewer has its own zoom, and nothing in it snaps. */
-body.focus #zoom, body.focus #snap { display: none; }
 /* Nothing lies over an open video: its transport is the timeline below it. */
 body.focus .video .vbar, body.focus .video .vplay { display: none; }
 /* What is open is the page, not something on it, so nobody's selection is drawn around it. */
@@ -1046,6 +1094,9 @@ body.focus .item:is(.image, .video).peersel { outline: none; }
 .tl-mark.comment:hover { transform: rotate(-45deg) scale(1.3); }
 .tl-mark.comment.active { box-shadow: 0 0 0 1.5px var(--surface-1), 0 0 0 3px var(--accent); transform: rotate(-45deg) scale(1.3); }
 .tl-mark.comment.done { opacity: 0.4; }
+/* How many comments share the mark, when it is more than one. The mark is turned on its point, so the
+   number is turned back to stand upright, up and to the right of it. */
+.tl-n { position: absolute; left: calc(100% - 2px); top: 50%; min-width: 13px; height: 13px; padding: 0 3px; border-radius: 7px; background: var(--text); box-shadow: 0 0 0 1.5px var(--surface-1); color: var(--surface-1); font: 700 9px/13px var(--sans); font-variant-numeric: tabular-nums; text-align: center; transform: translateY(-50%) rotate(45deg); pointer-events: none; }
 /* A drawn-on frame is a tick across it. */
 .tl-mark.draw { top: 50%; width: 2px; height: 12px; margin: -6px 0 0 -1px; border-radius: 1px; background: var(--warn-fg); }
 .tl-mark.draw::after { content: ""; position: absolute; inset: -4px -4px; }
@@ -1074,7 +1125,19 @@ body.viewonly .cchip { right: auto; left: 0.7em; }
    the frame around the piece, and holds that piece's threads and the box to write a new one. */
 #commentpanel { z-index: 40; right: 12px; top: calc(var(--bar) + 12px); display: flex; flex-direction: column; width: 336px; max-width: calc(100vw - 24px); max-height: calc(100vh - var(--bar) - 24px); overflow: hidden; animation: rise 0.14s var(--ease); }
 #commentpanel[hidden] { display: none; }
-body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: 320px; max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: none; animation: none; }
+/* The way to the comments is a tab on the side of the viewer, on the edge the panel comes out from:
+   where the comments are, and nowhere near the top of the screen. */
+#cptab { position: fixed; z-index: 41; right: var(--side); top: calc(50% + var(--bar) / 2); transform: translateY(-50%); display: none; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 30px; min-height: 68px; padding: 10px 0; border: 1px solid var(--line); border-right: 0; border-radius: var(--r-3) 0 0 var(--r-3); background: var(--surface-1); box-shadow: var(--shadow-1); color: var(--text-2); cursor: pointer; transition: background 0.12s var(--ease), color 0.12s var(--ease); }
+body.focus #cptab { display: flex; }
+#cptab:hover { background: var(--surface-2); color: var(--text); }
+#cptabicon { display: grid; }
+#cptab svg { width: 16px; height: 16px; }
+#cptab .count { min-width: 16px; height: 16px; padding: 0 4px; font-size: 10px; }
+/* Open, the panel says how many there are itself. */
+#cptab[aria-expanded="true"] .count { display: none; }
+body.focus #commentpanel { animation: cp-slide 0.16s var(--ease); }
+@keyframes cp-slide { from { transform: translateX(16px); opacity: 0; } }
+body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: 320px; max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: none; }
 .cp-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 8px 0 16px; }
 .cp-head h2 { margin: 0; font-size: 15px; font-weight: 650; line-height: 1.3; letter-spacing: -0.012em; }
 .cp-head .iconbtn { margin-left: auto; }
@@ -1085,7 +1148,7 @@ body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: 320px; m
 .cp-show input::after { content: ""; width: 7px; height: 4px; border: solid var(--ink-fg); border-width: 0 0 1.5px 1.5px; transform: translateY(-1px) rotate(-45deg) scale(0); transition: transform 0.12s var(--ease); }
 .cp-show input:checked { border-color: transparent; background: var(--ink-bg); }
 .cp-show input:checked::after { transform: translateY(-1px) rotate(-45deg) scale(1); }
-.cp-list { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 4px; padding: 8px; overflow-y: auto; overscroll-behavior: contain; }
+.cp-list { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; overflow-y: auto; overscroll-behavior: contain; }
 .cp-empty { margin: 12px 8px; color: var(--muted); line-height: 1.5; }
 
 /* A thread: the comment, what it is about, and the replies under it. The one picked is raised, and is
@@ -1094,11 +1157,16 @@ body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: 320px; m
 .cp-card:hover { background: var(--hover); }
 .cp-card.active { border-color: var(--line-strong); background: var(--surface-2); }
 .cp-card.done .msg { opacity: 0.55; }
-.msg { display: flex; gap: 10px; padding: 10px 0; }
-.msg.reply { padding: 4px 0 10px 34px; }
-.msg.reply .avatar.sm { width: 20px; height: 20px; font-size: 9px; }
+/* A comment is kept small: who, the moment and when on one line, what they said under it, so a
+   panel's worth of them can be read without scrolling. */
+.msg { display: flex; gap: 8px; padding: 7px 0; }
+.msg .avatar.sm { width: 20px; height: 20px; margin-top: 1px; font-size: 9px; }
+.msg.reply { padding: 1px 0 7px 28px; }
+.msg.reply .avatar.sm { width: 18px; height: 18px; margin-top: 2px; font-size: 8.5px; }
 .msg-main { flex: 1; min-width: 0; }
-.msg-top { display: flex; align-items: center; gap: 8px; min-height: 24px; font-size: 12.5px; }
+.msg-top { display: flex; align-items: center; gap: 6px; min-height: 22px; font-size: 12.5px; }
+.msg-top .tchip { height: 18px; }
+.msg-acts .iconbtn.mini { width: 22px; height: 22px; }
 .msg-top strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg-time { flex: none; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .msg-acts { flex: none; display: flex; gap: 2px; margin-left: auto; opacity: 0; transition: opacity 0.12s; }
@@ -1109,11 +1177,11 @@ body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: 320px; m
 .iconbtn.mini { width: 24px; height: 24px; }
 .iconbtn.mini svg { width: 14px; height: 14px; }
 .msg-acts .iconbtn.active { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
-.msg-where { display: flex; align-items: center; gap: 6px; min-width: 0; margin: 1px 0 3px; color: var(--muted); font-size: 11.5px; }
+.msg-where { display: flex; align-items: center; gap: 6px; min-width: 0; margin: 0 0 1px; color: var(--muted); font-size: 11.5px; line-height: 1.4; }
 .msg-drawn { flex: none; display: grid; color: var(--muted); }
 .msg-drawn svg { width: 13px; height: 13px; }
 .msg-on { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.msg-text { margin-top: 2px; color: var(--text); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.msg-text { color: var(--text); line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
 .msg-text a { color: var(--accent); }
 .tchip { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px 0 5px; border: 0; border-radius: var(--r-1); background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0; cursor: pointer; }
 .tchip span { display: grid; }
@@ -1123,7 +1191,7 @@ body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: 320px; m
 /* Switched off: the comment is about the whole video, not this moment of it. */
 .tchip.off { background: var(--surface-3); color: var(--muted); text-decoration: line-through; }
 
-.cp-reply { display: flex; align-items: flex-end; gap: 6px; padding: 0 0 10px 34px; }
+.cp-reply { display: flex; align-items: flex-end; gap: 6px; padding: 0 0 8px 28px; }
 .cp-foot { flex: none; border-top: 1px solid var(--line); }
 .cp-foot[hidden] { display: none; }
 .cp-hint { margin: 0; padding: 12px 16px; color: var(--muted); font-size: 12px; line-height: 1.5; }
@@ -1152,7 +1220,7 @@ body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: 320px; m
 /* Read-only link: only looking around is left. */
 body.viewonly #tooloptions, body.viewonly #seltools, body.viewonly #selbox,
 body.viewonly #share, body.viewonly #snap,
-body.viewonly:not(.guest-reads) #comments,
+body.viewonly:not(.guest-reads) #cptab,
 body.viewonly:not(.guest-reads) #commentpanel, body.viewonly #focusclear { display: none !important; }
 body.viewonly #boardname, body.viewonly #back { pointer-events: none; }
 body.viewonly .item { cursor: grab; }
@@ -1270,14 +1338,10 @@ body.login { display: grid; place-items: center; min-height: 100%; padding: 24px
   #tooloptions { left: 50%; top: auto; bottom: calc(70px + env(safe-area-inset-bottom)); transform: translateX(-50%); flex-direction: row; padding: 4px 8px; }
   #tooloptions .swatch { margin: 0 3px; }
   #tooloptions .sep { width: 1px; height: 20px; margin: 0 4px; }
-  #focusbar { left: 8px; right: 8px; transform: none; gap: 2px; }
-  #focusbar #focusname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  #focusbar .sep { display: none; }
   /* No room for the strips: a swipe goes to the next piece, the comments come up as a sheet over the
      tools, and the timeline sits just above them. */
   body.focus, body.focus.cp-open { --film: 0px; --side: 0px; }
   #filmstrip { display: none; }
-  body.focus #focusbar { left: 8px; }
   #timeline { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); }
   .tl-time { min-width: 0; margin: 0; padding: 0 4px; }
   body.focus-video #followpill { bottom: 68px; }
@@ -1296,24 +1360,22 @@ body.login { display: grid; place-items: center; min-height: 100%; padding: 24px
 .ringsvg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; filter: drop-shadow(0 0 calc(6px * var(--inv)) rgba(0, 0, 0, 0.5)); }
 .ringsvg circle { fill: none; stroke-width: 4; stroke-linecap: round; }
 .ringsvg .track { stroke: rgba(255, 255, 255, 0.25); }
-.ringsvg .arc { stroke: #fff; transition: stroke-dashoffset 0.35s ease-out; }
+/* No easing on the arc: it is redrawn with every step, and an easing that is started over each time
+   never gets going, which left the ring far behind the number beside it. */
+.ringsvg .arc { stroke: #fff; }
 .ghost.waiting .ringsvg { animation: ghostspin 1.1s linear infinite; }
+/* Left behind: nothing moves, and it says what to do about it. */
+.item.ghost.stopped::after, .ghost.stopped .ghostring { animation: none; }
+.item.ghost.stopped::after { background: none; }
+.ghost.stopped .ghostring { display: none; }
+.ghost.stopped .ghostphase { margin-top: calc(-8px * var(--inv)); padding: 0 calc(12px * var(--inv)); }
 @keyframes ghostspin { to { transform: rotate(270deg); } }
 @keyframes ghostpulse { 50% { opacity: 0.82; } }
 .ghostpct { position: relative; font-size: calc(15px * var(--inv)); font-weight: 600; font-variant-numeric: tabular-nums; color: #fff; text-shadow: 0 0 calc(4px * var(--inv)) rgba(0, 0, 0, 0.6); }
 .ghostphase { position: absolute; z-index: 1; left: 0; right: 0; top: 50%; margin-top: calc(52px * var(--inv)); text-align: center; font-size: calc(12px * var(--inv)); letter-spacing: 0.02em; color: rgba(255, 255, 255, 0.9); text-shadow: 0 0 calc(4px * var(--inv)) rgba(0, 0, 0, 0.7); pointer-events: none; }
 
-/* The picture and sound of a video behind its scrub bar: its colours, its loudness. */
-.vwave, .tl-wave { display: none; }
-.vseek.wave { height: 40px; }
-.vseek.wave .vwave { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; border-radius: 3px; }
-.vbar .vseek.wave input[type="range"] { height: 40px; }
-.vbar .vseek.wave input[type="range"]::-webkit-slider-runnable-track { height: 40px; background: transparent; }
-.vbar .vseek.wave input[type="range"]::-webkit-slider-thumb { width: 3px; height: 40px; margin-top: 0; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45); }
-.vbar .vseek.wave input[type="range"]::-moz-range-track { height: 40px; background: transparent; }
-.vbar .vseek.wave input[type="range"]::-moz-range-progress { background: transparent; }
-.vbar .vseek.wave input[type="range"]::-moz-range-thumb { width: 3px; height: 40px; border-radius: 2px; }
-.vseek.wave .vmarks { top: -2px; bottom: auto; height: 0; }
+/* The picture and sound of the open video along its timeline: its colours, its loudness. */
+.tl-wave { display: none; }
 .tl-track.wave .tl-rail { display: none; }
 .tl-track.wave .tl-wave { display: block; position: absolute; top: 50%; height: 40px; margin-top: -20px; }
 .tl-track.wave .tl-wave { left: 0; width: 100%; border-radius: 5px; }
@@ -1321,9 +1383,9 @@ body.login { display: grid; place-items: center; min-height: 100%; padding: 24px
 
 /* ---------------------------------------------------------------- admin */
 
-.admin-title { margin-left: 4px; padding-left: 12px; border-left: 1px solid var(--line-strong); color: var(--text-2); font-size: 15px; font-weight: 600; line-height: 1; }
 .admin main { max-width: 1064px; }
 .admin-note { max-width: 640px; margin: -16px 0 32px; color: var(--muted); line-height: 1.6; }
+#localnote { margin-top: -20px; padding-left: 12px; border-left: 2px solid var(--line-strong); color: var(--text-2); }
 .admin-status { margin: 0 0 16px; padding: 8px 12px; border-radius: var(--r-2); background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--text); }
 .admin-dim { color: var(--muted); }
 .admin-mono { color: var(--text-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }

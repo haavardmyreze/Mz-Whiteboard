@@ -8,6 +8,9 @@
 // Admins are people, known by their sign-in email, so the admin area only opens with a sign-in that
 // gives one (AUTH_MODE google or iap). The first admins are named by ADMIN_EMAILS; they can make others
 // admins here, but cannot be unmade here themselves.
+//
+// The one exception is a server with no sign-in at all, which is a server for local use: there the admin
+// area opens on the machine that runs it, so it can be looked at and filled in before any sign-in is set up.
 
 const ROLES = ['viewer', 'commenter', 'editor', 'manager'];
 const TARGETS = ['board', 'folder'];
@@ -23,13 +26,16 @@ const emailOf = (value) => {
 const refusal = (status, message) => Object.assign(new Error(message), { status });
 
 // `targets()` gives the boards and folders grants may be put on: those in the shared workspace. A
-// personal workspace stays its owner's alone. `sameOrigin(req)` says whether a request came from our pages.
-function createAdmin({ store, adminEmails, newId, readJson, sendJson, cleanName, targets, sameOrigin }) {
+// personal workspace stays its owner's alone. `sameOrigin(req)` says whether a request came from our pages,
+// and `local(req)` whether it is one to let in without a sign-in (see above).
+function createAdmin({ store, adminEmails, newId, readJson, sendJson, cleanName, targets, sameOrigin, local = () => false }) {
   const fixed = new Set(list(adminEmails));
   for (const email of fixed) store.addUser({ email });
   const lastSeen = new Map();
 
   const isAdmin = (user) => !!(user && user.email) && (fixed.has(user.email) || !!store.user(user.email)?.admin);
+  // Whether whoever sent this may use the admin area.
+  const allows = (req) => isAdmin(req.user) || local(req);
 
   function seen(user) {
     if (!user || !user.email) return;
@@ -41,7 +47,8 @@ function createAdmin({ store, adminEmails, newId, readJson, sendJson, cleanName,
 
   function overview(me) {
     return {
-      me: me.email,
+      me: me.email || null,
+      local: !me.email,
       roles: ROLES,
       users: store.users().map((u) => ({ ...u, admin: u.admin || fixed.has(u.email), fixed: fixed.has(u.email) })),
       groups: store.groups(),
@@ -72,11 +79,11 @@ function createAdmin({ store, adminEmails, newId, readJson, sendJson, cleanName,
   // Answers /api/admin/...; `parts` is what follows /api/admin. Every change answers with the whole
   // overview again, which is small, so the page simply shows what it is given.
   async function handle(req, res, parts) {
-    const me = req.user;
-    if (!isAdmin(me)) {
-      const why = me && me.email ? 'Only admins can open the admin area' : 'The admin area needs sign-in with Google (AUTH_MODE google or iap)';
+    if (!allows(req)) {
+      const why = req.user && req.user.email ? 'Only admins can open the admin area' : 'The admin area needs sign-in with Google (AUTH_MODE google or iap)';
       return sendJson(res, 403, { error: why });
     }
+    const me = isAdmin(req.user) ? req.user : { email: null };
     if (req.method !== 'GET' && !sameOrigin(req)) return sendJson(res, 403, { error: 'Not from this site' });
     const [kind, id, sub, subId] = parts.map((p) => decodeURIComponent(p));
     const done = () => sendJson(res, 200, overview(me));
@@ -155,7 +162,7 @@ function createAdmin({ store, adminEmails, newId, readJson, sendJson, cleanName,
     return sendJson(res, 404, { error: 'Not found' });
   }
 
-  return { isAdmin, seen, handle };
+  return { isAdmin, allows, seen, handle };
 }
 
 module.exports = { createAdmin, ROLES };

@@ -2134,7 +2134,7 @@
       await ready;
       const dur = video.duration;
       if (!(dur > 0) || !isFinite(dur)) return null;
-      const canvas = el('canvas', { width: 16, height: 8 });
+      const canvas = el('canvas', { width: 64, height: 36 });
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       const out = new Uint8Array(WAVE_COLS * 6);
       let last = null;
@@ -2142,14 +2142,30 @@
         let rgb = last;
         try {
           await seekFrame(video, (dur * (i + 0.5)) / WAVE_COLS, false);
-          ctx.drawImage(video, 0, 0, 16, 8);
-          const { data } = ctx.getImageData(0, 0, 16, 8);
+          ctx.drawImage(video, 0, 0, 64, 36);
+          const { data } = ctx.getImageData(0, 0, 64, 36);
+          // A plain average of a busy picture comes out grey. Colourful pixels count far more than dull
+          // ones, so the bar takes the colour the picture is about, and that is then pushed a little further.
           const sum = [0, 0, 0, 0, 0, 0];
-          for (let p = 0; p < 128; p++) {
-            const half = p < 64 ? 0 : 3;
-            for (let c = 0; c < 3; c++) sum[half + c] += data[p * 4 + c];
+          const weight = [0, 0];
+          for (let p = 0; p < 2304; p++) {
+            const r = data[p * 4];
+            const g = data[p * 4 + 1];
+            const b = data[p * 4 + 2];
+            const hi = Math.max(r, g, b);
+            const sat = hi ? (hi - Math.min(r, g, b)) / hi : 0;
+            const w = 0.02 + sat ** 3 * (0.4 + hi / 255);
+            const half = p < 1152 ? 0 : 1;
+            weight[half] += w;
+            sum[half * 3] += r * w;
+            sum[half * 3 + 1] += g * w;
+            sum[half * 3 + 2] += b * w;
           }
-          rgb = sum.map((v) => Math.round(v / 64));
+          rgb = sum.map((v, k) => v / weight[k < 3 ? 0 : 1]);
+          for (const o of [0, 3]) {
+            const grey = (rgb[o] + rgb[o + 1] + rgb[o + 2]) / 3;
+            for (let c = 0; c < 3; c++) rgb[o + c] = Math.max(0, Math.min(255, Math.round(grey + (rgb[o + c] - grey) * 1.35)));
+          }
         } catch {
           // Keeps the colours of the moment before.
         }
@@ -2254,7 +2270,7 @@
   }
 
   // Strips made before this version have fewer bars; they show until a finer one is made.
-  const WAVE_VERSION = 4;
+  const WAVE_VERSION = 5;
   const waveFor = (it) => {
     const own = waveCache.get(it.src);
     return own || it.wf || null;

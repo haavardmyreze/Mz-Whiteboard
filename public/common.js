@@ -51,24 +51,28 @@ const WB = (() => {
 
   // In-page replacement for prompt() and confirm(). Resolves with the entered text
   // (or true for a confirmation), or null when dismissed.
+  //
+  // Only the OK button (or Enter) confirms. However else the dialog closes it was dismissed: Esc,
+  // Cancel, or the browser closing it on its own. (Chrome resets returnValue when Esc closes a dialog,
+  // so it cannot be trusted to say which button it was.)
   function dialog({ title, text, value, placeholder, ok = 'OK', danger = false, cancellable = true, maxlength = 120 }) {
     return new Promise((resolve) => {
+      let confirmed = false;
       const input = value !== undefined && el('input', { type: 'text', maxlength, placeholder, value, autocomplete: 'off' });
       const dlg = el('dialog', { class: 'dlg' },
-        el('form', { method: 'dialog' },
+        el('form', { method: 'dialog', onsubmit: () => { confirmed = true; } },
           el('h2', { text: title }),
           text && el('p', { text }),
           input,
           el('div', { class: 'dlg-actions' },
-            cancellable && el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close('cancel') }),
+            cancellable && el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }),
             el('button', { type: 'submit', class: `btn ${danger ? 'danger solid' : 'primary'}`, text: ok }))));
       dlg.addEventListener('cancel', (e) => {
         if (!cancellable) e.preventDefault();
-        else dlg.returnValue = 'cancel';
       });
       dlg.addEventListener('close', () => {
         dlg.remove();
-        if (dlg.returnValue === 'cancel') return resolve(null);
+        if (!confirmed) return resolve(null);
         resolve(input ? input.value.trim() : true);
       });
       document.body.append(dlg);

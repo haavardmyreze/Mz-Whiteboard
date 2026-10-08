@@ -52,6 +52,8 @@
     <span id="focusname" class="viewer-only"></span>
     <span id="conn" hidden>Reconnecting…</span>
     <div class="spacer"></div>
+    <!-- Away from Fit, which is pressed often: this one deletes, and asks first. -->
+    <button class="btn ghost viewer-only" id="focusclear" title="Delete what is drawn on this image, apart from drawings that belong to comments">Clear drawing</button>
     <!-- How much of the board's video is cached on this computer: a small ring that fills, and stays out of the way. -->
     <button id="kept" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><circle class="track" cx="10" cy="10" r="7"/><circle class="arc" cx="10" cy="10" r="7"/><path class="tick" d="M6.6 10.3l2.3 2.3 4.6-5"/></svg></button>
     <div id="peers"></div>
@@ -60,7 +62,6 @@
       <button id="zoom" class="btn ghost" title="Fit everything (Shift+1)">100%</button>
     </span>
     <span class="bar-group viewer-only">
-      <button class="btn ghost" id="focusclear" title="Delete everything drawn on this image">Clear drawing</button>
       <button class="btn ghost" id="focuszoom" title="Fit to the screen, or actual size">Fit</button>
     </span>
     <span id="themeslot"></span>

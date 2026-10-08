@@ -271,17 +271,18 @@
       walk(null, 1);
       select(chosen);
 
+      // Only "Move here" moves; any other way of closing it is a dismissal (see WB.dialog).
+      let confirmed = false;
       const dlg = el('dialog', { class: 'dlg' },
-        el('form', { method: 'dialog' },
+        el('form', { method: 'dialog', onsubmit: () => { confirmed = true; } },
           el('h2', { text: title }),
           list,
           el('div', { class: 'dlg-actions' },
-            el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close('cancel') }),
+            el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }),
             el('button', { type: 'submit', class: 'btn primary', text: 'Move here' }))));
-      dlg.addEventListener('cancel', () => { dlg.returnValue = 'cancel'; });
       dlg.addEventListener('close', () => {
         dlg.remove();
-        resolve(dlg.returnValue === 'cancel' ? undefined : chosen);
+        resolve(confirmed ? chosen : undefined);
       });
       document.body.append(dlg);
       dlg.showModal();

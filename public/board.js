@@ -1979,6 +1979,7 @@
       // What was being written or read belongs to the piece before.
       dropDraft();
       activeThread = null;
+      switchTyped(id);
     }
     focusId = id;
     // Whatever was selected on the board is left behind: nothing is selected in here.
@@ -1986,7 +1987,7 @@
     document.body.classList.add('focus');
     document.body.classList.toggle('focus-video', it.type === 'video');
     $('focusname').textContent = it.name || (it.type === 'video' ? 'Video' : 'Image');
-    $('focusclear').title = `Delete everything drawn on this ${it.type}`;
+    $('focusclear').title = `Delete what is drawn on this ${it.type}, apart from drawings that belong to comments`;
     $('filmstrip').hidden = false;
     $('timeline').hidden = it.type !== 'video';
     for (const [nid, node] of els) node.classList.toggle('dim', nid !== id && items.get(nid).pid !== id);
@@ -2005,6 +2006,7 @@
       }, 300);
     }
     syncFilmstrip(!wasOpen);
+    queueViewer();
     syncComments();
     syncTimeline();
     syncLoaded();
@@ -2019,6 +2021,7 @@
     dropWhole(focusId);
     dropDraft();
     activeThread = null;
+    switchTyped(null);
     focusId = null;
     document.body.classList.remove('focus', 'focus-video');
     $('filmstrip').hidden = true;
@@ -2046,9 +2049,21 @@
     }
   }
 
-  function clearDrawing() {
-    const ids = [...items.values()].filter((it) => it.pid === focusId).map((it) => it.id);
-    if (ids.length) exec([{ t: 'del', ids }]);
+  // The drawings on the open piece that are not part of a comment. What was drawn for a comment belongs
+  // to its thread (somebody else's, often) and goes only when the thread does.
+  const looseDrawings = () => [...items.values()].filter((it) => it.type === 'stroke' && it.pid === focusId && !commentOf(it));
+
+  async function clearDrawing() {
+    const host = items.get(focusId);
+    const ids = looseDrawings().map((it) => it.id);
+    if (!host || !ids.length) return;
+    const sure = await WB.dialog({
+      title: ids.length === 1 ? 'Clear the drawing?' : `Clear ${ids.length} drawings?`,
+      text: `Everything drawn on this ${host.type} that is not part of a comment is deleted, for everyone. Drawings that belong to comments stay with their threads.`,
+      ok: 'Clear',
+      danger: true,
+    });
+    if (sure && focusId === host.id) exec([{ t: 'del', ids: looseDrawings().map((it) => it.id) }]);
   }
 
   // ---- the strip down the left of the viewer: every image and video, in the order the arrows take them
@@ -2068,6 +2083,7 @@
       syncFilmstrip();
       syncComposer();
       paintFocusWave();
+      $('focusclear').disabled = !looseDrawings().length;
     });
   }
 
@@ -2908,7 +2924,10 @@
 
   function sendMedia(id) {
     const video = videoOf(id);
-    if (video) wsSend({ t: 'media', id, playing: !video.paused, time: video.currentTime });
+    if (!video) return;
+    wsSend({ t: 'media', id, playing: !video.paused, time: video.currentTime });
+    // Kept in the presence too, so whoever starts following later lands on the same frame.
+    sendP({ m: [id, Math.round(video.currentTime * 1000) / 1000, video.paused ? 0 : 1] });
   }
 
   function toggleVideo(id) {
@@ -3469,9 +3488,11 @@
   }
 
   // Where each of several pieces of media goes, in rows from `at`, all at the same width; a single one is centred on it.
+  // Several make a roughly even grid (two side by side, seven as four and three), whatever the zoom.
   function mediaRects(sizes, at, centre = true) {
     const gap = 24;
-    const maxRow = clamp((vp.clientWidth * 0.9) / cam.z, IMG_W, 4 * (IMG_W + gap));
+    const cols = clamp(Math.ceil(Math.sqrt(sizes.length * 1.5)), 1, 6);
+    const maxRow = cols * (IMG_W + gap);
     let x = 0;
     let y = 0;
     let tallest = 0;
@@ -3510,12 +3531,26 @@
     const list = made.map((m, i) => ({ ...m, id: uid(), ...rects[i], z: ++z }));
     exec(addOps(list));
     setSel(list.map((item) => item.id));
+    bringIntoView(rects);
   }
 
-  // ---- stand-ins for videos on their way in
-  // A video shows up on the board the moment it is chosen, dimmed, with a ring that fills as its review
-  // copy is made and uploaded. It is a piece like any other (select it, move it, drop it into a frame) and
-  // everybody on the board sees it. When the video is ready the real one takes its place.
+  // What was just added is shown. If any of it is out of sight the view eases to take it all in, never
+  // closer in than it was; what is already in sight is left where it is.
+  function bringIntoView(rects) {
+    const r = rects.reduce((u, b) => union(u, b), null);
+    if (!r || focusId) return;
+    const i = insets();
+    const seen = { x: cam.x + i.l / cam.z, y: cam.y + i.t / cam.z, w: (vp.clientWidth - i.l - i.r) / cam.z, h: (vp.clientHeight - i.t - i.b) / cam.z };
+    if (contains(seen, r)) return;
+    userMovedView();
+    fitRect(r, { maxZ: cam.z, dur: calm.matches ? 0 : 380 });
+  }
+
+  // ---- stand-ins for media on its way in
+  // An image or video shows up on the board the moment it is chosen, dimmed, with a ring that fills as it
+  // is prepared and uploaded (a video's review copy is made first). It is a piece like any other (select
+  // it, move it, drop it into a frame) and everybody on the board sees it. When the file has landed the
+  // real piece takes its place.
   const RING = 2 * Math.PI * 28;
   const standIns = new Set(); // this browser's own
   const progress = new Map(); // stand-in id -> { k, ph }, from this browser and from the others
@@ -3553,7 +3588,7 @@
     node.querySelector('.arc').style.strokeDashoffset = RING * (1 - (stopped ? 0 : waiting ? 0.25 : clamp(k, 0, 1)));
     // Full only when it is: until then there is always a little left to say so.
     node.querySelector('.ghostpct').textContent = stopped || waiting ? '' : `${k >= 1 ? 100 : Math.min(99, Math.round(k * 100))}%`;
-    node.querySelector('.ghostphase').textContent = stopped ? `Upload interrupted${viewOnly ? '' : '. Delete this and add the video again'}` : PHASES[ph] || 'Waiting';
+    node.querySelector('.ghostphase').textContent = stopped ? `Upload interrupted${viewOnly ? '' : '. Delete this and add the file again'}` : PHASES[ph] || 'Waiting';
   }
 
   // Whether a stand-in has been left behind: whoever was adding the video closed the board or lost it
@@ -3610,7 +3645,7 @@
     }
   }
 
-  async function videoStandIn(file, rect) {
+  async function standIn(file, rect, isVideo) {
     const url = URL.createObjectURL(file);
     const id = uid();
     const g = { id, k: 0, ph: 'wait', sent: 0 };
@@ -3620,15 +3655,20 @@
     progress.set(id, g);
     repaintUpload(id);
     shareStandIns();
-    // A still from the file itself, where this browser can show it.
-    const video = el('video', { muted: '', playsinline: '', preload: 'metadata' });
-    video.muted = true;
-    video.addEventListener('loadeddata', async () => {
-      if (brightness(video) < 14) await pickFrame(video).catch(() => {});
+    // A picture from the file itself, where this browser can show it.
+    if (isVideo) {
+      const video = el('video', { muted: '', playsinline: '', preload: 'metadata' });
+      video.muted = true;
+      video.addEventListener('loadeddata', async () => {
+        if (brightness(video) < 14) await pickFrame(video).catch(() => {});
+        const node = els.get(id);
+        if (node) node.prepend(video);
+      }, { once: true });
+      video.src = `${url}#t=0.1`;
+    } else {
       const node = els.get(id);
-      if (node) node.prepend(video);
-    }, { once: true });
-    video.src = `${url}#t=0.1`;
+      if (node) node.prepend(el('img', { src: url, alt: '', draggable: 'false', decoding: 'async' }));
+    }
     // `k` is how far along the whole job is: making the review copy, then sending it while its timeline
     // strip is read. Each part counts for the time it is expected to take, so the ring moves at an even
     // pace; it never goes back, and it is only full when the video is about to land.
@@ -3637,6 +3677,7 @@
     const took = {};
     let job = null;
     let secs = { enc: 0, up: 1, strip: 1 };
+    // `kind` is 'encode', 'wrap' or 'none' for a video, 'image' for an image, which only has its upload.
     g.plan = (kind, dur, bytes) => {
       const mb = Math.max(0, bytes) / 1048576;
       dur = dur > 0 && isFinite(dur) ? dur : 0;
@@ -3644,7 +3685,7 @@
       secs = {
         enc: kind === 'encode' ? Math.max(1, dur * pace.enc) : kind === 'wrap' ? 0.2 + mb * 0.004 : 0,
         up: 0.1 + mb * pace.up,
-        strip: 1.5 + dur * 0.012,
+        strip: kind === 'image' ? 0 : 1.5 + dur * 0.012,
       };
       began.enc = performance.now();
     };
@@ -3657,7 +3698,7 @@
       const both = Math.max(secs.up, secs.strip);
       const left = Math.max(secs.up * (1 - part.up), secs.strip * (1 - part.strip));
       const k = (secs.enc * part.enc + both - left) / (secs.enc + both);
-      const ph = !('up' in began) ? 'enc' : part.up < 1 ? 'up' : 'fin';
+      const ph = !('up' in began) ? 'enc' : part.up < 1 || !secs.strip ? 'up' : 'fin';
       const phaseChanged = ph !== g.ph;
       g.ph = ph;
       g.k = Math.max(g.k, k, 0.005);
@@ -3683,7 +3724,7 @@
       shareStandIns();
       URL.revokeObjectURL(url);
     };
-    // The real video takes the place of the stand-in, wherever it has been moved to, frame and all.
+    // The real piece takes the place of the stand-in, wherever it has been moved to, frame and all.
     g.done = (made) => {
       const was = items.get(id);
       learn();
@@ -3694,7 +3735,7 @@
       const selected = sel.has(id);
       exec([{ t: 'del', ids: [id] }], false);
       exec(addOps([item]));
-      if (selected) setSel([id]);
+      if (selected) setSel([...sel, id]);
       return true;
     };
     g.fail = () => {
@@ -3710,56 +3751,55 @@
       toast('Only images and MP4, WebM or MOV video can be added.');
       return;
     }
-    const chosen = files.filter((f) => VID_EXT.test(fileExt(f)));
-    const pictures = files.filter((f) => !chosen.includes(f));
     const errors = [];
-    // Videos take a while, so each one is on the board straight away, ready to be placed.
-    const probed = await Promise.all(chosen.map(async (f) => {
+    // Each file is on the board straight away, as a stand-in at its own shape, so a drop always shows
+    // where things go. For that its size is read first: an image's from the picture, a video's from its
+    // first frame.
+    const probed = await Promise.all(files.map(async (f) => {
+      const isVideo = VID_EXT.test(fileExt(f));
       const url = URL.createObjectURL(f);
       try {
+        if (!isVideo) {
+          const img = await loadImage(url);
+          return { file: f, isVideo, nw: img.naturalWidth || 512, nh: img.naturalHeight || 512 };
+        }
         const { w, h } = await probeVideo(url);
         // One this browser can show but cannot make a review copy of is turned away before anything is
         // put on the board for it. (One it cannot even show gets its own message further on.)
-        return { nw: w, nh: h, beyond: await beyondThisBrowser(f) };
-      } catch {
-        return { nw: 16, nh: 9 };
+        return { file: f, isVideo, nw: w, nh: h, beyond: await beyondThisBrowser(f) };
+      } catch (err) {
+        if (!isVideo) {
+          errors.push(`${f.name}: ${err.message}`);
+          return null;
+        }
+        return { file: f, isVideo, nw: 16, nh: 9 };
       } finally {
         URL.revokeObjectURL(url);
       }
     }));
-    const refused = chosen.map((f, i) => ({ name: f.name, dims: probed[i].beyond })).filter((r) => r.dims);
-    const videos = chosen.filter((f, i) => !probed[i].beyond);
-    const sizes = probed.filter((p) => !p.beyond);
-    tellRefused(refused);
-    if (focusId) exitFocus();
-    const rects = mediaRects(sizes, at, !pictures.length && videos.length === 1);
-    const ghosts = await Promise.all(videos.map((f, i) => videoStandIn(f, rects[i])));
-    if (pictures.length) {
-      const below = rects.reduce((y, r) => Math.max(y, r.y + r.h + 24), at.y);
-      const status = toast('Uploading…', { sticky: true });
-      const made = [];
-      for (const [i, file] of pictures.entries()) {
-        const label = pictures.length > 1 ? `Uploading ${i + 1} of ${pictures.length}` : 'Uploading';
-        try {
-          made.push(await ingest(file, (k) => status.set(`${label} · ${Math.round(k * 100)}%`)));
-        } catch (err) {
-          errors.push(`${file.name}: ${err.message}`);
-        }
-      }
-      status.close();
-      if (made.length) placeMedia(made, videos.length ? { x: at.x, y: below } : at, !videos.length);
+    tellRefused(probed.filter((p) => p && p.beyond).map((p) => ({ name: p.file.name, dims: p.beyond })));
+    const accepted = probed.filter((p) => p && !p.beyond);
+    if (!accepted.length) {
+      for (const message of errors.slice(0, 3)) toast(message, { ms: 9000 });
+      return;
     }
-    // Those that looked fine and then could not be finished: said together, once they have all been tried.
+    if (focusId) exitFocus();
+    const rects = mediaRects(accepted, at, accepted.length === 1);
+    const ghosts = await Promise.all(accepted.map((p, i) => standIn(p.file, rects[i], p.isVideo)));
+    bringIntoView(rects);
+    // Images are quick, so they land first; videos follow, one at a time. Those that looked fine and then
+    // could not be finished are said together, once they have all been tried.
+    const order = accepted.map((p, i) => ({ ...p, ghost: ghosts[i] })).sort((a, b) => a.isVideo - b.isVideo);
     const late = [];
-    for (const [i, file] of videos.entries()) {
-      const ghost = ghosts[i];
+    for (const { file, isVideo, ghost } of order) {
       try {
-        ghost.status('enc', 0);
-        const made = await ingest(file, (k) => ghost.status('up', k), {
+        if (!isVideo) ghost.plan('image', 0, file.size);
+        ghost.status(isVideo ? 'enc' : 'up', 0);
+        const made = await ingest(file, (k) => ghost.status('up', k), isVideo ? {
           onPhase: (k) => ghost.status('enc', k),
           onStrip: (k) => ghost.status('strip', k),
           onPlan: ghost.plan,
-        });
+        } : {});
         ghost.done(made);
       } catch (err) {
         ghost.fail();
@@ -3795,6 +3835,7 @@
       .map((it) => ({ ...it, x: round(it.x + dx), y: round(it.y + dy), z: ++z }));
     exec(addOps(clones));
     setSel(clones.map((c) => c.id));
+    bringIntoView(clones.map(bounds));
   }
 
   function pasteText(text, at) {
@@ -4714,6 +4755,16 @@
   }
   wireBox(composer, submitComment);
   wireBox(replyBox, submitReply);
+
+  // What is half written in the comment box belongs to the piece it was written on: going on to another
+  // piece puts it aside, and coming back finds it there again. Nothing is posted on the wrong piece.
+  const typed = new Map(); // piece id -> what its comment box held
+  function switchTyped(next) {
+    if (focusId && composer.value.trim()) typed.set(focusId, composer.value);
+    else if (focusId) typed.delete(focusId);
+    composer.value = (next && typed.get(next)) || '';
+    autosize(composer);
+  }
   // Starting to write about a video stops it, so the comment is about the frame that was showing.
   composer.addEventListener('focus', () => {
     if (focusId && timed) holdFrame(focusId);
@@ -4939,6 +4990,9 @@
     if (drawn && drawn.fr != null) item.fr = drawn.fr;
     composer.value = '';
     autosize(composer);
+    typed.delete(host.id);
+    // Sent, the box lets go of the keyboard, so the keys work the viewer again. C, or a click, is back in it.
+    composer.blur();
     draft = null;
     activeThread = item.id;
     replyBox.value = '';
@@ -4954,6 +5008,7 @@
     if (!root || !text || !canWrite()) return;
     replyBox.value = '';
     autosize(replyBox);
+    replyBox.blur();
     exec([{ t: 'add', item: { id: uid(), type: 'comment', text: text.slice(0, 2000), name: me.name, color: me.color, t: Date.now(), done: false, re: root.id, on: root.on } }]);
     revealCard(root.id);
   }
@@ -5298,11 +5353,27 @@
     if (peer && peer.p.f && items.has(peer.p.f)) {
       followFocus(peer.p.f);
       followThread(peer.p.t);
+      catchUp(peer);
     } else {
       if (focusId) exitFocus();
       if (peer && peer.p.v) followView(peer.p.v, 380);
     }
     updateFollowUI();
+  }
+
+  // Starting to follow, or following into another piece, lands on the moment of the video the person
+  // followed has open, playing or stopped as theirs is. Played on since they last touched it, it is where
+  // it has got to by now.
+  function catchUp(peer) {
+    const m = peer.p.m;
+    if (!Array.isArray(m) || m[0] !== focusId || !Number.isFinite(m[1])) return;
+    const video = videoOf(focusId);
+    if (!video) return;
+    let at = m[1] + (m[2] ? (performance.now() - (peer.mAt || performance.now())) / 1000 : 0);
+    if (video.duration > 0 && isFinite(video.duration)) at %= video.duration;
+    video.currentTime = at;
+    if (m[2]) video.play().catch(() => {});
+    else video.pause();
   }
 
   // Following someone means reading the thread they are reading: a drawing only shows with its thread.
@@ -5396,7 +5467,7 @@
   }
 
   function addPeer(data) {
-    peers.set(data.id, { id: data.id, name: data.name, color: data.color, p: data.p || {}, cur: null, viewer: !!data.viewer });
+    peers.set(data.id, { id: data.id, name: data.name, color: data.color, p: data.p || {}, mAt: performance.now(), cur: null, viewer: !!data.viewer });
     placeCursor(peers.get(data.id));
     if (data.p && data.p.u) showRemoteStandIns(peers.get(data.id));
   }
@@ -5632,13 +5703,17 @@
       const peer = peers.get(msg.id);
       if (!peer) return;
       Object.assign(peer.p, msg.p);
+      if ('m' in msg.p) peer.mAt = performance.now();
       if ('c' in msg.p || 'l' in msg.p) {
         placeCursor(peer);
         requestLaser();
       }
       if ('s' in msg.p) refreshPeerSel();
       if ('u' in msg.p) showRemoteStandIns(peer);
-      if ('f' in msg.p && following === peer.id) followFocus(peer.p.f);
+      if ('f' in msg.p && following === peer.id) {
+        followFocus(peer.p.f);
+        catchUp(peer);
+      }
       if ('t' in msg.p && following === peer.id) followThread(peer.p.t);
       if ('v' in msg.p && following === peer.id && !gesture) followView(peer.p.v);
     } else if (msg.t === 'laser') {

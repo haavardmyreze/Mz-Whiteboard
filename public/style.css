@@ -225,6 +225,7 @@ kbd {
 .btn.ghost { border-color: transparent; color: var(--text-2); }
 .btn.ghost:hover { background: var(--hover); color: var(--text); }
 .btn.ghost.active { background: var(--press); color: var(--text); }
+.btn:disabled { opacity: 0.4; pointer-events: none; }
 .btn.small { height: var(--h-sm); padding: 0 10px; font-size: 12px; }
 .btn.small svg { width: 14px; height: 14px; }
 .btn.danger:hover { border-color: transparent; background: var(--brand); color: #fff; }
@@ -1345,7 +1346,7 @@ body.login { display: grid; place-items: center; min-height: 100%; padding: 24px
 
 /* A video on its way in: dimmed, with a ring that fills as it is made ready. */
 .item.ghost { overflow: hidden; background: var(--thumb-bg); }
-.item.ghost video { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: fill; opacity: 0.35; filter: saturate(0.6); pointer-events: none; }
+.item.ghost video, .item.ghost > img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: fill; opacity: 0.35; filter: saturate(0.6); pointer-events: none; }
 .item.ghost::before { content: ''; position: absolute; inset: 0; background: rgba(0, 0, 0, 0.28); pointer-events: none; }
 .item.ghost::after { content: ''; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.14) 50%, transparent 65%); background-size: 250% 100%; animation: ghostsweep 2.2s ease-in-out infinite; pointer-events: none; }
 @keyframes ghostsweep { from { background-position: 150% 0; } to { background-position: -50% 0; } }

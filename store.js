@@ -109,6 +109,41 @@ CREATE TABLE IF NOT EXISTS media (
   uploaded_by TEXT,
   created_at INTEGER NOT NULL
 );
+
+-- People, groups and who may do what, kept by the admin area. People are known by their sign-in email.
+-- Grants are recorded here but not enforced yet: who sees what still follows the workspaces.
+CREATE TABLE IF NOT EXISTS users (
+  email TEXT PRIMARY KEY,
+  name TEXT,
+  admin INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  last_seen_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS groups (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS group_members (
+  group_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  PRIMARY KEY (group_id, email)
+);
+
+-- A person or a group, at a role, on one board or folder. One role per person or group per target.
+CREATE TABLE IF NOT EXISTS grants (
+  id TEXT PRIMARY KEY,
+  target_type TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  principal_type TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  created_by TEXT,
+  UNIQUE (target_type, target_id, principal_type, principal_id)
+);
 `;
 
 const VIDEO_EXT = /\.(mp4|m4v|webm|mov)$/i;
@@ -245,6 +280,78 @@ function openStore(dataDir) {
       for (const f of list) putFolder.run(f.id, f.name, f.parentId || null, f.workspace, f.createdAt);
     });
   }
+
+  // ---- people, groups and grants, for the admin area
+
+  const userOf = (r) => ({ email: r.email, name: r.name, admin: !!r.admin, createdAt: r.created_at, lastSeenAt: r.last_seen_at });
+  const readUsers = db.prepare('SELECT * FROM users ORDER BY lower(coalesce(name, email))');
+  const users = () => readUsers.all().map(userOf);
+  const readUser = db.prepare('SELECT * FROM users WHERE email = ?');
+  const user = (email) => {
+    const r = readUser.get(email);
+    return r ? userOf(r) : null;
+  };
+  const putUser = db.prepare('INSERT INTO users (email, name, admin, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (email) DO NOTHING');
+  const addUser = ({ email, name = null, admin = false }) => putUser.run(email, name, admin ? 1 : 0, Date.now()).changes > 0;
+  const putAdmin = db.prepare('UPDATE users SET admin = ? WHERE email = ?');
+  const setAdmin = (email, admin) => putAdmin.run(admin ? 1 : 0, email).changes > 0;
+  // Someone signed in: known from now on, under the name their sign-in gives.
+  const putSeen = db.prepare(`INSERT INTO users (email, name, created_at, last_seen_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT (email) DO UPDATE SET name = excluded.name, last_seen_at = excluded.last_seen_at`);
+  const seeUser = (email, name, at = Date.now()) => putSeen.run(email, name, at, at);
+
+  const readGroups = db.prepare('SELECT * FROM groups ORDER BY lower(name)');
+  const readMembers = db.prepare('SELECT group_id, email FROM group_members ORDER BY email');
+  function groups() {
+    const members = new Map();
+    for (const r of readMembers.all()) (members.get(r.group_id) || members.set(r.group_id, []).get(r.group_id)).push(r.email);
+    return readGroups.all().map((r) => ({ id: r.id, name: r.name, createdAt: r.created_at, members: members.get(r.id) || [] }));
+  }
+  const putGroup = db.prepare('INSERT INTO groups (id, name, created_at) VALUES (?, ?, ?)');
+  const addGroup = (id, name) => putGroup.run(id, name, Date.now());
+  const putGroupName = db.prepare('UPDATE groups SET name = ? WHERE id = ?');
+  const renameGroup = (id, name) => putGroupName.run(name, id).changes > 0;
+  const putMember = db.prepare('INSERT OR IGNORE INTO group_members (group_id, email) VALUES (?, ?)');
+  const addMember = (groupId, email) => putMember.run(groupId, email);
+  const dropMember = db.prepare('DELETE FROM group_members WHERE group_id = ? AND email = ?');
+  const removeMember = (groupId, email) => dropMember.run(groupId, email).changes > 0;
+
+  const grantOf = (r) => ({
+    id: r.id, target: { type: r.target_type, id: r.target_id }, principal: { type: r.principal_type, id: r.principal_id },
+    role: r.role, createdAt: r.created_at, createdBy: r.created_by,
+  });
+  const readGrants = db.prepare('SELECT * FROM grants ORDER BY created_at');
+  const grants = () => readGrants.all().map(grantOf);
+  // Granting again to the same person or group on the same target changes their role.
+  const putGrant = db.prepare(`INSERT INTO grants (id, target_type, target_id, principal_type, principal_id, role, created_at, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (target_type, target_id, principal_type, principal_id) DO UPDATE SET role = excluded.role`);
+  const readGrantFor = db.prepare('SELECT * FROM grants WHERE target_type = ? AND target_id = ? AND principal_type = ? AND principal_id = ?');
+  function setGrant({ id, target, principal, role, by = null }) {
+    putGrant.run(id, target.type, target.id, principal.type, principal.id, role, Date.now(), by);
+    return grantOf(readGrantFor.get(target.type, target.id, principal.type, principal.id));
+  }
+  const dropGrant = db.prepare('DELETE FROM grants WHERE id = ?');
+  const removeGrant = (id) => dropGrant.run(id).changes > 0;
+  const dropTargetGrants = db.prepare('DELETE FROM grants WHERE target_type = ? AND target_id = ?');
+  const removeGrantsOn = (type, id) => dropTargetGrants.run(type, id);
+  const dropPrincipalGrants = db.prepare('DELETE FROM grants WHERE principal_type = ? AND principal_id = ?');
+
+  // Whoever or whatever goes takes their memberships and grants with them.
+  const dropUser = db.prepare('DELETE FROM users WHERE email = ?');
+  const dropMemberships = db.prepare('DELETE FROM group_members WHERE email = ?');
+  const removeUser = (email) => transaction(() => {
+    dropMemberships.run(email);
+    dropPrincipalGrants.run('user', email);
+    return dropUser.run(email).changes > 0;
+  });
+  const dropGroup = db.prepare('DELETE FROM groups WHERE id = ?');
+  const dropGroupMembers = db.prepare('DELETE FROM group_members WHERE group_id = ?');
+  const removeGroup = (id) => transaction(() => {
+    dropGroupMembers.run(id);
+    dropPrincipalGrants.run('group', id);
+    return dropGroup.run(id).changes > 0;
+  });
 
   const putMedia = db.prepare('INSERT OR IGNORE INTO media (name, kind, size, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?)');
   const addMedia = ({ name, size, by = null, at = Date.now() }) => putMedia.run(name, VIDEO_EXT.test(name) ? 'video' : 'image', size ?? null, by, at);
@@ -399,6 +506,8 @@ function openStore(dataDir) {
   return {
     file, saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media,
     catalogueUploads, find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
+    users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,
+    grants, setGrant, removeGrant, removeGrantsOn,
   };
 }
 

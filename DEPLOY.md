@@ -89,6 +89,7 @@ All optional locally; the ones in bold matter when deployed.
 | `SITE_PASSWORD` | | With `AUTH_MODE=password`: the one password everybody types with their name |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | | With `AUTH_MODE=google`: the OAuth client from Google Cloud Console |
 | `PUBLIC_URL` | | With `AUTH_MODE=google`: the address people use, no trailing slash. Also used for share links |
+| `ADMIN_EMAILS` | | With `google` or `iap`: comma separated emails of the first admins, who can open `/admin` and make others admins there |
 | `SESSION_SECRET` | made once, kept in `data/.session-secret` | Signs sign-in cookies; set it only to share sessions between restarts of different data folders |
 
 With `AUTH_MODE=iap` the app checks the signed token Google adds to every request and refuses anything

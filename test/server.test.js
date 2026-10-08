@@ -151,7 +151,7 @@ test('without sign-in /api/me reports no user', async (t) => {
   t.after(s.stop);
   await s.ready;
   const { shareBases, ...me } = await (await fetch(`${s.base}/api/me`)).json();
-  assert.deepEqual(me, { auth: 'none', user: null, canShare: true, publicUrl: null, signOut: false });
+  assert.deepEqual(me, { auth: 'none', user: null, admin: false, canShare: true, publicUrl: null, signOut: false });
   // share links never point at localhost: only at addresses other computers can reach
   assert.ok(shareBases.every((b) => /^http:\/\/\d+\.\d+\.\d+\.\d+:4794$/.test(b) && !b.includes('127.0.0.1')));
 });
@@ -1051,4 +1051,92 @@ test('people hear about replies, comments on their work and boards, and mentions
   await say('Ben', [{ t: 'add', item: { id: 'bencom002', type: 'comment', on: 'annaimage', text: 'One more' } }]);
   assert.equal((await notices('Anna')).unread, 1);
   assert.equal((await notices('Ben')).items.some((i) => i.id === 'bencom002'), false);
+});
+
+test('the admin area stays closed without a sign-in that says who people are', async (t) => {
+  const s = start(4830, { ADMIN_EMAILS: 'anna@x.com' });
+  t.after(s.stop);
+  await s.ready;
+  const res = await fetch(`${s.base}/api/admin`);
+  assert.equal(res.status, 403);
+  assert.match((await res.json()).error, /sign-in/);
+  assert.equal((await fetch(`${s.base}/admin`)).status, 200);
+});
+
+test('admins manage people, groups and permissions on shared boards and folders, and nobody else can', async (t) => {
+  const secret = 'admin-test-secret';
+  const mk = createAuth(googleOptions({ sessionSecret: secret, allowedDomains: 'x.com', allowedEmails: '', publicUrl: 'http://localhost:4831' }));
+  const cookie = (email, name) => mk.sessionCookie({ email, name }).split(';')[0];
+  const anna = cookie('anna@x.com', 'Anna');
+  const ben = cookie('ben@x.com', 'Ben');
+  const s = start(4831, {
+    AUTH_MODE: 'google', GOOGLE_CLIENT_ID: 'client-1', GOOGLE_CLIENT_SECRET: 'shh', PUBLIC_URL: 'http://localhost:4831',
+    ALLOWED_DOMAINS: 'x.com', SESSION_SECRET: secret, ADMIN_EMAILS: 'Anna@x.com',
+  });
+  t.after(s.stop);
+  await s.ready;
+  const call = async (who, method, p, body, headers = {}) => {
+    const res = await fetch(s.base + p, { method, headers: { cookie: who, 'content-type': 'application/json', ...headers }, body: body ? JSON.stringify(body) : undefined });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  };
+
+  assert.equal((await call(anna, 'GET', '/api/me')).body.admin, true);
+  assert.equal((await call(ben, 'GET', '/api/me')).body.admin, false);
+  assert.equal((await call(ben, 'GET', '/api/admin')).status, 403);
+
+  // everyone who signs in is known from then on; the admins from ADMIN_EMAILS are there from the start
+  let view = (await call(anna, 'GET', '/api/admin')).body;
+  assert.deepEqual(view.users.map((u) => [u.email, u.name, u.admin, u.fixed]), [['anna@x.com', 'Anna', true, true], ['ben@x.com', 'Ben', false, false]]);
+  assert.ok(view.users.every((u) => u.lastSeenAt > 0));
+
+  // changes only from our own pages
+  assert.equal((await call(anna, 'POST', '/api/admin/users', { email: 'carl@x.com' }, { origin: 'https://evil.example' })).status, 403);
+  assert.equal((await call(anna, 'POST', '/api/admin/users', { email: 'not an email' })).status, 400);
+  view = (await call(anna, 'POST', '/api/admin/users', { email: ' Carl@X.com ', name: 'Carl' })).body;
+  assert.ok(view.users.some((u) => u.email === 'carl@x.com' && u.name === 'Carl' && !u.lastSeenAt));
+  assert.equal((await call(anna, 'POST', '/api/admin/users', { email: 'carl@x.com' })).status, 409);
+
+  // admins can make admins, but nobody unmakes themselves or an admin named in ADMIN_EMAILS
+  await call(anna, 'PATCH', '/api/admin/users/ben%40x.com', { admin: true });
+  assert.equal((await call(ben, 'GET', '/api/admin')).status, 200);
+  assert.equal((await call(ben, 'PATCH', '/api/admin/users/ben%40x.com', { admin: false })).status, 400);
+  assert.equal((await call(ben, 'PATCH', '/api/admin/users/anna%40x.com', { admin: false })).status, 400);
+  assert.equal((await call(ben, 'DELETE', '/api/admin/users/ben%40x.com')).status, 400);
+  await call(anna, 'PATCH', '/api/admin/users/ben%40x.com', { admin: false });
+  assert.equal((await call(ben, 'GET', '/api/admin')).status, 403);
+
+  view = (await call(anna, 'POST', '/api/admin/groups', { name: 'Lighting' })).body;
+  const lighting = view.groups.find((g) => g.name === 'Lighting');
+  await call(anna, 'PUT', `/api/admin/groups/${lighting.id}/members/carl%40x.com`);
+  view = (await call(anna, 'PUT', `/api/admin/groups/${lighting.id}/members/ben%40x.com`)).body;
+  assert.deepEqual(view.groups[0].members, ['ben@x.com', 'carl@x.com']);
+  assert.equal((await call(anna, 'PUT', `/api/admin/groups/${lighting.id}/members/nobody%40x.com`)).status, 404);
+  assert.equal((await call(anna, 'PATCH', `/api/admin/groups/${lighting.id}`, { name: 'Lookdev' })).body.groups[0].name, 'Lookdev');
+
+  // permissions go on boards and folders in the shared workspace; granting again changes the role
+  const team = (await call(anna, 'POST', '/api/boards', { name: 'Team board' })).body;
+  const mine = (await call(anna, 'POST', '/api/boards', { name: 'Anna private', workspace: 'personal' })).body;
+  const folder = (await call(anna, 'POST', '/api/folders', { name: 'Shots' })).body;
+  view = (await call(anna, 'GET', '/api/admin')).body;
+  assert.deepEqual(view.targets.boards.map((b) => b.name), ['Team board']);
+  const onTeam = { target: { type: 'board', id: team.id }, principal: { type: 'group', id: lighting.id } };
+  await call(anna, 'POST', '/api/admin/grants', { ...onTeam, role: 'editor' });
+  view = (await call(anna, 'POST', '/api/admin/grants', { ...onTeam, role: 'viewer' })).body;
+  assert.deepEqual(view.grants.map((g) => [g.target.id, g.principal.id, g.role, g.createdBy]), [[team.id, lighting.id, 'viewer', 'anna@x.com']]);
+  assert.equal((await call(anna, 'POST', '/api/admin/grants', { ...onTeam, role: 'owner' })).status, 400);
+  assert.equal((await call(anna, 'POST', '/api/admin/grants', { ...onTeam, target: { type: 'board', id: mine.id }, role: 'viewer' })).status, 400);
+  assert.equal((await call(anna, 'POST', '/api/admin/grants', { ...onTeam, principal: { type: 'group', id: 'nope' }, role: 'viewer' })).status, 400);
+  await call(anna, 'POST', '/api/admin/grants', { target: { type: 'folder', id: folder.id }, principal: { type: 'user', id: 'carl@x.com' }, role: 'manager' });
+  assert.equal((await call(anna, 'GET', '/api/admin')).body.grants.length, 2);
+
+  // whatever goes takes its grants and memberships with it
+  await call(anna, 'DELETE', `/api/folders/${folder.id}`);
+  view = (await call(anna, 'GET', '/api/admin')).body;
+  assert.deepEqual(view.grants.map((g) => g.target.type), ['board']);
+  await call(anna, 'POST', '/api/admin/grants', { target: { type: 'board', id: team.id }, principal: { type: 'user', id: 'carl@x.com' }, role: 'commenter' });
+  view = (await call(anna, 'DELETE', '/api/admin/users/carl%40x.com')).body;
+  assert.deepEqual(view.groups[0].members, ['ben@x.com']);
+  assert.deepEqual(view.grants.map((g) => g.principal.type), ['group']);
+  view = (await call(anna, 'DELETE', `/api/admin/groups/${lighting.id}`)).body;
+  assert.deepEqual([view.groups, view.grants], [[], []]);
 });

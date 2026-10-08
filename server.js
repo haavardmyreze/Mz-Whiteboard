@@ -10,6 +10,7 @@ const { WebSocketServer } = require('ws');
 const { createAuth, parseCookies } = require('./auth');
 const { openStore } = require('./store');
 const { noticesFor, markRead } = require('./notifications');
+const { createAdmin } = require('./admin');
 
 // Settings can live in a .env file next to this one (KEY=value per line); real environment variables win.
 try {
@@ -421,6 +422,17 @@ function moveFolderToSpace(folder, key) {
   }
 }
 
+// ---------------------------------------------------------------- admin
+
+// People, groups and permissions: see admin.js. Permissions go on the boards and folders of the shared workspace.
+const admin = createAdmin({
+  store, adminEmails: process.env.ADMIN_EMAILS, newId, readJson, sendJson, cleanName, sameOrigin: fromOurPages,
+  targets: () => ({
+    boards: [...boards.values()].filter((b) => b.workspace === 'myreze').map((b) => ({ id: b.id, name: b.name, folderId: b.folderId || null })),
+    folders: [...folders.values()].filter((f) => f.workspace === 'myreze').map((f) => ({ id: f.id, name: f.name, parentId: f.parentId || null })),
+  }),
+});
+
 // ---------------------------------------------------------------- http
 
 function sendJson(res, status, body) {
@@ -704,8 +716,9 @@ function shareBases() {
 async function handleApi(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean); // ['api', ...]
   if (parts[1] === 'me') {
-    return sendJson(res, 200, { auth: auth.mode, user: req.user || null, canShare: SHARING, publicUrl: auth.publicUrl || null, shareBases: shareBases(), signOut: !!auth.interactive });
+    return sendJson(res, 200, { auth: auth.mode, user: req.user || null, admin: admin.isAdmin(req.user), canShare: SHARING, publicUrl: auth.publicUrl || null, shareBases: shareBases(), signOut: !!auth.interactive });
   }
+  if (parts[1] === 'admin') return admin.handle(req, res, parts.slice(2));
   if (parts[1] === 'library' && req.method === 'GET') {
     return sendJson(res, 200, {
       folders: [...folders.values()].filter((f) => canSee(req.user, f.workspace)).map(publicFolder),
@@ -754,6 +767,7 @@ async function handleApi(req, res, url) {
         }
         folders.delete(folder.id);
         saveFolders();
+        store.removeGrantsOn('folder', folder.id);
         return sendJson(res, 200, { ok: true });
       }
     }
@@ -928,7 +942,7 @@ async function handleRequest(req, res) {
   if (auth.handle && (await auth.handle(req, res, url))) return;
 
   // Pages, data and files need a signed-in user. The scripts, styles and fonts do not, so the sign-in page can use them.
-  const isPage = pathname === '/' || /^\/b\/[\w-]+\/?$/.test(pathname) || pathname === '/index.html' || pathname === '/board.html';
+  const isPage = pathname === '/' || /^\/b\/[\w-]+\/?$/.test(pathname) || pathname === '/index.html' || pathname === '/board.html' || pathname === '/admin' || pathname === '/admin.html';
   const guarded = auth.mode === 'iap' || isPage || pathname.startsWith('/api/') || pathname.startsWith('/uploads/');
   if (guarded) {
     const who = await auth.authenticate(req);
@@ -940,6 +954,7 @@ async function handleRequest(req, res) {
       return sendJson(res, who.status, { error: who.status === 403 ? 'This account is not on the list for these boards' : 'Sign in required' });
     }
     req.user = who.user;
+    admin.seen(req.user);
   }
 
   if (pathname.startsWith('/api/')) return handleApi(req, res, url);
@@ -969,6 +984,7 @@ async function handleRequest(req, res) {
   let file;
   if (pathname === '/') file = 'index.html';
   else if (pathname === '/auth/login') file = 'login.html';
+  else if (pathname === '/admin') file = 'admin.html';
   else if (/^\/b\/[\w-]+\/?$/.test(pathname)) file = 'board.html';
   else file = pathname.slice(1);
   const full = path.join(PUBLIC_DIR, file);

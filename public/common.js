@@ -236,6 +236,32 @@ const WB = (() => {
     return btn;
   }
 
+  // ---- videos kept on this computer (see board.js): where, how much at most, and what is there
+  const media = {
+    CACHE: 'wb-media-1',
+    MAX: 4 * 1024 * 1024 * 1024,
+    // Whether boards fetch their videos ahead to keep; this browser's choice.
+    ahead: () => store('wb:noahead') !== true,
+    setAhead: (on) => store('wb:noahead', !on),
+    stats() {
+      const kept = store('wb:kept') || {};
+      const list = Object.values(kept).filter((k) => Array.isArray(k));
+      return { count: list.length, bytes: list.reduce((sum, k) => sum + (k[0] || 0), 0), last: Math.max(0, ...list.map((k) => k[1] || 0)) };
+    },
+    async clear() {
+      try {
+        if ('caches' in window) await caches.delete(media.CACHE);
+      } catch {
+        // nothing kept, or no leave to say so
+      }
+      try {
+        localStorage.removeItem('wb:kept');
+      } catch {
+        // storage blocked: there was nothing in it either
+      }
+    },
+  };
+
   // What /api/me said (after identity() or askName() has run): whether read-only links, a public address and sign-out exist here.
   const info = () => session;
 
@@ -321,5 +347,5 @@ const WB = (() => {
 
   welcome();
 
-  return { el, store, user, dialog, askName, info, offline, watchServer, initials, ago, api, theme, setTheme, themeButton };
+  return { el, store, user, dialog, askName, info, offline, watchServer, initials, ago, api, theme, setTheme, themeButton, media, colors: USER_COLORS, saveUser };
 })();

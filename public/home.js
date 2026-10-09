@@ -27,23 +27,85 @@
     el('span', { class: 'avatar sm', style: { background: me.color }, text: WB.initials(me.name) }),
     el('span', { text: me.name }));
   paintMe();
-  if (WB.info().signOut) {
-    // Signed in: the name comes from the sign-in, so the chip signs out instead. It asks first; one
-    // stray click should not mean typing the password again.
-    $('me').title = 'Sign out';
-    $('me').addEventListener('click', async () => {
-      const sure = await WB.dialog({ title: 'Sign out?', text: `You are signed in as ${me.name}.`, ok: 'Sign out' });
-      if (sure) location.href = '/auth/logout';
-    });
-  } else if (WB.info().user) {
-    // Signed in by something in front of the app: there is nothing here to change or sign out of.
-    $('me').removeAttribute('title');
-    $('me').disabled = true;
-  } else {
-    $('me').addEventListener('click', async () => {
-      me = await WB.askName(true);
-      paintMe();
-    });
+  $('me').title = 'Your account';
+  $('me').addEventListener('click', () => openAccount());
+
+  // ---- your account: who you are here, how the app looks, and what this computer keeps
+  const ICON = {
+    pen: svg('<path d="M4 20l1-4L16 5l3 3L8 19z"/><path d="M14 7l3 3"/>', 16),
+    moon: svg('<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>', 16),
+    sun: svg('<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6L7 7M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"/>', 16),
+    disk: svg('<path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>', 18),
+    out: svg('<path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h11"/>', 16),
+    shield: svg('<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/>', 16),
+    close: svg('<path d="M6 6l12 12M18 6L6 18"/>', 18),
+  };
+  const size = (bytes) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.round(bytes / 1048576).toLocaleString()} MB`);
+
+  function openAccount() {
+    const managed = !!WB.info().user;
+    const dlg = el('dialog', { class: 'dlg acct-dlg', 'aria-label': 'Your account' });
+    dlg.addEventListener('close', () => dlg.remove());
+    const section = (title, ...kids) => el('section', { class: 'acct-sec' }, el('h3', { text: title }), ...kids);
+
+    async function paint() {
+      const u = WB.info().user;
+      const stats = WB.media.stats();
+      let quota = null;
+      try {
+        quota = navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate() : null;
+      } catch {
+        // not said by this browser
+      }
+      const ahead = el('input', { type: 'checkbox', role: 'switch', 'aria-label': 'Cache videos ahead' });
+      ahead.checked = WB.media.ahead();
+      ahead.addEventListener('change', () => WB.media.setAhead(ahead.checked));
+      const theme = WB.theme();
+      dlg.replaceChildren(
+        el('button', { type: 'button', class: 'iconbtn acct-close', html: ICON.close, title: 'Close (Esc)', onclick: () => dlg.close() }),
+        el('div', { class: 'acct-head' },
+          el('span', { class: 'avatar acct-av', style: { background: me.color }, text: WB.initials(me.name) }),
+          el('div', { class: 'acct-who' },
+            el('b', { text: me.name }),
+            el('span', {}, (u && u.email) || 'This browser', WB.info().admin && el('span', { class: 'acct-badge', html: ICON.shield }, 'Admin'))),
+          !managed && el('button', { type: 'button', class: 'iconbtn', html: ICON.pen, title: 'Change your name', onclick: async () => { me = await WB.askName(true); paintMe(); paint(); } })),
+        !managed && el('div', { class: 'acct-colors', role: 'radiogroup', 'aria-label': 'Your colour' }, WB.colors.map((c) => el('button', {
+          type: 'button', class: `acct-color${c === me.color ? ' on' : ''}`, style: { background: c }, role: 'radio', 'aria-checked': String(c === me.color), title: 'Your colour on the boards',
+          onclick: () => { me = { ...me, color: c }; store('wb:user', me); paintMe(); paint(); },
+        }))),
+        section('Appearance', el('div', { class: 'seg' }, [['dark', ICON.moon, 'Dark'], ['light', ICON.sun, 'Light']].map(([t, ic, label]) => el('button', {
+          type: 'button', class: `seg-btn${theme === t ? ' on' : ''}`, onclick: () => { WB.setTheme(t); paint(); },
+        }, el('span', { class: 'seg-ic', html: ic }), label)))),
+        section('Video cache',
+          el('div', { class: 'acct-cache' },
+            el('span', { class: 'acct-cache-ic', html: ICON.disk }),
+            el('div', { class: 'acct-cache-num' }, el('b', { text: size(stats.bytes) }), el('span', { text: `of ${size(WB.media.MAX)} · ${stats.count} ${stats.count === 1 ? 'video' : 'videos'}` })),
+            el('button', {
+              type: 'button', class: 'btn small', text: 'Clear', disabled: !stats.count,
+              onclick: async () => {
+                const sure = await WB.dialog({ title: 'Clear the video cache?', text: `${size(stats.bytes)} is freed on this computer. Videos load from the server again until they are cached anew.`, ok: 'Clear', danger: true });
+                if (!sure) return;
+                await WB.media.clear();
+                paint();
+              },
+            })),
+          el('i', { class: 'kp-bar' }, el('i', { style: { width: `${Math.min(1, stats.bytes / WB.media.MAX) * 100}%` } })),
+          el('label', { class: 'acct-row' }, el('span', { text: 'Cache videos of the boards I open' }), ahead),
+          quota && quota.quota && el('p', { class: 'acct-note', text: `Browser storage · ${size(quota.usage || 0)} used of ${size(quota.quota)}` })),
+        (WB.info().admin || WB.info().signOut) && el('div', { class: 'acct-foot' },
+          WB.info().admin && el('a', { class: 'btn', href: '/admin', html: `${ICON.shield}<span>Admin</span>` }),
+          WB.info().signOut && el('button', {
+            type: 'button', class: 'btn', html: `${ICON.out}<span>Sign out</span>`,
+            onclick: async () => {
+              const sure = await WB.dialog({ title: 'Sign out?', text: `You are signed in as ${me.name}.`, ok: 'Sign out' });
+              if (sure) location.href = '/auth/logout';
+            },
+          })));
+    }
+
+    document.body.append(dlg);
+    paint();
+    dlg.showModal();
   }
 
   // ------------------------------------------------------------- library helpers

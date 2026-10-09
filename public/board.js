@@ -2600,8 +2600,8 @@
   // What is opened never waits for this: it has the line to itself, and what was being fetched ahead
   // gives way to it. Where the browser has nowhere to keep things (a plain http address that is not
   // this machine) or has been asked to save data, nothing is fetched ahead and all is as it was.
-  const KEPT_MAX = 4 * 1024 * 1024 * 1024; // how much is kept on disk across boards
-  const mediaCache = 'caches' in window ? caches.open('wb-media-1').catch(() => null) : Promise.resolve(null);
+  const KEPT_MAX = WB.media.MAX; // how much is kept on disk across boards
+  const mediaCache = 'caches' in window ? caches.open(WB.media.CACHE).catch(() => null) : Promise.resolve(null);
   const kept = store('wb:kept') || {};     // a video's address -> [its size, when it was last wanted]
   const aheadFailed = new Set();
   const onDisk = new Set();                // which of them are known to be there
@@ -2613,7 +2613,7 @@
   let ahead = null;                        // what is being fetched ahead: { src, ctl, done, loaded, total }
   let aheadTimer = 0;
   let aheadRunning = false;
-  let aheadOff = !!(navigator.connection && navigator.connection.saveData);
+  let aheadOff = !!(navigator.connection && navigator.connection.saveData) || !WB.media.ahead();
 
   async function keepOnDisk(cache, src, blob) {
     try {

@@ -1634,3 +1634,34 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
   .admin-table td.admin-actions { text-align: left; }
   .admin-table td[data-label]::before { content: attr(data-label); display: inline-block; width: 80px; color: var(--muted); font-size: 12px; }
 }
+
+/* ---------------------------------------------------------------- your account */
+
+.acct-dlg { position: relative; width: min(380px, calc(100vw - 32px)); padding: 20px; }
+.acct-close { position: absolute; right: 12px; top: 12px; }
+.acct-head { display: flex; align-items: center; gap: 14px; padding-right: 36px; }
+.acct-av { flex: none; width: 52px; height: 52px; font-size: 18px; }
+.acct-who { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 2px; }
+.acct-who b { overflow: hidden; font-size: 17px; font-weight: 650; letter-spacing: -0.015em; text-overflow: ellipsis; white-space: nowrap; }
+.acct-who > span { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; color: var(--muted); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.acct-badge { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px 1px 5px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; }
+.acct-badge svg { width: 12px; height: 12px; }
+.acct-colors { display: flex; gap: 8px; margin: 14px 0 0 66px; }
+.acct-color { width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; transition: transform 0.12s var(--ease), box-shadow 0.12s var(--ease); }
+.acct-color:hover { transform: scale(1.12); }
+.acct-color.on { box-shadow: 0 0 0 2px var(--surface-1), 0 0 0 4px var(--text-2); }
+.acct-sec { margin-top: 20px; }
+.acct-sec h3 { margin: 0 0 8px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.acct-sec .seg { margin: 0; }
+.acct-cache { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.acct-cache-ic { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: var(--r-3); background: var(--surface-2); color: var(--text-2); }
+.acct-cache-num { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 1px; }
+.acct-cache-num b { font-size: 18px; font-weight: 650; letter-spacing: -0.015em; font-variant-numeric: tabular-nums; }
+.acct-cache-num span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.acct-dlg .kp-bar > i { background: var(--accent); }
+.acct-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; margin-top: 10px; color: var(--text-2); font-size: 13px; cursor: pointer; }
+.acct-note { margin: 4px 0 0 !important; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.acct-foot { display: flex; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.acct-foot .btn { display: inline-flex; align-items: center; gap: 6px; }
+.acct-foot .btn:last-child { margin-left: auto; }
+.acct-dlg:focus, .acct-dlg:focus-visible { outline: none; }

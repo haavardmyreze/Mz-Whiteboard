@@ -1189,6 +1189,10 @@
     const h = r.h * cam.z;
     selbox.hidden = false;
     selbox.classList.toggle('noresize', [...sel].some((id) => items.get(id)?.type === 'text'));
+    // One block or frame can be stretched from any side, one note from its left or right (its text decides its height).
+    const one = sel.size === 1 ? items.get([...sel][0]) : null;
+    selbox.classList.toggle('sides', !!one && (one.type === 'block' || one.type === 'frame'));
+    selbox.classList.toggle('sides-x', !!one && one.type === 'note');
     selbox.style.transform = `translate(${a.x}px, ${a.y}px)`;
     selbox.style.width = `${w}px`;
     selbox.style.height = `${h}px`;
@@ -4673,7 +4677,8 @@
     for (const it of items.values()) if (it.pid && sel.has(it.pid)) ids.push(it.id);
     const single = sel.size === 1 ? items.get([...sel][0]) : null;
     // Frames and notes reshape freely; everything else keeps its proportions.
-    const free = !!single && (single.type === 'frame' || single.type === 'note' || single.type === 'block') && !e.shiftKey;
+    // A side handle stretches one way only, Shift or not.
+    const free = !!single && (single.type === 'frame' || single.type === 'note' || single.type === 'block') && (!e.shiftKey || h.length === 1);
     begin({
       type: 'resize', h, r, free, ids,
       single: single ? single.id : null,
@@ -4745,9 +4750,13 @@
     if (g.free) {
       const id = g.single;
       const min = 40 / cam.z;
-      const w = Math.max(min, west ? g.ax - p.x : p.x - g.ax);
-      const h = Math.max(min, north ? g.ay - p.y : p.y - g.ay);
-      liveSet(id, { x: round(west ? g.ax - w : g.ax), y: round(north ? g.ay - h : g.ay), w: round(w), h: round(h) });
+      // A side handle changes one dimension; the other stays as it was.
+      const w = /[ew]/.test(g.h) ? Math.max(min, west ? g.ax - p.x : p.x - g.ax) : g.r.w;
+      const h = /[ns]/.test(g.h) ? Math.max(min, north ? g.ay - p.y : p.y - g.ay) : g.r.h;
+      const patch = {};
+      if (/[ew]/.test(g.h)) Object.assign(patch, { x: round(west ? g.ax - w : g.ax), w: round(w) });
+      if (/[ns]/.test(g.h)) Object.assign(patch, { y: round(north ? g.ay - h : g.ay), h: round(h) });
+      liveSet(id, patch);
       if (items.get(id)?.fid) refitLive([items.get(id).fid]);
     } else {
       const sx = (west ? g.ax - p.x : p.x - g.ax) / g.r.w;

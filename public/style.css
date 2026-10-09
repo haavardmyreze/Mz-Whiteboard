@@ -849,6 +849,19 @@ body.focus #viewport { background-image: none; background-color: var(--viewer-bg
 .handle.ne { right: -5px; top: -5px; cursor: nesw-resize; }
 .handle.sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
 #selbox.noresize .handle { display: none; }
+/* Sides: the whole edge can be taken hold of, with a small bar in its middle to show it. */
+.handle.side { display: none; width: auto; height: auto; border: 0; background: transparent; box-shadow: none; }
+#selbox.sides .handle.side, #selbox.sides-x .handle.side:is(.e, .w) { display: block; }
+.handle.side::after { inset: 0; }
+.handle.side::before { content: ""; position: absolute; left: 50%; top: 50%; border: 1.5px solid var(--accent); border-radius: 3px; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); transform: translate(-50%, -50%); }
+.handle.side:is(.e, .w) { top: 12px; bottom: 12px; width: 12px; cursor: ew-resize; }
+.handle.side:is(.n, .s) { left: 12px; right: 12px; height: 12px; cursor: ns-resize; }
+.handle.side:is(.e, .w)::before { width: 6px; height: 18px; }
+.handle.side:is(.n, .s)::before { width: 18px; height: 6px; }
+.handle.side.e { right: -6.5px; }
+.handle.side.w { left: -6.5px; }
+.handle.side.n { top: -6.5px; }
+.handle.side.s { bottom: -6.5px; }
 
 #laser, #cursors, #followring, #dropzone { position: absolute; inset: 0; pointer-events: none; }
 #laser { width: 100%; height: 100%; }

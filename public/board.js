@@ -188,6 +188,10 @@
     fit: icon('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><rect x="9" y="9" width="6" height="6"/>'),
     frameBack: icon('<path d="M18 5.5l-9 6.5 9 6.5z" fill="currentColor"/><path d="M6 5v14"/>'),
     frameFwd: icon('<path d="M6 5.5l9 6.5-9 6.5z" fill="currentColor"/><path d="M18 5v14"/>'),
+    undo: icon('<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>'),
+    redo: icon('<path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>'),
+    eraser: icon('<path d="M9 20h11M4.6 15.4l9.8-9.8a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L11 19H8.2a2 2 0 0 1-1.4-.6l-2.2-2.2a2 2 0 0 1 0-2.8z"/><path d="M9 11l5 5"/>'),
+    more: icon('<circle cx="5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/>'),
   };
   const CURSOR_SVG = '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M1 1l4.5 13 2.2-5.3L13 6.5z" fill="var(--c)" stroke="#fff" stroke-width="1"/></svg>';
 
@@ -207,6 +211,8 @@
   const cam = { x: 0, y: 0, z: 1 };
   const pointer = { sx: innerWidth / 2, sy: innerHeight / 2, inside: false };
   const pen = store('wb:pen') || { color: INK[1], size: PEN_SIZES[1] };
+  // A device used with the fingers: a phone or a tablet, not a computer with a touch screen and a mouse.
+  const touchFirst = window.matchMedia('(hover: none) and (pointer: coarse)');
   const textPref = store('wb:text') || { lvl: 2 };
 
   let me = null;
@@ -938,6 +944,15 @@
     undoStack.push(inverse);
     if (undoStack.length > 200) undoStack.shift();
     redoStack.length = 0;
+    syncHistory();
+  }
+
+  // The undo and redo buttons, there for a phone, where there is no keyboard to press Ctrl+Z on.
+  function syncHistory() {
+    for (const [act, stack] of [['undo', undoStack], ['redo', redoStack]]) {
+      const b = $('toolbar').querySelector(`[data-act="${act}"]`);
+      if (b) b.disabled = !stack.length;
+    }
   }
 
   function exec(ops, record = true) {
@@ -961,6 +976,7 @@
     applyOps(ops);
     sendOps(ops);
     if (inverse.length) to.push(inverse);
+    syncHistory();
     refitLive(frameIds());
     glideFrom(before);
     selChanged();
@@ -1154,9 +1170,12 @@
     buildSelTools();
     const tw = seltools.offsetWidth;
     const th = seltools.offsetHeight;
+    // Clear of the strip of tools: down the left on a wide screen, along the bottom on a phone.
+    const phone = narrow();
+    const edge = phone ? 8 : 90;
     let ty = a.y - th - 12;
-    if (ty < 56) ty = Math.min(a.y + h + 12, vp.clientHeight - th - 12);
-    seltools.style.left = `${clamp(a.x + w / 2 - tw / 2, 90, Math.max(90, vp.clientWidth - tw - 12))}px`;
+    if (ty < 56) ty = Math.min(a.y + h + 12, vp.clientHeight - th - 12 - (phone ? bottomChrome() : 0));
+    seltools.style.left = `${clamp(a.x + w / 2 - tw / 2, edge, Math.max(edge, vp.clientWidth - tw - (phone ? 8 : 12)))}px`;
     seltools.style.top = `${Math.max(56, ty)}px`;
   }
 
@@ -1907,10 +1926,16 @@
   function layoutViewer() {
     const below = timeline.hidden ? 0 : timeline.offsetHeight + 12;
     viewerPad = vp.clientWidth < 700
-      ? { t: 64, r: 12, b: 20 + below, l: 12 }
+      ? { t: 64, r: 12, b: bottomChrome() + 12, l: 12 }
       : { t: 72, r: (panel.hidden ? 0 : panel.offsetWidth) + 40, b: 32 + below, l: $('filmstrip').offsetWidth + 40 };
   }
   const focusInsets = () => viewerPad;
+
+  // How much of the bottom of the screen the strips along it take on a phone: the tools, and under a video its timeline.
+  function bottomChrome() {
+    const tops = [timeline, $('toolbar')].filter((n) => !n.hidden && n.offsetParent).map((n) => n.getBoundingClientRect().top);
+    return tops.length ? Math.max(0, vp.clientHeight - Math.min(...tops)) : 8;
+  }
 
   // After the space around the piece has changed: a piece that filled it fills it again, and one that
   // was zoomed into stays as it was.
@@ -2008,8 +2033,10 @@
     $('filmstrip').hidden = false;
     $('timeline').hidden = it.type !== 'video';
     for (const [nid, node] of els) node.classList.toggle('dim', nid !== id && items.get(nid).pid !== id);
-    // In here there is one tool, the brush: a press on the piece draws. (Somebody holding a link has the hand instead.)
-    if (!wasOpen) setTool('pen');
+    // In here a press on the piece draws with the brush. (Somebody holding a link has the hand instead.) On a
+    // phone one finger is all there is to look around with, so it opens with the hand and the brush is a
+    // tap away in the strip along the bottom: looking never leaves a mark.
+    if (!wasOpen) setTool(narrow() && touchFirst.matches ? 'pan' : 'pen');
     if (it.type === 'video') {
       // Open, it is scrubbed and stepped through: worth having all of it rather than just its start.
       // Held back a moment so stepping quickly past videos does not start loading every one of them.
@@ -2096,8 +2123,26 @@
       syncFilmstrip();
       syncComposer();
       paintFocusWave();
-      $('focusclear').disabled = !looseDrawings().length;
+      syncClear();
     });
+  }
+
+  // The phone's Clear takes back first what has been drawn for a comment not yet sent (it is nobody
+  // else's, and was likely drawn by mistake), and otherwise clears the drawings as the bar's button does.
+  function syncClear() {
+    const unsent = draft && draft.on === focusId ? drawnFor(draft.id).length : 0;
+    const loose = looseDrawings().length;
+    $('focusclear').disabled = !loose;
+    const b = $('toolbar').querySelector('[data-act="clear"]');
+    if (!b) return;
+    b.disabled = !unsent && !loose;
+    b.title = unsent ? 'Take back what you have drawn for your comment' : $('focusclear').title;
+  }
+
+  function clearOnPhone() {
+    if (draft && draft.on === focusId && discardDrawing()) toast('Your drawing was taken back', { ms: 2000 });
+    else clearDrawing();
+    syncClear();
   }
 
   // `jump` puts the open piece in view at once, as when the viewer opens; otherwise the strip glides to it.
@@ -4299,8 +4344,8 @@
     if (gesture) return;
     // Touching the board catches it.
     if (coasting) stopCamAnim();
-    if (e.button === 2 && !viewOnly && (tool === 'pen' || tool === 'arrow')) {
-      const g = { type: 'erase', last: p, hit: new Set() };
+    if (!viewOnly && ((e.button === 2 && (tool === 'pen' || tool === 'arrow')) || (e.button === 0 && tool === 'eraser'))) {
+      const g = { type: 'erase', last: p, hit: new Set(), touch: e.pointerType === 'touch' };
       begin(g, e);
       eraserRing.hidden = false;
       eraserRing.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
@@ -4325,7 +4370,7 @@
       } else if (id) {
         const wasSelected = sel.has(id);
         if (!wasSelected) setSel([id]);
-        begin({ type: 'move', p0: p, sx: e.clientX, sy: e.clientY, started: false, id, wasSelected, alt: e.altKey, playBtn: !!e.target.closest('.vplay') }, e);
+        begin({ type: 'move', p0: p, sx: e.clientX, sy: e.clientY, started: false, id, wasSelected, alt: e.altKey, playBtn: !!e.target.closest('.vplay'), touch: e.pointerType === 'touch' }, e);
       } else {
         const base = e.shiftKey ? new Set(sel) : new Set();
         if (!e.shiftKey) setSel([]);
@@ -4357,7 +4402,7 @@
       inksLayer.append(svg);
       // Brush width follows pen pressure when there is any, otherwise how fast the stroke moves.
       const w0 = e.pointerType === 'pen' && e.pressure > 0 ? 0.25 + 0.75 * e.pressure : 0.5;
-      const g = { type: 'draw', arrow, pts: [p.x, p.y], ws: [w0], lt: e.timeStamp, svg, path, size, t0: performance.now() };
+      const g = { type: 'draw', arrow, pts: [p.x, p.y], ws: [w0], lt: e.timeStamp, svg, path, size, t0: performance.now(), touch: e.pointerType === 'touch', sx: e.clientX, sy: e.clientY, far: 0 };
       begin(g, e);
       if (!arrow) path.setAttribute('d', outlinePath(g.pts, g.ws, 1, 1, size));
     }
@@ -4369,25 +4414,50 @@
   let pinch = null;
   const midOf = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 
+  // A stroke or an erase begun with a finger that turns out to be the first of two is taken back: the
+  // fingers were reaching for the view, not for the picture. Nothing of it is kept or sent.
+  function dropTouchMark() {
+    const g = gesture;
+    if (!g || !g.touch) return false;
+    if (g.type === 'draw') g.svg.remove();
+    else if (g.type === 'erase') {
+      for (const id of g.hit) els.get(id)?.classList.remove('erased');
+      eraserRing.hidden = true;
+    } else return false;
+    gesture = null;
+    return true;
+  }
+
+  function startPinch() {
+    const [a, b] = [...touches.values()];
+    stopCamAnim();
+    userMovedView();
+    pinch = { d0: Math.hypot(b.x - a.x, b.y - a.y) || 1, m0: midOf(a, b), cam: { ...cam } };
+  }
+
   function touchStart(e) {
+    // The first finger down starts afresh: a finger whose lifting was never heard of (it let go over
+    // something that has since gone) must not turn the next one-finger drag into a lopsided pinch.
+    if (e.isPrimary) {
+      touches.clear();
+      pinch = null;
+    }
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // Every finger on the board stays the board's until it lets go, whatever it passes over.
+    try {
+      vp.setPointerCapture(e.pointerId);
+    } catch {
+      // as in begin()
+    }
     if (touches.size >= 2) {
-      // A second finger turns looking around into zooming; it leaves a drawing or a move alone, unless
-      // the drawing has only just begun: that was the first of two fingers arriving, not a stroke.
-      if (gesture && gesture.type === 'draw' && performance.now() - gesture.t0 < 250) {
-        gesture.svg.remove();
-        gesture = null;
-      }
+      // A second finger turns looking around, drawing or erasing into zooming. It leaves a move or a
+      // resize of something selected alone.
+      dropTouchMark();
       if (gesture && (gesture.type === 'pan' || gesture.type === 'swipe')) {
         gesture = null;
         document.body.classList.remove('panning');
       }
-      if (!gesture && touches.size === 2) {
-        const [a, b] = [...touches.values()];
-        stopCamAnim();
-        userMovedView();
-        pinch = { d0: Math.hypot(b.x - a.x, b.y - a.y) || 1, m0: midOf(a, b), cam: { ...cam } };
-      }
+      if (!gesture && touches.size === 2) startPinch();
       return true;
     }
     if ((tool !== 'select' && tool !== 'pan') || e.target.closest('.handle')) return false;
@@ -4428,11 +4498,24 @@
     // The point of the board first under the fingers stays under them.
     setCam(pinch.cam.x + pinch.m0.x / pinch.cam.z - m.x / z, pinch.cam.y + pinch.m0.y / pinch.cam.z - m.y / z, z);
   }, true);
+  // Heard on the window, so a finger is let go of wherever it is lifted.
   const lift = (e) => {
-    if (touches.delete(e.pointerId) && touches.size < 2) pinch = null;
+    if (e.pointerType !== 'touch' || !touches.delete(e.pointerId)) return;
+    if (touches.size >= 2) return startPinch();
+    const pinched = !!pinch;
+    pinch = null;
+    // The finger still down after a pinch carries on moving the view, as a hand would. It never draws,
+    // and lifting it is not a tap.
+    if (pinched && touches.size === 1 && !gesture && (!focusId || focusZoomed())) {
+      const [[pointerId, at]] = [...touches];
+      beginPan({ pointerId, clientX: at.x, clientY: at.y }, { touch: true, moved: true });
+    }
   };
-  vp.addEventListener('pointerup', lift, true);
-  vp.addEventListener('pointercancel', lift, true);
+  window.addEventListener('pointerup', lift, true);
+  window.addEventListener('pointercancel', lift, true);
+  // iOS Safari zooms the whole page on a pinch, whatever the page asks, unless the gesture is refused.
+  // The board does its own zooming; the page itself never zooms.
+  for (const type of ['gesturestart', 'gesturechange']) document.addEventListener(type, (e) => e.preventDefault());
 
   function beginResize(h, e) {
     const r = selBounds();
@@ -4593,6 +4676,7 @@
       g.p1 = p;
       showMarquee(g.p0, p);
     } else if (g.type === 'draw') {
+      g.far = Math.max(g.far, Math.hypot(e.clientX - g.sx, e.clientY - g.sy));
       if (g.arrow) {
         g.pts = [g.pts[0], g.pts[1], p.x, p.y];
         g.path.setAttribute('d', pathData(g.pts, 1, 1, true, g.size));
@@ -4638,8 +4722,10 @@
 
     if (g.type === 'erase') {
       eraserRing.hidden = true;
+      // A finger the browser took away erased nothing.
+      if (g.touch && (!e || e.type !== 'pointerup')) for (const id of g.hit) els.get(id)?.classList.remove('erased');
       // Everything the stroke touched goes in one undo step.
-      if (g.hit.size) exec(delOps([...g.hit]));
+      else if (g.hit.size) exec(delOps([...g.hit]));
     } else if (g.type === 'pan') {
       if (g.touch && !g.moved) {
         if (e && e.type === 'pointerup') touchTap(g);
@@ -4657,6 +4743,8 @@
       if (!g.started) {
         if (g.playBtn) toggleVideo(g.id);
         else if (g.wasSelected && sel.size > 1) setSel([g.id]);
+        // There is no double-click under a finger: a tap on the note or heading already selected writes in it.
+        else if (g.touch && g.wasSelected && e && e.type === 'pointerup' && ['note', 'text', 'block'].includes(items.get(g.id)?.type)) startEdit(g.id);
       } else if (g.clones) {
         recordSince(g.snap, [{ t: 'del', ids: g.clones }]);
       } else {
@@ -4689,6 +4777,9 @@
       makeFrameLike(g.kind, r);
     } else if (g.type === 'draw') {
       g.svg.remove();
+      // A finger that only touched, or was taken away by the browser, meant no mark: a tap to look,
+      // the start of a pinch, a system gesture. (A pen or a mouse can still set down a dot.)
+      if (g.touch && ((!e || e.type !== 'pointerup') || (g.far < 6 && performance.now() - g.t0 < 350))) return void updateOverlay();
       const pts = g.line ? g.line.pts : g.pts;
       let x0 = Infinity;
       let y0 = Infinity;
@@ -4998,6 +5089,7 @@
         else stack.splice(i, 1);
       }
     }
+    syncHistory();
   }
 
   // Lets go of the comment being written, as when leaving the piece or going on to another. Nothing was
@@ -5119,7 +5211,9 @@
         pen.color = c;
         store('wb:pen', pen);
         buildInks();
-        buildToolOptions();
+        // Picking a colour is picking up the brush, wherever the hand or the eraser had been.
+        if (focusId && tool !== 'pen') setTool('pen');
+        else buildToolOptions();
       },
     })));
   }
@@ -5425,6 +5519,7 @@
     drawnChip.children[1].textContent = strokes > 1 ? `Drawing · ${strokes}` : 'Drawing';
     composer.placeholder = strokes ? 'Say what the drawing is about…' : 'Leave a comment…';
     cpCompose.classList.toggle('drafting', strokes > 0);
+    syncClear();
     // Somebody holding a link writes comments but cannot draw.
     cpBrush.hidden = viewOnly;
   }
@@ -5638,22 +5733,37 @@
   // ------------------------------------------------------------- tools and keyboard
 
   // Commenting is not among them: it is done in the viewer, beside what is being looked at.
+  // The last field says where a tool is shown, as classes the stylesheet reads:
+  //   wide       only where there is room for the strip down the left; on a phone it is under More
+  //   in-viewer  on a phone it is in the strip along the bottom of the viewer too
+  //   v-only     on a phone, only in the viewer
+  //   phone      only on a phone
   const TOOLS = [
     ['select', 'Select and move (V)', ICON.select],
-    ['pan', 'Pan. Or hold Space and drag (H)', ICON.pan],
+    ['pan', 'Pan. Or hold Space and drag (H)', ICON.pan, 'wide in-viewer'],
     null,
     ['upload', 'Add images or video. Or just drop or paste them', ICON.upload],
     ['note', 'Note. Click, or drag it onto the board (N)', ICON.note],
     ['text', 'Heading or text. Pick the level, then click or drag it out (T)', ICON.text],
-    ['block', 'Coloured heading block. Click, or drag it onto the board (B)', ICON.block],
-    ['frame', 'Frame the selection, or draw or drag out a frame (F)', ICON.frame],
+    ['block', 'Coloured heading block. Click, or drag it onto the board (B)', ICON.block, 'wide'],
+    ['frame', 'Frame the selection, or draw or drag out a frame (F)', ICON.frame, 'wide'],
     null,
-    ['pen', 'Draw. Right-drag to erase (P)', ICON.pen],
-    ['arrow', 'Arrow (A)', ICON.arrow],
-    ['laser', 'Laser pointer, visible to everyone (L)', ICON.laser],
+    ['pen', 'Draw. Right-drag to erase (P)', ICON.pen, 'in-viewer'],
+    ['eraser', 'Erase drawings (E)', ICON.eraser, 'v-only in-viewer'],
+    ['arrow', 'Arrow (A)', ICON.arrow, 'wide'],
+    ['laser', 'Laser pointer, visible to everyone (L)', ICON.laser, 'wide in-viewer'],
   ];
+  // What a phone has no keyboard for, at the end of the strip along the bottom.
+  const TOOL_ACTS = [
+    ['more', 'More tools', ICON.more, 'phone', (e) => openToolMenu(e.currentTarget)],
+    ['undo', 'Undo (Ctrl+Z)', ICON.undo, 'phone in-viewer', () => stepHistory(undoStack, redoStack)],
+    ['redo', 'Redo (Ctrl+Shift+Z)', ICON.redo, 'phone in-viewer', () => stepHistory(redoStack, undoStack)],
+    ['clear', 'Clear the drawing', ICON.trash, 'phone v-only in-viewer', () => clearOnPhone()],
+  ];
+  // The tools a phone keeps under More, which stands in for whichever of them is in hand.
+  const MORE_TOOLS = ['arrow', 'block', 'frame', 'laser'];
 
-  const TOOL_LABELS = { select: 'Select', pan: 'Pan', upload: 'Media', note: 'Note', text: 'Heading', block: 'Block', frame: 'Frame', pen: 'Draw', arrow: 'Arrow', laser: 'Laser' };
+  const TOOL_LABELS = { select: 'Select', pan: 'Pan', upload: 'Media', note: 'Note', text: 'Heading', block: 'Block', frame: 'Frame', pen: 'Draw', eraser: 'Erase', arrow: 'Arrow', laser: 'Laser', undo: 'Undo', redo: 'Redo', clear: 'Clear', more: 'More' };
 
   // Drag a note, heading, block or frame out of the strip and drop it where you want it, instead of
   // choosing the tool and then clicking. A plain click on the tool still works as before.
@@ -5732,15 +5842,56 @@
   }, true);
 
   function buildToolbar() {
-    $('toolbar').replaceChildren(...TOOLS.filter((t) => !viewOnly || (t && (t[0] === 'pan' || t[0] === 'laser'))).map((t) => {
-      if (!t) return el('span', { class: 'sep' });
-      const [name, title, html] = t;
-      return el('button', {
-        class: 'iconbtn', 'data-tool': name, title, html,
-        onclick: () => (suppressToolClick ? null : name === 'upload' ? $('filepick').click() : name === 'frame' ? activateFrame() : setTool(name)),
-      }, el('span', { class: 'tl', text: TOOL_LABELS[name] }));
-    }));
+    const pick = (name) => (suppressToolClick ? null : name === 'upload' ? $('filepick').click() : name === 'frame' ? activateFrame() : setTool(name));
+    $('toolbar').replaceChildren(
+      ...TOOLS.filter((t) => !viewOnly || (t && (t[0] === 'pan' || t[0] === 'laser'))).map((t) => {
+        if (!t) return el('span', { class: 'sep' });
+        const [name, title, html, where = ''] = t;
+        return el('button', { class: `iconbtn ${where}`, 'data-tool': name, title, html, onclick: () => pick(name) },
+          el('span', { class: 'tl', text: TOOL_LABELS[name] }));
+      }),
+      // More goes with the tools; undo, redo and Clear come after a rule.
+      ...(viewOnly ? [] : TOOL_ACTS.flatMap(([act, title, html, where, run]) => [
+        act === 'undo' && el('span', { class: 'sep phone in-viewer' }),
+        el('button', { class: `iconbtn ${where}`, 'data-act': act, title, html, onclick: run }, el('span', { class: 'tl', text: TOOL_LABELS[act] })),
+      ]).filter(Boolean)));
     buildToolOptions();
+    syncHistory();
+  }
+
+  // More, on a phone: the tools there is no room for in the strip, and what the bar leaves out.
+  function openToolMenu(anchor) {
+    closeToolMenu();
+    const item = (html, label, run, on = false) => el('button', {
+      class: `menu-item${on ? ' on' : ''}`, role: 'menuitem', type: 'button',
+      onclick: (e) => {
+        e.stopPropagation();
+        closeToolMenu();
+        run();
+      },
+    }, el('span', { class: 'mi-icon', html }), el('span', { text: label }));
+    const menu = el('div', { class: 'menu tool-menu', role: 'menu' },
+      item(ICON.arrow, 'Arrow', () => setTool('arrow'), tool === 'arrow'),
+      item(ICON.block, 'Colour block', () => setTool('block'), tool === 'block'),
+      item(ICON.frame, sel.size ? 'Frame the selection' : 'Frame', activateFrame, tool === 'frame'),
+      item(ICON.laser, 'Laser pointer', () => setTool('laser'), tool === 'laser'),
+      el('span', { class: 'menu-sep' }),
+      item(ICON.fit, 'Fit everything', () => { userMovedView(); fitAll(); }),
+      item(ICON.snap, snapOn ? 'Smart snapping: on' : 'Smart snapping: off', toggleSnap, snapOn));
+    document.body.append(menu);
+    const r = anchor.getBoundingClientRect();
+    menu.style.left = `${clamp(r.right - menu.offsetWidth, 8, innerWidth - menu.offsetWidth - 8)}px`;
+    menu.style.top = `${Math.max(8, r.top - menu.offsetHeight - 8)}px`;
+    anchor.classList.add('open');
+    setTimeout(() => document.addEventListener('pointerdown', closeOutside, true), 0);
+  }
+  function closeOutside(e) {
+    if (!e.target.closest('.tool-menu')) closeToolMenu();
+  }
+  function closeToolMenu() {
+    for (const m of document.querySelectorAll('.tool-menu')) m.remove();
+    $('toolbar').querySelector('[data-act="more"]')?.classList.remove('open');
+    document.removeEventListener('pointerdown', closeOutside, true);
   }
 
   function buildToolOptions() {
@@ -5751,9 +5902,11 @@
       })));
       return;
     }
+    // Choosing a colour or a weight while erasing is picking the brush back up.
     const savePen = () => {
       store('wb:pen', pen);
-      buildToolOptions();
+      if (tool === 'eraser') setTool(lastDraw);
+      else buildToolOptions();
     };
     $('tooloptions').replaceChildren(
       ...INK.map((c) => el('button', {
@@ -5762,27 +5915,43 @@
       })),
       el('span', { class: 'sep' }),
       ...PEN_SIZES.map((s) => el('button', {
-        class: `iconbtn${s === pen.size ? ' active' : ''}`, title: 'Line weight',
+        class: `iconbtn${s === pen.size && tool !== 'eraser' ? ' active' : ''}`, title: 'Line weight',
         onclick: () => { pen.size = s; savePen(); },
-      }, el('i', { class: 'dot', style: { width: `${s + 3}px`, height: `${s + 3}px` } }))));
+      }, el('i', { class: 'dot', style: { width: `${s + 3}px`, height: `${s + 3}px` } }))),
+      el('span', { class: 'sep' }),
+      el('button', {
+        class: `iconbtn${tool === 'eraser' ? ' active' : ''}`, title: 'Eraser: drag over a drawing to remove it (E)', html: ICON.eraser,
+        onclick: () => setTool(tool === 'eraser' ? lastDraw : 'eraser'),
+      }));
   }
 
+  let lastDraw = 'pen';
   function setTool(name) {
     // The only tools a link has are the hand and the laser.
     if (viewOnly && name !== 'laser') name = 'pan';
-    // The viewer has one tool, the brush: a press on the open piece draws. (And the laser, for pointing while talking.)
-    else if (focusId && name !== 'laser') name = 'pen';
+    // The viewer's tools: the brush for the piece, the eraser, the laser for pointing while talking, and
+    // on a phone the hand for looking around.
+    else if (focusId && !['pen', 'eraser', 'laser', 'pan'].includes(name)) name = 'pen';
     tool = name;
+    if (name === 'pen' || name === 'arrow') lastDraw = name;
     document.body.dataset.tool = name;
     for (const b of $('toolbar').querySelectorAll('[data-tool]')) b.classList.toggle('active', b.dataset.tool === name);
-    $('tooloptions').hidden = name !== 'pen' && name !== 'arrow' && name !== 'text';
+    // More stands in for the tool from under it that is in hand.
+    const more = $('toolbar').querySelector('[data-act="more"]');
+    if (more) {
+      const under = MORE_TOOLS.includes(name) && !focusId;
+      more.classList.toggle('active', under);
+      more.firstElementChild.outerHTML = under ? ICON[name] : ICON.more;
+      more.lastElementChild.textContent = under ? TOOL_LABELS[name] : TOOL_LABELS.more;
+    }
+    $('tooloptions').hidden = name !== 'pen' && name !== 'arrow' && name !== 'eraser' && name !== 'text';
     buildToolOptions();
     if (name !== 'select') setSel([]);
     sendP({ l: name === 'laser' ? 1 : 0 });
     requestLaser();
   }
 
-  const TOOL_KEYS = { v: 'select', h: 'pan', n: 'note', t: 'text', b: 'block', f: 'frame', p: 'pen', a: 'arrow', l: 'laser' };
+  const TOOL_KEYS = { v: 'select', h: 'pan', n: 'note', t: 'text', b: 'block', f: 'frame', p: 'pen', e: 'eraser', a: 'arrow', l: 'laser' };
 
   // The video the keys are for: the open one in the viewer, the selected one out on the board.
   const keyVideo = () => (focusId ? (videoOf(focusId) ? focusId : null) : selectedVideo());
@@ -5862,7 +6031,7 @@
       if (!$('actpanel').hidden) toggleActivity(false);
       if (!keptPop.hidden) toggleKeptPop(false);
       else if (!$('setpanel').hidden) toggleSettings(false);
-      else if (focusId && tool === 'laser') setTool('pen');
+      else if (focusId && (tool === 'laser' || tool === 'eraser')) setTool('pen');
       else if (focusId) exitFocus();
       else if (boardPanel) togglePanel(false);
       else if (tool !== 'select') setTool('select');
@@ -5881,6 +6050,7 @@
     else if (video && k === 'm') toggleSound(video);
     // In the viewer there are no tools to change between, bar the laser, which L turns on and off.
     else if (focusId && k === 'l' && !e.shiftKey) setTool(tool === 'laser' ? 'pen' : 'laser');
+    else if (focusId && k === 'e' && !e.shiftKey) setTool(tool === 'eraser' ? 'pen' : 'eraser');
     else if (TOOL_KEYS[k] && !e.shiftKey && !focusId) setTool(TOOL_KEYS[k]);
     else return;
     e.preventDefault();
@@ -5912,7 +6082,7 @@
     ['Frame the selection, or draw a frame', 'F'],
     ['Change heading level', 'Select it, then H1 / H2 / H3 / Text'],
     ['Draw / Arrow / Laser', 'P / A / L'],
-    ['Erase drawings', 'Right-drag while drawing'],
+    ['Erase drawings', 'E, or right-drag while drawing'],
     ['Edit text', 'Double-click or Enter'],
     ['Duplicate', 'Ctrl+D, or Alt + drag'],
     ['Tidy into a grid (frames tidy as whole pieces)', 'Ctrl+P'],
@@ -5932,7 +6102,7 @@
     ['Point at something in a comment', 'Draw on the picture: the drawing goes with the comment'],
     ['Mention someone in a comment', '@, then pick with ↑ ↓ and Enter'],
     ['Edit your own comment', 'The pencil beside it. Enter saves, Esc cancels'],
-    ['Erase a drawing in the viewer', 'Right-drag over it'],
+    ['Erase a drawing in the viewer', 'E, or right-drag over it'],
     ['Laser pointer in the viewer', 'L, and L again for the brush'],
     ['Show or hide the comments', 'Shift+C'],
   ];

@@ -125,7 +125,7 @@ private networks, otherwise only the host machine can connect.
   level of selected text from the floating toolbar.
 - **Brush.** The pen is pressure sensitive on a tablet and speed sensitive with a mouse:
   slow strokes are thick, quick flicks thin out, and strokes taper at the end. Right-drag
-  while drawing to erase: every drawing the stroke touches is removed. Drawings always sit above
+  while drawing, or pick the eraser beside the colours (E), to erase: every drawing the stroke touches is removed. Drawings always sit above
   the content and never change a frame's size, but they attach to the piece they are drawn on and
   follow it when it moves, scales, is duplicated or deleted.
 - **Headers and colour blocks.** Every frame has a header with its title and an item count; colour a
@@ -173,10 +173,16 @@ private networks, otherwise only the host machine can connect.
   in threads you wrote in, comments on what you added and on boards you made, and comments that
   @mention your name. Opening one goes straight to the comment. What you have read is remembered
   for you, on any device.
-- **Phones.** One finger moves the board, two zoom, a tap opens an image or video and a swipe goes
-  to the next. On the board the tools sit along the bottom. In the viewer one finger draws on the
-  piece, a swipe beside it goes to the next, a video's timeline sits at the bottom, and the comments
-  come up as a sheet from the bottom.
+- **Phones, held upright.** One finger moves the board, two zoom, a tap opens an image or video and a
+  swipe goes to the next. The tools sit along the bottom, labelled, with Undo and Redo at the end;
+  what there is no room for (arrow, colour block, frame, laser, fit everything, snapping) is under
+  More, which shows the tool from it that is in hand. Draw has an eraser beside its colours. Tap a
+  selected note or heading again to write in it. The viewer opens with the hand, so looking around
+  never leaves a mark: its strip holds Pan, Draw, Erase, Laser, Undo, Redo and Clear (which first
+  takes back what you drew for a comment not yet sent). A tap with the brush leaves no dot, and a
+  stroke that a second finger joins is taken back and becomes a pinch; after a pinch the finger
+  left down keeps moving the view and never draws. A video's timeline sits just above the tools, and
+  the comments come up as a sheet from the bottom. The page itself never zooms, on iPhone either.
 - **Tidy.** Select some images and press Ctrl+P. A vertical line becomes an evenly sized
   column, a horizontal line a row, and a grid keeps its number of columns. Select two or more
   frames and the same shortcut tidies the frames themselves, each as one piece with its contents and

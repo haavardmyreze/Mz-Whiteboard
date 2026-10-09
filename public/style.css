@@ -619,7 +619,11 @@ body[data-tool="pan"] #viewport, body.space #viewport { cursor: grab; }
 body.panning #viewport { cursor: grabbing; }
 body[data-tool="note"] #viewport, body[data-tool="text"] #viewport,
 body[data-tool="frame"] #viewport, body[data-tool="block"] #viewport, body[data-tool="pen"] #viewport,
-body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport { cursor: crosshair; }
+body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport, body[data-tool="eraser"] #viewport { cursor: crosshair; }
+/* A finger held on a picture would otherwise bring up the phone's own menu for it, in the middle of a stroke. */
+#viewport, #viewport img, #viewport video { -webkit-touch-callout: none; -webkit-user-drag: none; }
+/* The bars over the board never scroll or zoom the page under a finger: the board does its own zooming. */
+#topbar, #toolbar, #tooloptions, #seltools, #timeline, #cptab, #followpill { touch-action: none; }
 
 #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; --z: 1; --inv: 1; }
 #frames, #items, #inks { position: absolute; left: 0; top: 0; }
@@ -968,8 +972,6 @@ body:not(.focus) .viewer-only, body.focus .board-only { display: none !important
   #share, #focusdone { margin-left: 0; }
 }
 
-}
-
 .count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--surface-3); color: var(--text); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0; }
 
 /* The tool strip: icons with small labels down the left edge. The tool in hand is the one solid thing in it. */
@@ -982,6 +984,8 @@ body:not(.focus) .viewer-only, body.focus .board-only { display: none !important
 #toolbar .iconbtn[data-tool="note"], #toolbar .iconbtn[data-tool="text"], #toolbar .iconbtn[data-tool="block"], #toolbar .iconbtn[data-tool="frame"] { cursor: grab; }
 /* While an image is open there is no board to put frames or colour blocks on. */
 body.focus #toolbar [data-tool="frame"], body.focus #toolbar [data-tool="block"], body.focus #toolbar [data-tool="upload"] { display: none; }
+/* What is there for a phone (undo and redo, More) and what is only in a phone's viewer (the eraser, Clear). */
+#toolbar .phone, #toolbar .v-only { display: none; }
 
 /* Brush and text options stack in a narrow column beside the strip, so they stay out of the way of
    whatever is open in the middle of the board. */
@@ -1368,28 +1372,74 @@ body.login { display: grid; place-items: center; min-height: 100%; padding: 24px
   #filmstrip { display: none; }
 }
 
-/* A phone: the tools lie along the bottom where a thumb reaches them, a comment opens as a sheet from
-   the bottom, and the viewer's bar spans the top. One finger moves the board, so there is no hand tool. */
+/* A phone held upright: the tools lie along the bottom where a thumb reaches them, labelled, with undo
+   and redo at the end and the rest under More. A comment opens as a sheet from the bottom, and the
+   viewer's bar spans the top. One finger moves the board and two zoom, so there is no hand tool on the
+   board; in the viewer, where one finger on the piece would draw, the strip holds the hand, the brush,
+   the eraser and the laser, so looking around and marking up are never the same touch. */
 @media (max-width: 700px) {
-  #toolbar { left: 50%; top: auto; bottom: calc(10px + env(safe-area-inset-bottom)); transform: translateX(-50%); flex-direction: row; max-width: calc(100vw - 16px); overflow-x: auto; scrollbar-width: none; }
-  #toolbar::-webkit-scrollbar { display: none; }
+  body.board { --tbh: 60px; }
+  #toolbar { left: 50%; top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); transform: translateX(-50%); flex-direction: row; width: max-content; max-width: calc(100vw - 16px); height: var(--tbh); }
   #toolbar .sep { display: none; }
-  #toolbar .iconbtn { width: 42px; height: 42px; }
-  #toolbar .tl { display: none; }
-  #toolbar [data-tool="pan"], #toolbar [data-tool="block"], #toolbar [data-tool="frame"], #toolbar [data-tool="laser"] { display: none; }
-  #tooloptions { left: 50%; top: auto; bottom: calc(70px + env(safe-area-inset-bottom)); transform: translateX(-50%); flex-direction: row; padding: 4px 8px; }
-  #tooloptions .swatch { margin: 0 3px; }
+  #toolbar .iconbtn { flex: 0 1 46px; width: 46px; min-width: 34px; height: 50px; gap: 3px; }
+  #toolbar .iconbtn svg { width: 20px; height: 20px; }
+  #toolbar .tl { display: block; max-width: 100%; overflow: hidden; font-size: 10px; line-height: 1.25; text-overflow: clip; white-space: nowrap; }
+  #toolbar .wide { display: none; }
+  #toolbar .iconbtn.phone { display: flex; }
+  #toolbar .sep.phone { display: block; width: 1px; height: auto; margin: 8px 2px; }
+  body:not(.focus) #toolbar .v-only { display: none; }
+  #toolbar .iconbtn.open { background: var(--press); color: var(--text); }
+  /* In the viewer the strip is the viewer's. */
+  body.focus #toolbar { display: flex; }
+  body.focus #toolbar > :not(.in-viewer) { display: none; }
+  body.focus #toolbar .iconbtn.in-viewer { display: flex; }
+  body.focus #toolbar .sep.in-viewer { display: block; }
+  /* Somebody holding a link only looks: one finger moves, two zoom, and there is nothing to pick. */
+  body.viewonly #toolbar { display: none !important; }
+  #tooloptions { left: 50%; top: auto; bottom: calc(var(--tbh) + 16px + env(safe-area-inset-bottom)); transform: translateX(-50%); flex-direction: row; gap: 2px; max-width: calc(100vw - 16px); padding: 4px 6px; overflow-x: auto; scrollbar-width: none; }
+  #tooloptions::-webkit-scrollbar { display: none; }
+  #tooloptions .swatch { width: 20px; height: 20px; margin: 0 3px; }
+  #tooloptions .iconbtn { flex: none; width: 32px; height: 36px; }
+  #tooloptions .lvl { height: 36px; }
   #tooloptions .sep { width: 1px; height: 20px; margin: 0 4px; }
+  #seltools { max-width: calc(100vw - 16px); overflow-x: auto; scrollbar-width: none; }
+  #seltools::-webkit-scrollbar { display: none; }
+  #seltools .iconbtn { width: 36px; height: 36px; }
+  #seltools .swatch { width: 22px; height: 22px; }
+  #toasts, body.focus #toasts { left: 50%; bottom: calc(var(--tbh) + 20px + env(safe-area-inset-bottom)); }
+  body.focus-video #toasts { bottom: calc(var(--tbh) + 76px + env(safe-area-inset-bottom)); }
   /* No room for the strips: a swipe goes to the next piece, the comments come up as a sheet over the
-     tools, and the timeline sits just above them. */
+     tools, and a video's timeline sits just above the tools. */
   body.focus, body.focus.cp-open { --film: 0px; --side: 0px; }
   #filmstrip { display: none; }
-  #timeline { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); }
+  #timeline { left: 8px; right: 8px; bottom: calc(var(--tbh) + 14px + env(safe-area-inset-bottom)); }
   .tl-time { min-width: 0; margin: 0; padding: 0 4px; }
-  body.focus-video #followpill { bottom: 68px; }
+  body.focus #followpill { bottom: calc(var(--tbh) + 16px + env(safe-area-inset-bottom)); }
+  body.focus-video #followpill { bottom: calc(var(--tbh) + 72px + env(safe-area-inset-bottom)); }
   .cp-grip { display: none; }
   #commentpanel, body.focus #commentpanel { left: 8px; right: 8px; top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 45; width: auto; max-width: none; max-height: 62vh; border-width: 1px; border-radius: var(--r-3); box-shadow: var(--shadow-pop); }
   #followpill { max-width: calc(100vw - 16px); }
+  /* Text a finger types into is set at the size a phone reads without zooming the page in on it. */
+  .cp-compose textarea, .cp-reply textarea, .msg-edit textarea { font-size: 16px; line-height: 22px; }
+}
+
+/* More, on a phone: rows a finger can hit, each with its icon, the tool in hand marked. */
+.tool-menu { min-width: 220px; }
+.tool-menu .menu-item { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 12px; }
+.tool-menu .menu-item.on { color: var(--accent); }
+.mi-icon { display: grid; }
+.mi-icon svg { width: 18px; height: 18px; }
+.menu-sep { height: 1px; margin: 4px -4px; background: var(--line); }
+
+/* Under a finger the selection's corners are bigger than they look. */
+@media (pointer: coarse) {
+  .handle { width: 12px; height: 12px; }
+  .handle.nw { left: -7px; top: -7px; }
+  .handle.se { right: -7px; bottom: -7px; }
+  .handle.ne { right: -7px; top: -7px; }
+  .handle.sw { left: -7px; bottom: -7px; }
+  .handle::after { inset: -14px; }
+}
 }
 
 /* A video on its way in: dimmed, with a ring that fills as it is made ready. */

@@ -3096,13 +3096,16 @@
       busy.next = at;
       return;
     }
-    const state = { next: null };
+    // A seek this short may land on the frame already showing, and then there is no new one to see.
+    const state = { next: null, seen: false, far: Math.abs(at - video.currentTime) > 0.1 };
     bound.set(video, state);
+    if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(() => { state.seen = true; });
     const arrived = () => {
       clearTimeout(late);
       video.removeEventListener('seeked', shown);
       if (bound.get(video) !== state) return;
       bound.delete(video);
+      setTimeout(() => checkShown(video, state), 250);
       if (state.next != null) goTo(video, state.next);
     };
     // A beat later, not at once: the frame is put on show just after the seek is said to be done.
@@ -3112,6 +3115,35 @@
     video.addEventListener('seeked', shown, { once: true });
     video.currentTime = at;
   }
+
+  // Safari now and then stops putting a stopped video's frames on screen: it goes on seeking, the
+  // playhead and the time move, and the picture stays where it was until the video is played. So once
+  // this browser is known to say when a stopped video shows a new frame, a seek that showed none is
+  // followed by what playing does, with the sound off and stopped again at once, back on its moment.
+  let seekShows = false;
+  const unsticking = new WeakSet();
+  function checkShown(video, state) {
+    if (state.seen) {
+      if (video.paused) seekShows = true;
+      return;
+    }
+    if (!seekShows || !state.far || document.hidden || !video.paused || video.readyState < 2 || changing.has(video) || unsticking.has(video)) return;
+    unsticking.add(video);
+    const want = whereOf(video);
+    const muted = video.muted;
+    video.muted = true;
+    const done = () => {
+      video.muted = muted;
+      // Long enough for the next stuck seek to be seen as one, not so often it could become a stutter.
+      setTimeout(() => unsticking.delete(video), 1000);
+    };
+    video.play().then(() => {
+      video.pause();
+      done();
+      goTo(video, bound.get(video)?.next ?? want);
+    }, done);
+  }
+
   // Where a video is, or is about to be.
   const whereOf = (video) => bound.get(video)?.next ?? changing.get(video)?.at ?? video.currentTime;
 

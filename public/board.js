@@ -478,10 +478,13 @@
   // Any manual pan or zoom means the viewer wants their own view back.
   function userMovedView() {
     stopCamAnim();
-    if (following) {
-      following = null;
-      updateFollowUI();
-    }
+    stopFollowing();
+  }
+
+  function stopFollowing() {
+    if (!following) return;
+    following = null;
+    updateFollowUI();
   }
 
   // ------------------------------------------------------------- rendering
@@ -2548,8 +2551,65 @@
 
   // The ring in the bar: how much of this board's video is on this computer already.
   const keptRing = $('kept');
-  // A press says the same as hovering does, for a finger, and for anyone who wonders what the tick is.
-  keptRing.addEventListener('click', () => toast(keptRing.dataset.tip, { ms: 6000 }));
+  // A press opens a little card under it with the details: how much is kept, and what is on its way.
+  const keptPop = el('div', { class: 'menu kept-pop', id: 'keptpop', role: 'dialog', 'aria-label': 'Video cache', hidden: true });
+  document.body.append(keptPop);
+  keptRing.setAttribute('aria-haspopup', 'dialog');
+  keptRing.setAttribute('aria-expanded', 'false');
+  keptRing.addEventListener('click', () => toggleKeptPop());
+  function toggleKeptPop(show = keptPop.hidden) {
+    show = show && !keptRing.hidden;
+    keptPop.hidden = !show;
+    keptRing.classList.toggle('active', show);
+    keptRing.setAttribute('aria-expanded', String(show));
+    if (!show) return;
+    paintKeptPop();
+    placeKeptPop();
+  }
+  function placeKeptPop() {
+    const r = keptRing.getBoundingClientRect();
+    keptPop.style.top = `${r.bottom + 6}px`;
+    keptPop.style.left = `${clamp(r.left, 8, innerWidth - keptPop.offsetWidth - 8)}px`;
+  }
+  // Anywhere else puts it away.
+  document.addEventListener('pointerdown', (e) => {
+    if (!keptPop.hidden && !keptPop.contains(e.target) && !keptRing.contains(e.target)) toggleKeptPop(false);
+  }, true);
+  window.addEventListener('resize', () => { if (!keptPop.hidden) placeKeptPop(); });
+
+  const sizeLabel = (bytes) => {
+    if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+    const mb = bytes / 1048576;
+    return `${mb >= 10 || !bytes ? Math.round(mb).toLocaleString() : mb.toFixed(1)} MB`;
+  };
+
+  function paintKeptPop() {
+    const board = mediaOrder().filter((it) => it.type === 'video');
+    const srcs = [...new Set(board.filter(wholeable).map((it) => it.src))].filter((src) => !aheadFailed.has(src));
+    const here = srcs.filter((src) => onDisk.has(src));
+    const hereBytes = here.reduce((sum, src) => sum + (kept[src] ? kept[src][0] : 0), 0);
+    const allBytes = Object.values(kept).reduce((sum, k) => sum + k[0], 0);
+    // Too large to keep, or failed on the way: those play from the server, as they always did.
+    const remote = board.length - board.filter((it) => wholeable(it) && !aheadFailed.has(it.src)).length;
+    const nameOf = (src) => {
+      const it = board.find((one) => one.src === src);
+      return (it && it.name) || 'A video';
+    };
+    const coming = [];
+    if (ahead && ahead.total && !onDisk.has(ahead.src)) coming.push([ahead.src, ahead.loaded / ahead.total]);
+    for (const [src, e] of wholes) if (!e.url && e.total && !onDisk.has(src) && (!ahead || ahead.src !== src)) coming.push([src, e.loaded / e.total]);
+
+    const row = (label, value) => el('div', { class: 'kept-row' }, el('span', { text: label }), el('b', { text: value }));
+    keptPop.replaceChildren(...[
+      el('p', { class: 'kept-tip', text: keptRing.dataset.tip || '' }),
+      row('This board', `${here.length} of ${srcs.length} ${srcs.length === 1 ? 'video' : 'videos'} · ${sizeLabel(hereBytes)}`),
+      ...coming.map(([src, k]) => row('Downloading', `${nameOf(src)} · ${Math.floor(k * 100)}%`)),
+      remote > 0 && row('From the server', `${remote} ${remote === 1 ? 'video' : 'videos'}, too large to cache or not cached`),
+      row('All boards', `${sizeLabel(allBytes)} of ${sizeLabel(KEPT_MAX)}`),
+      el('p', { class: 'kept-note', text: 'When it is full, what has gone longest unopened makes room.' }),
+    ].filter(Boolean));
+  }
+
   const KEPT_RING = 2 * Math.PI * 7;
   keptRing.querySelector('.arc').style.strokeDasharray = KEPT_RING;
   function paintKept() {
@@ -2557,7 +2617,10 @@
     for (const src of aheadFailed) srcs.delete(src);
     const total = srcs.size;
     keptRing.hidden = !diskReady || !total;
-    if (keptRing.hidden) return;
+    if (keptRing.hidden) {
+      if (!keptPop.hidden) toggleKeptPop(false);
+      return;
+    }
     const done = [...srcs].filter((src) => onDisk.has(src)).length;
     // What is on its way counts for as much of itself as has arrived.
     let coming = 0;
@@ -2571,7 +2634,7 @@
     keptRing.classList.toggle('full', full);
     keptRing.classList.toggle('off', aheadOff && !full);
     const tip = full
-      ? `${total === 1 ? 'The video' : `All ${total} videos`} on this board ${total === 1 ? 'is' : 'are'} cached on this computer, so ${total === 1 ? 'it opens' : 'they open'} and scrub instantly`
+      ? `${total === 1 ? 'The video' : `All ${total} videos`} on this board ${total === 1 ? 'is' : 'are'} cached on this computer, so ${total === 1 ? 'it opens and scrubs' : 'they open and scrub'} instantly`
       : aheadOff
         ? `${done} of ${total} ${videos} cached on this computer. Caching has stopped: the disk is full, or the browser is saving data`
         : `Caching this board's videos on this computer so they open and scrub instantly: ${done} of ${total} done`;
@@ -2579,6 +2642,7 @@
       keptRing.dataset.tip = tip;
       keptRing.setAttribute('aria-label', tip);
     }
+    if (!keptPop.hidden) paintKeptPop();
   }
 
   function fetchWhole(src) {
@@ -2985,9 +3049,12 @@
   // Where a video is, or is about to be.
   const whereOf = (video) => bound.get(video)?.next ?? changing.get(video)?.at ?? video.currentTime;
 
+  // Only ever called when this hand plays, stops or moves a video, never when it follows someone else's.
   function sendMedia(id) {
     const video = videoOf(id);
     if (!video) return;
+    // Playing, stopping or moving it here is no longer watching what the person followed is watching.
+    stopFollowing();
     const at = whereOf(video);
     wsSend({ t: 'media', id, playing: !video.paused, time: at });
     // Kept in the presence too, so whoever starts following later lands on the same frame.
@@ -3044,8 +3111,11 @@
     if (!video) return;
     const fps = fpsOf(id);
     if (video.paused && !fps) return;
+    const at = fps ? frameTime(frameIndex(whereOf(video), fps), fps) : null;
+    // Already still on that frame, nothing moves: writing about what the person followed has open goes on following them.
+    if (video.paused && Math.abs(at - whereOf(video)) < 0.001) return;
     video.pause();
-    if (fps) goTo(video, frameTime(frameIndex(whereOf(video), fps), fps));
+    if (at != null) goTo(video, at);
     sendMedia(id);
   }
 
@@ -4901,24 +4971,39 @@
     }
   }
 
-  // Takes back what was drawn for the comment being written.
+  // Takes back what was drawn for the comment being written. In the viewer a drawing only exists for a
+  // comment, so one whose comment was never sent goes with it, and undo cannot bring it back on its own.
   function discardDrawing() {
-    if (!draft) return;
+    if (!draft) return 0;
     const ids = drawnFor(draft.id).map((it) => it.id);
     draft = null;
-    if (ids.length) exec([{ t: 'del', ids }]);
+    if (ids.length) {
+      exec([{ t: 'del', ids }], false);
+      forgetHistory(new Set(ids));
+    }
     syncComments();
+    return ids.length;
   }
 
-  // Lets go of the comment being written, as when going on to another piece. What was drawn for it is
-  // not thrown away: it stays on the piece as an ordinary drawing.
+  // Leaves out of undo and redo every step on these pieces, so none of them can come back.
+  function forgetHistory(ids) {
+    const touches = (op) => (op.t === 'add' ? ids.has(op.item.id) : op.t === 'set' ? ids.has(op.id) : false);
+    for (const stack of [undoStack, redoStack]) {
+      for (let i = stack.length - 1; i >= 0; i--) {
+        const ops = stack[i]
+          .filter((op) => !touches(op))
+          .map((op) => (op.t === 'del' ? { ...op, ids: op.ids.filter((id) => !ids.has(id)) } : op))
+          .filter((op) => op.t !== 'del' || op.ids.length);
+        if (ops.length) stack[i] = ops;
+        else stack.splice(i, 1);
+      }
+    }
+  }
+
+  // Lets go of the comment being written, as when leaving the piece or going on to another. Nothing was
+  // sent, so what was drawn for it goes too.
   function dropDraft() {
-    if (!draft) return;
-    const left = draft;
-    draft = null;
-    if (drawnFor(left.id).length) toast('The drawing stays on the picture, without a comment', { ms: 3500 });
-    refreshAnnotations(left.on);
-    syncComposer();
+    if (discardDrawing()) toast('The drawing was taken away: it had no comment', { ms: 3500 });
   }
 
   // Whether a screen point is on the open piece, or on something drawn or written on it.
@@ -5775,7 +5860,8 @@
       // One thing at a time, the nearest first.
       if (!$('helppanel').hidden) toggleHelp();
       if (!$('actpanel').hidden) toggleActivity(false);
-      if (!$('setpanel').hidden) toggleSettings(false);
+      if (!keptPop.hidden) toggleKeptPop(false);
+      else if (!$('setpanel').hidden) toggleSettings(false);
       else if (focusId && tool === 'laser') setTool('pen');
       else if (focusId) exitFocus();
       else if (boardPanel) togglePanel(false);
@@ -6295,6 +6381,8 @@
   // A page that is come back to that way joins again.
   let away = false;
   window.addEventListener('pagehide', () => {
+    // A drawing whose comment was never sent does not stay behind on the piece for everybody else.
+    discardDrawing();
     away = true;
     if (ws) ws.close();
   });

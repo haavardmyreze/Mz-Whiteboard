@@ -191,6 +191,14 @@
     undo: icon('<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>'),
     redo: icon('<path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>'),
     eraser: icon('<path d="M9 20h11M4.6 15.4l9.8-9.8a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L11 19H8.2a2 2 0 0 1-1.4-.6l-2.2-2.2a2 2 0 0 1 0-2.8z"/><path d="M9 11l5 5"/>'),
+    help: icon('<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.8"/><circle cx="12" cy="17" r="0.6" fill="currentColor"/>'),
+    kept: icon('<path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>'),
+    link: icon('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
+    tag: icon('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/>'),
+    eye: icon('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
+    chevron: icon('<path d="M9 6l6 6-6 6"/>'),
+    restore: icon('<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/><path d="M12 8v4l3 2"/>'),
+    cloud: icon('<path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 9.5 4.3 4.3 0 0 1 17.5 18z"/>'),
     more: icon('<circle cx="5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/>'),
   };
   const CURSOR_SVG = '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M1 1l4.5 13 2.2-5.3L13 6.5z" fill="var(--c)" stroke="#fff" stroke-width="1"/></svg>';
@@ -2677,14 +2685,24 @@
     if (ahead && ahead.total && !onDisk.has(ahead.src)) coming.push([ahead.src, ahead.loaded / ahead.total]);
     for (const [src, e] of wholes) if (!e.url && e.total && !onDisk.has(src) && (!ahead || ahead.src !== src)) coming.push([src, e.loaded / e.total]);
 
-    const row = (label, value) => el('div', { class: 'kept-row' }, el('span', { text: label }), el('b', { text: value }));
+    const k = srcs.length ? here.length / srcs.length : 0;
+    const R = 2 * Math.PI * 17;
+    const ring = el('span', { class: `kp-ring${k >= 1 ? ' full' : ''}`, html: `<svg viewBox="0 0 40 40" aria-hidden="true"><circle class="track" cx="20" cy="20" r="17"/><circle class="arc" cx="20" cy="20" r="17" stroke-dasharray="${R}" stroke-dashoffset="${R * (1 - k)}"/></svg>` },
+      k >= 1 ? el('span', { class: 'kp-in', html: ICON.check }) : el('b', { class: 'kp-in', text: `${Math.floor(k * 100)}%` }));
+    const bar = (frac) => el('i', { class: 'kp-bar' }, el('i', { style: { width: `${clamp(frac, 0, 1) * 100}%` } }));
     keptPop.replaceChildren(...[
-      el('p', { class: 'kept-tip', text: keptRing.dataset.tip || '' }),
-      row('This board', `${here.length} of ${srcs.length} ${srcs.length === 1 ? 'video' : 'videos'} · ${sizeLabel(hereBytes)}`),
-      ...coming.map(([src, k]) => row('Downloading', `${nameOf(src)} · ${Math.floor(k * 100)}%`)),
-      remote > 0 && row('From the server', `${remote} ${remote === 1 ? 'video' : 'videos'}, too large to cache or not cached`),
-      row('All boards', `${sizeLabel(allBytes)} of ${sizeLabel(KEPT_MAX)}`),
-      el('p', { class: 'kept-note', text: 'When it is full, what has gone longest unopened makes room.' }),
+      el('div', { class: 'kp-head' }, ring,
+        el('div', { class: 'kp-title' }, el('b', { text: `${here.length} of ${srcs.length} ${srcs.length === 1 ? 'video' : 'videos'}` }), el('span', { text: 'cached from this board' })),
+        el('b', { class: 'kp-size', text: sizeLabel(hereBytes) })),
+      aheadOff && here.length < srcs.length && el('div', { class: 'kp-warn', title: 'The disk is full, or the browser is saving data' }, el('span', { html: ICON.pause }), 'Paused'),
+      coming.length > 0 && el('div', { class: 'kp-list' }, coming.map(([src, f]) => el('div', { class: 'kp-item' },
+        el('span', { class: 'kp-name', text: nameOf(src) }), el('span', { class: 'kp-pct', text: `${Math.floor(f * 100)}%` }), bar(f)))),
+      remote > 0 && el('div', { class: 'kp-line', title: 'Too large to cache, or could not be cached' },
+        el('span', { class: 'kp-ic', html: ICON.cloud }), el('span', { text: `${remote} from the server` })),
+      el('div', { class: 'kp-total' },
+        el('div', { class: 'kp-line' }, el('span', { class: 'kp-ic', html: ICON.kept }), el('span', { text: 'All boards' }),
+          el('span', { class: 'kp-of', text: `${sizeLabel(allBytes)} / ${sizeLabel(KEPT_MAX)}` })),
+        bar(allBytes / KEPT_MAX)),
     ].filter(Boolean));
   }
 
@@ -5557,7 +5575,7 @@
       store('wb:cpanel', show);
     } else {
       boardPanel = show;
-      if (show) $('helppanel').hidden = true;
+      if (show) closeHelp();
     }
     // Beside the viewer the panel takes room from the piece, which makes the most of what is left.
     const fitted = !!focusId && !focusZoomed();
@@ -6139,49 +6157,106 @@
   });
   window.addEventListener('resize', () => (unframed ? frameFirst() : focusId ? relayoutViewer() : applyCam()));
 
+  // The shortcuts, by what they are for, as keys rather than sentences. What wants explaining is in
+  // the guide, the last tab, and nowhere else: the tools themselves stay quiet.
+  const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  // Keys held together: ⇧⌘Z on a Mac, Ctrl+Shift+Z elsewhere.
+  const combo = (...keys) => (MAC
+    ? keys.map((k) => ({ shift: '⇧', mod: '⌘', alt: '⌥' })[k] || k).join('')
+    : keys.map((k) => ({ shift: 'Shift', mod: 'Ctrl', alt: 'Alt' })[k] || k).join('+'));
+  // A key is written as it is; anything after a tilde is said in words.
   const HELP = [
-    ['Pan', 'Space + drag, or middle drag'],
-    ['Zoom', 'Mouse wheel'],
-    ['Fit everything / selection', 'Shift+1 / Shift+2'],
-    ['Add media', 'Drop files, or paste from the clipboard'],
-    ['Place a note, heading, block or frame', 'Drag it out of the tool strip'],
-    ['Note / Heading / Colour block', 'N / T / B'],
-    ['Frame the selection, or draw a frame', 'F'],
-    ['Change heading level', 'Select it, then H1 / H2 / H3 / Text'],
-    ['Draw / Arrow / Laser', 'P / A / L'],
-    ['Erase drawings', 'E, or right-drag while drawing'],
-    ['Edit text', 'Double-click or Enter'],
-    ['Duplicate', 'Ctrl+D, or Alt + drag'],
-    ['Tidy into a grid (frames tidy as whole pieces)', 'Ctrl+P'],
-    ['Bring to front / send to back', '] / [  or  PgUp / PgDn'],
-    ['Scale a note with its text', 'Shift + drag a corner'],
-    ['Smart snapping on / off', 'S, hold Ctrl to bypass'],
-    ['Undo / redo', 'Ctrl+Z / Ctrl+Shift+Z'],
-    ['Follow someone\'s view', 'Click their picture at the top'],
-    ['Open an image or video in the viewer', 'Double-click it, Esc to close'],
-    ['In the viewer: next / previous image or video', '→ / ←, or click one in the strip'],
-    ['In the viewer: zoom, and move around', 'Wheel or pinch. Space + drag, or middle drag'],
-    ['Play or pause video', 'Space or K'],
-    ['Step video one frame / one second', ', and .  /  Shift + , and .'],
-    ['Sound on / off', 'M'],
-    ['Show time, frame number or timecode', 'Click the time on a video'],
-    ['Comment on what is open', 'C, type, Enter'],
-    ['Point at something in a comment', 'Draw on the picture: the drawing goes with the comment'],
-    ['Mention someone in a comment', '@, then pick with ↑ ↓ and Enter'],
-    ['Edit your own comment', 'The pencil beside it. Enter saves, Esc cancels'],
-    ['Erase a drawing in the viewer', 'E, or right-drag over it'],
-    ['Laser pointer in the viewer', 'L, and L again for the brush'],
-    ['Show or hide the comments', 'Shift+C'],
+    { id: 'board', label: 'Board', icon: ICON.pan, rows: [
+      ['Pan', 'Space', '~+ drag'],
+      ['Zoom', '~wheel or pinch'],
+      ['Fit everything', combo('shift', '1')],
+      ['Fit selection', combo('shift', '2')],
+      ['Undo', combo('mod', 'Z')],
+      ['Redo', MAC ? combo('shift', 'mod', 'Z') : combo('mod', 'shift', 'Z')],
+      ['Snapping', 'S'],
+      ['Move without snapping', '~hold', combo('mod')],
+      ['Follow someone', '~click their avatar'],
+    ] },
+    { id: 'make', label: 'Create', icon: ICON.note, rows: [
+      ['Note', 'N'],
+      ['Heading', 'T'],
+      ['Colour block', 'B'],
+      ['Frame', 'F'],
+      ['Draw', 'P'],
+      ['Arrow', 'A'],
+      ['Laser', 'L'],
+      ['Erase', 'E', '~or right-drag'],
+      ['Add media', '~drop or paste'],
+      ['Edit text', 'Enter', '~or double-click'],
+    ] },
+    { id: 'arrange', label: 'Arrange', icon: ICON.tidy, rows: [
+      ['Duplicate', combo('mod', 'D'), '~or', combo('alt'), '~+ drag'],
+      ['Tidy into a grid', combo('mod', 'P')],
+      ['Bring to front', ']'],
+      ['Send to back', '['],
+      ['Scale a note with its text', combo('shift'), '~+ drag a corner'],
+    ] },
+    { id: 'viewer', label: 'Viewer', icon: ICON.focus, rows: [
+      ['Open', '~double-click'],
+      ['Close', 'Esc'],
+      ['Previous / next', '←', '→'],
+      ['Comment', 'C'],
+      ['Show comments', combo('shift', 'C')],
+      ['Mention', '@'],
+      ['Laser, then brush', 'L'],
+      ['Erase a drawing', 'E'],
+    ] },
+    { id: 'video', label: 'Video', icon: ICON.play, rows: [
+      ['Play / pause', 'Space', '~or', 'K'],
+      ['One frame', ',', '.'],
+      ['One second', combo('shift', ','), combo('shift', '.')],
+      ['Sound', 'M'],
+      ['Time, frame or timecode', '~click the time'],
+    ] },
+    { id: 'guide', label: 'Guide', icon: ICON.help, guide: [
+      [ICON.comment, 'Comments with drawings', 'Draw on the open image or video while writing a comment, and the drawing belongs to it: it shows when the comment is read, on the frame it is about.'],
+      [ICON.kept, 'Video cache', `The videos on boards you open are saved on this computer, so they open and scrub at once. Up to ${KEPT_MAX / 1024 ** 3} GB across all boards; the ones opened longest ago make room.`],
+      [ICON.activity, 'Versions', 'Before each round of changes the board is kept as it was. Putting one back keeps what is there now as a version too, so nothing is lost.'],
+      [ICON.download, 'Originals', 'Video is made lighter on upload so it plays smoothly for review. The file it came from is kept, and is what is downloaded.'],
+      [ICON.link, 'Sharing', 'A link lets people outside the team look, read the comments or comment, without signing in, until you turn it off or it runs out.'],
+      [ICON.tag, 'File names', 'Board settings can show every image and video with its file name, for everyone on the board.'],
+    ] },
   ];
+  let helpTab = HELP.some((t) => t.id === store('wb:helptab')) ? store('wb:helptab') : 'board';
+
+  function keyChips(parts) {
+    return parts.map((part) => (part.startsWith('~')
+      ? el('span', { class: 'kb-say', text: part.slice(1) })
+      : el('kbd', { text: part })));
+  }
+
+  function paintHelp() {
+    const help = $('helppanel');
+    const tab = HELP.find((t) => t.id === helpTab);
+    help.replaceChildren(
+      el('div', { class: 'act-head' }, el('h2', { text: 'Help' }),
+        el('button', { class: 'iconbtn', html: ICON.close, title: 'Close (Esc)', onclick: () => toggleHelp() })),
+      el('div', { class: 'help-tabs', role: 'tablist' }, HELP.map((t) => el('button', {
+        class: `help-tab${t.id === helpTab ? ' on' : ''}`, role: 'tab', 'aria-selected': String(t.id === helpTab), title: t.label,
+        onclick: () => { helpTab = t.id; store('wb:helptab', t.id); paintHelp(); },
+      }, el('span', { class: 'help-ic', html: t.icon }), el('span', { text: t.label })))),
+      tab.guide
+        ? el('div', { class: 'guide' }, tab.guide.map(([ic, title, text]) => el('section', {},
+          el('span', { class: 'guide-ic', html: ic }), el('div', {}, el('h3', { text: title }), el('p', { text })))))
+        : el('dl', { class: 'keys' }, tab.rows.flatMap(([what, ...keys]) => [el('dt', { text: what }), el('dd', {}, keyChips(keys))])));
+  }
+
+  function closeHelp() {
+    $('helppanel').hidden = true;
+    $('help').classList.remove('active');
+  }
 
   function toggleHelp() {
     const help = $('helppanel');
-    if (!help.children.length) {
-      help.append(el('h2', { text: 'Shortcuts' }),
-        el('dl', {}, HELP.flatMap(([what, keys]) => [el('dt', { text: what }), el('dd', { text: keys })])));
-    }
     help.hidden = !help.hidden;
+    $('help').classList.toggle('active', !help.hidden);
     if (!help.hidden) {
+      paintHelp();
       toggleActivity(false);
       toggleSettings(false);
     }
@@ -6690,20 +6765,24 @@
     const names = el('input', { type: 'checkbox', role: 'switch', 'aria-label': 'Show file names' });
     names.checked = !!boardSettings.names;
     names.addEventListener('change', () => setBoardSetting('names', names.checked));
+    const shared = !!(meta.share && meta.share.token);
+    const files = new Set([...items.values()].filter(onServer).map((it) => it.orig || it.src)).size;
     // Going on to one of the others puts this away first.
-    const go = (text, run) => el('button', { type: 'button', class: 'btn small', text, onclick: () => { toggleSettings(false); run(); } });
-    const row = (label, value, control) => el('div', { class: 'share-row' },
-      el('span', { class: 'share-label', text: label }), el('span', { class: 'share-value', text: value }), control);
+    const go = (ic, label, value, run, disabled = false) => el('button', {
+      type: 'button', class: 'set-row', disabled, onclick: () => { toggleSettings(false); run(); },
+    }, el('span', { class: 'set-ic', html: ic }), el('span', { class: 'set-label', text: label }), value, el('span', { class: 'set-go', html: ICON.chevron }));
     setPanel.replaceChildren(
       el('div', { class: 'act-head' }, el('h2', { text: 'Board settings' }),
         el('button', { class: 'iconbtn', html: ICON.close, title: 'Close (Esc)', onclick: () => toggleSettings(false) })),
-      el('label', { class: 'share-row share-switch' },
-        el('span', { class: 'share-label', text: 'File names' }),
-        el('span', { class: 'share-value', text: 'Show the name of every image and video on it. For everyone on this board.' }),
-        names),
-      WB.info().canShare && row('Sharing', meta.share && meta.share.token ? 'A link to this board is on.' : 'Only the team can open this board.', go('Share…', () => openShare(meta))),
-      row('Files', 'All original media on this board, in one zip.', go('Download', downloadBoard)),
-      row('Activity', 'Who has opened and changed this board, and earlier versions to go back to.', go('Open', () => toggleActivity(true))));
+      el('div', { class: 'set-group' },
+        el('label', { class: 'set-row', title: 'Every image and video shows its file name, for everyone on this board' },
+          el('span', { class: 'set-ic', html: ICON.tag }), el('span', { class: 'set-label', text: 'File names' }), names)),
+      el('div', { class: 'set-group' },
+        WB.info().canShare && go(ICON.link, 'Sharing',
+          el('span', { class: `set-chip${shared ? ' on' : ''}`, text: shared ? 'Link on' : 'Team only' }), () => openShare(meta)),
+        go(ICON.download, 'Download originals',
+          el('span', { class: 'set-value', text: files ? `${files} ${files === 1 ? 'file' : 'files'} · zip` : 'Nothing yet' }), downloadBoard, !files),
+        go(ICON.activity, 'Activity and versions', null, () => toggleActivity(true))));
   }
 
   // A panel in the corner, like the shortcuts and the activity, and in their place: one of them at a time.
@@ -6711,7 +6790,7 @@
     setPanel.hidden = !show;
     $('boardmenu').classList.toggle('active', show);
     if (!show) return;
-    $('helppanel').hidden = true;
+    closeHelp();
     toggleActivity(false);
     if (boardPanel && !focusId) togglePanel(false);
     paintSettings();
@@ -6723,25 +6802,40 @@
   // one line. Under that, the board as it was before each round of changes: any of them can be gone
   // back to, and what is replaced is kept as one more, so going back can itself be gone back on.
   const HAPPENED = {
-    open: () => 'opened the board',
-    link: () => 'looked at it through the link',
-    edit: (n) => (n === 1 ? 'made a change' : `made ${n} changes`),
-    comment: () => 'commented',
-    restore: () => 'put the board back to an earlier version',
+    open: [ICON.eye, () => 'opened'],
+    link: [ICON.link, () => 'looked through the link'],
+    edit: [ICON.pen, (n) => (n === 1 ? '1 change' : `${n} changes`)],
+    comment: [ICON.comment, () => 'commented'],
+    restore: [ICON.restore, () => 'put back a version'],
   };
   const whenExactly = (at) => new Date(at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  // Today and yesterday by name, the time to the minute.
+  function whenShort(at) {
+    const d = new Date(at);
+    const day = new Date(d).setHours(0, 0, 0, 0);
+    const today = new Date().setHours(0, 0, 0, 0);
+    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (day === today) return `Today ${time}`;
+    if (today - day === 864e5) return `Yesterday ${time}`;
+    return `${d.toLocaleDateString([], { month: 'short', day: 'numeric', ...(d.getFullYear() !== new Date().getFullYear() && { year: 'numeric' }) })}, ${time}`;
+  }
+  // The same name always has the same colour, so a person is found at a glance down the list.
+  const hueOf = (name) => [...String(name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
 
   const actPanel = $('actpanel');
   const actBody = el('div', { class: 'act-body' });
+  let actTab = 'events';
+  let actSeen = null;
+  const actTabs = el('div', { class: 'seg', role: 'tablist' });
   actPanel.append(
     el('div', { class: 'act-head' }, el('h2', { text: 'Activity' }),
       el('button', { class: 'iconbtn', html: ICON.close, title: 'Close (Esc)', onclick: () => toggleActivity(false) })),
-    actBody);
+    actTabs, actBody);
 
   async function putBack(v) {
     const sure = await WB.dialog({
       title: 'Put the board back?',
-      text: `Everything on it goes back to how it was on ${whenExactly(v.at)}, for everyone. What is on it now is kept as a version too, so this can be undone from here.`,
+      text: `Everything goes back to ${whenExactly(v.at)}, for everyone. What is there now is kept as a version too.`,
       ok: 'Put it back',
     });
     if (!sure) return;
@@ -6754,24 +6848,44 @@
     }
   }
 
+  function paintActTabs() {
+    const n = actSeen ? actSeen.versions.length : 0;
+    actTabs.replaceChildren(...[['events', ICON.activity, 'Activity'], ['versions', ICON.restore, n ? `Versions · ${n}` : 'Versions']].map(([id, ic, label]) => el('button', {
+      class: `seg-btn${actTab === id ? ' on' : ''}`, role: 'tab', 'aria-selected': String(actTab === id),
+      onclick: () => { actTab = id; paintActTabs(); paintActBody(); },
+    }, el('span', { class: 'seg-ic', html: ic }), el('span', { text: label }))));
+  }
+
+  function paintActBody() {
+    if (!actSeen) return;
+    if (actTab === 'events') {
+      const events = actSeen.events.filter((e) => HAPPENED[e.what]);
+      return actBody.replaceChildren(events.length
+        ? el('ul', { class: 'act-list' }, events.map((e) => el('li', {},
+          el('span', { class: 'act-av', style: { background: `hsl(${hueOf(e.who)} 42% 48%)` }, text: WB.initials(e.who) }),
+          el('span', { class: 'act-what' }, el('b', { text: e.who }),
+            el('span', { class: 'act-did' }, el('span', { class: 'act-ic', html: HAPPENED[e.what][0] }), HAPPENED[e.what][1](e.n))),
+          el('time', { text: WB.ago(e.at), title: whenExactly(e.at) }))))
+        : el('p', { class: 'act-none' }, el('span', { html: ICON.activity }), el('span', { text: 'Nothing yet' })));
+    }
+    const versions = actSeen.versions;
+    actBody.replaceChildren(versions.length
+      ? el('ol', { class: 'act-list versions' }, versions.map((v) => el('li', {},
+        el('i', { class: 'ver-dot' }),
+        el('span', { class: 'act-what' }, el('b', { text: whenShort(v.at), title: whenExactly(v.at) }),
+          el('span', { class: 'act-did', text: `${v.count} ${v.count === 1 ? 'item' : 'items'}${v.who ? ` · before ${v.who}` : ''}` })),
+        el('button', { type: 'button', class: 'iconbtn', html: ICON.restore, title: 'Put the board back to this', onclick: () => putBack(v) }))))
+      : el('p', { class: 'act-none' }, el('span', { html: ICON.restore }), el('span', { text: 'No versions yet' })));
+  }
+
   async function paintActivity() {
-    let seen;
     try {
-      seen = await WB.api('GET', `/api/boards/${boardId}/activity`);
+      actSeen = await WB.api('GET', `/api/boards/${boardId}/activity`);
     } catch (err) {
       return actBody.replaceChildren(el('p', { class: 'act-none', text: err.message }));
     }
-    const events = seen.events.filter((e) => HAPPENED[e.what]);
-    actBody.replaceChildren(
-      events.length ? el('ul', { class: 'act-list' }, events.map((e) => el('li', {},
-        el('span', { class: 'act-what' }, el('b', { text: e.who }), ` ${HAPPENED[e.what](e.n)}`),
-        el('time', { text: WB.ago(e.at), title: whenExactly(e.at) }))))
-        : el('p', { class: 'act-none', text: 'Nothing yet. What happens on this board from now on shows here.' }),
-      el('h3', { text: 'Earlier versions' }),
-      seen.versions.length ? el('ul', { class: 'act-list' }, seen.versions.map((v) => el('li', {},
-        el('span', { class: 'act-what' }, el('b', { text: whenExactly(v.at) }), ` · ${v.count} ${v.count === 1 ? 'item' : 'items'}${v.who ? `, before ${v.who} changed it` : ''}`),
-        el('button', { type: 'button', class: 'btn small', text: 'Put back', onclick: () => putBack(v) }))))
-        : el('p', { class: 'act-none', text: 'None yet. The board is kept as it was before each round of changes.' }));
+    paintActTabs();
+    paintActBody();
   }
 
   // A panel in the corner, like the shortcuts, and in their place: one of the two at a time.
@@ -6779,10 +6893,10 @@
     actPanel.hidden = !show;
     $('activity').classList.toggle('active', show);
     if (!show) return;
-    $('helppanel').hidden = true;
+    closeHelp();
     toggleSettings(false);
     if (boardPanel && !focusId) togglePanel(false);
-    if (!actBody.children.length) actBody.append(el('p', { class: 'act-none', text: 'Loading…' }));
+    paintActTabs();
     paintActivity();
   }
 

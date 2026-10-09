@@ -225,7 +225,6 @@
   let focusId = null;
   let focusReturn = null;
   let cmDirty = false;
-  let penBeforeFocus = null;
 
   // ------------------------------------------------------------- helpers
 
@@ -1985,9 +1984,6 @@
     const wasOpen = !!focusId;
     if (!focusId) {
       focusReturn = { x: cam.x, y: cam.y, z: cam.z };
-      // Annotating is fine work, so the brush starts at its smallest; the usual size comes back afterwards.
-      penBeforeFocus = pen.size;
-      pen.size = PEN_SIZES[0];
     }
     const prev = focusId && videoOf(focusId);
     if (prev && focusId !== id) prev.pause();
@@ -2044,10 +2040,6 @@
     $('filmstrip').hidden = true;
     $('timeline').hidden = true;
     for (const node of els.values()) node.classList.remove('dim');
-    if (penBeforeFocus !== null) {
-      pen.size = penBeforeFocus;
-      penBeforeFocus = null;
-    }
     setTool('select');
     syncComments();
     sendP({ f: null });
@@ -4167,7 +4159,7 @@
         holdFrame(focusId);
       }
       const arrow = tool === 'arrow';
-      const size = pen.size;
+      const size = focusId ? viewerBrush() : pen.size;
       const path = svgEl('path', arrow
         ? { fill: 'none', stroke: inkColor(pen.color), 'stroke-width': size, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }
         : { fill: inkColor(pen.color) });
@@ -4523,7 +4515,7 @@
       const h = Math.max(y1 - y0, 1);
       if (!g.arrow || Math.hypot(x1 - x0, y1 - y0) > 8 / cam.z) {
         const norm = pts.map((v, i) => Math.round((i % 2 ? (v - y0) / h : (v - x0) / w) * 10000) / 10000);
-        const item = { id: uid(), type: 'stroke', x: round(x0), y: round(y0), w: round(w), h: round(h), pts: norm, color: pen.color, size: round(g.size), arrow: g.arrow, z: topZ() + 1 };
+        const item = { id: uid(), type: 'stroke', x: round(x0), y: round(y0), w: round(w), h: round(h), pts: norm, color: pen.color, size: Math.round(g.size * 100) / 100, arrow: g.arrow, z: topZ() + 1 };
         if (!g.arrow) {
           // The stroke ends in a flick: the last few points taper off.
           const ws = (g.line ? g.line.ws : g.ws).slice();
@@ -4790,6 +4782,15 @@
   }
 
   // Whether a screen point is on the open piece, or on something drawn or written on it.
+  // In the viewer the brush is as heavy as the piece is large: a set part of its longer side. What is
+  // drawn there is only ever seen there, on the piece filling the screen, so a line looks the same on
+  // every piece, whatever size the piece happens to have out on the board. It is fine, for pointing.
+  const VIEWER_BRUSH = 0.004;
+  function viewerBrush() {
+    const it = items.get(focusId);
+    return it ? Math.max(0.2, Math.max(it.w, it.h) * VIEWER_BRUSH) : pen.size;
+  }
+
   function onOpenPiece(x, y) {
     const t = document.elementFromPoint(x, y);
     const node = t && t.closest ? t.closest('.item') : null;
@@ -4891,8 +4892,7 @@
       class: `swatch${c === pen.color ? ' active' : ''}`, style: { background: swatchColor(c) }, title: 'Brush colour',
       onclick: () => {
         pen.color = c;
-        // The fine brush an opened piece is drawn on with is for the viewer only; the usual size is what is kept.
-        store('wb:pen', { ...pen, size: penBeforeFocus ?? pen.size });
+        store('wb:pen', pen);
         buildInks();
         buildToolOptions();
       },
@@ -5525,8 +5525,7 @@
       return;
     }
     const savePen = () => {
-      // The fine brush an opened image starts with is for that image only; the usual size is what is kept.
-      store('wb:pen', { ...pen, size: penBeforeFocus ?? pen.size });
+      store('wb:pen', pen);
       buildToolOptions();
     };
     $('tooloptions').replaceChildren(

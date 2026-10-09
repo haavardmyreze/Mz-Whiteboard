@@ -276,9 +276,9 @@ const WB = (() => {
     const node = el('div', { id: 'splash', class: kind, role: kind === 'idle' ? 'status' : 'presentation' },
       el('div', { class: 'splash-bg' }),
       el('div', { class: 'splash-logo', html: LOGO }),
-      // The welcome says the name: Boards, large, its letters rising one after another, and under it who it is by.
+      // The welcome says the name under the mark: Boards, and beneath it who it is by.
       kind === 'welcome' && el('div', { class: 'splash-word', 'aria-label': 'Boards by Myreze' },
-        el('div', { class: 'sw-name', 'aria-hidden': 'true' }, [...'Boards'].map((ch, i) => el('span', { style: { animationDelay: `${0.32 + i * 0.045}s` }, text: ch }))),
+        el('div', { class: 'sw-name', 'aria-hidden': 'true', text: 'Boards' }),
         el('div', { class: 'sw-by', 'aria-hidden': 'true', text: 'by Myreze' })),
       message && el('div', { class: 'splash-msg', text: message }));
     document.body.append(node);

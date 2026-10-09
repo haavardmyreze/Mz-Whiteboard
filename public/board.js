@@ -1204,7 +1204,10 @@
     const list = [...sel].map((id) => items.get(id)).filter(Boolean);
     const types = new Set(list.map((it) => it.type));
     const one = list.length === 1 ? list[0] : null;
-    const sig = `${[...types].sort().join()}|${Math.min(list.length, 2)}|${one ? `${one.lvl}${one.auto}${one.align}` : ''}`;
+    // Blocks, however many, are aligned together.
+    const blocks = types.size === 1 && types.has('block') ? list : null;
+    const align = blocks && blocks.every((it) => it.align === blocks[0].align) ? blocks[0].align : null;
+    const sig = `${[...types].sort().join()}|${Math.min(list.length, 2)}|${one ? `${one.lvl}${one.auto}` : ''}|${align}`;
     if (seltools.dataset.sig === sig) return;
     seltools.dataset.sig = sig;
 
@@ -1224,9 +1227,9 @@
       }
       kids.push(el('span', { class: 'sep' }));
     }
-    if (one && one.type === 'block') {
+    if (blocks) {
       for (const [a, html, title] of [['left', ICON.alignL, 'Align left'], ['center', ICON.alignC, 'Centre']]) {
-        kids.push(el('button', { class: `iconbtn${one.align === a ? ' active' : ''}`, html, title, onclick: () => exec([{ t: 'set', id: one.id, patch: { align: a } }]) }));
+        kids.push(el('button', { class: `iconbtn${align === a ? ' active' : ''}`, html, title, onclick: () => alignBlocks(a) }));
       }
       kids.push(el('span', { class: 'sep' }));
     }
@@ -1246,6 +1249,15 @@
   }
 
   // ------------------------------------------------------------- item actions
+
+  function alignBlocks(align) {
+    const ops = [];
+    for (const id of sel) {
+      const it = items.get(id);
+      if (it && it.type === 'block' && it.align !== align) ops.push({ t: 'set', id, patch: { align } });
+    }
+    if (ops.length) exec(ops);
+  }
 
   function colorSel(color) {
     const ops = [];

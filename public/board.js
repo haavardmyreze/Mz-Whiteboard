@@ -6606,7 +6606,7 @@
   }
 
   function setBoardName(name) {
-    document.title = `${name} · Wipboard`;
+    document.title = `${name} · Boards`;
     if (document.activeElement !== $('boardname')) $('boardname').value = name;
     $('focusboard').textContent = name;
   }
@@ -6614,7 +6614,7 @@
   $('boardname').addEventListener('change', (e) => {
     const name = e.target.value.trim() || 'Untitled';
     e.target.value = name;
-    document.title = `${name} · Wipboard`;
+    document.title = `${name} · Boards`;
     sendOps([{ t: 'meta', patch: { name } }]);
   });
   $('boardname').addEventListener('keydown', (e) => {

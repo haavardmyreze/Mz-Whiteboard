@@ -1,4 +1,4 @@
-# Wipboard, built for Google Cloud Run (it runs anywhere that runs containers).
+# Boards by Myreze, built for Google Cloud Run (it runs anywhere that runs containers).
 FROM node:22-slim
 
 ENV NODE_ENV=production \

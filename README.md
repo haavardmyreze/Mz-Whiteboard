@@ -1,4 +1,4 @@
-# Wipboard
+# Boards by Myreze
 
 Shared reference and work-in-progress boards for a creative team, in the spirit of
 Milanote and PureRef. One machine runs the server; everyone else opens a board in their

@@ -276,6 +276,10 @@ const WB = (() => {
     const node = el('div', { id: 'splash', class: kind, role: kind === 'idle' ? 'status' : 'presentation' },
       el('div', { class: 'splash-bg' }),
       el('div', { class: 'splash-logo', html: LOGO }),
+      // The welcome says the name: Boards, large, its letters rising one after another, and under it who it is by.
+      kind === 'welcome' && el('div', { class: 'splash-word', 'aria-label': 'Boards by Myreze' },
+        el('div', { class: 'sw-name', 'aria-hidden': 'true' }, [...'Boards'].map((ch, i) => el('span', { style: { animationDelay: `${0.32 + i * 0.045}s` }, text: ch }))),
+        el('div', { class: 'sw-by', 'aria-hidden': 'true', text: 'by Myreze' })),
       message && el('div', { class: 'splash-msg', text: message }));
     document.body.append(node);
     return node;
@@ -304,18 +308,20 @@ const WB = (() => {
     // The logo draws itself in the middle and flies to its place in the corner while the cover fades away a moment later.
     document.body.classList.add('welcoming');
     const logo = node.querySelector('.splash-logo');
+    // The name goes first, so only the mark is left to fly.
+    setTimeout(() => node.classList.add('leave'), 1650);
     setTimeout(() => {
       const from = logo.getBoundingClientRect();
       const to = target.getBoundingClientRect();
       logo.style.transformOrigin = '0 0';
       logo.style.transform = `translate(${to.left - from.left}px, ${to.top - from.top}px) scale(${to.width / from.width})`;
       node.classList.add('fly');
-    }, 950);
+    }, 1800);
     // The flying logo stays above the cover until it has landed, then the real one takes over from exactly where it rests.
     setTimeout(() => {
       document.body.classList.remove('welcoming');
       node.remove();
-    }, 2050);
+    }, 2900);
   }
 
   // Called with true when the server stops answering and false when it is back. A short blip never shows it.

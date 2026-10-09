@@ -1,13 +1,13 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title Wipboard server
+title Boards by Myreze server
 if "%PORT%"=="" set PORT=4680
 
 call :check
 if "%UP%"=="1" (
   echo.
-  echo  Wipboard is already running on port %PORT%.
+  echo  Boards by Myreze is already running on port %PORT%.
   echo  Open http://localhost:%PORT% in your browser, or run stop.bat to shut it down.
   echo.
   pause
@@ -20,7 +20,7 @@ if not exist node_modules (
 )
 
 echo.
-echo  ==================== Wipboard ====================
+echo  =============== Boards by Myreze ===============
 echo   Leave this window open while you use the tool.
 echo   Stop it with Ctrl+C here, or run stop.bat.
 echo   Check it is running with status.bat.
@@ -35,9 +35,9 @@ set CODE=%ERRORLEVEL%
 
 echo.
 if "%CODE%"=="0" (
-  echo  Wipboard has stopped.
+  echo  Boards by Myreze has stopped.
 ) else (
-  echo  Wipboard stopped unexpectedly ^(exit code %CODE%^). Check the messages above.
+  echo  Boards by Myreze stopped unexpectedly ^(exit code %CODE%^). Check the messages above.
   echo  If it says the port is in use, another copy may already be running: try stop.bat.
 )
 echo.

@@ -1447,7 +1447,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 process.on('exit', shutdown);
 
 server.listen(PORT, HOST, () => {
-  console.log(`Wipboard is running. ${boards.size} board(s) loaded from ${DATA_DIR}. Sign-in: ${auth.mode}`);
+  console.log(`Boards by Myreze is running. ${boards.size} board(s) loaded from ${DATA_DIR}. Sign-in: ${auth.mode}`);
   console.log(`  This machine:  http://localhost:${PORT}`);
   for (const list of Object.values(os.networkInterfaces())) {
     for (const net of list || []) {

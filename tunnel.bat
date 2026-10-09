@@ -1,6 +1,6 @@
 @echo off
 setlocal
-title Wipboard public tunnel
+title Boards by Myreze public tunnel
 set "CF=cloudflared"
 where cloudflared >nul 2>nul
 if errorlevel 1 (
@@ -22,7 +22,7 @@ if errorlevel 1 (
 if "%PORT%"=="" set PORT=4680
 echo.
 echo  ================= Public tunnel =================
-echo   Wipboard (start.bat) must be running first.
+echo   Boards by Myreze (start.bat) must be running first.
 echo   Look below for a line with an address like
 echo       https://something-random.trycloudflare.com
 echo   That is the address to share. Share it together

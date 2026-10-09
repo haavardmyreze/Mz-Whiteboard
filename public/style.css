@@ -1,4 +1,4 @@
-/* Wipboard
+/* Boards
 
    One typeface, neutral greys, one red.
 
@@ -1354,6 +1354,25 @@ body.welcoming [data-logo-slot] > svg { visibility: hidden; }
 #splash.welcome path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: logo-draw 0.75s cubic-bezier(0.6, 0, 0.2, 1) forwards, logo-fill 0.35s 0.55s ease forwards; }
 #splash.idle .splash-bg { background: color-mix(in srgb, var(--bg) 84%, transparent); backdrop-filter: blur(8px); }
 #splash.idle path { stroke-dasharray: 0.22 0.78; animation: logo-trace 2.6s linear infinite, logo-breathe 2.6s ease-in-out infinite; }
+/* In the bar: the name, and who it is by, quieter. */
+.wm-by { color: var(--muted); font-weight: 400; }
+@media (max-width: 700px) { .wm-by { display: none; } }
+
+/* The welcome: the mark draws itself, the name rises under it, and "by Myreze" settles in beneath. */
+#splash.welcome { gap: 30px; }
+#splash.welcome .splash-logo { width: min(68px, 18vw); }
+.splash-word { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; transition: opacity 0.3s ease, transform 0.45s var(--ease), filter 0.3s ease; }
+.sw-name { display: flex; overflow: hidden; padding: 0.04em 0.06em 0.14em; font-size: clamp(60px, 11vw, 120px); font-weight: 700; line-height: 1; letter-spacing: -0.055em; font-feature-settings: "ss01", "cv11"; }
+.sw-name span { display: inline-block; opacity: 0; filter: blur(8px); transform: translateY(70%); animation: sw-rise 0.9s cubic-bezier(0.16, 0.84, 0.24, 1) forwards; }
+.sw-by { display: flex; align-items: center; gap: 14px; color: var(--text-2); font-size: clamp(14px, 1.7vw, 19px); font-weight: 300; letter-spacing: 0.32em; text-transform: none; opacity: 0; animation: sw-by 0.9s 0.78s cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
+/* Hairlines either side, drawn out from the words. */
+.sw-by::before, .sw-by::after { content: ""; width: 28px; height: 1px; background: currentColor; opacity: 0.35; transform: scaleX(0); animation: sw-line 0.7s 0.95s cubic-bezier(0.2, 0.7, 0.2, 1) forwards; }
+.sw-by::before { transform-origin: right; }
+.sw-by::after { transform-origin: left; }
+#splash.leave .splash-word { opacity: 0; filter: blur(6px); transform: translateY(-10px); }
+@keyframes sw-rise { to { opacity: 1; filter: blur(0); transform: none; } }
+@keyframes sw-by { from { letter-spacing: 0.6em; } to { opacity: 1; letter-spacing: 0.14em; } }
+@keyframes sw-line { to { transform: scaleX(1); } }
 #splash .splash-msg { position: relative; font-size: 13px; color: var(--muted); letter-spacing: 0.01em; }
 @keyframes logo-draw { to { stroke-dashoffset: 0; } }
 @keyframes logo-fill { to { fill-opacity: 1; } }

@@ -461,7 +461,7 @@
     const crumbs = [crumb(null), ...trail.map(crumb)];
     $('crumbs').replaceChildren(...crumbs.flatMap((node, i) => (i ? [el('span', { class: 'crumb-sep', text: '/' }), node] : [node])));
     crumbs[crumbs.length - 1].classList.add('current');
-    document.title = `${trail.length ? trail[trail.length - 1].name : hasPersonal ? SPACES[space] : 'All boards'} · Wipboard`;
+    document.title = `${trail.length ? trail[trail.length - 1].name : hasPersonal ? SPACES[space] : 'All boards'} · Boards`;
 
     // A search looks through every folder; without one you see the folder you are in.
     const q = $('q').value.trim().toLowerCase();

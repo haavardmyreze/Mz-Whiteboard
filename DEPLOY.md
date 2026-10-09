@@ -1,6 +1,6 @@
-# Deploying Wipboard
+# Deploying Boards
 
-Wipboard is one Node process: it serves the pages, holds each open board in memory so that edits
+Boards is one Node process: it serves the pages, holds each open board in memory so that edits
 reach everyone instantly over WebSockets, and saves boards and uploads to a folder. That shape
 decides how it should be hosted.
 

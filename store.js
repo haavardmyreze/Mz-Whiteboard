@@ -24,7 +24,7 @@ let DatabaseSync;
 try {
   ({ DatabaseSync } = require('node:sqlite'));
 } catch {
-  throw new Error(`Wipboard needs Node.js 22.13 or newer (this is ${process.version}). Install the current LTS from https://nodejs.org`);
+  throw new Error(`Boards by Myreze needs Node.js 22.13 or newer (this is ${process.version}). Install the current LTS from https://nodejs.org`);
 } finally {
   process.emitWarning = emitWarning;
 }

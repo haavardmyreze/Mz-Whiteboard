@@ -1353,9 +1353,9 @@ body.viewonly:not(.focus) .item.image:hover::after, body.viewonly:not(.focus) .i
   color: var(--text);
   transition: opacity 0.4s var(--ease);
 }
-.splash-bg { position: absolute; inset: 0; background: var(--bg); transition: opacity 0.6s ease 0.4s; }
+.splash-bg { position: absolute; inset: 0; background: var(--bg); transition: opacity 0.6s ease 0.5s; }
 #splash.fly .splash-bg { opacity: 0; }
-.splash-logo { position: relative; width: min(150px, 32vw); transition: transform 0.6s cubic-bezier(0.7, 0, 0.2, 1); }
+.splash-logo { position: relative; width: min(150px, 32vw); transition: transform 0.75s cubic-bezier(0.65, 0, 0.25, 1); }
 #splash.fly { pointer-events: none; }
 #splash.out { opacity: 0; pointer-events: none; }
 #splash svg { display: block; width: 100%; height: auto; overflow: visible; }
@@ -1377,7 +1377,7 @@ body.welcoming [data-logo-slot] > svg { visibility: hidden; }
 
 /* The welcome: the mark draws itself, the name fades in under it, then who it is by. Only the mark moves. */
 #splash.welcome { gap: 34px; }
-.splash-word { position: relative; display: flex; flex-direction: column; align-items: center; gap: 24px; font-family: "Rift", var(--sans); text-transform: uppercase; transition: opacity 0.35s ease; }
+.splash-word { position: relative; display: flex; flex-direction: column; align-items: center; gap: 24px; font-family: "Rift", var(--sans); text-transform: uppercase; transition: opacity 0.6s ease; }
 .sw-name { font-size: clamp(64px, 10.5vw, 128px); font-weight: 600; line-height: 0.9; letter-spacing: 0.04em; padding-left: 0.04em; opacity: 0; animation: sw-in 0.7s 0.45s ease forwards; }
 .sw-by { color: var(--text-2); font-size: clamp(15px, 1.7vw, 22px); font-weight: 300; line-height: 1; letter-spacing: 0.32em; padding-left: 0.32em; opacity: 0; animation: sw-in 0.7s 0.85s ease forwards; }
 #splash.leave .splash-word { opacity: 0; }

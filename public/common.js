@@ -308,20 +308,20 @@ const WB = (() => {
     // The logo draws itself in the middle and flies to its place in the corner while the cover fades away a moment later.
     document.body.classList.add('welcoming');
     const logo = node.querySelector('.splash-logo');
-    // The name goes first, so only the mark is left to fly.
-    setTimeout(() => node.classList.add('leave'), 1650);
+    // The name holds while the mark sets off, and fades as it travels: it is the last thing to go but the cover.
+    setTimeout(() => node.classList.add('leave'), 2500);
     setTimeout(() => {
       const from = logo.getBoundingClientRect();
       const to = target.getBoundingClientRect();
       logo.style.transformOrigin = '0 0';
       logo.style.transform = `translate(${to.left - from.left}px, ${to.top - from.top}px) scale(${to.width / from.width})`;
       node.classList.add('fly');
-    }, 1800);
+    }, 2300);
     // The flying logo stays above the cover until it has landed, then the real one takes over from exactly where it rests.
     setTimeout(() => {
       document.body.classList.remove('welcoming');
       node.remove();
-    }, 2900);
+    }, 3500);
   }
 
   // Called with true when the server stops answering and false when it is back. A short blip never shows it.

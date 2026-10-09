@@ -6,11 +6,13 @@ const fsp = fs.promises;
 const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
+const zlib = require('zlib');
 const { WebSocketServer } = require('ws');
 const { createAuth, parseCookies } = require('./auth');
 const { openStore } = require('./store');
 const { noticesFor, markRead } = require('./notifications');
 const { createAdmin } = require('./admin');
+const zip = require('./zip');
 
 // Settings can live in a .env file next to this one (KEY=value per line); real environment variables win.
 try {
@@ -124,6 +126,16 @@ function newId(bytes = 6) {
   return crypto.randomBytes(bytes).toString('base64url');
 }
 
+// What a board can be set to, for everyone on it. Each is on or off.
+//   names   every image and video shows its file name
+const BOARD_SETTINGS = ['names'];
+function cleanSettings(asked) {
+  const out = {};
+  if (!asked || typeof asked !== 'object') return out;
+  for (const key of BOARD_SETTINGS) if (typeof asked[key] === 'boolean') out[key] = asked[key];
+  return out;
+}
+
 function cleanName(value, fallback) {
   return String(value ?? '').trim().slice(0, 120) || fallback;
 }
@@ -221,8 +233,53 @@ function writeBoard(board) {
   board.creators.clear();
 }
 
+// ---------------------------------------------------------------- what has happened on a board
+//
+// Who opened a board and who changed it are noted as they happen, for the board's Activity. Changes
+// come many to the second while something is dragged, so what is noted waits here a few seconds and is
+// written together; the store makes one line of the same thing done again within a few minutes.
+//
+// And before a round of changes begins, the board is kept as it was: a version it can be put back to.
+// A round is whatever follows a quiet spell, so there is at most one version every few minutes.
+const VERSION_EVERY = Number(process.env.WIPBOARD_VERSION_MS) || 10 * 60 * 1000;
+const noted = new Map(); // board|who|what -> { board, who, what, n }
+
+function note(board, who, what, n = 1) {
+  const key = `${board.id}|${who}|${what}`;
+  const line = noted.get(key);
+  if (line) line.n += n;
+  else noted.set(key, { board: board.id, who, what, n });
+}
+
+function writeNoted() {
+  if (!noted.size || !store.isOpen()) return;
+  const lines = [...noted.values()];
+  noted.clear();
+  try {
+    for (const l of lines) store.logActivity(l.board, l.who, l.what, l.n);
+  } catch (err) {
+    console.error(`Failed to note activity: ${err.message}`);
+  }
+}
+setInterval(writeNoted, 5000).unref();
+
+// `force` keeps one whatever the time since the last, as before a board is put back to an older one.
+function keepVersion(board, who, force = false) {
+  const now = Date.now();
+  if (board.versionAt === undefined) board.versionAt = store.lastVersionAt(board.id);
+  if (!force && now - board.versionAt < VERSION_EVERY) return;
+  board.versionAt = now;
+  if (!board.items || !board.items.size) return;
+  try {
+    store.addVersion(board.id, [...board.items.values()], who, summarize(board).count, now);
+  } catch (err) {
+    console.error(`Failed to keep a version of board ${board.id}: ${err.message}`);
+  }
+}
+
 // Everything still waiting, written now: before a search, so it sees the latest, and on the way out.
 function flushAll() {
+  writeNoted();
   for (const board of boards.values()) {
     clearTimeout(board.saveTimer);
     board.saveTimer = null;
@@ -262,6 +319,7 @@ function boardMeta(board) {
     count,
     thumbs,
     online: [...board.peers.values()].filter((p) => !p.viewer).length,
+    settings: board.settings || {},
     share: shareInfo(board),
   };
 }
@@ -374,9 +432,18 @@ function applyOps(board, ops, peer, touch = true) {
       });
       if (ids.length) applied.push({ t: 'del', ids });
     } else if (op.t === 'meta') {
-      if (!op.patch || typeof op.patch.name !== 'string') continue;
-      board.name = cleanName(op.patch.name, 'Untitled');
-      applied.push({ t: 'meta', patch: { name: board.name } });
+      if (!op.patch || typeof op.patch !== 'object') continue;
+      const patch = {};
+      if (typeof op.patch.name === 'string') {
+        board.name = cleanName(op.patch.name, 'Untitled');
+        patch.name = board.name;
+      }
+      const settings = cleanSettings(op.patch.settings);
+      if (Object.keys(settings).length) {
+        board.settings = { ...board.settings, ...settings };
+        patch.settings = board.settings;
+      }
+      if (Object.keys(patch).length) applied.push({ t: 'meta', patch });
     }
   }
   if (applied.length) scheduleSave(board, touch);
@@ -584,6 +651,8 @@ function handleUpload(req, res, url) {
 async function assembleUpload(partsDir, ext, user) {
   const names = (await fsp.readdir(partsDir)).sort();
   const hash = crypto.createHash('sha1');
+  // The checksum a zip of the file will want, taken now, while every byte is passing anyway.
+  let crc = 0;
   let total = 0;
   const finish = async (tmp) => {
     const name = `${hash.digest('hex').slice(0, 24)}${ext}`;
@@ -591,7 +660,8 @@ async function assembleUpload(partsDir, ext, user) {
     if (fs.existsSync(dest)) await fsp.rm(tmp, { force: true });
     else await fsp.rename(tmp, dest);
     await fsp.rm(partsDir, { recursive: true, force: true });
-    store.addMedia({ name, size: total, by: user ? user.name : null });
+    store.addMedia({ name, size: total, by: user ? user.name : null, crc: crc >>> 0 });
+    store.setMediaCrc(name, crc >>> 0);
     return { url: `/uploads/${name}`, size: total };
   };
 
@@ -601,6 +671,7 @@ async function assembleUpload(partsDir, ext, user) {
     for await (const chunk of fs.createReadStream(only)) {
       total += chunk.length;
       hash.update(chunk);
+      crc = zlib.crc32(chunk, crc);
     }
     return finish(only);
   }
@@ -624,6 +695,7 @@ async function assembleUpload(partsDir, ext, user) {
         total += chunk.length;
         if (total > MAX_UPLOAD) throw Object.assign(new Error('File too large'), { status: 413 });
         hash.update(chunk);
+        crc = zlib.crc32(chunk, crc);
         if (!out.write(chunk)) await new Promise((resolve) => out.once('drain', resolve));
       }
     }
@@ -697,6 +769,95 @@ function dropStrangers(board) {
   for (const peer of [...board.peers.values()]) if (!peer.viewer && !visible(peer.user, board)) peer.ws.close(4003, 'Board moved');
 }
 
+// ---------------------------------------------------------------- a board's files, as they were uploaded
+//
+// What goes on a board for a video is a review copy made in the browser. The file it was made from is
+// uploaded as well and the item points at it (`orig`). A picture is its own original. Each can be
+// downloaded from the board, and all of a board's at once from here: a video's original where it was
+// kept, otherwise the copy the board plays. A file is sent once however many times it is on the board.
+const UPLOAD_URL = /^\/uploads\/([\w-]+\.[a-z0-9]+)$/i;
+const uploadName = (src) => (typeof src === 'string' && UPLOAD_URL.exec(src)?.[1]) || null;
+
+async function sendBoardZip(req, res, board) {
+  openItems(board);
+  const seen = new Set();
+  const entries = [];
+  for (const it of board.items.values()) {
+    if (it.type !== 'image' && it.type !== 'video') continue;
+    for (const upload of [uploadName(it.orig), uploadName(it.src)]) {
+      if (!upload) continue;
+      const file = path.join(UPLOAD_DIR, upload);
+      const st = await fsp.stat(file).catch(() => null);
+      // An original that has gone missing still leaves the copy to send.
+      if (!st) continue;
+      if (!seen.has(upload)) {
+        seen.add(upload);
+        // Under the name it came with, and the ending of the file that is sent.
+        const stem = String(it.name || '').replace(/\.[^./\\]+$/, '') || (it.type === 'video' ? 'video' : 'image');
+        entries.push({ upload, file, size: st.size, mtime: st.mtimeMs, name: stem + path.extname(upload) });
+      }
+      break;
+    }
+  }
+  if (!entries.length) return sendJson(res, 404, { error: 'There is nothing on this board to download' });
+  zip.safeNames(entries.map((e) => e.name)).forEach((name, i) => { entries[i].name = name; });
+  const plan = zip.layout(entries);
+  const title = zip.safeNames([board.name])[0];
+  // The same files under the same names make the same archive, byte for byte, so a download that was
+  // cut off (a large one through a tunnel often is) can be taken up where it stopped. The tag says
+  // which archive it was, for a browser that asks to go on with it.
+  const etag = `"${crypto.createHash('sha1').update(entries.map((e) => `${e.upload}/${e.size}/${Math.floor(e.mtime / 2000)}/${e.name}`).join('|')).digest('hex').slice(0, 24)}"`;
+  const head = {
+    'Content-Type': 'application/zip',
+    'Content-Disposition': `attachment; filename="${title.replace(/[^\x20-\x7e]|["\\]/g, '_')}.zip"; filename*=UTF-8''${encodeURIComponent(title)}.zip`,
+    'Cache-Control': 'no-store',
+    'Accept-Ranges': 'bytes',
+    ETag: etag,
+  };
+  let start = 0;
+  let end = plan.size - 1;
+  let status = 200;
+  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+  const same = !req.headers['if-range'] || req.headers['if-range'] === etag;
+  if (range && (range[1] || range[2]) && same) {
+    if (range[1] === '') {
+      start = Math.max(0, plan.size - Number(range[2]));
+    } else {
+      start = Number(range[1]);
+      if (range[2] !== '') end = Math.min(end, Number(range[2]));
+    }
+    if (start > end || start >= plan.size) {
+      res.writeHead(416, { 'Content-Range': `bytes */${plan.size}` });
+      return res.end();
+    }
+    status = 206;
+    head['Content-Range'] = `bytes ${start}-${end}/${plan.size}`;
+  }
+  head['Content-Length'] = end - start + 1;
+  res.writeHead(status, head);
+  if (req.method === 'HEAD') return res.end();
+  // Files from before checksums were kept have theirs worked out the first time, and kept from then on.
+  const crcOf = async (e) => {
+    const known = store.media(e.upload);
+    if (known && known.crc != null) return known.crc >>> 0;
+    const crc = await zip.crcOfFile(e.file);
+    store.setMediaCrc(e.upload, crc);
+    return crc;
+  };
+  try {
+    await zip.writeZip(res, plan, crcOf, start, end);
+  } catch {
+    res.destroy();
+  }
+}
+
+// The file a video was made from is for the people who work on the board, not for whoever holds a link to it.
+function withoutOriginal(it) {
+  if (!it || it.orig === undefined) return it;
+  const { orig, ...rest } = it;
+  return rest;
+}
+
 const VIEW_COOKIE = 'wb_view';
 const secureCookie = (req) => ((auth.publicUrl && auth.publicUrl.startsWith('https://')) || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '');
 // Someone who opened a live read-only link may load the files on that board without being signed in.
@@ -717,7 +878,7 @@ function shareBases() {
 async function handleApi(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean); // ['api', ...]
   if (parts[1] === 'me') {
-    return sendJson(res, 200, { auth: auth.mode, user: req.user || null, admin: admin.allows(req), canShare: SHARING, publicUrl: auth.publicUrl || null, shareBases: shareBases(), signOut: !!auth.interactive });
+    return sendJson(res, 200, { auth: auth.mode, user: req.user || null, admin: admin.allows(req), canShare: SHARING, maxUpload: MAX_UPLOAD, publicUrl: auth.publicUrl || null, shareBases: shareBases(), signOut: !!auth.interactive });
   }
   if (parts[1] === 'admin') return admin.handle(req, res, parts.slice(2));
   if (parts[1] === 'library' && req.method === 'GET') {
@@ -815,6 +976,44 @@ async function handleApi(req, res, url) {
       revokeShare(board);
       return sendJson(res, 200, { ok: true });
     }
+  }
+  // What has happened on a board, newest first, and the versions it can be put back to.
+  if (parts[1] === 'boards' && parts.length === 4 && parts[3] === 'activity' && req.method === 'GET') {
+    const board = boards.get(parts[2]);
+    if (!visible(req.user, board)) return sendJson(res, 404, { error: 'Board not found' });
+    writeNoted();
+    return sendJson(res, 200, { events: store.activity(board.id), versions: store.versions(board.id) });
+  }
+  // Puts a board back as it was. What is there now is kept first, so this can be undone the same way.
+  if (parts[1] === 'boards' && parts.length === 6 && parts[3] === 'versions' && parts[5] === 'restore' && req.method === 'POST') {
+    const board = boards.get(parts[2]);
+    if (!visible(req.user, board)) return sendJson(res, 404, { error: 'Board not found' });
+    const body = await readJson(req);
+    const who = req.user ? req.user.name : cleanName(body.by, 'Somebody');
+    const was = store.version(board.id, Number(parts[4]));
+    if (!was) return sendJson(res, 404, { error: 'That version is not kept any more' });
+    openItems(board);
+    keepVersion(board, who, true);
+    const next = new Map(was.map((it) => [it.id, it]));
+    for (const id of board.items.keys()) if (!next.has(id)) board.removed.add(id);
+    for (const id of next.keys()) {
+      board.changed.add(id);
+      board.removed.delete(id);
+    }
+    board.items = next;
+    board.removedComments.clear();
+    scheduleSave(board);
+    note(board, who, 'restore');
+    // Everybody on the board is given it afresh, as when they opened it.
+    for (const peer of board.peers.values()) sendInit(board, peer);
+    return sendJson(res, 200, { ok: true });
+  }
+  // Every image and video on a board, as it was uploaded, in one zip. HEAD says whether there is one
+  // to be had, and how large, without sending it.
+  if (parts[1] === 'boards' && parts.length === 4 && parts[3] === 'media.zip' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const board = boards.get(parts[2]);
+    if (!visible(req.user, board)) return sendJson(res, 404, { error: 'Board not found' });
+    return sendBoardZip(req, res, board);
   }
   if (parts[1] === 'boards' && parts.length === 3) {
     const board = boards.get(parts[2]);
@@ -1074,7 +1273,9 @@ function broadcast(board, msg, except) {
       continue;
     }
     if (viewerData === undefined) {
-      const ops = msg.ops.filter((op) => !hiddenFromViewers(board, op));
+      const ops = msg.ops.filter((op) => !hiddenFromViewers(board, op))
+        .map((op) => (op.t === 'add' ? { ...op, item: withoutOriginal(op.item) } : op.t === 'set' ? { ...op, patch: withoutOriginal(op.patch) } : op))
+        .filter((op) => op.t !== 'set' || Object.keys(op.patch).length);
       viewerData = ops.length ? JSON.stringify({ ...msg, ops }) : null;
     }
     if (viewerData) peer.ws.send(viewerData);
@@ -1082,6 +1283,25 @@ function broadcast(board, msg, except) {
 }
 
 const VIEWER_COLORS = ['#8bb6e8', '#74c2b9', '#aa9ce6', '#e4c978', '#e090b8', '#82c79b'];
+
+// The board as somebody is given it when they join, and again if it is put back to an older version.
+function sendInit(board, peer) {
+  const access = board.shareAccess;
+  send(peer.ws, peer.viewer ? {
+    t: 'init',
+    you: peer.id,
+    board: { name: board.name, settings: board.settings || {} },
+    access,
+    items: [...board.items.values()].filter((it) => access !== 'view' || it.type !== 'comment').map(withoutOriginal),
+    peers: [...board.peers.values()].filter((p) => p !== peer).map(publicPeer),
+  } : {
+    t: 'init',
+    you: peer.id,
+    board: { id: board.id, name: board.name, settings: board.settings || {} },
+    items: [...board.items.values()],
+    peers: [...board.peers.values()].filter((p) => p !== peer).map(publicPeer),
+  });
+}
 
 function publicPeer(peer) {
   return { id: peer.id, name: peer.name, color: peer.color, p: peer.p, viewer: !!peer.viewer };
@@ -1109,15 +1329,8 @@ function onConnect(ws, board, user, viewToken = null) {
         // They give a name when they open the link; nobody vouches for it, so it is only a label.
         peer.name = String(msg.name || '').replace(/\s+/g, ' ').trim().slice(0, 32) || `Viewer ${board.viewerSeq}`;
         peer.color = /^#[0-9a-f]{6}$/i.test(msg.color) ? msg.color : VIEWER_COLORS[(board.viewerSeq - 1) % VIEWER_COLORS.length];
-        const access = board.shareAccess;
-        send(ws, {
-          t: 'init',
-          you: peer.id,
-          board: { name: board.name },
-          access,
-          items: [...board.items.values()].filter((it) => access !== 'view' || it.type !== 'comment'),
-          peers: [...board.peers.values()].map(publicPeer),
-        });
+        sendInit(board, peer);
+        note(board, peer.name, 'link');
         board.peers.set(peer.id, peer);
         broadcast(board, { t: 'join', peer: publicPeer(peer) }, peer);
         return;
@@ -1130,13 +1343,8 @@ function onConnect(ws, board, user, viewToken = null) {
         peer.name = String(msg.name || 'Guest').slice(0, 32);
         if (/^#[0-9a-f]{6}$/i.test(msg.color)) peer.color = msg.color;
       }
-      send(ws, {
-        t: 'init',
-        you: peer.id,
-        board: { id: board.id, name: board.name },
-        items: [...board.items.values()],
-        peers: [...board.peers.values()].map(publicPeer),
-      });
+      sendInit(board, peer);
+      note(board, peer.name, 'open');
       board.peers.set(peer.id, peer);
       broadcast(board, { t: 'join', peer: publicPeer(peer) }, peer);
       return;
@@ -1146,7 +1354,14 @@ function onConnect(ws, board, user, viewToken = null) {
     if (peer.viewer && msg.t !== 'laser' && msg.t !== 'p' && !(msg.t === 'op' && board.shareAccess === 'comment')) return;
 
     if (msg.t === 'op') {
-      const applied = applyOps(board, peer.viewer ? guestOps(board, msg.ops) : msg.ops, peer, peer.viewer || msg.quiet !== true);
+      // Housekeeping a browser does on opening a board is not somebody changing it.
+      const counts = peer.viewer || msg.quiet !== true;
+      if (counts) keepVersion(board, peer.name);
+      const applied = applyOps(board, peer.viewer ? guestOps(board, msg.ops) : msg.ops, peer, counts);
+      if (counts && applied.length) {
+        const comments = applied.every((op) => (op.t === 'add' ? op.item.type === 'comment' : op.t === 'set' && board.items.get(op.id)?.type === 'comment'));
+        note(board, peer.name, comments ? 'comment' : 'edit', applied.length);
+      }
       // Always ack, even when nothing applied, so the sender's outbox stays in step.
       send(ws, { t: 'ack' });
       if (applied.length) broadcast(board, { t: 'op', ops: applied, from: peer.id }, peer);

@@ -10,6 +10,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const zlib = require('zlib');
 
 // node:sqlite prints an "experimental" notice on Node 22. It is what this app relies on, and the notice
 // would only worry whoever reads the server window, so that one notice is left out.
@@ -48,6 +50,30 @@ CREATE TABLE IF NOT EXISTS boards (
   created_by TEXT,
   updated_at INTEGER NOT NULL,
   deleted_at INTEGER
+);
+
+-- What has happened on a board, for the people on it to look back over: who opened it, who changed it.
+-- The same thing done again within a few minutes is the same line, counted, not a new one.
+CREATE TABLE IF NOT EXISTS activity (
+  id INTEGER PRIMARY KEY,
+  board_id TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  who TEXT NOT NULL,
+  what TEXT NOT NULL,
+  n INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS activity_by_board ON activity (board_id, at);
+
+-- A board as it was before a round of changes, to go back to: everything on it, packed small. The
+-- files themselves are not copied; they stay in uploads/ whatever happens to the board.
+CREATE TABLE IF NOT EXISTS versions (
+  board_id TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  who TEXT,
+  count INTEGER NOT NULL,
+  sig TEXT NOT NULL,
+  items BLOB NOT NULL,
+  PRIMARY KEY (board_id, at)
 );
 
 CREATE TABLE IF NOT EXISTS items (
@@ -101,7 +127,8 @@ CREATE TABLE IF NOT EXISTS media (
   duration REAL,
   fps REAL,
   uploaded_by TEXT,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  crc INTEGER
 );
 
 -- People, groups and who may do what, kept by the admin area. People are known by their sign-in email.
@@ -174,6 +201,10 @@ function openStore(dataDir) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
+  // Added later: a file's checksum, which a zip of it needs. Databases from before get the column here.
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('media') WHERE name = 'crc'").get()) db.exec('ALTER TABLE media ADD COLUMN crc INTEGER');
+  // And what a board is set to (see BOARD_SETTINGS in server.js), as JSON.
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('boards') WHERE name = 'settings'").get()) db.exec('ALTER TABLE boards ADD COLUMN settings TEXT');
 
   function transaction(fn) {
     db.exec('BEGIN IMMEDIATE');
@@ -188,11 +219,11 @@ function openStore(dataDir) {
   }
 
   const putBoard = db.prepare(`
-    INSERT INTO boards (id, name, folder_id, workspace, share_token, share_access, share_expires, created_at, created_by, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO boards (id, name, folder_id, workspace, share_token, share_access, share_expires, created_at, created_by, updated_at, settings)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (id) DO UPDATE SET name = excluded.name, folder_id = excluded.folder_id, workspace = excluded.workspace,
       share_token = excluded.share_token, share_access = excluded.share_access, share_expires = excluded.share_expires,
-      updated_at = excluded.updated_at, deleted_at = NULL`);
+      updated_at = excluded.updated_at, settings = excluded.settings, deleted_at = NULL`);
   const putItem = db.prepare(`
     INSERT INTO items (board_id, id, data, type, label, label_key, frame_id, parent_id, media, thumb, created_at, created_by, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -213,6 +244,7 @@ function openStore(dataDir) {
 
   const boardValues = (b) => [
     b.id, b.name, b.folderId || null, b.workspace, b.shareToken || null, b.shareAccess || null, b.shareExpires || null, b.createdAt, b.createdBy || null, b.updatedAt,
+    b.settings && Object.keys(b.settings).length ? JSON.stringify(b.settings) : null,
   ];
 
   // A board's details, and the items that changed and went since it was last written, in one go.
@@ -230,7 +262,48 @@ function openStore(dataDir) {
     return readBoards.all().map((r) => ({
       id: r.id, name: r.name, folderId: r.folder_id, workspace: r.workspace, shareToken: r.share_token, shareAccess: r.share_access,
       shareExpires: r.share_expires, createdAt: r.created_at, createdBy: r.created_by, updatedAt: r.updated_at,
+      settings: r.settings ? JSON.parse(r.settings) : {},
     }));
+  }
+
+  // ---------------------------------------------------------------- activity and versions
+
+  const ACTIVITY_SAME = 10 * 60 * 1000; // the same person doing the same thing again within this is one line
+  const ACTIVITY_KEPT = 300;            // lines kept for a board
+  const VERSIONS_KEPT = 40;             // versions kept for a board
+  const lastOfKind = db.prepare('SELECT id, at FROM activity WHERE board_id = ? AND who = ? AND what = ? ORDER BY at DESC, id DESC LIMIT 1');
+  const addActivity = db.prepare('INSERT INTO activity (board_id, at, who, what, n) VALUES (?, ?, ?, ?, ?)');
+  const bumpActivity = db.prepare('UPDATE activity SET at = ?, n = n + ? WHERE id = ?');
+  const trimActivity = db.prepare('DELETE FROM activity WHERE board_id = ? AND id NOT IN (SELECT id FROM activity WHERE board_id = ? ORDER BY at DESC, id DESC LIMIT ?)');
+  const readActivity = db.prepare('SELECT at, who, what, n FROM activity WHERE board_id = ? ORDER BY at DESC, id DESC LIMIT ?');
+  function logActivity(boardId, who, what, n = 1, now = Date.now()) {
+    const last = lastOfKind.get(boardId, who, what);
+    if (last && now - last.at < ACTIVITY_SAME) return bumpActivity.run(now, n, last.id);
+    addActivity.run(boardId, now, who, what, n);
+    trimActivity.run(boardId, boardId, ACTIVITY_KEPT);
+  }
+  const activity = (boardId, limit = 200) => readActivity.all(boardId, limit);
+
+  const putVersion = db.prepare('INSERT OR REPLACE INTO versions (board_id, at, who, count, sig, items) VALUES (?, ?, ?, ?, ?, ?)');
+  const newestVersion = db.prepare('SELECT at, sig FROM versions WHERE board_id = ? ORDER BY at DESC LIMIT 1');
+  const listVersions = db.prepare('SELECT at, who, count FROM versions WHERE board_id = ? ORDER BY at DESC');
+  const readVersion = db.prepare('SELECT items FROM versions WHERE board_id = ? AND at = ?');
+  const trimVersions = db.prepare('DELETE FROM versions WHERE board_id = ? AND at NOT IN (SELECT at FROM versions WHERE board_id = ? ORDER BY at DESC LIMIT ?)');
+  // Keeps the board as it is now, unless that is exactly what was kept last. Says whether it did.
+  function addVersion(boardId, list, who, count, now = Date.now()) {
+    const json = JSON.stringify(list);
+    const sig = crypto.createHash('sha1').update(json).digest('hex');
+    const last = newestVersion.get(boardId);
+    if (last && last.sig === sig) return false;
+    putVersion.run(boardId, now, who || null, count, sig, zlib.gzipSync(json));
+    trimVersions.run(boardId, boardId, VERSIONS_KEPT);
+    return true;
+  }
+  const versions = (boardId) => listVersions.all(boardId);
+  const lastVersionAt = (boardId) => newestVersion.get(boardId)?.at || 0;
+  function version(boardId, at) {
+    const row = readVersion.get(boardId, at);
+    return row ? JSON.parse(zlib.gunzipSync(row.items).toString('utf8')) : null;
   }
 
   const readItems = db.prepare('SELECT data FROM items WHERE board_id = ? ORDER BY rowid');
@@ -343,8 +416,10 @@ function openStore(dataDir) {
     return dropGroup.run(id).changes > 0;
   });
 
-  const putMedia = db.prepare('INSERT OR IGNORE INTO media (name, kind, size, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?)');
-  const addMedia = ({ name, size, by = null }) => putMedia.run(name, VIDEO_EXT.test(name) ? 'video' : 'image', size ?? null, by, Date.now());
+  const putMedia = db.prepare('INSERT OR IGNORE INTO media (name, kind, size, uploaded_by, created_at, crc) VALUES (?, ?, ?, ?, ?, ?)');
+  const addMedia = ({ name, size, by = null, crc = null }) => putMedia.run(name, VIDEO_EXT.test(name) ? 'video' : 'image', size ?? null, by, Date.now(), crc);
+  const putCrc = db.prepare('UPDATE media SET crc = ? WHERE name = ?');
+  const setMediaCrc = (name, crc) => putCrc.run(crc, name);
   const readMedia = db.prepare('SELECT * FROM media WHERE name = ?');
   const media = (name) => readMedia.get(name) || null;
 
@@ -450,7 +525,7 @@ function openStore(dataDir) {
   }
 
   return {
-    saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media,
+    saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity, addVersion, versions, version, lastVersionAt,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,
     grants, setGrant, removeGrant, removeGrantsOn,

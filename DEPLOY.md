@@ -21,7 +21,7 @@ on request, Cloud Storage buckets, autodeploy from GitHub). See the note above b
 | Long-lived connections | Live cursors and edits are WebSockets | Supported; set the request timeout to the maximum (60 min). Browsers reconnect by themselves when a connection ends |
 | **Exactly one instance** | The open board lives in that process's memory. Two instances would each hold a different copy | `--max-instances 1` |
 | A folder that survives restarts | `data/wipboard.db`, `data/uploads` | A Cloud Storage bucket mounted at `/data` (see the note above) |
-| Light uploads | Heavy video is compressed on the uploader's own machine (H.264, 1080p, at most 12 Mbps) before it is sent, so the server never encodes anything | Nothing to configure; the bucket only ever holds light files |
+| Light uploads | Heavy video is compressed on the uploader's own machine (H.264, 1080p, at most 12 Mbps) before it is sent, so the server never encodes anything. The file it was made from follows it up and is kept as well, up to `WIPBOARD_MAX_UPLOAD_MB` | Size the bucket for the originals, or lower the limit to keep only what is light |
 | Requests under the front end's size cap | Cloud Run limits a request body (32 MiB over HTTP/1 at the time of writing) | The app already uploads files in 8 MB pieces and joins them on the server |
 | Clean shutdown | Edits are saved 0.8 s after the last change | On SIGTERM the app writes everything still unsaved, including a save it was in the middle of, before it exits |
 | A health check | | `GET /healthz` answers `ok` without a login |

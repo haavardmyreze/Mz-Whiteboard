@@ -169,7 +169,6 @@
     back: icon('<rect x="4" y="4" width="12" height="12"/><path d="M20 10v9a1 1 0 0 1-1 1h-9" stroke-dasharray="2 3"/>'),
     tidy: icon('<rect x="3" y="4" width="8" height="7"/><rect x="13" y="4" width="8" height="7"/><rect x="3" y="13" width="5" height="7"/><rect x="10" y="13" width="11" height="7"/>'),
     dup: icon('<rect x="8" y="8" width="12" height="12"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>'),
-    open: icon('<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>'),
     trash: icon('<path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v5M14 11v5"/>'),
     play: icon('<path d="M7 4l13 8-13 8z" fill="currentColor"/>'),
     pause: icon('<path d="M7 4v16M17 4v16" stroke-width="3.5"/>'),
@@ -183,6 +182,9 @@
     comment: icon('<path d="M4 5h16v11H11l-5 4v-4H4z"/>'),
     check: icon('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
     close: icon('<path d="M6 6l12 12M18 6L6 18"/>'),
+    download: icon('<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>'),
+    settings: icon('<path d="M4 7h9M19 7h1M4 17h3M13 17h7"/><circle cx="16" cy="7" r="2.5"/><circle cx="10" cy="17" r="2.5"/>'),
+    activity: icon('<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/>'),
     fit: icon('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><rect x="9" y="9" width="6" height="6"/>'),
     frameBack: icon('<path d="M18 5.5l-9 6.5 9 6.5z" fill="currentColor"/><path d="M6 5v14"/>'),
     frameFwd: icon('<path d="M6 5.5l9 6.5-9 6.5z" fill="currentColor"/><path d="M18 5v14"/>'),
@@ -706,6 +708,7 @@
       els.set(it.id, node);
       (it.type === 'frame' ? framesLayer : it.type === 'stroke' ? inksLayer : itemsLayer).append(node);
     }
+    if (it.type === 'image' || it.type === 'video') node.dataset.name = it.name || '';
     const st = node.style;
     st.transform = `translate(${it.x}px, ${it.y}px)`;
     st.zIndex = it.z || 0;
@@ -886,7 +889,8 @@
       } else if (op.t === 'del') {
         for (const id of op.ids) removeItem(id);
       } else if (op.t === 'meta') {
-        setBoardName(op.patch.name);
+        if (typeof op.patch.name === 'string') setBoardName(op.patch.name);
+        if (op.patch.settings) applySettings(op.patch.settings);
       }
     }
     afterChange();
@@ -1193,10 +1197,7 @@
     if (list.length > 1) kids.push(btn(ICON.tidy, 'Tidy into a grid (Ctrl+P)', packSelection));
     kids.push(btn(ICON.dup, 'Duplicate (Ctrl+D)', duplicate));
     if (one && (one.type === 'image' || one.type === 'video')) kids.push(btn(ICON.focus, 'Open it, to comment and draw on it (double-click)', () => enterFocus(one.id)));
-    // Only ever an address: a file here, or a picture that was pasted in by its link.
-    if (one && (one.type === 'image' || one.type === 'video') && /^(\/|https?:\/\/)/.test(one.src || '')) {
-      kids.push(btn(ICON.open, 'Open the original file in a new tab', () => window.open(one.src, '_blank', 'noopener')));
-    }
+    if (one && onServer(one)) kids.push(btn(ICON.download, downloadTitle(one), () => downloadPiece(one.id)));
     kids.push(btn(ICON.trash, 'Delete (Del)', deleteSel));
     seltools.replaceChildren(...kids);
   }
@@ -3212,11 +3213,24 @@
     });
   }
 
-  async function upload(blob, ext, onProgress) {
+  // `behind` is for a file nobody is waiting for (a video's original, see below): between its pieces it
+  // gives way to whatever the board is waiting for.
+  let awaited = 0;
+  async function upload(blob, ext, onProgress, behind = false) {
+    if (!behind) awaited++;
+    try {
+      return await sendWhole(blob, ext, onProgress, behind);
+    } finally {
+      if (!behind) awaited--;
+    }
+  }
+
+  async function sendWhole(blob, ext, onProgress, behind) {
     const id = uid();
     let offset = 0;
     let result = {};
     do {
+      while (behind && awaited > 0) await new Promise((resolve) => setTimeout(resolve, 400));
       const end = Math.min(blob.size, offset + UPLOAD_PIECE);
       const query = `name=file${ext}&uid=${id}&offset=${offset}&done=${end >= blob.size ? 1 : 0}`;
       for (let attempt = 1; ; attempt++) {
@@ -3613,7 +3627,8 @@
           onProgress(0);
           // The strip is read from the copy here while it uploads, so it only costs a wait where the upload is the quicker of the two.
           const [up, wf] = await Promise.all([upload(prepared, fileExt(prepared), onProgress), videoWave(prepared, preparedUrl, dur, onStrip)]);
-          return { type: 'video', src: up.url, nw: w, nh: h, name: file.name, ...(th && { th }), ...(poster && { poster }), ...(fps && { fps }), ...(dur && { dur }), ...(wf && { wf }) };
+          // One that went up as it came is its own original.
+          return { type: 'video', src: up.url, ...(!made && { orig: up.url }), nw: w, nh: h, name: file.name, ...(th && { th }), ...(poster && { poster }), ...(fps && { fps }), ...(dur && { dur }), ...(wf && { wf }) };
         } finally {
           if (preparedUrl !== url) URL.revokeObjectURL(preparedUrl);
         }
@@ -3960,7 +3975,8 @@
           onStrip: (k) => ghost.status('strip', k),
           onPlan: ghost.plan,
         } : {});
-        ghost.done(made);
+        const landed = ghost.done(made);
+        if (landed && isVideo && !made.orig) keepOriginal(ghost.id, file);
       } catch (err) {
         ghost.fail();
         if (err.refused) late.push({ name: file.name, dims: err.dims });
@@ -3969,6 +3985,109 @@
     }
     tellRefused(late);
     for (const message of errors.slice(0, 3)) toast(message, { ms: 9000 });
+  }
+
+  // ---- the file a video was made from
+  //
+  // What goes on the board for a video is its review copy. The file it was made from is kept as well, for
+  // whoever needs the real thing: once the copy has landed the original follows it up, one at a time and
+  // behind everything the board is waiting for. The video says so in its corner until it is there.
+  // Whoever closes the board before then leaves the video with its copy only.
+  const originals = [];       // waiting to go up: { id, file }
+  let keepingNow = false;
+  const keeping = () => keepingNow || originals.length > 0;
+  const megabytes = (bytes) => `${Math.round(bytes / 1048576).toLocaleString()} MB`;
+
+  function showKeeping(id, k) {
+    const node = els.get(id);
+    if (!node) return;
+    if (k == null) delete node.dataset.keep;
+    else node.dataset.keep = `${Math.min(99, Math.round(k * 100))}%`;
+  }
+
+  function keepOriginal(id, file) {
+    const max = WB.info().maxUpload;
+    if (max && file.size > max) {
+      toast(`${file.name} is ${megabytes(file.size)}, more than is kept here (${megabytes(max)}), so only its review copy is on the board.`, { ms: 10000 });
+      return;
+    }
+    originals.push({ id, file });
+    showKeeping(id, 0);
+    sendOriginals();
+  }
+
+  async function sendOriginals() {
+    if (keepingNow) return;
+    keepingNow = true;
+    try {
+      while (originals.length) {
+        const { id, file } = originals[0];
+        const there = () => items.get(id)?.type === 'video';
+        try {
+          // Deleted meanwhile, there is nothing to keep it for.
+          if (there()) {
+            const up = await upload(file, fileExt(file), (k) => showKeeping(id, k), true);
+            if (up.url && there()) exec([{ t: 'set', id, patch: { orig: up.url } }], false);
+          }
+        } catch (err) {
+          toast(`The original of ${file.name} could not be kept (${err.message}). Its review copy is on the board.`, { ms: 10000 });
+        }
+        originals.shift();
+        showKeeping(id, null);
+        selChanged();
+      }
+    } finally {
+      keepingNow = false;
+    }
+  }
+
+  // Leaving while a file is still on its way up would lose it.
+  window.addEventListener('beforeunload', (e) => {
+    if (!standIns.size && !keeping()) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
+
+  // ---- taking files off the board
+  //
+  // A piece comes down as it was uploaded: a picture is its own original, a video is the file it was made
+  // from where that was kept, and otherwise the copy the board plays. All of a board's come down as one
+  // zip, put together by the server. Whoever holds a link to the board is offered neither.
+  const onServer = (it) => !!it && (it.type === 'image' || it.type === 'video') && /^\/uploads\//.test(it.src || '');
+  const waitingToBeKept = (id) => originals.some((o) => o.id === id);
+
+  function saveAs(url, name) {
+    const a = el('a', { href: url, download: name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+  }
+
+  function downloadPiece(id) {
+    const it = items.get(id);
+    if (!onServer(it)) return toast('This one is not kept here: it was added by its address.');
+    const url = it.orig || it.src;
+    const stem = (it.name || it.type).replace(/\.[^.]+$/, '');
+    saveAs(url, stem + (/\.[a-z0-9]+$/i.exec(url)?.[0] || ''));
+    if (it.type === 'video' && !it.orig) {
+      toast(waitingToBeKept(id) ? 'The original is still on its way up, so this is the review copy.' : 'The original of this video was not kept, so this is the review copy.', { ms: 7000 });
+    }
+  }
+
+  const downloadTitle = (it) => (it.type === 'image' || it.orig ? 'Download the original media'
+    : waitingToBeKept(it.id) ? 'Download the review copy (the original is still on its way up)'
+      : 'Download the review copy (the original was not kept)');
+
+  async function downloadBoard() {
+    const pieces = [...items.values()].filter(onServer);
+    if (!pieces.length) return toast('There are no images or videos on this board to download.');
+    // Asked after first, so that what cannot be had is said here and not by a download that fails.
+    const there = await fetch(`/api/boards/${boardId}/media.zip`, { method: 'HEAD' }).then((res) => res.ok, () => false);
+    if (!there) return toast('The zip could not be made just now. If the server has just been updated, it needs restarting first.', { ms: 9000 });
+    const files = new Set(pieces.map((it) => it.orig || it.src)).size;
+    const copies = new Set(pieces.filter((it) => it.type === 'video' && !it.orig).map((it) => it.src)).size;
+    saveAs(`/api/boards/${boardId}/media.zip`, '');
+    toast(`Downloading ${files} ${files === 1 ? 'file' : 'files'} as a zip.${copies ? ` ${copies === 1 ? 'One video is' : `${copies} videos are`} there as the review copy: ${keeping() ? 'the original is not here, or not yet' : 'the original was not kept'}.` : ''}`, { ms: 9000 });
   }
 
   async function addImageUrl(url, at) {
@@ -4750,7 +4869,28 @@
   }
 
   function markAnnotation(it, node) {
-    node.classList.toggle('offframe', !annotationShows(it));
+    const shows = annotationShows(it);
+    node.classList.toggle('offframe', !shows);
+    if (shows && calling && calling.id === it.cid && !calling.done.has(it.id) && performance.now() < calling.until) {
+      calling.done.add(it.id);
+      glow(it, node);
+    }
+  }
+
+  // A comment that is picked calls attention to what was drawn for it: the drawing glows for a moment,
+  // once it is in sight (on a video that is when its frame has been found, which may take a little).
+  let calling = null; // { id: the thread, until: when to stop waiting for its drawing, done: the strokes that have glowed }
+  function callOut(threadId) {
+    calling = { id: threadId, until: performance.now() + 4000, done: new Set() };
+  }
+  // It swells quickly and dies away slowly, and both are transitions, so one that is called for again
+  // while it is still fading swells from wherever it had got to instead of starting over from nothing.
+  const glowing = new WeakMap(); // a drawing that glows -> the timer that lets it fade
+  function glow(it, node) {
+    node.style.setProperty('--glow', inkColor(it.color));
+    node.classList.add('callout');
+    clearTimeout(glowing.get(node));
+    glowing.set(node, setTimeout(() => node.classList.remove('callout'), 420));
   }
 
   function refreshAnnotations(hostId) {
@@ -5317,6 +5457,7 @@
     if (c.on !== focusId) return goToComment(id);
     if (activeThread !== id) replyBox.value = '';
     activeThread = id;
+    callOut(id);
     seekTo(c);
     // Picked from its mark on the timeline with the comments folded away: they come out, or there is nothing to read.
     if (panelShown()) syncComments();
@@ -5333,6 +5474,7 @@
     if (focusId !== host.id) enterFocus(host.id);
     if (activeThread !== c.id) replyBox.value = '';
     activeThread = c.id;
+    callOut(c.id);
     seekTo(c);
     if (panelShown()) syncComments();
     else togglePanel(true);
@@ -5632,6 +5774,8 @@
     else if (k === 'escape') {
       // One thing at a time, the nearest first.
       if (!$('helppanel').hidden) toggleHelp();
+      if (!$('actpanel').hidden) toggleActivity(false);
+      if (!$('setpanel').hidden) toggleSettings(false);
       else if (focusId && tool === 'laser') setTool('pen');
       else if (focusId) exitFocus();
       else if (boardPanel) togglePanel(false);
@@ -5714,6 +5858,10 @@
         el('dl', {}, HELP.flatMap(([what, keys]) => [el('dt', { text: what }), el('dd', { text: keys })])));
     }
     help.hidden = !help.hidden;
+    if (!help.hidden) {
+      toggleActivity(false);
+      toggleSettings(false);
+    }
     // Out on the board the two would sit on top of each other.
     if (!help.hidden && boardPanel && !focusId) togglePanel(false);
   }
@@ -6030,6 +6178,7 @@
     }
     cmDirty = true;
     setBoardName(msg.board.name);
+    applySettings(msg.board.settings || {}, true);
     // What was open may have been deleted while this window was disconnected.
     if (focusId && !items.has(focusId)) exitFocus();
 
@@ -6126,7 +6275,7 @@
     ws.onmessage = (e) => onMessage(JSON.parse(e.data));
     ws.onclose = (e) => {
       online = false;
-      if (dead) return;
+      if (dead || away) return;
       if (e.code === 4003) return fatal('This board was moved to a workspace you cannot open.');
       if (e.code === 4004) return fatal('This board was deleted.');
       if (e.code === 4005) return fatal('This link is not shared any more.');
@@ -6139,6 +6288,21 @@
       checkAccess();
     };
   }
+
+  // Leaving the page lets go of the connection, so nobody is shown on the board who is not there. A
+  // browser may keep a page as it was, to come back to with Back, and a connection it is left holding
+  // stays open all that while: each time somebody went out and came in again there was one more of them.
+  // A page that is come back to that way joins again.
+  let away = false;
+  window.addEventListener('pagehide', () => {
+    away = true;
+    if (ws) ws.close();
+  });
+  window.addEventListener('pageshow', (e) => {
+    if (!away) return;
+    away = false;
+    if (e.persisted) connect();
+  });
 
   // A connection that will not open is not always the network. The server may be answering and
   // turning this page away: the sign-in ran out (the request sends the page to sign in again), or the
@@ -6178,6 +6342,124 @@
     $('back').removeAttribute('title');
   }
   else $('back').href = meta.folderId ? `/#/f/${meta.folderId}` : '/';
+
+  // ---- what this board is set to
+  //
+  // A board has a few settings of its own, the same for everyone on it and kept with it:
+  //   names   every image and video shows its file name
+  // They are changed from the board's menu in the bar, which is also the way to its sharing, its files
+  // and its activity.
+  let boardSettings = {};
+  function applySettings(patch, whole = false) {
+    boardSettings = whole ? { ...patch } : { ...boardSettings, ...patch };
+    document.body.classList.toggle('show-names', !!boardSettings.names);
+    if (!$('setpanel').hidden) paintSettings();
+  }
+  function setBoardSetting(key, value) {
+    applySettings({ [key]: value });
+    sendOps([{ t: 'meta', patch: { settings: { [key]: value } } }]);
+  }
+
+  const setPanel = $('setpanel');
+  function paintSettings() {
+    const names = el('input', { type: 'checkbox', role: 'switch', 'aria-label': 'Show file names' });
+    names.checked = !!boardSettings.names;
+    names.addEventListener('change', () => setBoardSetting('names', names.checked));
+    // Going on to one of the others puts this away first.
+    const go = (text, run) => el('button', { type: 'button', class: 'btn small', text, onclick: () => { toggleSettings(false); run(); } });
+    const row = (label, value, control) => el('div', { class: 'share-row' },
+      el('span', { class: 'share-label', text: label }), el('span', { class: 'share-value', text: value }), control);
+    setPanel.replaceChildren(
+      el('div', { class: 'act-head' }, el('h2', { text: 'Board settings' }),
+        el('button', { class: 'iconbtn', html: ICON.close, title: 'Close (Esc)', onclick: () => toggleSettings(false) })),
+      el('label', { class: 'share-row share-switch' },
+        el('span', { class: 'share-label', text: 'File names' }),
+        el('span', { class: 'share-value', text: 'Show the name of every image and video on it. For everyone on this board.' }),
+        names),
+      WB.info().canShare && row('Sharing', meta.share && meta.share.token ? 'A link to this board is on.' : 'Only the team can open this board.', go('Share…', () => openShare(meta))),
+      row('Files', 'All original media on this board, in one zip.', go('Download', downloadBoard)),
+      row('Activity', 'Who has opened and changed this board, and earlier versions to go back to.', go('Open', () => toggleActivity(true))));
+  }
+
+  // A panel in the corner, like the shortcuts and the activity, and in their place: one of them at a time.
+  function toggleSettings(show = setPanel.hidden) {
+    setPanel.hidden = !show;
+    $('boardmenu').classList.toggle('active', show);
+    if (!show) return;
+    $('helppanel').hidden = true;
+    toggleActivity(false);
+    if (boardPanel && !focusId) togglePanel(false);
+    paintSettings();
+  }
+
+  // ---- what has happened on this board
+  //
+  // Who opened it and who changed it, newest first; the same thing done again within a few minutes is
+  // one line. Under that, the board as it was before each round of changes: any of them can be gone
+  // back to, and what is replaced is kept as one more, so going back can itself be gone back on.
+  const HAPPENED = {
+    open: () => 'opened the board',
+    link: () => 'looked at it through the link',
+    edit: (n) => (n === 1 ? 'made a change' : `made ${n} changes`),
+    comment: () => 'commented',
+    restore: () => 'put the board back to an earlier version',
+  };
+  const whenExactly = (at) => new Date(at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+
+  const actPanel = $('actpanel');
+  const actBody = el('div', { class: 'act-body' });
+  actPanel.append(
+    el('div', { class: 'act-head' }, el('h2', { text: 'Activity' }),
+      el('button', { class: 'iconbtn', html: ICON.close, title: 'Close (Esc)', onclick: () => toggleActivity(false) })),
+    actBody);
+
+  async function putBack(v) {
+    const sure = await WB.dialog({
+      title: 'Put the board back?',
+      text: `Everything on it goes back to how it was on ${whenExactly(v.at)}, for everyone. What is on it now is kept as a version too, so this can be undone from here.`,
+      ok: 'Put it back',
+    });
+    if (!sure) return;
+    try {
+      await WB.api('POST', `/api/boards/${boardId}/versions/${v.at}/restore`, { by: me.name });
+      toast(`The board is as it was on ${whenExactly(v.at)}.`, { ms: 7000 });
+      paintActivity();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  async function paintActivity() {
+    let seen;
+    try {
+      seen = await WB.api('GET', `/api/boards/${boardId}/activity`);
+    } catch (err) {
+      return actBody.replaceChildren(el('p', { class: 'act-none', text: err.message }));
+    }
+    const events = seen.events.filter((e) => HAPPENED[e.what]);
+    actBody.replaceChildren(
+      events.length ? el('ul', { class: 'act-list' }, events.map((e) => el('li', {},
+        el('span', { class: 'act-what' }, el('b', { text: e.who }), ` ${HAPPENED[e.what](e.n)}`),
+        el('time', { text: WB.ago(e.at), title: whenExactly(e.at) }))))
+        : el('p', { class: 'act-none', text: 'Nothing yet. What happens on this board from now on shows here.' }),
+      el('h3', { text: 'Earlier versions' }),
+      seen.versions.length ? el('ul', { class: 'act-list' }, seen.versions.map((v) => el('li', {},
+        el('span', { class: 'act-what' }, el('b', { text: whenExactly(v.at) }), ` · ${v.count} ${v.count === 1 ? 'item' : 'items'}${v.who ? `, before ${v.who} changed it` : ''}`),
+        el('button', { type: 'button', class: 'btn small', text: 'Put back', onclick: () => putBack(v) }))))
+        : el('p', { class: 'act-none', text: 'None yet. The board is kept as it was before each round of changes.' }));
+  }
+
+  // A panel in the corner, like the shortcuts, and in their place: one of the two at a time.
+  function toggleActivity(show = actPanel.hidden) {
+    actPanel.hidden = !show;
+    $('activity').classList.toggle('active', show);
+    if (!show) return;
+    $('helppanel').hidden = true;
+    toggleSettings(false);
+    if (boardPanel && !focusId) togglePanel(false);
+    if (!actBody.children.length) actBody.append(el('p', { class: 'act-none', text: 'Loading…' }));
+    paintActivity();
+  }
 
   // ---- read-only link for this board
   if (!viewOnly && WB.info().canShare) {
@@ -6282,6 +6564,13 @@
   $('snap').classList.toggle('active', snapOn);
   $('snap').addEventListener('click', toggleSnap);
   $('focusdone').addEventListener('click', exitFocus);
+  if (!viewOnly) {
+    for (const [id, run, ic] of [['dlall', downloadBoard, ICON.download], ['focusdl', () => downloadPiece(focusId), ICON.download], ['boardmenu', () => toggleSettings(), ICON.settings], ['activity', () => toggleActivity(), ICON.activity]]) {
+      $(id).innerHTML = ic;
+      $(id).hidden = false;
+      $(id).addEventListener('click', run);
+    }
+  }
   $('focusprev').innerHTML = ICON.prev;
   $('focusnext').innerHTML = ICON.next;
   $('focusprev').addEventListener('click', () => stepFocus(-1));

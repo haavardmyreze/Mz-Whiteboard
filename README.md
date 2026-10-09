@@ -51,6 +51,22 @@ private networks, otherwise only the host machine can connect.
   key frame every quarter of a second. A browser can only show a frame by decoding from the key frame before
   it, and renders and camera files often have one every few seconds, so stepping or scrubbing
   backwards through them stalls; through the review copy it is instant in both directions.
+- **The originals, kept and given back.** The file a video was made from is uploaded too, behind the
+  review copy and behind anything else the board is waiting for; the video says so in its corner until
+  it is there. A selected image or video, or the one that is open, downloads as it was uploaded, and
+  the download button in the bar brings every image and video on the board down as one zip (a download
+  that is cut off carries on where it stopped). A video from before originals were kept, or one larger
+  than `WIPBOARD_MAX_UPLOAD_MB`, comes down as its review copy, and the board says which. People
+  holding a read-only link are offered neither.
+- **Board settings.** The sliders button in the bar opens a small panel for what is particular to a
+  board: whether every image and video shows its file name (the same for everyone on the board, and
+  kept with it), and the way to its sharing, its files and its activity.
+- **Activity, and going back.** The clock in the bar lists who opened a board and who changed it,
+  newest first; the same thing done again within ten minutes is one line. Under it are earlier
+  versions: before each round of changes (whatever follows ten quiet minutes) the board is kept as it
+  was, the last forty times, and any of them can be put back for everyone. What is replaced is kept as
+  one more version, so putting back can itself be undone. A version is the board's items packed small
+  (about 13 KB for a board of thirty pieces); the files stay where they are.
 - **Frame-accurate video.** Each video knows its frame rate, read from the file when it is added. `,` and `.` step one frame
   (with Shift, one second), Space or K plays and pauses, M turns the sound on and off,
   and scrubbing lands on whole frames. Click the time on a video to switch between minutes and seconds,
@@ -224,7 +240,7 @@ Everything lives in `data/` next to the server:
 | Path            | Contents                                                        |
 | --------------- | --------------------------------------------------------------- |
 | `data/wipboard.db` | Boards, their items, folders and the catalogue, in one SQLite database (with `-wal` and `-shm` files beside it while the server runs) |
-| `data/uploads/` | Uploaded media, named by content hash (duplicates stored once)  |
+| `data/uploads/` | Uploaded media, named by content hash (duplicates stored once): pictures, videos' review copies, and the files those were made from |
 | `data/backups/` | A copy of the database made each day the server runs; the last seven are kept |
 | `data/.session-secret` | Signs the sign-in cookies. Made on first start with a sign-in mode; keep it private |
 
@@ -273,7 +289,7 @@ Environment variables, or lines in a `.env` file next to `server.js`. All option
 | `PORT`                   | `4680`   | Port to listen on                        |
 | `HOST`                   | `0.0.0.0`| Interface to bind (`127.0.0.1` = local only) |
 | `WIPBOARD_DATA`          | `./data` | Where boards and uploads are stored      |
-| `WIPBOARD_MAX_UPLOAD_MB` | `1024`   | Largest accepted file                    |
+| `WIPBOARD_MAX_UPLOAD_MB` | `1024`   | Largest accepted file. A video's original above this is not kept, only its review copy |
 | `AUTH_MODE`              | `none`   | Who gets in, see above. Its own settings are listed in [DEPLOY.md](DEPLOY.md) |
 
 ## Good to know

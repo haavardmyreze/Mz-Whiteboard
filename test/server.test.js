@@ -151,7 +151,7 @@ test('without sign-in /api/me reports no user', async (t) => {
   t.after(s.stop);
   await s.ready;
   const { shareBases, ...me } = await (await fetch(`${s.base}/api/me`)).json();
-  assert.deepEqual(me, { auth: 'none', user: null, admin: true, canShare: true, publicUrl: null, signOut: false });
+  assert.deepEqual(me, { auth: 'none', user: null, admin: true, canShare: true, maxUpload: 1024 ** 3, publicUrl: null, signOut: false });
   // share links never point at localhost: only at addresses other computers can reach
   assert.ok(shareBases.every((b) => /^http:\/\/\d+\.\d+\.\d+\.\d+:4794$/.test(b) && !b.includes('127.0.0.1')));
 });
@@ -1144,4 +1144,208 @@ test('admins manage people, groups and permissions on shared boards and folders,
   assert.deepEqual(view.grants.map((g) => g.principal.type), ['group']);
   view = (await call(anna, 'DELETE', `/api/admin/groups/${lighting.id}`)).body;
   assert.deepEqual([view.groups, view.grants], [[], []]);
+});
+
+// What a zip holds, read the way an unpacker reads it: from the index at the end.
+function unzip(buf) {
+  const end = buf.length - 22;
+  assert.equal(buf.readUInt32LE(end), 0x06054b50);
+  const count = buf.readUInt16LE(end + 10);
+  let at = buf.readUInt32LE(end + 16);
+  const files = [];
+  for (let i = 0; i < count; i++) {
+    assert.equal(buf.readUInt32LE(at), 0x02014b50);
+    const crc = buf.readUInt32LE(at + 16);
+    const size = buf.readUInt32LE(at + 24);
+    const nameLen = buf.readUInt16LE(at + 28);
+    const local = buf.readUInt32LE(at + 42);
+    const name = buf.toString('utf8', at + 46, at + 46 + nameLen);
+    assert.equal(buf.readUInt32LE(local), 0x04034b50);
+    assert.equal(buf.readUInt32LE(local + 14), crc);
+    const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
+    const data = buf.subarray(start, start + size);
+    assert.equal(require('node:zlib').crc32(data), crc);
+    files.push({ name, data });
+    at += 46 + nameLen + buf.readUInt16LE(at + 30) + buf.readUInt16LE(at + 32);
+  }
+  return files;
+}
+
+test('a video keeps the file it was made from, a board comes down as one zip, and link viewers are not told of originals', async (t) => {
+  const s = start(4833);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const put = async (name, bytes) => (await (await fetch(`${s.base}/api/upload?name=${name}`, { method: 'POST', body: bytes })).json()).url;
+  const copy = crypto.randomBytes(5000);
+  const original = crypto.randomBytes(90000);
+  const picture = crypto.randomBytes(700);
+  const other = crypto.randomBytes(800);
+  const old = crypto.randomBytes(900);
+  const [copyUrl, originalUrl, pictureUrl, otherUrl, oldUrl] = [await put('a.mp4', copy), await put('a.mov', original), await put('a.png', picture), await put('b.png', other), await put('c.mp4', old)];
+
+  assert.equal(typeof (await (await fetch(`${s.base}/api/me`)).json()).maxUpload, 'number');
+  const board = await (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: json, body: JSON.stringify({ name: 'Shots: act 1' }) })).json();
+  assert.equal((await fetch(`${s.base}/api/boards/${board.id}/media.zip`)).status, 404); // nothing on it yet
+  assert.equal((await fetch(`${s.base}/api/boards/nosuchboard/media.zip`)).status, 404);
+  const { token } = await (await fetch(`${s.base}/api/boards/${board.id}/share`, { method: 'POST' })).json();
+
+  const open = joiner(4833);
+  const anna = await open(`board=${board.id}`, 'Anna');
+  t.after(() => anna.ws.close());
+  const at = { x: 0, y: 0, w: 160, h: 90 };
+  anna.ws.send(JSON.stringify({ t: 'op', ops: [
+    { t: 'add', item: { id: 'video0001', type: 'video', ...at, src: copyUrl, orig: originalUrl, name: 'sh010_v003.mov' } },
+    { t: 'add', item: { id: 'image0001', type: 'image', ...at, src: pictureUrl, name: 'ref.png' } },
+    { t: 'add', item: { id: 'image0002', type: 'image', ...at, src: pictureUrl, name: 'ref.png' } }, // the same file twice
+    { t: 'add', item: { id: 'image0003', type: 'image', ...at, src: otherUrl, name: 'ref.png' } }, // another file of the same name
+    { t: 'add', item: { id: 'video0002', type: 'video', ...at, src: oldUrl, name: 'old/take:2.mov' } }, // from before originals were kept
+    { t: 'add', item: { id: 'image0004', type: 'image', ...at, src: 'https://example.com/elsewhere.png', name: 'elsewhere.png' } },
+    { t: 'add', item: { id: 'note00001', type: 'note', x: 0, y: 0, w: 100, h: 100, text: 'not a file' } },
+  ] }));
+  await pause(150);
+
+  const res = await fetch(`${s.base}/api/boards/${board.id}/media.zip`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'application/zip');
+  assert.match(res.headers.get('content-disposition'), /^attachment; filename="Shots_ act 1\.zip"/);
+  const body = Buffer.from(await res.arrayBuffer());
+  assert.equal(Number(res.headers.get('content-length')), body.length);
+  const head = await fetch(`${s.base}/api/boards/${board.id}/media.zip`, { method: 'HEAD' });
+  assert.deepEqual([head.status, Number(head.headers.get('content-length'))], [200, body.length]);
+  const files = unzip(body);
+  assert.deepEqual(files.map((f) => f.name), ['sh010_v003.mov', 'ref.png', 'ref (2).png', 'old_take_2.mp4']);
+  assert.ok(files[0].data.equals(original));
+  assert.ok(files[1].data.equals(picture));
+  assert.ok(files[2].data.equals(other));
+  assert.ok(files[3].data.equals(old));
+
+  // A download that was cut off is taken up where it stopped: any part of the archive can be asked for.
+  const zipUrl = `${s.base}/api/boards/${board.id}/media.zip`;
+  const tag = res.headers.get('etag');
+  assert.equal(res.headers.get('accept-ranges'), 'bytes');
+  for (const [range, a, b] of [['10-99', 10, 99], ['4990-5200', 4990, 5200], [`${body.length - 400}-`, body.length - 400, body.length - 1], ['-64', body.length - 64, body.length - 1]]) {
+    const part = await fetch(zipUrl, { headers: { range: `bytes=${range}`, 'if-range': tag } });
+    assert.equal(part.status, 206);
+    assert.equal(part.headers.get('content-range'), `bytes ${a}-${b}/${body.length}`);
+    assert.ok(Buffer.from(await part.arrayBuffer()).equals(body.subarray(a, b + 1)), `bytes ${range}`);
+  }
+  const stale = await fetch(zipUrl, { headers: { range: 'bytes=10-99', 'if-range': '"another-archive"' } });
+  assert.deepEqual([stale.status, (await stale.arrayBuffer()).byteLength], [200, body.length]);
+  assert.equal((await fetch(zipUrl, { headers: { range: `bytes=${body.length}-` } })).status, 416);
+
+  // Somebody holding the link sees the video, and nothing of where its original is, then or later.
+  const eve = await open(`share=${token}`, 'Eve');
+  t.after(() => eve.ws.close());
+  const shown = eve.seen.find((m) => m.t === 'init').items.find((it) => it.id === 'video0001');
+  assert.equal(shown.src, copyUrl);
+  assert.equal('orig' in shown, false);
+  const ben = await open(`board=${board.id}`, 'Ben');
+  t.after(() => ben.ws.close());
+  anna.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'set', id: 'video0002', patch: { orig: originalUrl } }, { t: 'set', id: 'image0001', patch: { x: 40, orig: originalUrl } }] }));
+  await pause(150);
+  const sets = (conn) => conn.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).filter((op) => op.t === 'set');
+  assert.deepEqual(sets(ben).map((op) => op.patch), [{ orig: originalUrl }, { x: 40, orig: originalUrl }]);
+  assert.deepEqual(sets(eve).map((op) => op.patch), [{ x: 40 }]);
+});
+
+test('a zip of files past the old size limits is laid out the long way', () => {
+  const { layout } = require('../zip');
+  const GB = 1024 ** 3;
+  const small = layout([{ name: 'a.mov', size: 10, mtime: 0 }, { name: 'b.mov', size: 20, mtime: 0 }]);
+  assert.equal(small.longEnd, false);
+  assert.equal(small.size, (30 + 5 + 10) + (30 + 5 + 20) + 2 * (46 + 5) + 22);
+  const large = layout([{ name: 'a.mov', size: 5 * GB, mtime: 0 }, { name: 'b.mov', size: 20, mtime: 0 }]);
+  assert.deepEqual(large.placed.map((e) => [e.long, e.longInIndex]), [[true, true], [false, true]]);
+  assert.equal(large.longEnd, true);
+  assert.equal(large.size, (30 + 5 + 20 + 5 * GB) + (30 + 5 + 20) + 2 * (46 + 5 + 28) + 76 + 22);
+});
+
+test('a board remembers what it is set to, and who opened and changed it', async (t) => {
+  const s = start(4834);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const board = await (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: json, body: JSON.stringify({ name: 'Layout' }) })).json();
+  assert.deepEqual(board.settings, {});
+  const open = joiner(4834);
+  const anna = await open(`board=${board.id}`, 'Anna');
+  t.after(() => anna.ws.close());
+  const ben = await open(`board=${board.id}`, 'Ben');
+  t.after(() => ben.ws.close());
+  const ops = (conn, list, extra = {}) => conn.ws.send(JSON.stringify({ t: 'op', ops: list, ...extra }));
+  const at = { x: 0, y: 0, w: 100, h: 100 };
+
+  // What the board is set to goes to everyone on it and is kept; only settings there are are taken.
+  assert.deepEqual(ben.seen.find((m) => m.t === 'init').board.settings, {});
+  ops(anna, [{ t: 'meta', patch: { settings: { names: true, nonsense: true, other: 'x' } } }]);
+  await pause(150);
+  assert.deepEqual(ben.seen.filter((m) => m.t === 'op').pop().ops, [{ t: 'meta', patch: { settings: { names: true } } }]);
+  assert.deepEqual((await (await fetch(`${s.base}/api/boards/${board.id}`)).json()).settings, { names: true });
+  const carla = await open(`board=${board.id}`, 'Carla');
+  t.after(() => carla.ws.close());
+  assert.deepEqual(carla.seen.find((m) => m.t === 'init').board.settings, { names: true });
+
+  ops(anna, [{ t: 'add', item: { id: 'noteone01', type: 'note', ...at, text: 'first' } }, { t: 'add', item: { id: 'notetwo01', type: 'note', ...at, text: 'second' } }]);
+  ops(anna, [{ t: 'set', id: 'noteone01', patch: { x: 5 } }], { quiet: true }); // housekeeping is not somebody changing the board
+  ops(ben, [{ t: 'add', item: { id: 'comment01', type: 'comment', on: 'noteone01', text: 'nice' } }]);
+  await pause(150);
+  const seen = await (await fetch(`${s.base}/api/boards/${board.id}/activity`)).json();
+  // The same thing done again soon after is one line, counted.
+  assert.deepEqual(seen.events.map((e) => `${e.who} ${e.what} ${e.n}`).sort(), ['Anna edit 3', 'Anna open 1', 'Ben comment 1', 'Ben open 1', 'Carla open 1']);
+  assert.ok(seen.events.every((e) => Math.abs(Date.now() - e.at) < 10000));
+  assert.equal((await fetch(`${s.base}/api/boards/nosuchboard/activity`)).status, 404);
+});
+
+test('a board is kept as it was before each round of changes, and can be put back to any of them', async (t) => {
+  // A round is whatever follows a quiet spell: ten minutes as it runs, a moment here.
+  const s = start(4835, { WIPBOARD_VERSION_MS: '250' });
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const board = await (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: json, body: JSON.stringify({ name: 'Layout' }) })).json();
+  const open = joiner(4835);
+  const anna = await open(`board=${board.id}`, 'Anna');
+  t.after(() => anna.ws.close());
+  const ben = await open(`board=${board.id}`, 'Ben');
+  t.after(() => ben.ws.close());
+  const ops = (conn, list) => conn.ws.send(JSON.stringify({ t: 'op', ops: list }));
+  const note = (id, text) => ({ id, type: 'note', x: 0, y: 0, w: 100, h: 100, text });
+  const versions = async () => (await (await fetch(`${s.base}/api/boards/${board.id}/activity`)).json()).versions;
+
+  ops(anna, [{ t: 'add', item: note('noteone01', 'first') }]);
+  await pause(150);
+  assert.deepEqual(await versions(), []); // there was nothing on it to keep
+  await pause(300);
+  ops(anna, [{ t: 'add', item: note('notetwo01', 'second') }]);
+  ops(anna, [{ t: 'set', id: 'notetwo01', patch: { x: 9 } }]); // the same round
+  await pause(400);
+  ops(ben, [{ t: 'del', ids: ['noteone01'] }]);
+  await pause(150);
+  let kept = await versions();
+  assert.deepEqual(kept.map((v) => [v.who, v.count]), [['Ben', 2], ['Anna', 1]]);
+
+  // Back to the oldest: one note. Everybody on the board is given it afresh, without themselves among the others.
+  const before = [anna.seen.length, ben.seen.length];
+  const put = await fetch(`${s.base}/api/boards/${board.id}/versions/${kept[1].at}/restore`, { method: 'POST', headers: json, body: JSON.stringify({ by: 'Anna' }) });
+  assert.equal(put.status, 200);
+  await pause(150);
+  for (const [conn, from] of [[anna, before[0]], [ben, before[1]]]) {
+    const init = conn.seen.slice(from).find((m) => m.t === 'init');
+    assert.deepEqual(init.items.map((it) => [it.id, it.text]), [['noteone01', 'first']]);
+    assert.equal(init.peers.length, 1);
+    assert.notEqual(init.peers[0].id, init.you);
+  }
+  // Somebody arriving later finds the same, and what was replaced was kept, so it can be had back too.
+  const carla = await open(`board=${board.id}`, 'Carla');
+  t.after(() => carla.ws.close());
+  assert.deepEqual(carla.seen.find((m) => m.t === 'init').items.map((it) => it.id), ['noteone01']);
+  kept = await versions();
+  assert.deepEqual(kept.map((v) => [v.who, v.count]), [['Anna', 1], ['Ben', 2], ['Anna', 1]]);
+  await fetch(`${s.base}/api/boards/${board.id}/versions/${kept[0].at}/restore`, { method: 'POST', headers: json, body: JSON.stringify({ by: 'Ben' }) });
+  await pause(150);
+  assert.deepEqual(anna.seen.filter((m) => m.t === 'init').pop().items.map((it) => [it.id, it.x]), [['notetwo01', 9]]);
+  const events = (await (await fetch(`${s.base}/api/boards/${board.id}/activity`)).json()).events;
+  assert.deepEqual(events.filter((e) => e.what === 'restore').map((e) => e.who).sort(), ['Anna', 'Ben']);
+  assert.equal((await fetch(`${s.base}/api/boards/${board.id}/versions/12345/restore`, { method: 'POST', headers: json, body: '{}' })).status, 404);
 });

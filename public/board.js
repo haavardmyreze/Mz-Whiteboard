@@ -6890,7 +6890,7 @@
   $('snap').addEventListener('click', toggleSnap);
   $('focusdone').addEventListener('click', exitFocus);
   if (!viewOnly) {
-    for (const [id, run, ic] of [['dlall', downloadBoard, ICON.download], ['focusdl', () => downloadPiece(focusId), ICON.download], ['boardmenu', () => toggleSettings(), ICON.settings], ['activity', () => toggleActivity(), ICON.activity]]) {
+    for (const [id, run, ic] of [['focusdl', () => downloadPiece(focusId), ICON.download], ['boardmenu', () => toggleSettings(), ICON.settings], ['activity', () => toggleActivity(), ICON.activity]]) {
       $(id).innerHTML = ic;
       $(id).hidden = false;
       $(id).addEventListener('click', run);

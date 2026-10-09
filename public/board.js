@@ -586,7 +586,9 @@
       sound.innerHTML = video.muted ? ICON.muted : ICON.sound;
       if (focusId === it.id) syncTimeline();
     });
-    const tick = (at = video.currentTime) => {
+    const tick = (at = whereOf(video)) => {
+      // On its way to another source it has no length for a moment: what is showing stays as it is.
+      if (changing.has(video) && !(video.duration > 0)) return;
       if (video.duration && !seek.matches(':active')) seek.value = Math.round((at / video.duration) * 1000);
       seek.style.setProperty('--p', `${seek.value / 10}%`);
       if (seek.parentNode) seek.parentNode.style.setProperty('--p', `${seek.value / 10}%`);
@@ -597,7 +599,7 @@
     seek.addEventListener('input', () => {
       if (!video.duration) return;
       const at = wholeFrame(it.id, (seek.value / 1000) * video.duration);
-      video.currentTime = at;
+      goTo(video, at);
       seek.style.setProperty('--p', `${seek.value / 10}%`);
       if (seek.parentNode) seek.parentNode.style.setProperty('--p', `${seek.value / 10}%`);
       // The time follows the hand, not the picture, which may still be on its way.
@@ -607,11 +609,24 @@
     seek.addEventListener('change', () => seek.blur());
     // Taken hold of, the video is wanted whole: from the disk if it is kept there, otherwise fetched, so
     // that the next drag through it does not wait for the network. It changes over once the hand lets go.
+    // A playing video is held still while the hand moves and runs on after, as on the timeline. Left
+    // running it would be past its end, and so back at its start, under a hand that holds it at the end.
+    let resume = false;
     seek.addEventListener('pointerdown', () => {
       boardScrub = it.id;
+      resume = !video.paused;
+      video.pause();
       holdWhole(it.id);
     });
-    for (const type of ['pointerup', 'pointercancel', 'change']) seek.addEventListener(type, () => { if (boardScrub === it.id) boardScrub = null; });
+    for (const type of ['pointerup', 'pointercancel', 'change']) {
+      seek.addEventListener(type, () => {
+        if (boardScrub !== it.id) return;
+        boardScrub = null;
+        if (resume && !atEndOf(it.id)) video.play().catch(() => {});
+        resume = false;
+        sendMedia(it.id);
+      });
+    }
     for (const type of ['progress', 'suspend', 'loadedmetadata', 'seeked']) {
       video.addEventListener(type, () => {
         if (focusId === it.id) syncLoaded();
@@ -626,7 +641,8 @@
     });
     // While it plays the counter follows each frame as it is shown, where the browser says which that is.
     const onFrame = (now, meta) => {
-      tick(meta.mediaTime);
+      // Firefox goes on counting past the end of a video that has started over.
+      tick(video.duration > 0 && isFinite(video.duration) ? meta.mediaTime % video.duration : meta.mediaTime);
       if (!video.paused) video.requestVideoFrameCallback(onFrame);
     };
     video.addEventListener('seeked', () => {
@@ -2625,7 +2641,11 @@
   // Puts a video on another source without a flash: the frame it shows is held over it until the same
   // frame is back, and it carries on from where it was.
   function switchSource(video, url) {
-    const at = video.currentTime;
+    // Until it is there the video itself is back at its start. Where it is going is kept here, for the
+    // timeline to go on showing, and for a hand that moves it meanwhile to change.
+    const state = { at: whereOf(video) };
+    bound.delete(video);
+    changing.set(video, state);
     const playing = !video.paused;
     const hold = el('canvas', { class: 'vhold', width: video.videoWidth || 1, height: video.videoHeight || 1 });
     try {
@@ -2641,6 +2661,7 @@
       hold.remove();
       video.removeEventListener('seeked', settle);
       video.removeEventListener('error', settle);
+      if (changing.get(video) === state) changing.delete(video);
     };
     const timer = setTimeout(settle, 3000);
     // It is about to be scrubbed through, stopped: every frame of it is wanted, not only what playing would fetch.
@@ -2648,9 +2669,9 @@
     video.addEventListener('error', settle);
     video.addEventListener('loadeddata', () => {
       if (playing) video.play().catch(() => {});
-      if (at > 0.001) {
+      if (changing.get(video) === state && state.at > 0.001) {
         video.addEventListener('seeked', settle);
-        video.currentTime = at;
+        video.currentTime = state.at;
       } else {
         settle();
       }
@@ -2723,8 +2744,10 @@
   function syncTimeline(at) {
     const video = focusId ? videoOf(focusId) : null;
     if (!video) return;
-    if (at == null) at = video.currentTime;
+    if (at == null) at = whereOf(video);
     const dur = video.duration;
+    // On its way to another source it has no length for a moment: what is showing stays as it is.
+    if (changing.has(video) && !(dur > 0)) return;
     const fps = fpsOf(focusId);
     tlTrack.style.setProperty('--p', `${(dur > 0 && isFinite(dur) ? clamp(at / dur, 0, 1) : 0) * 100}%`);
     const label = timeLabel(at, dur, fps);
@@ -2742,6 +2765,13 @@
     }
   }
 
+  // Whether a video is on its last frame. Let go there, it stays there: to run on from the end is to be
+  // back at the start at once.
+  function atEndOf(id) {
+    const video = videoOf(id);
+    return !!video && video.duration - whereOf(video) < 1.5 / (fpsOf(id) || 24);
+  }
+
   let scrub = null;
   let boardScrub = null; // the video whose bar out on the board is being dragged
   function trackMoment(e) {
@@ -2753,7 +2783,7 @@
   function scrubTo(e) {
     const video = videoOf(focusId);
     const { at } = trackMoment(e);
-    video.currentTime = at;
+    goTo(video, at);
     syncTimeline(at);
     sendMedia(focusId);
   }
@@ -2817,7 +2847,7 @@
     if (markPress && e.pointerId === markPress.pid) markPress = null;
     if (!scrub || e.pointerId !== scrub.pid) return;
     const video = scrubbable();
-    if (video && scrub.resume) video.play().catch(() => {});
+    if (video && scrub.resume && !atEndOf(focusId)) video.play().catch(() => {});
     scrub = null;
     tlTip.hidden = !tlTrack.matches(':hover');
     if (video) sendMedia(focusId);
@@ -2924,12 +2954,51 @@
     return node && node.classList.contains('video') ? node.firstChild : null;
   }
 
+  // ---- going to a moment
+  //
+  // A video asked for a new moment while it is still finding the last one starts over. Firefox does so
+  // every time, and under a moving hand it finishes few of the seeks it begins: the picture follows in
+  // jumps. So a video is asked for one moment at a time. What is asked of it meanwhile waits, the latest
+  // taking the place of the one before, and is gone to once the frame it was finding has been shown.
+  const bound = new WeakMap(); // a video that is finding a moment -> { next: where to go after, if anywhere }
+  const changing = new WeakMap(); // a video on its way to another source -> { at: where it is to be once there }
+  function goTo(video, at) {
+    const moving = changing.get(video);
+    if (moving) {
+      moving.at = at;
+      return;
+    }
+    const busy = bound.get(video);
+    if (busy) {
+      busy.next = at;
+      return;
+    }
+    const state = { next: null };
+    bound.set(video, state);
+    const arrived = () => {
+      clearTimeout(late);
+      video.removeEventListener('seeked', shown);
+      if (bound.get(video) !== state) return;
+      bound.delete(video);
+      if (state.next != null) goTo(video, state.next);
+    };
+    // A beat later, not at once: the frame is put on show just after the seek is said to be done.
+    const shown = () => setTimeout(arrived, 0);
+    // A video that never says so (it failed, or was given another source) is not waited on for long.
+    const late = setTimeout(arrived, 500);
+    video.addEventListener('seeked', shown, { once: true });
+    video.currentTime = at;
+  }
+  // Where a video is, or is about to be.
+  const whereOf = (video) => bound.get(video)?.next ?? changing.get(video)?.at ?? video.currentTime;
+
   function sendMedia(id) {
     const video = videoOf(id);
     if (!video) return;
-    wsSend({ t: 'media', id, playing: !video.paused, time: video.currentTime });
+    const at = whereOf(video);
+    wsSend({ t: 'media', id, playing: !video.paused, time: at });
     // Kept in the presence too, so whoever starts following later lands on the same frame.
-    sendP({ m: [id, Math.round(video.currentTime * 1000) / 1000, video.paused ? 0 : 1] });
+    sendP({ m: [id, Math.round(at * 1000) / 1000, video.paused ? 0 : 1] });
   }
 
   function toggleVideo(id) {
@@ -2947,11 +3016,11 @@
     video.pause();
     const fps = fpsOf(id);
     if (fps) {
-      const f = clamp(frameIndex(video.currentTime, fps) + dir * (second ? Math.round(fps) : 1), 0, lastFrame(video, fps));
-      video.currentTime = frameTime(f, fps);
+      const f = clamp(frameIndex(whereOf(video), fps) + dir * (second ? Math.round(fps) : 1), 0, lastFrame(video, fps));
+      goTo(video, frameTime(f, fps));
     } else {
       // A video whose frame rate could not be read steps a 24th of a second.
-      video.currentTime = clamp(video.currentTime + dir * (second ? 1 : 1 / 24), 0, video.duration || 0);
+      goTo(video, clamp(whereOf(video) + dir * (second ? 1 : 1 / 24), 0, video.duration || 0));
     }
     sendMedia(id);
   }
@@ -2972,7 +3041,7 @@
     const video = videoOf(id);
     if (!video || at == null) return;
     video.pause();
-    video.currentTime = at;
+    goTo(video, at);
     sendMedia(id);
   }
 
@@ -2983,7 +3052,7 @@
     const fps = fpsOf(id);
     if (video.paused && !fps) return;
     video.pause();
-    if (fps) video.currentTime = frameTime(frameIndex(video.currentTime, fps), fps);
+    if (fps) goTo(video, frameTime(frameIndex(whereOf(video), fps), fps));
     sendMedia(id);
   }
 
@@ -3000,12 +3069,13 @@
   // A frame is on screen from its start until the next one's. Asking for its middle lands on it in every browser.
   const frameTime = (f, fps) => (f + 0.5) / fps;
   const frameIndex = (t, fps) => Math.max(0, Math.floor(t * fps + 1e-3));
-  const lastFrame = (video, fps) => Math.max(0, Math.ceil((video.duration || 0) * fps - 1e-3) - 1);
+  // A length that runs a little past the last frame, as one rounded to the millisecond does, is not a frame more.
+  const lastFrame = (video, fps) => Math.max(0, Math.ceil((video.duration || 0) * fps - 0.25) - 1);
   // The frame a video is stopped on; null while it plays or when its frame rate is not known.
   function heldFrame(id) {
     const video = videoOf(id);
     const fps = fpsOf(id);
-    return video && fps && video.paused ? frameIndex(video.currentTime, fps) : null;
+    return video && fps && video.paused ? frameIndex(whereOf(video), fps) : null;
   }
   // Where a comment on a video was left: on its frame when that is known, otherwise at its time.
   const momentOf = (c) => (c.fr != null && fpsOf(c.on) ? frameTime(c.fr, fpsOf(c.on)) : c.at);
@@ -3246,6 +3316,8 @@
     const times = [first, ...[0.1, 0.25, 0.5, 0.75, 0.9].map((k) => dur * k).filter((t) => t > 0.01 && t !== first)];
     let best = { t: first, b: -1 };
     for (const t of times) {
+      // One that has failed will not seek, and each try would wait out its full time.
+      if (video.error) break;
       try {
         await seekFrame(video, t);
       } catch {
@@ -3258,15 +3330,6 @@
     if (best.b < 0) return false;
     await seekFrame(video, best.t).catch(() => {});
     return true;
-  }
-
-  async function videoThumb(video) {
-    try {
-      if (!(await pickFrame(video))) return null;
-      return await makeThumb(video, video.videoWidth, video.videoHeight);
-    } catch {
-      return null;
-    }
   }
 
   // Every video is turned into a review copy here, on the uploader's own machine, before it goes
@@ -3319,6 +3382,91 @@
       : 'Firefox';
   const refusal = (dims) => Object.assign(new Error('This browser cannot process this video'), { refused: true, dims });
 
+  // ---- what Firefox's H.264 encoder gets wrong
+  //
+  // Two things, and either one leaves a copy that will not play. It describes its stream with a header
+  // in which each parameter set starts with its first byte twice, and Chrome refuses a file that carries
+  // it. And once it puts frames out of order, as it does in every profile but the plainest, it stamps
+  // each with the moment it ends instead of the moment it begins: every frame then sits one late, and a
+  // first frame of an odd length lands after a frame that needs it, which Firefox itself will not play.
+  //
+  // So every browser is asked for the stream as it comes off the encoder, parameter sets and all, and
+  // what goes into the file is made from that here: a header holding the parameter sets, and frames
+  // holding only their picture. (Parameter sets left in the frames as well are no better: Firefox,
+  // going to a key frame that carries them, shows the frame after it.) And Firefox is asked for the
+  // plainest profile, which keeps its frames in order. Mediabunny gives no say in any of this when it
+  // converts a file, so it is done where the encoder is set up and where its frames come out.
+  const IN_ORDER_ONLY = /Firefox\//.test(navigator.userAgent);
+  const nalType = (nal) => nal[0] & 31;
+
+  // The units of a stream in which each follows a 00 00 01.
+  function nalUnits(data) {
+    const units = [];
+    let from = -1;
+    for (let i = 0; i + 2 < data.length; i++) {
+      if (data[i] || data[i + 1] || data[i + 2] !== 1) continue;
+      if (from >= 0) units.push(data.subarray(from, i));
+      from = i + 3;
+      i += 2;
+    }
+    if (from >= 0) units.push(data.subarray(from));
+    // Zeros before the next 00 00 01 belong to neither.
+    return units.map((u) => {
+      let end = u.length;
+      while (end > 0 && !u[end - 1]) end--;
+      return u.subarray(0, end);
+    }).filter((u) => u.length);
+  }
+
+  function avcHeader(sps, pps) {
+    const sets = (list) => list.flatMap((n) => [n.length >> 8, n.length & 255, ...n]);
+    // The High profile says its chroma and bit depth here as well: 4:2:0 at 8 bits, all it allows.
+    const high = sps[0][1] === 100 ? [0xfd, 0xf8, 0xf8, 0] : [];
+    return new Uint8Array([1, sps[0][1], sps[0][2], sps[0][3], 0xff, 0xe0 | sps.length, ...sets(sps), pps.length, ...sets(pps), ...high]);
+  }
+
+  // One frame off the encoder as it goes into the file, with the header it is to be read by.
+  function fileFrame(chunk, meta, state) {
+    const raw = new Uint8Array(chunk.byteLength);
+    chunk.copyTo(raw);
+    const units = nalUnits(raw);
+    const sps = units.filter((u) => nalType(u) === 7);
+    const pps = units.filter((u) => nalType(u) === 8);
+    if (sps.length && pps.length) state.header = avcHeader(sps, pps);
+    const picture = units.filter((u) => ![7, 8, 9].includes(nalType(u)));
+    const data = new Uint8Array(picture.reduce((sum, u) => sum + 4 + u.length, 0));
+    let at = 0;
+    for (const u of picture) {
+      new DataView(data.buffer).setUint32(at, u.length);
+      data.set(u, at + 4);
+      at += 4 + u.length;
+    }
+    const frame = new EncodedVideoChunk({ type: chunk.type, timestamp: chunk.timestamp, duration: chunk.duration ?? undefined, data });
+    const said = meta && meta.decoderConfig && state.header ? { ...meta, decoderConfig: { ...meta.decoderConfig, description: state.header } } : meta;
+    return [frame, said];
+  }
+
+  if (canCopyVideo) {
+    const Encoder = window.VideoEncoder;
+    window.VideoEncoder = class extends Encoder {
+      constructor(init) {
+        const state = { h264: false, header: null };
+        super({ ...init, output: (chunk, meta) => (state.h264 ? init.output(...fileFrame(chunk, meta, state)) : init.output(chunk, meta)) });
+        this.wbState = state;
+      }
+
+      configure(config) {
+        this.wbState.h264 = /^avc1\./i.test((config && config.codec) || '');
+        if (!this.wbState.h264) return super.configure(config);
+        return super.configure({
+          ...config,
+          avc: { format: 'annexb' },
+          ...(IN_ORDER_ONLY && { codec: config.codec.replace(/^avc1\.[0-9a-f]{4}/i, 'avc1.42e0') }),
+        });
+      }
+    };
+  }
+
   // The size of a video's picture if this browser cannot read it to make a copy; otherwise nothing.
   async function beyondThisBrowser(file) {
     if (!canCopyVideo) return null;
@@ -3346,6 +3494,19 @@
     });
   }
 
+  // Whether an H.264 file's header can be passed on as it is. One written by Firefox's encoder cannot (its
+  // parameter sets start with their first byte twice), so such a file gets a new encode, and a new header with it.
+  async function soundHeader(track) {
+    try {
+      const d = (await track.getDecoderConfig())?.description;
+      if (!d) return true;
+      const b = ArrayBuffer.isView(d) ? new Uint8Array(d.buffer, d.byteOffset, d.byteLength) : new Uint8Array(d);
+      return b.length > 9 && (b[4] & 0xfc) === 0xfc && (b[5] & 0xe0) === 0xe0 && b[8] !== b[9];
+    } catch {
+      return false;
+    }
+  }
+
   // `plan` hears what is about to be done, before any of it is: 'wrap' or 'encode', how long the video is,
   // and about how large the copy will be. It hears nothing when the file goes up as it is.
   async function reviewCopy(file, report, plan = () => {}) {
@@ -3370,7 +3531,7 @@
       const height = Math.max(2, Math.round((h * k) / 2) * 2);
       // A file that is already H.264 within 1080p with a key frame about every half second needs no new
       // encode, only a new wrapper: seconds instead of minutes.
-      if (track.codec === 'avc' && k === 1 && (await closeKeyFrames(mb, track, duration))) {
+      if (track.codec === 'avc' && k === 1 && (await soundHeader(track)) && (await closeKeyFrames(mb, track, duration))) {
         const output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new mb.BufferTarget() });
         const conversion = await mb.Conversion.init({ input, output });
         if (conversion.isValid && !conversion.discardedTracks.some((d) => d.track.type === 'video')) {
@@ -3444,9 +3605,14 @@
         });
         const preparedUrl = prepared === file ? url : URL.createObjectURL(prepared);
         try {
-          const { w, h, video } = await probeVideo(preparedUrl);
-          const th = await videoThumb(video);
-          const poster = await videoPoster(video).catch(() => null);
+          // A copy made here that this browser then cannot show a frame of is a broken copy, and would be
+          // a black rectangle on the board for everyone. A file that went up as it came may still play elsewhere.
+          const made = prepared !== file;
+          const { w, h, video } = await probeVideo(preparedUrl).catch((err) => { throw made ? refusal() : err; });
+          const shows = await pickFrame(video).catch(() => false);
+          if (!shows && made) throw refusal(`${w}×${h}`);
+          const th = shows ? await makeThumb(video, video.videoWidth, video.videoHeight) : null;
+          const poster = shows ? await videoPoster(video).catch(() => null) : null;
           // Read from the file as it came: a re-encoded copy keeps the rate, but not every container records it as exactly.
           const fps = await readRate(file);
           const dur = isFinite(video.duration) ? Math.round(video.duration * 1000) / 1000 : 0;
@@ -4538,7 +4704,7 @@
     const video = videoOf(c.on);
     if (!video || !timed) return;
     holdFrame(c.on);
-    if (isFinite(video.currentTime)) c.at = Math.round(video.currentTime * 100) / 100;
+    if (isFinite(whereOf(video))) c.at = Math.round(whereOf(video) * 100) / 100;
     const fr = heldFrame(c.on);
     if (fr !== null) c.fr = fr;
   }
@@ -4586,7 +4752,7 @@
       const at = video ? momentOf(c) : null;
       // On an image there is no other moment to be on, and a comment about the whole video is there with its thread.
       if (at == null) return true;
-      return video.paused && Math.abs(video.currentTime - at) < 0.6 / (fpsOf(c.on) || 24);
+      return video.paused && Math.abs(whereOf(video) - at) < 0.6 / (fpsOf(c.on) || 24);
     }
     return true;
   }
@@ -4940,6 +5106,58 @@
       })),
     cpList, cpFoot);
 
+  // ---- how wide the panel is
+  //
+  // Its inner edge is a handle. Dragged, the panel stays as wide as it was left, beside the viewer and out
+  // on the board, in this browser; a double-click puts it back as it came. The sheet on a narrow screen is
+  // as wide as the screen and has no handle.
+  const CP_MIN = 260;
+  const CP_MAX = 720;
+  const cpGrip = el('div', {
+    class: 'cp-grip', role: 'separator', tabindex: '0', 'aria-orientation': 'vertical', 'aria-label': 'Width of the comments',
+    title: 'Drag to make the comments wider or narrower. Double-click to put them back',
+  });
+  panel.append(cpGrip);
+  function setPanelWidth(w, keep = true) {
+    if (w != null) w = Math.round(clamp(w, CP_MIN, CP_MAX));
+    if (w == null) document.body.style.removeProperty('--cpw');
+    else document.body.style.setProperty('--cpw', `${w}px`);
+    if (keep) store('wb:cpw', w);
+    // Beside the viewer the panel takes its room from the piece.
+    if (focusId) relayoutViewer();
+  }
+  if (Number.isFinite(store('wb:cpw'))) setPanelWidth(store('wb:cpw'), false);
+  cpGrip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    try {
+      cpGrip.setPointerCapture(e.pointerId);
+    } catch {
+      // without it the drag lasts only while the pointer stays on the edge
+    }
+    cpGrip.classList.add('held');
+    const right = panel.getBoundingClientRect().right;
+    const move = (m) => setPanelWidth(right - m.clientX, false);
+    const end = () => {
+      cpGrip.classList.remove('held');
+      cpGrip.removeEventListener('pointermove', move);
+      cpGrip.removeEventListener('pointerup', end);
+      cpGrip.removeEventListener('pointercancel', end);
+      // As wide as it ended up, which on a small window is less than was asked for.
+      setPanelWidth(panel.offsetWidth);
+    };
+    cpGrip.addEventListener('pointermove', move);
+    cpGrip.addEventListener('pointerup', end);
+    cpGrip.addEventListener('pointercancel', end);
+  });
+  cpGrip.addEventListener('dblclick', () => setPanelWidth(null));
+  cpGrip.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    e.stopPropagation();
+    setPanelWidth(panel.offsetWidth + (e.key === 'ArrowLeft' ? 24 : -24));
+  });
+
   // On a narrow screen there is no room beside the piece: the panel is a sheet over it, brought up when
   // wanted and never open to begin with.
   const narrow = () => vp.clientWidth < 700;
@@ -4976,7 +5194,7 @@
       momentChip.title = !timed ? 'The comment is about the whole video. Click to tie it to the frame showing'
         : held ? 'The comment is about the frame that was drawn on. Click to make it about the whole video'
           : 'The comment is about the frame showing. Click to make it about the whole video';
-      momentChip.lastChild.textContent = fmtMoment(held ? momentOf(draft) : video.currentTime, fpsOf(focusId));
+      momentChip.lastChild.textContent = fmtMoment(held ? momentOf(draft) : whereOf(video), fpsOf(focusId));
     }
     drawnChip.hidden = !strokes;
     drawnChip.children[1].textContent = strokes > 1 ? `Drawing · ${strokes}` : 'Drawing';
@@ -5540,7 +5758,7 @@
     if (!video) return;
     let at = m[1] + (m[2] ? (performance.now() - (peer.mAt || performance.now())) / 1000 : 0);
     if (video.duration > 0 && isFinite(video.duration)) at %= video.duration;
-    video.currentTime = at;
+    goTo(video, at);
     if (m[2]) video.play().catch(() => {});
     else video.pause();
   }
@@ -5893,7 +6111,7 @@
       const video = videoOf(msg.id);
       if (!video) return;
       // Stopped, it shows exactly the frame of the person followed; playing, small drift is left alone rather than stutter.
-      if (Math.abs(video.currentTime - msg.time) > (msg.playing ? 0.25 : 0.001)) video.currentTime = msg.time;
+      if (Math.abs(whereOf(video) - msg.time) > (msg.playing ? 0.25 : 0.001)) goTo(video, msg.time);
       if (msg.playing) video.play().catch(() => {});
       else video.pause();
     }

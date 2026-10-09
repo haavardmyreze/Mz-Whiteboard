@@ -1043,7 +1043,8 @@ body.dragging-tool, body.dragging-tool * { cursor: grabbing !important; }
    left, the comments on the open piece docked on the right, and a video's timeline underneath. The
    floating chrome moves in by what the strips take. */
 body.focus { --film: 92px; --side: 0px; }
-body.focus.cp-open { --side: 320px; }
+/* The panel is as wide as it has been dragged (--cpw), though never so wide that the piece has no room. */
+body.focus.cp-open { --side: min(var(--cpw, 320px), 60vw); }
 /* In here a press on the piece draws: there is one tool, so there is no strip of them. The brush's
    colours are with the comment box. */
 body.focus #toolbar, body.focus #tooloptions { display: none; }
@@ -1119,7 +1120,7 @@ body.viewonly .cchip { right: auto; left: 0.7em; }
 
 /* The panel. Out on the board it floats and lists every thread; beside the viewer it is docked, part of
    the frame around the piece, and holds that piece's threads and the box to write a new one. */
-#commentpanel { z-index: 40; right: 12px; top: calc(var(--bar) + 12px); display: flex; flex-direction: column; width: 336px; max-width: calc(100vw - 24px); max-height: calc(100vh - var(--bar) - 24px); overflow: hidden; animation: rise 0.14s var(--ease); }
+#commentpanel { z-index: 40; right: 12px; top: calc(var(--bar) + 12px); display: flex; flex-direction: column; width: var(--cpw, 336px); max-width: calc(100vw - 24px); max-height: calc(100vh - var(--bar) - 24px); overflow: hidden; animation: rise 0.14s var(--ease); }
 #commentpanel[hidden] { display: none; }
 /* The way to the comments is a tab on the side of the viewer, on the edge the panel comes out from:
    where the comments are, and nowhere near the top of the screen. */
@@ -1133,7 +1134,12 @@ body.focus #cptab { display: flex; }
 #cptab[aria-expanded="true"] .count { display: none; }
 body.focus #commentpanel { animation: cp-slide 0.16s var(--ease); }
 @keyframes cp-slide { from { transform: translateX(16px); opacity: 0; } }
-body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: 320px; max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: none; }
+body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: var(--side); max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: none; }
+/* Its inner edge is taken hold of to make it wider or narrower. */
+.cp-grip { position: absolute; left: 0; top: 0; bottom: 0; z-index: 2; width: 8px; cursor: ew-resize; touch-action: none; }
+.cp-grip::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--accent); opacity: 0; transition: opacity 0.12s var(--ease); }
+.cp-grip:hover::after, .cp-grip.held::after, .cp-grip:focus-visible::after { opacity: 1; }
+.cp-grip:focus-visible { outline: none; }
 .cp-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 8px 0 16px; }
 .cp-head h2 { margin: 0; font-size: 15px; font-weight: 650; line-height: 1.3; letter-spacing: -0.012em; }
 .cp-head .iconbtn { margin-left: auto; }
@@ -1330,9 +1336,8 @@ body.login { display: grid; place-items: center; min-height: 100%; padding: 24px
 /* A small window: the strip goes first and the panel slims down, so the piece keeps most of the room. */
 @media (max-width: 960px) {
   body.focus { --film: 0px; }
-  body.focus.cp-open { --side: 280px; }
+  body.focus.cp-open { --side: min(var(--cpw, 280px), 50vw); }
   #filmstrip { display: none; }
-  body.focus #commentpanel { width: 280px; }
 }
 
 /* A phone: the tools lie along the bottom where a thumb reaches them, a comment opens as a sheet from
@@ -1354,6 +1359,7 @@ body.login { display: grid; place-items: center; min-height: 100%; padding: 24px
   #timeline { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); }
   .tl-time { min-width: 0; margin: 0; padding: 0 4px; }
   body.focus-video #followpill { bottom: 68px; }
+  .cp-grip { display: none; }
   #commentpanel, body.focus #commentpanel { left: 8px; right: 8px; top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 45; width: auto; max-width: none; max-height: 62vh; border-width: 1px; border-radius: var(--r-3); box-shadow: var(--shadow-pop); }
   #followpill { max-width: calc(100vw - 16px); }
 }

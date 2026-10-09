@@ -414,19 +414,33 @@
     if (document.hidden) return setCam(to.x, to.y, to.z);
     // Occluded or background windows may get no animation frames at all; land on the
     // target anyway so a follower who is not looking stays in step with the person they follow.
+    // While frames keep coming the move is theirs to finish, however slowly they come.
     camEasing = true;
-    camTimer = setTimeout(() => {
+    let lastFrame = performance.now();
+    const land = () => {
+      if (performance.now() - lastFrame < 250) {
+        camTimer = setTimeout(land, 250);
+        return;
+      }
       camEasing = false;
       setCam(to.x, to.y, to.z);
-    }, dur + 150);
+    };
+    camTimer = setTimeout(land, dur + 150);
     const vw = vp.clientWidth;
     const vh = vp.clientHeight;
     const z0 = cam.z;
     const c0 = { x: cam.x + vw / 2 / z0, y: cam.y + vh / 2 / z0 };
     const c1 = { x: to.x + vw / 2 / to.z, y: to.y + vh / 2 / to.z };
-    const t0 = performance.now();
+    // How much of the move has been shown, in milliseconds. A slow frame (the whole board coming back
+    // into sight at once when the viewer closes, say) takes it no further than a quick one would, so
+    // the move slows down for a moment instead of jumping ahead. The first frame shows where it starts.
+    let shown = 0;
+    let last = 0;
     const tick = (now) => {
-      const k = Math.min(1, (now - t0) / dur);
+      if (last) shown += Math.min(now - last, 40);
+      last = now;
+      lastFrame = performance.now();
+      const k = Math.min(1, shown / dur);
       const e = linear ? k : k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
       cam.z = z0 * Math.pow(to.z / z0, e);
       // Moving the centre in step with the visible size, not with time, keeps every point on a
@@ -824,13 +838,20 @@
     els.delete(id);
   }
 
-  // Boards show a downscaled preview until an image is zoomed past its resolution.
+  // Boards show a downscaled preview until an image is zoomed past its resolution, and go back to it
+  // once the image is shown small again: every original opened in the viewer and kept would make the
+  // whole board heavier to move around, most of all when the viewer closes and all of it comes back.
   function checkRes() {
     const dpr = window.devicePixelRatio || 1;
     const view = viewRect();
     for (const it of items.values()) {
-      if (it.type !== 'image' || !it.prev || fullRes.has(it.id)) continue;
-      if (it.w * cam.z * dpr > it.pw * 1.1 && intersects(view, it)) {
+      if (it.type !== 'image' || !it.prev) continue;
+      if (fullRes.has(it.id)) {
+        if (it.id !== focusId && it.w * cam.z * dpr < it.pw * 0.75) {
+          fullRes.delete(it.id);
+          renderItem(it);
+        }
+      } else if (it.w * cam.z * dpr > it.pw * 1.1 && intersects(view, it)) {
         fullRes.add(it.id);
         renderItem(it);
       }
@@ -4841,14 +4862,16 @@
 
   // The canvas holds the pointer while a button is down, so the event's target is the canvas
   // itself; the item has to be found from where the cursor is.
+  // With the hand, a double-click still opens an image or video; nothing is edited with it.
   vp.addEventListener('dblclick', (e) => {
-    if (tool !== 'select' || editing) return;
+    if ((tool !== 'select' && tool !== 'pan') || editing) return;
     const hit = document.elementFromPoint(e.clientX, e.clientY);
     const node = hit && hit.closest('.item');
     let it = node && items.get(node.dataset.id);
     if (it && it.type === 'stroke' && it.pid) it = items.get(it.pid);
     if (!it) return;
-    if (viewOnly && it.type !== 'video' && it.type !== 'image') return;
+    if ((viewOnly || tool === 'pan') && it.type !== 'video' && it.type !== 'image') return;
+    if (it.id === focusId) return;
     if (it.type === 'note' || it.type === 'text' || it.type === 'block') startEdit(it.id);
     else if (it.type === 'frame') { if (hit.closest('.frame-head')) startEdit(it.id); }
     else if (it.type === 'video' || it.type === 'image') enterFocus(it.id);

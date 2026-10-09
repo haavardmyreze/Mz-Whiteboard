@@ -5333,6 +5333,13 @@
   const cpTitle = el('h2');
   const cpCount = el('span', { class: 'count', hidden: true });
   const cpList = el('div', { class: 'cp-list' });
+  // A click on the list between the threads lets go of the one picked.
+  cpList.addEventListener('click', (e) => {
+    if (!activeThread || e.target.closest('.cp-card, button, a, textarea, input')) return;
+    activeThread = null;
+    replyBox.value = '';
+    syncComments();
+  });
   const cpFoot = el('div', { class: 'cp-foot' });
   const composer = el('textarea', { rows: 1, maxlength: 2000, placeholder: 'Leave a comment…', 'aria-label': 'Comment' });
   const replyBox = el('textarea', { rows: 1, maxlength: 2000, placeholder: 'Reply…', 'aria-label': 'Reply' });
@@ -5348,7 +5355,7 @@
   const drawnChip = el('button', { class: 'tchip drawn', title: 'Take the drawing back', onclick: discardDrawing }, el('span', { html: ICON.scribble }), el('b'), el('span', { html: ICON.close }));
   // The brush is the one tool the viewer has, so its colours are here, with the reminder of what it is for.
   const cpInks = el('span', { class: 'cp-inks' });
-  const cpBrush = el('div', { class: 'cp-brush' }, cpInks, el('span', { text: 'Draw on the picture to point at what you mean' }));
+  const cpBrush = el('div', { class: 'cp-brush', title: 'Draw on the picture to point at what you mean' }, el('span', { class: 'cp-brush-ic', html: ICON.pen }), cpInks);
   const cpCompose = el('div', { class: 'cp-compose' }, cpBrush, composer,
     el('div', { class: 'cp-actions' }, momentChip, drawnChip, el('button', { class: 'btn small primary', text: 'Comment', title: 'Send (Enter)', onclick: submitComment })));
   // A link opens a piece with one click; on the board itself, where a click selects, it takes two.
@@ -5751,10 +5758,7 @@
     cpTitle.textContent = host ? 'Comments' : 'All comments';
     cpCount.hidden = !open;
     cpCount.textContent = String(open);
-    const empty = any ? 'Everything here has been resolved.'
-      : !host || !canWrite() ? 'No comments yet.'
-        : viewOnly ? 'No comments yet. Write the first one below.'
-          : 'No comments yet. Write the first one below, or draw on the picture to point at something.';
+    const empty = any ? [ICON.check, 'All resolved'] : [ICON.comment, 'No comments yet'];
     drawnIds = new Set();
     for (const it of items.values()) if (it.cid) drawnIds.add(it.cid);
     if (editingId && !comments.has(editingId)) editingId = null;
@@ -5763,7 +5767,7 @@
     const typing = held && [held.selectionStart, held.selectionEnd];
     const top = cpList.scrollTop;
     const mentions = mentionPattern();
-    cpList.replaceChildren(...(roots.length ? roots.map((c) => threadCard(c, !host, mentions)) : [el('p', { class: 'cp-empty', text: empty })]));
+    cpList.replaceChildren(...(roots.length ? roots.map((c) => threadCard(c, !host, mentions)) : [el('p', { class: 'cp-empty' }, el('span', { html: empty[0] }), el('span', { text: empty[1] }))]));
     cpList.scrollTop = top;
     if (typing && held.isConnected) {
       held.focus({ preventScroll: true });

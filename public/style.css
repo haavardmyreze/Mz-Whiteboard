@@ -1373,7 +1373,6 @@ body.welcoming [data-logo-slot] > svg { visibility: hidden; }
 
 /* The welcome: the mark draws itself, the name rises under it, and "by Myreze" settles in beneath. */
 #splash.welcome { gap: 30px; }
-#splash.welcome .splash-logo { width: min(68px, 18vw); }
 .splash-word { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; transition: opacity 0.3s ease, transform 0.45s var(--ease), filter 0.3s ease; }
 .sw-name { display: flex; overflow: hidden; padding: 0.04em 0.06em 0.14em; font-size: clamp(56px, 10vw, 108px); font-weight: 560; line-height: 1; letter-spacing: -0.03em; }
 .sw-name span { display: inline-block; opacity: 0; filter: blur(4px); transform: translateY(60%); animation: sw-rise 0.9s cubic-bezier(0.16, 0.84, 0.24, 1) forwards; }

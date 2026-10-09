@@ -2150,6 +2150,67 @@
   // ---- the strip down the left of the viewer: every image and video, in the order the arrows take them
 
   const film = $('filmstrip');
+  // It can be put away (Shift+F, or its tab) and dragged wider by its edge. Wide enough, each piece shows
+  // its name beside its picture. Both are kept in this browser.
+  const FS_MIN = 64;
+  const FS_MAX = 360;
+  let filmOff = store('wb:filmoff') === true;
+  const filmTab = el('button', { id: 'fstab', 'aria-controls': 'filmstrip', onclick: () => toggleFilm() });
+  const filmGrip = el('div', {
+    class: 'fs-grip', role: 'separator', tabindex: '0', 'aria-orientation': 'vertical', 'aria-label': 'Width of the strip',
+    title: 'Drag to widen and see names. Double-click to put it back',
+  });
+  document.body.append(filmTab, filmGrip);
+  function syncFilmTab() {
+    document.body.classList.toggle('film-off', filmOff);
+    filmTab.innerHTML = filmOff ? ICON.next : ICON.prev;
+    filmTab.title = filmOff ? 'Show the strip (Shift+F)' : 'Hide the strip (Shift+F)';
+    filmTab.setAttribute('aria-expanded', String(!filmOff));
+  }
+  function toggleFilm(show = filmOff) {
+    filmOff = !show;
+    store('wb:filmoff', filmOff);
+    syncFilmTab();
+    relayoutViewer();
+    if (show) syncFilmstrip(true, true);
+  }
+  function setFilmWidth(w, keep = true) {
+    if (w != null) w = Math.round(clamp(w, FS_MIN, FS_MAX));
+    if (w == null) document.body.style.removeProperty('--fsw');
+    else document.body.style.setProperty('--fsw', `${w}px`);
+    if (keep) store('wb:fsw', w);
+    relayoutViewer();
+  }
+  syncFilmTab();
+  if (Number.isFinite(store('wb:fsw'))) setFilmWidth(store('wb:fsw'), false);
+  filmGrip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    try {
+      filmGrip.setPointerCapture(e.pointerId);
+    } catch {
+      // without it the drag lasts only while the pointer stays on the edge
+    }
+    filmGrip.classList.add('held');
+    const move = (m) => setFilmWidth(m.clientX, false);
+    const end = () => {
+      filmGrip.classList.remove('held');
+      filmGrip.removeEventListener('pointermove', move);
+      filmGrip.removeEventListener('pointerup', end);
+      filmGrip.removeEventListener('pointercancel', end);
+      setFilmWidth(film.offsetWidth);
+    };
+    filmGrip.addEventListener('pointermove', move);
+    filmGrip.addEventListener('pointerup', end);
+    filmGrip.addEventListener('pointercancel', end);
+  });
+  filmGrip.addEventListener('dblclick', () => setFilmWidth(null));
+  filmGrip.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    e.stopPropagation();
+    setFilmWidth(film.offsetWidth + (e.key === 'ArrowRight' ? 24 : -24));
+  });
   let filmSig = '';
   let filmQueued = false;
   // The smallest picture there is of a piece: its thumbnail, else what the board shows for it.
@@ -2187,22 +2248,27 @@
   }
 
   // `jump` puts the open piece in view at once, as when the viewer opens; otherwise the strip glides to it.
-  function syncFilmstrip(jump = false) {
+  const clock = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+  function syncFilmstrip(jump = false, recentre = false) {
     const list = mediaOrder();
     const open = new Map();
     if (canRead()) for (const c of comments.values()) if (!c.re && !c.done) open.set(c.on, (open.get(c.on) || 0) + 1);
-    const sig = list.map((it) => `${it.id} ${stillOf(it)} ${open.get(it.id) || 0}`).join('|');
+    const sig = list.map((it) => `${it.id} ${stillOf(it)} ${open.get(it.id) || 0} ${it.name || ''}`).join('|');
     if (sig !== filmSig) {
       filmSig = sig;
       film.replaceChildren(...list.map((it, i) => {
         const still = stillOf(it);
         const n = open.get(it.id);
-        return el('button', { class: 'fs-item', 'data-id': it.id, title: it.name || (it.type === 'video' ? 'Video' : 'Image'), onclick: () => enterFocus(it.id) },
+        const kind = it.type === 'video' ? 'Video' : 'Image';
+        return el('button', { class: 'fs-item', 'data-id': it.id, title: it.name || kind, onclick: () => enterFocus(it.id) },
           el('span', { class: 'fs-num', text: String(i + 1) }),
           el('span', { class: 'fs-thumb', style: { aspectRatio: String(clamp(it.w / (it.h || 1), 0.6, 2.4)) } },
             still && el('img', { src: still, alt: '', decoding: 'async', draggable: 'false' }),
             it.type === 'video' && el('span', { class: 'fs-badge', html: ICON.play }),
-            n && el('span', { class: 'fs-count', text: String(n), title: n > 1 ? `${n} open comments` : '1 open comment' })));
+            n && el('span', { class: 'fs-count', text: String(n), title: n > 1 ? `${n} open comments` : '1 open comment' })),
+          el('span', { class: 'fs-label' },
+            el('span', { class: 'fs-name', text: it.name || kind }),
+            el('span', { class: 'fs-kind', text: it.type === 'video' && it.dur ? `${kind} · ${clock(it.dur)}` : kind })));
       }));
     }
     const i = list.findIndex((it) => it.id === focusId);
@@ -2212,7 +2278,7 @@
     $('focusprev').disabled = $('focusnext').disabled = list.length < 2;
     for (const node of film.children) {
       const current = node.dataset.id === focusId;
-      if (current === node.classList.contains('current')) continue;
+      if (current === node.classList.contains('current') && !(current && recentre)) continue;
       node.classList.toggle('current', current);
       if (!current) {
         node.removeAttribute('aria-current');
@@ -6106,6 +6172,7 @@
     else if (k === 'home') { userMovedView(); fitAll(); }
     else if (k === '?') toggleHelp();
     else if (k === 's' && !e.shiftKey) toggleSnap();
+    else if (k === 'f' && e.shiftKey && focusId) toggleFilm();
     else if (k === 'f' && !e.shiftKey) activateFrame();
     else if (k === 'c' && e.shiftKey) togglePanel();
     else if (k === 'c') startComment();
@@ -6202,6 +6269,7 @@
       ['Previous / next', '←', '→'],
       ['Comment', 'C'],
       ['Show comments', combo('shift', 'C')],
+    ['Show the strip', combo('shift', 'F')],
       ['Mention', '@'],
       ['Laser, then brush', 'L'],
       ['Erase a drawing', 'E'],

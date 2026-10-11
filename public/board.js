@@ -3930,6 +3930,17 @@
     }
   }
 
+  // The size an image or video is given when it is added: a set width, unless that would make it too tall.
+  function mediaSize(m) {
+    let w = IMG_W;
+    let h = IMG_W * (m.nh / m.nw);
+    if (h > IMG_MAX_H) {
+      h = IMG_MAX_H;
+      w = h * (m.nw / m.nh);
+    }
+    return { w, h };
+  }
+
   // Where each of several pieces of media goes, in rows from `at`, all at the same width; a single one is centred on it.
   // Several make a roughly even grid (two side by side, seven as four and three), whatever the zoom.
   function mediaRects(sizes, at, centre = true) {
@@ -3940,12 +3951,7 @@
     let y = 0;
     let tallest = 0;
     const rects = sizes.map((m) => {
-      let w = IMG_W;
-      let h = IMG_W * (m.nh / m.nw);
-      if (h > IMG_MAX_H) {
-        h = IMG_MAX_H;
-        w = h * (m.nw / m.nh);
-      }
+      const { w, h } = mediaSize(m);
       if (x > 0 && x + w > maxRow) {
         x = 0;
         y += tallest + gap;
@@ -4403,7 +4409,7 @@
 
   // ------------------------------------------------------------- pointer input
 
-  // ---- eraser: right-drag while drawing removes every drawing the stroke touches
+  // ---- eraser: right-drag while drawing out on the board removes every drawing the stroke touches
 
   const eraserRing = $('eraser');
   const ERASER_R = 12; // screen pixels
@@ -4497,7 +4503,9 @@
     if (gesture) return;
     // Touching the board catches it.
     if (coasting) stopCamAnim();
-    if (!viewOnly && ((e.button === 2 && (tool === 'pen' || tool === 'arrow')) || (e.button === 0 && tool === 'eraser'))) {
+    // In the viewer the right button is for moving around, as it is with any other tool: a laptop has
+    // no middle button, and zoomed in there must be a way across the piece. The eraser is beside the brush's colours.
+    if (!viewOnly && ((e.button === 2 && !focusId && (tool === 'pen' || tool === 'arrow')) || (e.button === 0 && tool === 'eraser'))) {
       const g = { type: 'erase', last: p, hit: new Set(), touch: e.pointerType === 'touch' };
       begin(g, e);
       eraserRing.hidden = false;
@@ -4772,6 +4780,37 @@
     updateOverlay();
   }
 
+  // A double-click on a handle puts every image and video selected back to the size it was added at.
+  // As when the handle is dragged, the corner across from it stays where it is, and what is drawn on
+  // a piece scales with it.
+  function resetMediaSize(h) {
+    const snap = snapshot(items.keys());
+    const before = new Map();
+    for (const it of items.values()) if (it.type === 'frame') before.set(it.id, geometry(it));
+    const fids = [];
+    for (const id of sel) {
+      const it = items.get(id);
+      if (!it || (it.type !== 'image' && it.type !== 'video') || !(it.w > 0 && it.h > 0)) continue;
+      const size = mediaSize({ nw: it.nw || it.w, nh: it.nh || it.h });
+      const s = size.w / it.w;
+      if (Math.abs(s - 1) < 0.001) continue;
+      const ax = h.includes('w') ? it.x + it.w : it.x;
+      const ay = h.includes('n') ? it.y + it.h : it.y;
+      for (const part of [it, ...[...items.values()].filter((o) => o.pid === id)]) {
+        const b = bounds(part);
+        before.set(part.id, geometry(part));
+        // The piece itself lands on exactly the size it was added at; what is on it goes by the same scale.
+        const to = part === it ? { w: round(size.w), h: round(size.h) } : scaledSize(part, s);
+        liveSet(part.id, { x: round(ax + (b.x - ax) * s), y: round(ay + (b.y - ay) * s), ...to });
+      }
+      if (it.fid) fids.push(it.fid);
+    }
+    refitLive(fids);
+    recordSince(snap);
+    glideFrom(before);
+    updateOverlay();
+  }
+
   vp.addEventListener('pointermove', (e) => {
     pointer.sx = e.clientX;
     pointer.sy = e.clientY;
@@ -5003,6 +5042,11 @@
   vp.addEventListener('dblclick', (e) => {
     if ((tool !== 'select' && tool !== 'pan') || editing) return;
     const hit = document.elementFromPoint(e.clientX, e.clientY);
+    const handle = hit && hit.closest('.handle');
+    if (handle) {
+      if (tool === 'select' && !viewOnly) resetMediaSize(handle.dataset.h);
+      return;
+    }
     const node = hit && hit.closest('.item');
     let it = node && items.get(node.dataset.id);
     if (it && it.type === 'stroke' && it.pid) it = items.get(it.pid);
@@ -5362,9 +5406,12 @@
   }, el('span', { html: ICON.play }), el('b'));
   // What has been drawn for the comment in the box, with a way to take it back.
   const drawnChip = el('button', { class: 'tchip drawn', title: 'Take the drawing back', onclick: discardDrawing }, el('span', { html: ICON.scribble }), el('b'), el('span', { html: ICON.close }));
-  // The brush is the one tool the viewer has, so its colours are here, with the reminder of what it is for.
+  // The viewer has no tool strip, so what it draws with is here: the brush and its colours, and the
+  // eraser to take a stroke away again. Whichever is in hand is lit.
   const cpInks = el('span', { class: 'cp-inks' });
-  const cpBrush = el('div', { class: 'cp-brush', title: 'Draw on the picture to point at what you mean' }, el('span', { class: 'cp-brush-ic', html: ICON.pen }), cpInks);
+  const cpPen = el('button', { class: 'iconbtn mini', title: 'Brush: draw on the picture to point at what you mean', html: ICON.pen, onclick: () => setTool('pen') });
+  const cpEraser = el('button', { class: 'iconbtn mini', title: 'Eraser: drag over a drawing to remove it (E)', html: ICON.eraser, onclick: () => setTool(tool === 'eraser' ? 'pen' : 'eraser') });
+  const cpBrush = el('div', { class: 'cp-brush' }, cpPen, cpInks, cpEraser);
   const cpCompose = el('div', { class: 'cp-compose' }, cpBrush, composer,
     el('div', { class: 'cp-actions' }, momentChip, drawnChip, el('button', { class: 'btn small primary', text: 'Comment', title: 'Send (Enter)', onclick: submitComment })));
   // A link opens a piece with one click; on the board itself, where a click selects, it takes two.
@@ -6109,6 +6156,8 @@
       more.lastElementChild.textContent = under ? TOOL_LABELS[name] : TOOL_LABELS.more;
     }
     $('tooloptions').hidden = name !== 'pen' && name !== 'arrow' && name !== 'eraser' && name !== 'text';
+    cpPen.classList.toggle('active', name === 'pen');
+    cpEraser.classList.toggle('active', name === 'eraser');
     buildToolOptions();
     if (name !== 'select') setSel([]);
     sendP({ l: name === 'laser' ? 1 : 0 });

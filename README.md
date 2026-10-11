@@ -45,7 +45,8 @@ private networks, otherwise only the host machine can connect.
   eases out to show them all if any landed out of sight. A stand-in shows a ring that counts all of the
   work (for a video: making the review copy, sending it, reading it for its timeline) at an even pace,
   and is only full when the file lands. If whoever was adding it leaves before it is done, what is
-  left behind says so instead of waiting for ever.
+  left behind says so instead of waiting for ever. Double-click a corner handle of a selected image or
+  video and it goes back to the size it was added at, the corner across from the handle staying put.
 - **Review copies of video.** Every video is re-encoded in the browser before it is uploaded: H.264
   MP4 (VP9 WebM where the browser cannot encode H.264), 1080p at most, at most 12 Mbps, audio kept, and a
   key frame every quarter of a second. A browser can only show a frame by decoding from the key frame before
@@ -80,8 +81,8 @@ private networks, otherwise only the host machine can connect.
   Done. Nothing else lies over the piece. The comments fold away and back with the tab on their edge
   (Shift+C), so the piece can have the whole width. Esc, Done or the board's name in the bar closes it
   and the board comes back where it was. There is no tool strip in here, because there is one tool:
-  a press on the piece is a brush stroke (right-drag rubs strokes out, and the brush's colours are
-  beside the comment box). Zoom in with the wheel or a pinch and move around with Space and a drag, or
+  a press on the piece is a brush stroke (the brush's colours, and the eraser, are beside the comment
+  box). Zoom in with the wheel or a pinch and move around with a right-drag, Space and a drag, or
   the middle button (two fingers on a phone); the view never zooms out past the piece or wanders off
   it onto the board. The zoom button in the bar switches between fitting the screen and actual size,
   and zooming in on a large image loads its original. What is drawn belongs to the piece, so it moves
@@ -125,7 +126,7 @@ private networks, otherwise only the host machine can connect.
   level of selected text from the floating toolbar.
 - **Brush.** The pen is pressure sensitive on a tablet and speed sensitive with a mouse:
   slow strokes are thick, quick flicks thin out, and strokes taper at the end. Right-drag
-  while drawing, or pick the eraser beside the colours (E), to erase: every drawing the stroke touches is removed. Drawings always sit above
+  while drawing out on the board, or pick the eraser beside the colours (E), to erase: every drawing the stroke touches is removed. Drawings always sit above
   the content and never change a frame's size, but they attach to the piece they are drawn on and
   follow it when it moves, scales, is duplicated or deleted.
 - **Headers and colour blocks.** Every frame has a header with its title and an item count; colour a
@@ -211,7 +212,9 @@ only they can see.
 With `google` or `iap` sign-in, the people named in `ADMIN_EMAILS` get an **Admin** link on the home
 page. At `/admin` they see everyone who has signed in, add people ahead of time, make other admins, put
 people in groups, and give people or groups a role (viewer, commenter, editor or manager) on boards and
-folders in the Myreze workspace. These groups and permissions are recorded but **not enforced yet**:
+folders in the Myreze workspace. It is three tabs: the people, a row each with their groups and when
+they were last seen; the groups, a card each with who is in it and what it opens; and the permissions,
+set out by the folder or board they are on. These groups and permissions are recorded but **not enforced yet**:
 who gets in is still decided by the sign-in, and everyone signed in sees the whole Myreze workspace.
 With the shared password (`password`) the admin area stays closed, as that sign-in does not say who
 people are. With no sign-in at all (`none`, for local use) it opens on the machine that runs the server

@@ -23,15 +23,28 @@
       <span class="bar-here">Admin</span>
       <div class="spacer"></div>
       <span id="themeslot"></span>
-      <a class="btn" href="/">All boards</a>
+      <a class="btn ghost admin-back" href="/">All boards</a>
+      <button id="primary" class="btn primary" type="button" hidden></button>
     </div>
   </header>
   <main>
-    <p class="admin-note">Groups and permissions are kept here but not enforced yet. Who can sign in is still set by the
-      sign-in settings, and everyone signed in sees the shared workspace.</p>
-    <p id="localnote" class="admin-note" hidden>This server has no sign-in, so the admin area is open on this machine only, to be
-      looked at and filled in ahead of time. With Google sign-in on, people show up here as they sign in.</p>
-    <nav id="tabs" class="spaces" aria-label="Admin sections" hidden></nav>
+    <header class="admin-head">
+      <h1>People and access</h1>
+      <p>Who is on the team, the groups they are in, and what each of them may open.</p>
+    </header>
+    <div class="admin-notes">
+      <p class="admin-note warn">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.2v.3"/></svg>
+        <span><b>Not switched on yet.</b> Groups and permissions are kept here so they can be set up ahead of time, but
+          they do not change what anyone sees. For now, everyone who can sign in sees the whole shared workspace.</span>
+      </p>
+      <p id="localnote" class="admin-note" hidden>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/></svg>
+        <span><b>Open on this computer only.</b> This server has no sign-in, so nobody else can reach this page. With
+          Google sign-in on, people show up here as they sign in.</span>
+      </p>
+    </div>
+    <nav id="tabs" class="admin-tabs" aria-label="Admin sections" hidden></nav>
     <p id="status" class="admin-status" role="status" hidden></p>
     <div id="content"></div>
   </main>

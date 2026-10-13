@@ -25,6 +25,8 @@ private networks, otherwise only the host machine can connect.
 
 ## What it does
 
+- **Cards or compact rows.** The button beside the theme in the top bar shows boards, folders and the
+  catalogue as cards, or as compact rows (a small still beside each name), remembered per browser.
 - **One bar across the top, the same on every page.** The mark in the corner goes to all boards, and
   beside it is where you are, as a path: the board, and with an image or video open, the board and
   then the piece. On the right is what can be done there, ending in the one thing set in ink (New
@@ -82,14 +84,15 @@ private networks, otherwise only the host machine can connect.
   top becomes the viewer's: the piece's name, the way to the next and the one before, its zoom, and
   Done. Nothing else lies over the piece. The comments fold away and back with the tab on their edge
   (Shift+C), so the piece can have the whole width. Esc, Done or the board's name in the bar closes it
-  and the board comes back where it was. There is no tool strip in here, because there is one tool:
-  a press on the piece is a brush stroke (the brush's colours, and the eraser, are beside the comment
-  box). Zoom in with the wheel or a pinch and move around with a right-drag, Space and a drag, or
+  and the board comes back where it was. It opens to look at: a drag moves the picture, and nothing is
+  drawn until the pen beside the comment box is turned on (or P), as in Frame.io. With the pen on, its
+  colours and the eraser show above the box, and sending the comment turns it off again. Zoom in with
+  the wheel or a pinch and move around with a drag, a right-drag, Space and a drag, or
   the middle button (two fingers on a phone); the view never zooms out past the piece or wanders off
   it onto the board. The zoom button in the bar switches between fitting the screen and actual size,
   and zooming in on a large image loads its original. What is drawn belongs to the piece, so it moves
-  and scales with it, and everyone who has it open sees it live. The laser (L, and L again for the
-  brush) still points for everyone. Somebody holding a link has the hand instead of the brush.
+  and scales with it, and everyone who has it open sees it live. The laser (L, and L or Esc again to
+  put it away) still points for everyone. Somebody holding a link has no pen.
 - **One meaning per key.** In the viewer the arrow keys always go to the next or previous image or
   video (so do a click in the strip, a swipe, or, on a window too narrow for the strip, the arrows in the bar), in the order the board reads:
   frame by frame, rows first and then left to right, with loose media taking its place among the
@@ -101,6 +104,8 @@ private networks, otherwise only the host machine can connect.
   a dark bed in both themes so the colours read the same. Every comment has a small mark above the track in its writer's colour, at the moment it is
   about; click one to go there, and the comments open on it if they were folded away. Comments about
   the same moment share one mark with their number on it, and each click goes to the next of them. Nothing lies over the picture while it is open.
+  The loop button beside the sound starts a video again from the top when it reaches the end; it is on
+  unless turned off, and the choice is remembered per browser. A comment's frame leads its text.
 - **The board's videos are fetched ahead.** Once a board is open its videos are fetched quietly in
   the background, one at a time in the order the viewer steps through them, and kept on the
   computer's disk (up to 4 GB, the longest unused making room). Opening one then finds it there
@@ -156,8 +161,8 @@ private networks, otherwise only the host machine can connect.
   Only deleting a thread deletes it. On a piece filed as a version (see Projects, below) the comments
   belong to the version, so they are there on every board the version is on, each saying which board
   it was made on.
-- **Drawings go with comments.** To point at something, circle it. A stroke on the open piece
-  belongs to the comment being written, and starts one if none is: the box takes the keyboard, so
+- **Drawings go with comments.** To point at something, turn on the comment's pen and circle it. A
+  stroke on the open piece belongs to the comment being written, and starts one if none is: the box takes the keyboard, so
   draw, type what it is about, Enter. On a video the comment is about the frame that was drawn on,
   and its drawing shows only while the video is stopped there. Only the drawing of the comment being
   read is on the picture: pick another thread and its drawing takes the other's place, so two

@@ -53,6 +53,7 @@ const WBViewer = (() => {
     play: icon('<path d="M7 4l13 8-13 8z" fill="currentColor"/>'),
     pause: icon('<path d="M7 4v16M17 4v16" stroke-width="3.5"/>'),
     muted: icon('<path d="M4 9v6h4l5 4V5L8 9zM17 9l5 6M22 9l-5 6"/>'),
+    loop: icon('<path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/>'),
     sound: icon('<path d="M4 9v6h4l5 4V5L8 9zM17 8a5 5 0 0 1 0 8"/>'),
     comment: icon('<path d="M4 5h16v11H11l-5 4v-4H4z"/>'),
     check: icon('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
@@ -537,7 +538,7 @@ const WBViewer = (() => {
     let W = 1000;         // its size, as it is laid out
     let H = 562;
     const cam = { s: 1, x: 0, y: 0 };
-    let tool = 'pen';
+    let tool = 'pan';
     let draft = null;     // { id, on, at, fr, strokes }: the comment being written, from its first stroke
     const unstroked = []; // strokes taken back from the draft, for redo
     let activeThread = null;
@@ -546,6 +547,8 @@ const WBViewer = (() => {
     let viewerPanel = store('wb:cpanel') !== false;
     let sheetOpen = false;
     let filmOff = store('wb:filmoff') === true;
+    // A video starts again from the top when it reaches the end, unless that is turned off (remembered).
+    let looping = store('wb:loop') !== false;
     let editingId = null;
     const typed = new Map(); // piece id -> what its comment box held
     const fullRes = new Set();
@@ -582,7 +585,8 @@ const WBViewer = (() => {
         // Whatever opened it (a card, a thumbnail) is behind it now, and must not keep the keyboard: Space
         // on it would open it again.
         if (document.activeElement && !root.contains(document.activeElement) && document.activeElement !== document.body) document.activeElement.blur();
-        tool = narrow() && matchMedia('(hover: none) and (pointer: coarse)').matches ? 'pan' : can.draw() ? 'pen' : 'pan';
+        // It opens to look at, not to draw on: drawing is turned on from the comment box (its pen), or with P.
+        tool = 'pan';
         syncTools();
       }
       if (!was || was.id !== id) {
@@ -637,6 +641,7 @@ const WBViewer = (() => {
       fullRes.delete(piece.id);
       if (piece.type === 'video') {
         const video = el('video', { playsinline: '', preload: 'auto' });
+        video.loop = looping;
         if (piece.poster || piece.th) video.poster = piece.poster || piece.th;
         video.src = piece.src;
         for (const type of ['timeupdate', 'seeked', 'loadedmetadata', 'durationchange']) video.addEventListener(type, () => { syncTimeline(); if (type !== 'timeupdate') { paintMarks(); paintInk(); } });
@@ -924,6 +929,17 @@ const WBViewer = (() => {
 
     const tlPlay = el('button', { class: 'iconbtn', html: ICON.play, title: 'Play or pause (Space, or K)', onclick: () => togglePlay() });
     const tlSound = el('button', { class: 'iconbtn', html: ICON.muted, title: 'Sound on / off (M)', onclick: () => toggleSound() });
+    const tlLoop = el('button', { class: 'iconbtn tl-loop', html: ICON.loop, onclick: () => setLooping(!looping) });
+    function setLooping(on) {
+      looping = on;
+      store('wb:loop', on);
+      const video = videoOpen();
+      if (video) video.loop = on;
+      tlLoop.classList.toggle('active', on);
+      tlLoop.setAttribute('aria-pressed', String(on));
+      tlLoop.title = on ? 'Looping: starts again at the end. Click to stop at the end' : 'Stops at the end. Click to loop';
+    }
+    setLooping(looping);
     const tlTime = el('button', { class: 'tl-time', text: '0:00', title: 'Show minutes and seconds, frame number or timecode', onclick: cycleTimeMode });
     const tlMarks = el('div', { class: 'tl-marks' });
     const tlTip = el('span', { class: 'tl-tip', hidden: true });
@@ -933,7 +949,7 @@ const WBViewer = (() => {
     timeline.append(tlPlay,
       el('button', { class: 'iconbtn', html: ICON.frameBack, title: 'Back one frame ( , )   With Shift, one second', onclick: (e) => stepFrame(-1, e.shiftKey) }),
       el('button', { class: 'iconbtn', html: ICON.frameFwd, title: 'Forward one frame ( . )   With Shift, one second', onclick: (e) => stepFrame(1, e.shiftKey) }),
-      tlTime, tlTrack, tlSound);
+      tlTime, tlTrack, tlLoop, tlSound);
     window.addEventListener('wb:theme', () => {
       delete tlWave.dataset.drawn;
       fitWave(tlWave);
@@ -1358,8 +1374,12 @@ const WBViewer = (() => {
     }
     function syncTools() {
       if (!cpPen) return;
-      cpPen.classList.toggle('active', tool === 'pen');
+      const drawing = tool === 'pen' || tool === 'eraser';
+      cpPen.classList.toggle('active', drawing);
+      cpPen.setAttribute('aria-pressed', String(drawing));
+      cpPen.title = drawing ? 'Stop drawing (P)' : 'Draw on the picture, to point at what you mean (P)';
       cpEraser.classList.toggle('active', tool === 'eraser');
+      cpBrush.hidden = !can.draw() || !drawing;
       root.dataset.tool = tool;
       const acts = [
         ['pan', 'Pan', ICON.pan, () => setTool('pan')],
@@ -1614,11 +1634,13 @@ const WBViewer = (() => {
     }, el('span', { html: ICON.play }), el('b'));
     const drawnChip = el('button', { class: 'tchip drawn', title: 'Take the drawing back', onclick: discardDrawing }, el('span', { html: ICON.scribble }), el('b'), el('span', { html: ICON.close }));
     const cpInks = el('span', { class: 'cp-inks' });
-    const cpPen = el('button', { class: 'iconbtn mini', title: 'Brush: draw on the picture to point at what you mean', html: ICON.pen, onclick: () => setTool('pen') });
+    // Drawing is something a comment does, as in Frame.io: the pen beside the box turns it on, its colours
+    // and the eraser show while it is on, and sending the comment turns it off again.
+    const cpPen = el('button', { class: 'iconbtn mini cp-pen', 'aria-pressed': 'false', html: ICON.pen, onclick: () => setTool(tool === 'pen' || tool === 'eraser' ? 'pan' : 'pen') });
     const cpEraser = el('button', { class: 'iconbtn mini', title: 'Eraser: drag over a drawing to remove it (E)', html: ICON.eraser, onclick: () => setTool(tool === 'eraser' ? 'pen' : 'eraser') });
-    const cpBrush = el('div', { class: 'cp-brush' }, cpPen, cpInks, cpEraser);
+    const cpBrush = el('div', { class: 'cp-brush', hidden: true }, cpInks, cpEraser);
     const cpCompose = el('div', { class: 'cp-compose' }, cpBrush, composer,
-      el('div', { class: 'cp-actions' }, momentChip, drawnChip, el('button', { class: 'btn small primary', text: 'Comment', title: 'Send (Enter)', onclick: submitComment })));
+      el('div', { class: 'cp-actions' }, cpPen, momentChip, drawnChip, el('button', { class: 'btn small primary', text: 'Comment', title: 'Send (Enter)', onclick: submitComment })));
 
     function buildInks() {
       cpInks.replaceChildren(...INK.map((c) => el('button', {
@@ -1850,7 +1872,8 @@ const WBViewer = (() => {
       drawnChip.children[1].textContent = strokes > 1 ? `Drawing · ${strokes}` : 'Drawing';
       composer.placeholder = strokes ? 'Say what the drawing is about…' : 'Leave a comment…';
       cpCompose.classList.toggle('drafting', strokes > 0);
-      cpBrush.hidden = !can.draw();
+      cpPen.hidden = !can.draw();
+      cpBrush.hidden = !can.draw() || (tool !== 'pen' && tool !== 'eraser');
     }
 
     function messageNode(c, root0, mentions) {
@@ -1864,18 +1887,19 @@ const WBViewer = (() => {
           el('button', { class: 'btn small ghost', text: 'Cancel', title: 'Keep it as it was (Esc)', onclick: () => endEdit(false) }),
           el('button', { class: 'btn small primary', text: 'Save', title: 'Save (Enter)', onclick: () => endEdit(true) })))
         : el('div', { class: 'msg-text' });
+      const moment = first && open.type === 'video' ? momentOf(c) : null;
       if (!editing) {
         fillText(text, c.text);
         markMentions(text, mentions);
+        // The frame it is about leads the text, as in Frame.io, so the line above keeps room for the name.
+        if (moment != null) text.prepend(el('button', { class: 'tchip', title: 'Go to this frame', onclick: () => pickThread(c.id) }, el('span', { html: ICON.play }), fmtMoment(moment, fpsOf(c.on))));
       }
-      const moment = first && open.type === 'video' ? momentOf(c) : null;
       return el('div', { class: `msg${first ? '' : ' reply'}` },
         el('span', { class: 'avatar sm', style: { background: hexOk(c.color) ? c.color : '#8a8a8a' }, text: WB.initials(c.name || '?') }),
         el('div', { class: 'msg-main' },
           el('div', { class: 'msg-top' },
             el('strong', { text: c.name }),
             c.guest && el('span', { class: 'notice-guest', text: 'Guest', title: 'Written by somebody holding a link, under a name they typed' }),
-            moment != null && el('button', { class: 'tchip', title: 'Go to this frame', onclick: () => pickThread(c.id) }, el('span', { html: ICON.play }), fmtMoment(moment, fpsOf(c.on))),
             el('span', { class: 'msg-time', text: WB.ago(c.t), title: new Date(c.t).toLocaleString() }),
             c.obn && el('span', { class: 'msg-from', text: `on ${c.obn}`, title: `Said on ${c.obn}, about the same version` }),
             c.edited && el('span', { class: 'msg-edited', text: 'edited', title: `Edited ${new Date(c.edited).toLocaleString()}` }),
@@ -1989,6 +2013,7 @@ const WBViewer = (() => {
       replyBox.value = '';
       opts.add(c);
       if (drawn) seek(momentOf(c));
+      if (tool === 'pen' || tool === 'eraser') setTool('pan');
       revealCard(c.id);
     }
 
@@ -2035,9 +2060,13 @@ const WBViewer = (() => {
       // Enter works a button that has the keyboard; Space always plays and pauses, even when a button
       // clicked a moment ago still has it.
       if (k === 'enter' && e.target.closest && e.target.closest('button, a[href], input')) return;
+      // A button clicked a moment ago still has the keyboard, and a key press makes the browser ring it in
+      // blue. A key the player takes is the player's, so the button lets go of it.
       const done = () => {
         e.preventDefault();
         e.stopImmediatePropagation();
+        const held = document.activeElement;
+        if (held && held !== document.body && root.contains(held) && held.matches('button, a[href]')) held.blur();
       };
       if (e.code === 'Space') {
         if (!spaceDown) {
@@ -2064,7 +2093,7 @@ const WBViewer = (() => {
       }
       if ((e.shiftKey && (e.code === 'Digit1' || e.code === 'Digit2')) || k === 'home') fit();
       else if (k === 'escape') {
-        if (tool === 'laser' || tool === 'eraser') setTool(can.draw() ? 'pen' : 'pan');
+        if (tool !== 'pan') setTool('pan');
         else close();
       } else if (k === 'f' && e.shiftKey) toggleFilm();
       else if (k === 'c' && e.shiftKey) { if (can.read()) togglePanel(); }
@@ -2073,9 +2102,9 @@ const WBViewer = (() => {
       else if (videoOpen() && e.code === 'Comma') stepFrame(-1, e.shiftKey);
       else if (videoOpen() && e.code === 'Period') stepFrame(1, e.shiftKey);
       else if (videoOpen() && k === 'm') toggleSound();
-      else if (k === 'l' && !e.shiftKey) setTool(tool === 'laser' ? (can.draw() ? 'pen' : 'pan') : 'laser');
+      else if (k === 'l' && !e.shiftKey) setTool(tool === 'laser' ? 'pan' : 'laser');
       else if (k === 'e' && !e.shiftKey && can.draw()) setTool(tool === 'eraser' ? 'pen' : 'eraser');
-      else if (k === 'p' && !e.shiftKey && can.draw()) setTool('pen');
+      else if (k === 'p' && !e.shiftKey && can.draw()) setTool(tool === 'pen' || tool === 'eraser' ? 'pan' : 'pen');
       else if (k === 'h' && !e.shiftKey) setTool('pan');
       else if (k === 'delete' || k === 'backspace' || k === 'v' || k === 'n' || k === 't' || k === 'b' || k === 'f' || k === 'a' || k === 's') { /* the board's, not the viewer's */ }
       else return;
@@ -2104,7 +2133,7 @@ const WBViewer = (() => {
       typeComment(text.trim());
     }, true);
 
-    setTool('pen');
+    setTool('pan');
 
     return {
       open: show,

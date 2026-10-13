@@ -19,6 +19,24 @@
   let dragging = null; // { kind: 'board' | 'folder', id }
 
   $('themeslot').replaceWith(WB.themeButton());
+  // Normal cards, or compact rows: a small still beside the name, many more to a screen. Remembered here.
+  const ICON_ROWS = svg('<path d="M4 6h16M4 12h16M4 18h16"/>', 18);
+  const ICON_CARDS = svg('<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>', 18);
+  function paintDensity() {
+    const compact = document.documentElement.dataset.density === 'compact';
+    $('density').innerHTML = compact ? ICON_CARDS : ICON_ROWS;
+    $('density').title = compact ? 'Show as cards' : 'Show as compact rows';
+    $('density').setAttribute('aria-label', $('density').title);
+    $('density').setAttribute('aria-pressed', String(compact));
+  }
+  $('density').addEventListener('click', () => {
+    const compact = document.documentElement.dataset.density !== 'compact';
+    if (compact) document.documentElement.dataset.density = 'compact';
+    else delete document.documentElement.dataset.density;
+    try { localStorage.setItem('wb:density', JSON.stringify(compact ? 'compact' : 'normal')); } catch { /* remembered for now only */ }
+    paintDensity();
+  });
+  paintDensity();
   WB.watchServer();
   let me = await WB.askName();
   // Personal workspaces belong to a signed-in account, so without sign-in there is only the shared one.
@@ -761,7 +779,9 @@
       el('span', { class: 'avatar sm', style: { background: /^#[0-9a-f]{6}$/i.test(n.color || '') ? n.color : '#8a8a8a' }, text: WB.initials(n.name || '?') }),
       el('div', { class: 'ent-msg-main' },
         el('div', { class: 'ent-msg-top' }, el('strong', { text: n.name }), el('span', { text: ago(n.t) }),
-          first && el('a', { href: `/b/${n.board.id}#c=${n.id}`, text: `on ${n.board.name || 'a board'}` })),
+          first && (n.board.id
+            ? el('a', { href: `/b/${n.board.id}#c=${n.id}`, text: `on ${n.board.name || 'a board'}` })
+            : el('span', { class: 'ent-msg-where', text: 'in the catalogue' }))),
         el('div', { class: 'ent-msg-text', text: n.text })));
     const threads = roots.map((n) => el('div', { class: `ent-thread${n.done ? ' done' : ''}` },
       el('div', { class: 'ent-thread-ver' }, byVersion.get(n.versionId)?.label || '', n.done && el('span', { class: 'ent-done', text: 'Resolved' })),

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0f0f0f">
   <script>try { document.documentElement.dataset.theme = JSON.parse(localStorage.getItem('wb:theme')) || 'dark'; } catch (e) { document.documentElement.dataset.theme = 'dark'; }</script>
+  <script>try { if (JSON.parse(localStorage.getItem('wb:density')) === 'compact') document.documentElement.dataset.density = 'compact'; } catch (e) { /* the normal layout */ }</script>
   <title>Boards by Myreze</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -32,6 +33,7 @@
         </button>
         <section id="notices" class="notices" hidden aria-label="Notifications"></section>
       </div>
+      <button id="density" class="iconbtn" aria-pressed="false"></button>
       <span id="themeslot"></span>
       <a id="adminlink" class="btn ghost" href="/admin" hidden>Admin</a>
       <button id="me" class="chip" title="Change your name"></button>

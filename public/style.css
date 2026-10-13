@@ -1173,6 +1173,8 @@ body.focus:not(.film-off) .fs-grip { display: block; }
 #timeline[hidden] { display: none; }
 #timeline .iconbtn { flex: none; }
 #timeline .iconbtn svg { width: 16px; height: 16px; }
+#timeline .tl-loop { color: var(--muted); }
+#timeline .tl-loop.active { color: var(--accent); }
 .tl-time { flex: none; min-width: 96px; height: var(--h-sm); margin: 0 4px; padding: 0 8px; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text); font: inherit; font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; text-align: center; cursor: pointer; }
 .tl-time:hover { background: var(--hover); }
 .tl-track { position: relative; flex: 1; align-self: stretch; min-width: 60px; margin: 0 10px 0 6px; cursor: pointer; touch-action: none; --p: 0%; }
@@ -1321,7 +1323,10 @@ body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: var(--si
 .msg-top { display: flex; align-items: center; gap: 6px; min-height: 22px; font-size: 12.5px; }
 .msg-top .tchip { height: 18px; }
 .msg-acts .iconbtn.mini { width: 22px; height: 22px; }
-.msg-top strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The name comes first: what follows it (where it was said) gives way before it does. */
+.msg-top strong { flex: 0 0 auto; max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-top .msg-from { flex: 0 1 auto; min-width: 0; }
+.msg-text > .tchip { display: inline-flex; height: 18px; margin-right: 6px; vertical-align: 1px; white-space: nowrap; }
 .msg-time { flex: none; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .msg-acts { flex: none; display: flex; gap: 2px; margin-left: auto; opacity: 0; transition: opacity 0.12s; }
 .cp-card:hover .msg-acts, .cp-card.active .msg-acts, .msg-acts:focus-within, .msg-acts:has(.active) { opacity: 1; }
@@ -1372,6 +1377,8 @@ body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: var(--si
 /* The brush and its colours, and the eraser at the other end. */
 .cp-brush { display: flex; align-items: center; gap: 8px; margin: -2px -4px; color: var(--muted); font-size: 11.5px; line-height: 1.35; }
 .cp-brush .iconbtn:last-child { margin-left: auto; }
+.cp-pen.active { background: var(--accent-soft); color: var(--accent); }
+.cp-pen[hidden] { display: none; }
 .cp-brush[hidden] { display: none; }
 .cp-inks { flex: none; display: flex; gap: 5px; }
 .cp-inks .swatch { width: 14px; height: 14px; }
@@ -1877,6 +1884,26 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .card.ver.hidden-ver { opacity: 0.55; }
 .ver-kind { position: absolute; left: 8px; bottom: 8px; padding: 2px 7px; border-radius: 8px; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 11px; font-weight: 600; }
 .ver-boards { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+
+/* Compact: every card a row, a small still beside its name, many more to a screen (the button in the bar). */
+[data-density="compact"] .board-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; }
+[data-density="compact"] .folder-grid { gap: 8px; }
+[data-density="compact"] .card { flex-direction: row; align-items: center; min-height: 52px; }
+[data-density="compact"] .card:hover { transform: none; }
+[data-density="compact"] .card-thumbs,
+[data-density="compact"] .card.ent .card-thumbs,
+[data-density="compact"] .card.ver .card-thumbs { flex: none; align-self: stretch; width: 84px; height: auto; min-height: 52px; aspect-ratio: auto; border-bottom: 0; border-right: 1px solid var(--line); }
+[data-density="compact"] .card-body { flex: 1; min-width: 0; padding: 7px 44px 7px 12px; }
+[data-density="compact"] .card-name { font-size: 13px; }
+[data-density="compact"] .card-meta { margin-top: 0; font-size: 11.5px; }
+[data-density="compact"] .ver-boards { margin-top: 4px; }
+[data-density="compact"] .card-menu { top: 50%; transform: translateY(-50%); }
+[data-density="compact"] .card.folder { height: 48px; padding-left: 8px; }
+[data-density="compact"] .card.folder .card-body { padding: 0; }
+[data-density="compact"] .folder-icon { width: 32px; height: 32px; }
+[data-density="compact"] .card.new .new-thumb { flex: none; align-self: stretch; width: 84px; aspect-ratio: auto; border-bottom: 0; border-right: 1px dashed var(--line-strong); }
+[data-density="compact"] .card.new .plus { width: 28px; height: 28px; }
+[data-density="compact"] .card.new { flex-direction: row; }
 .ver-board { padding: 2px 8px; border-radius: 10px; background: var(--surface-2); color: var(--text-2); font-size: 11.5px; text-decoration: none; }
 .ver-board:hover { background: var(--hover); color: var(--text); }
 .cat-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: 420px; }
@@ -1913,6 +1940,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .ent-msg-main { flex: 1; min-width: 0; }
 .ent-msg-top { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; }
 .ent-msg-top span { color: var(--muted); font-size: 11.5px; }
+.ent-msg-top .ent-msg-where { margin-left: auto; }
 .ent-msg-top a { margin-left: auto; color: var(--muted); font-size: 11.5px; text-decoration: none; }
 .ent-msg-top a:hover { color: var(--text); text-decoration: underline; }
 .ent-msg-text { margin-top: 2px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -4845,10 +4845,9 @@
     chip.firstChild.textContent = v.label;
     chip.lastChild.textContent = v.newest ? `v${v.newest.number}` : '';
     chip.classList.toggle('stale', !!v.newest);
-    const hip = v.hip != null ? ` From HIP v${String(v.hip).padStart(3, '0')}.` : '';
     chip.title = v.newest
       ? `${v.label}. Version ${v.newest.number} has been filed since. Click to swap it in`
-      : `${v.label}${v.artist ? `, by ${v.artist}` : ''}.${hip} Click for more`;
+      : `${v.label}${v.artist ? `, by ${v.artist}` : ''}. Click for more`;
   }
 
   function closeMenus() {
@@ -4864,7 +4863,7 @@
     if (!v) return;
     const entries = [
       el('div', { class: 'vmenu-head' }, el('b', { text: v.label }),
-        el('span', { text: [v.artist && `by ${v.artist}`, v.descriptor, v.hip != null && `from HIP v${String(v.hip).padStart(3, '0')}`].filter(Boolean).join(' · ') || 'In the catalogue' })),
+        el('span', { text: [v.artist && `by ${v.artist}`, v.descriptor].filter(Boolean).join(' · ') || 'In the catalogue' })),
       v.newest && !viewOnly && el('button', { class: 'menu-item', text: `Swap in v${v.newest.number}`, onclick: () => { closeMenus(); swapVersion(id, v.newest.id); } }),
       !viewOnly && el('button', { class: 'menu-item', text: 'Look through all its versions', onclick: () => { closeMenus(); lookAtEntity(v.entityId, v.id); } }),
       !viewOnly && el('button', { class: 'menu-item', text: 'Put another version on the board', onclick: () => { closeMenus(); toggleCatalogue(true, v.entityId); } }),
@@ -4944,7 +4943,7 @@
     const rows = el('div', { class: 'file-rows' }, list.map((it, i) => el('div', { class: 'file-row' },
       el('img', { src: it.th || it.prev || (it.type === 'image' ? it.src : it.poster) || '', alt: '' }),
       el('span', { class: 'file-name', text: it.name || (it.type === 'video' ? 'Video' : 'Image') }),
-      el('span', { class: 'file-said', text: [parsed[i].entity, parsed[i].task, parsed[i].hip != null && `HIP v${String(parsed[i].hip).padStart(3, '0')}`].filter(Boolean).join(' · ') }))));
+      el('span', { class: 'file-said', text: [parsed[i].entity, parsed[i].task].filter(Boolean).join(' · ') }))));
 
     function paint() {
       entity = N.tokenize(entityIn.value);

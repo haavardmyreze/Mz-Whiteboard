@@ -1491,7 +1491,6 @@ test('media filed as a version takes its notes along, and they show on every boa
   assert.equal(filed.status, 201);
   const v1 = filed.body.versions[0];
   assert.equal(v1.label, 'kilo-0010 anim v1');
-  assert.equal(v1.hip, null);
   assert.equal(v1.look.src, shotA);
   await pause(200);
   // everybody on the board is told the piece is that version now, and what it is called
@@ -1548,7 +1547,8 @@ test('media filed as a version takes its notes along, and they show on every boa
   await pause(200);
   const v2 = (await call('POST', `/api/projects/${project.id}/versions`, { files: [{ board: standup.id, item: 'imagetwo1' }] })).body.versions[0];
   assert.equal(v2.label, 'kilo-0010 anim v2');
-  assert.equal(v2.hip, 12);
+  // the v012 in its name is not shown anywhere: the catalogue's own number is the one
+  assert.equal(v2.hip, undefined);
   assert.equal(v2.artist, 'erik');
   assert.equal(v2.entityId, v1.entityId);
   await pause(200);

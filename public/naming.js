@@ -49,8 +49,8 @@
   const seqOf = (name) => (/^([a-z]+)-\d+$/.exec(name || '') || [])[1] || null;
 
   // Whatever can be read from a file name: { entity, tier, task, descriptor, artist, hip }, each null
-  // when the name does not say. `hip` is the number after v, kept only as a label: the catalogue counts
-  // versions itself.
+  // when the name does not say. `hip` is the number after v; nothing is made of it, since the catalogue
+  // counts versions itself, but it is read so that the rest of the name is.
   function parse(filename, presetId) {
     const out = { entity: null, tier: null, task: null, descriptor: null, artist: null, hip: null };
     const stem = String(filename || '').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '').toLowerCase().trim();

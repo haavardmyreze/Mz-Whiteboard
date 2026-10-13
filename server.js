@@ -753,7 +753,7 @@ function versionInfo(ref) {
   const newest = store.newestVersion(v.entityId, v.task);
   return {
     id: v.id, entityId: e.id, entity: e.name, tier: e.tier, projectId: e.projectId, task: v.task, number: v.number,
-    label: naming.label(e.name, v.task, v.number), hip: v.hip, artist: v.artist, descriptor: v.descriptor, hidden: v.hidden,
+    label: naming.label(e.name, v.task, v.number), artist: v.artist, descriptor: v.descriptor, hidden: v.hidden,
     thumb: v.thumb, kind: v.kind, newest: newest && newest.id !== v.id && newest.number > v.number ? newest : null,
   };
 }
@@ -845,7 +845,7 @@ async function fileVersions(req, project, body) {
     const media = uploadName(p.look.src);
     const thumb = p.look.th || (p.look.type === 'image' ? p.look.prev || p.look.src : p.look.poster) || null;
     const v = store.addVersion({
-      id: newId(), entityId: entity.id, task, descriptor, artist, hip: Number.isSafeInteger(p.parsed.hip) ? p.parsed.hip : null,
+      id: newId(), entityId: entity.id, task, descriptor, artist,
       media, thumb, kind: p.look.type, originalName: p.look.name || null, look: p.look, boardId: p.board ? p.board.id : null, by,
     });
     entitiesTouched.add(entity.id);

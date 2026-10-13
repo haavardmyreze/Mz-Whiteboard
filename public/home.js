@@ -732,7 +732,6 @@
     const hidden = page.versions.filter((v) => v.hidden).length;
     const versions = page.versions.filter((v) => showHidden || !v.hidden);
     const byVersion = new Map(page.versions.map((v) => [v.id, v]));
-    const hip = (v) => (v.hip != null ? `from HIP v${String(v.hip).padStart(3, '0')}` : null);
     const archive = async (v, hide) => {
       await api('PATCH', `/api/versions/${v.id}`, { hidden: hide });
       render();
@@ -744,7 +743,7 @@
         v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })),
       el('div', { class: 'card-body' },
         el('div', { class: 'card-name', text: v.label }),
-        el('div', { class: 'card-meta', text: [v.artist, v.descriptor, hip(v)].filter(Boolean).join(' · ') || v.originalName || '' }),
+        el('div', { class: 'card-meta', text: [v.artist, v.descriptor].filter(Boolean).join(' · ') || v.originalName || '' }),
         el('div', { class: 'card-meta', text: `Filed ${ago(v.createdAt)}${v.createdBy ? ` by ${v.createdBy}` : ''}${v.hidden ? ' · archived' : ''}` }),
         v.boards.length > 0 && el('div', { class: 'ver-boards' }, v.boards.map((b) => el('a', { class: 'ver-board', href: `/b/${b.id}`, text: b.name })))),
       menuButton([
@@ -847,7 +846,7 @@
       },
         el('span', { class: 'imp-thumb' }, r.preview && el('img', { src: r.preview, alt: '' })),
         el('span', { class: 'imp-name', text: r.file.name }),
-        el('span', { class: 'imp-said', text: r.entity ? `Into ${r.entity.name}` : [r.parsed.entity, r.parsed.task, r.parsed.hip != null && `HIP v${String(r.parsed.hip).padStart(3, '0')}`].filter(Boolean).join(' · ') }),
+        el('span', { class: 'imp-said', text: r.entity ? `Into ${r.entity.name}` : [r.parsed.entity, r.parsed.task].filter(Boolean).join(' · ') }),
         el('span', { class: 'imp-status', text: status }));
     }
 

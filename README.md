@@ -265,7 +265,7 @@ filed in it.
   only the others are asked about.
 - **Numbering.** The catalogue counts versions itself: `kilo-0010 anim v1`, `v2`, `v3`, per asset, set
   or shot and task, in the order they were filed. A version number in the file's name (`_v012`) is
-  kept beside it as a label ("from HIP v012").
+  not used or shown; the number can be changed by hand (see below).
 - **On the board.** A piece that is a version says which in its corner. When a newer one of the same
   thing has been filed since, the chip says so; click it to swap the newer one in, or to see them all.
   The layers button in the bar opens the project's catalogue beside the board: pick an asset, set or

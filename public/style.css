@@ -1906,7 +1906,13 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .media-head { display: flex; align-items: center; gap: 10px; margin: 0 0 10px 4px; }
 .media-head span { flex: 1; overflow: hidden; color: var(--muted); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
 
-.imp { margin-top: 28px; }
+.imp { margin-top: 24px; padding: 12px 16px 4px; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); }
+.imp[hidden] { display: none; }
+.imp-head { display: flex; align-items: center; gap: 12px; }
+.imp-head b { flex: 1; font-size: 13px; font-weight: 600; }
+.imp-head .btn[hidden] { display: none; }
+.imp .imp-list { margin-top: 4px; }
+.imp .imp-row:last-child { border-bottom: 0; }
 .imp-drop { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 40px 24px; border: 1.5px dashed var(--line-strong); border-radius: var(--r-3); color: var(--text-2); text-align: center; cursor: pointer; transition: border-color 0.12s var(--ease), background 0.12s var(--ease); }
 .imp-drop:hover, .imp-drop:focus-visible { border-color: var(--muted); background: var(--hover); outline: none; }
 .imp-drop.drop { border-color: var(--accent); background: var(--accent-soft); }
@@ -1976,3 +1982,11 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 @media (hover: none) { .cat-look { opacity: 1; } }
 button.imp-row { width: 100%; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 button.imp-row:hover { background: var(--hover); }
+
+/* The way into a project's catalogue: a quiet line above it, and anywhere on it a drop. */
+.cat-tools { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin: 24px 0 -16px; }
+.cat-tools .btn svg { width: 16px; height: 16px; }
+.cat-hint { color: var(--muted); font-size: 12.5px; }
+.cat-drop { position: fixed; inset: 12px; z-index: 30; display: grid; place-items: center; border: 2px dashed var(--accent); border-radius: var(--r-4); background: color-mix(in srgb, var(--accent) 10%, color-mix(in srgb, var(--bg) 70%, transparent)); color: var(--text); font-size: 16px; font-weight: 600; pointer-events: none; }
+.cat-drop[hidden] { display: none; }
+@media (max-width: 700px) { .cat-hint { display: none; } }

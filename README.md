@@ -273,7 +273,7 @@ filed in it.
 - **Notes.** Comments on a version belong to it (see Comments above). Filing a piece takes the comments
   already made on it along. People holding a link to a board see only the notes made on that board;
   the team sees them all.
-- **The catalogue page.** In a project folder, the tabs are Boards, Catalogue and Import. The catalogue
+- **The catalogue page.** In a project folder, the tabs are Boards and Catalogue. The catalogue
   is laid out like the project on disk: assets, sets, and shots by sequence, each with its newest
   still. An asset, set or shot opens on every version of it (where each is on a board, who filed it,
   what its name said) and every note made about any of them, on any board. Click a version and it opens
@@ -281,11 +281,14 @@ filed in it.
   draw there, and it is on every board the version is on, live, as what is said on those boards is
   live there. The same is a click away from inside a board (the catalogue panel, or a version's chip).
   A version is never deleted; it can be hidden, and then no longer counts as the newest.
-- **Import.** Drop many files at once. Each is brought in exactly as a file dropped on a board is
-  (`public/ingest.js`): a video gets its review copy, its timeline strip, its stills and its frame
-  rate, and the file it was made from is kept too. When its name says what it is, it is filed straight
-  away; the ones whose names say nothing wait together for one answer. Nothing goes on a board. Click
-  a filed one to open it in the player.
+- **Bringing files in.** Drop images and videos anywhere on a project's catalogue, or press Import above
+  it. Each is brought in exactly as a file dropped on a board is (`public/ingest.js`): a video gets its
+  review copy, its timeline strip, its stills and its frame rate, and the file it was made from is kept
+  too. When its name says what it is, it is filed straight away; the ones whose names say nothing wait
+  together for one answer. On an asset, set or shot's own page, what is dropped there (or added with
+  its "Add versions" tile) becomes new versions of it, whatever the files are called. Nothing goes on a
+  board. A strip above the catalogue shows each file on its way in; click a filed one to open it in
+  the player.
 
 Names are read by the project's naming preset. The one there is follows the Myreze styleguide:
 `_` separates parts, `-` joins words, all lower case. An asset is `char-`, `prop-`, `env-`, `veh-` or
@@ -385,8 +388,8 @@ notifications.js   What each person is told about, worked out from the notes
 auth.js            Who is asking: the four sign-in modes
 public/board.js    The canvas: rendering, input, sync, following
 public/viewer.js   The player: one piece at a time, its strip, timeline, comments and drawings; used by boards and the catalogue
-public/ingest.js   Bringing media in: review copies of video, originals, timeline strips, stills; used by boards and Import
-public/home.js     Board list, and a project's catalogue and Import page
+public/ingest.js   Bringing media in: review copies of video, originals, timeline strips, stills; used by boards and the catalogue
+public/home.js     Board list, and a project's catalogue
 public/naming.js   How file names are read for the catalogue (shared with the server)
 public/common.js   Shared helpers
 public/login.html  Sign-in page (password and Google modes)

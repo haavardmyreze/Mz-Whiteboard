@@ -124,8 +124,9 @@
 
   // In a project folder: which of its pages is open (boards, catalogue or import), and the entity open in the catalogue.
   function currentView() {
+    // The Import page that was is part of the catalogue now.
     const m = /^#\/f\/[\w-]+\/(catalogue|import)(?:\/([\w-]+))?/.exec(location.hash);
-    return m ? { page: m[1], entity: m[2] || null } : { page: 'boards', entity: null };
+    return m ? { page: 'catalogue', entity: m[1] === 'catalogue' ? m[2] || null : null } : { page: 'boards', entity: null };
   }
 
   function trailTo(id) {
@@ -414,7 +415,7 @@
     if (on) {
       const sure = await WB.dialog({
         title: `Make “${folder.name}” a project?`,
-        text: 'A project keeps a catalogue: its assets, sets and shots, and every version filed of them from its boards or its Import page. A project cannot be deleted, and stays one once something is filed in it.',
+        text: 'A project keeps a catalogue: its assets, sets and shots, and every version filed of them, from its boards or dropped straight into it. A project cannot be deleted, and stays one once something is filed in it.',
         ok: 'Make it a project',
       });
       if (!sure) return;
@@ -492,7 +493,7 @@
     crumbs[crumbs.length - 1].classList.add('current');
     document.title = `${trail.length ? trail[trail.length - 1].name : hasPersonal ? SPACES[space] : 'All boards'} · Boards`;
 
-    // A project has its boards, its catalogue and its Import page.
+    // A project has its boards and its catalogue.
     const here = cur && folderById(cur);
     const view = here && here.project ? currentView() : { page: 'boards' };
     $('q').placeholder = view.page === 'catalogue' ? 'Search the catalogue' : 'Search boards and folders';
@@ -517,12 +518,12 @@
     $('empty').hidden = true;
   }
 
-  // ------------------------------------------------------------- a project: its catalogue and Import page
+  // ------------------------------------------------------------- a project: its catalogue
   //
   // A project's catalogue is every asset, set and shot in it, each with the versions filed of it. It
-  // mirrors how the project is laid out on disk: assets, sets, and shots by sequence. The Import page
-  // takes many files at once and files them straight into the catalogue: what its name says is filed
-  // at once, and only what it does not say is asked. Nothing from it lands on a board.
+  // mirrors how the project is laid out on disk: assets, sets, and shots by sequence. Files dropped on
+  // it, or added with Import, are taken many at once and filed: what a file's name says is filed at
+  // once, and only what it does not say is asked. Nothing from it lands on a board.
 
   const N = window.WBNaming;
   const catalogues = new Map(); // project id -> its catalogue as last fetched
@@ -531,8 +532,7 @@
     const tab = (id, label, href) => el('a', { class: `space${page === id ? ' current' : ''}`, href }, label);
     return el('nav', { class: 'spaces ptabs', 'aria-label': 'Project' },
       tab('boards', 'Boards', `#/f/${project.id}`),
-      tab('catalogue', 'Catalogue', `#/f/${project.id}/catalogue`),
-      tab('import', 'Import', `#/f/${project.id}/import`));
+      tab('catalogue', 'Catalogue', `#/f/${project.id}/catalogue`));
   }
 
   let shownProject = '';
@@ -540,23 +540,34 @@
     const sig = `${project.id}|${view.page}|${view.entity}`;
     const fresh = shownProject !== sig;
     shownProject = sig;
-    if (view.page === 'import') return $('content').replaceChildren(projectTabs(project, 'import'), importView(project));
+    // What is being brought in shows above the catalogue, on its page and on each entity's.
+    const tray = importer(project).tray;
     if (fresh && (view.entity || !catalogues.has(project.id))) $('content').replaceChildren(projectTabs(project, 'catalogue'), el('p', { class: 'home-empty', text: 'Loading…' }));
     try {
       if (view.entity) {
         const page = await api('GET', `/api/entities/${view.entity}`);
         if (shownProject !== sig) return;
-        return $('content').replaceChildren(projectTabs(project, 'catalogue'), entityPage(project, page));
+        return $('content').replaceChildren(projectTabs(project, 'catalogue'), tray, entityPage(project, page));
       }
       // What was fetched last shows at once (a search narrows it as it is typed); then it is brought up to date.
-      if (catalogues.has(project.id)) $('content').replaceChildren(projectTabs(project, 'catalogue'), ...catalogueView(project, catalogues.get(project.id)));
+      if (catalogues.has(project.id)) $('content').replaceChildren(projectTabs(project, 'catalogue'), tray, ...catalogueView(project, catalogues.get(project.id)));
       const cat = await api('GET', `/api/projects/${project.id}`);
       catalogues.set(project.id, cat);
       if (shownProject !== sig) return;
-      $('content').replaceChildren(projectTabs(project, 'catalogue'), ...catalogueView(project, cat));
+      $('content').replaceChildren(projectTabs(project, 'catalogue'), tray, ...catalogueView(project, cat));
     } catch (err) {
       $('content').replaceChildren(projectTabs(project, view.page), el('p', { class: 'home-empty', text: err.message }));
     }
+  }
+
+  const ICON_IMPORT = svg('<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 14v5h14v-5"/>', 16);
+  const ICON_PLUS = svg('<path d="M12 5v14M5 12h14"/>', 18);
+
+  // Above the catalogue: the way to bring files in. Whatever a file's name says files it; the rest are asked about.
+  function catTools(project) {
+    return el('div', { class: 'cat-tools' },
+      el('span', { class: 'cat-hint', text: 'Drop images and videos anywhere here to add them' }),
+      el('button', { type: 'button', class: 'btn', html: `${ICON_IMPORT}<span>Import</span>`, title: 'Bring images and videos into the catalogue', onclick: () => importer(project).pick() }));
   }
 
   function entityTile(project, e) {
@@ -593,10 +604,9 @@
     if (!out.length) {
       out.push(el('div', { class: 'home-empty cat-empty' },
         el('p', { text: q ? `Nothing in the catalogue matches "${$('q').value.trim()}".` : 'Nothing is filed in this project yet.' }),
-        !q && el('p', { text: 'On one of its boards, select images or videos and file them as versions (Shift+V). Or bring many files in at once from Import.' }),
-        !q && el('a', { class: 'btn', href: `#/f/${project.id}/import`, text: 'Import files' })));
+        !q && el('p', { text: 'Drop images and videos here, or import them. On a board, select some and file them as versions (Shift+V).' })));
     }
-    return out;
+    return [catTools(project, null), ...out];
   }
 
   // A version opens in the player (viewer.js), the same one a board opens its media in: with every other
@@ -651,7 +661,11 @@
       el('div', { class: 'ent-head' }, el('h1', { text: entity.name }), el('span', { class: 'ent-tier', text: entity.tier })),
       label('Versions', versions.length),
       hidden > 0 && el('label', { class: 'ent-hidden' }, el('input', { type: 'checkbox', checked: showHidden, onchange: (e) => { showHidden = e.target.checked; render(); } }), `Show hidden (${hidden})`),
-      versions.length ? el('div', { class: 'board-grid ent-grid' }, versions.map(card)) : el('p', { class: 'home-empty', text: 'No versions yet' }),
+      el('div', { class: 'board-grid ent-grid' },
+        el('button', { type: 'button', class: 'card new', title: `Add new versions of ${entity.name}: choose files, or drop them anywhere here`, onclick: () => importer(project).pick(entity) },
+          el('span', { class: 'new-thumb' }, el('span', { class: 'plus', html: ICON_PLUS })),
+          el('span', { class: 'card-body' }, el('span', { class: 'card-name', text: 'Add versions' }), el('span', { class: 'card-meta', text: 'Choose files, or drop them here' }))),
+        ...versions.map(card)),
       label('Notes', roots.length),
       roots.length ? el('div', { class: 'ent-threads' }, threads) : el('p', { class: 'home-empty', text: 'Nothing said about it yet. Notes made on any board it is on show here.' }));
   }
@@ -683,21 +697,28 @@
     return look;
   }
 
-  function importView(project) {
+  // What is being brought into a project's catalogue: a strip above it, one row a file. Kept per project,
+  // so leaving the catalogue and coming back finds it as it was.
+  function importer(project) {
     let state = imports.get(project.id);
-    if (state) return state.node;
+    if (state) return state;
     const presetId = project.settings && project.settings.naming;
     const rows = [];
     const list = el('div', { class: 'imp-list' });
     const pending = el('div', { class: 'imp-pending' });
+    const clearBtn = el('button', { type: 'button', class: 'btn small ghost', text: 'Clear', title: 'Put away what is done', onclick: () => {
+      for (let i = rows.length - 1; i >= 0; i--) if (rows[i].status === 'filed' || rows[i].status === 'failed') rows.splice(i, 1);
+      paint();
+    } });
+    const head = el('div', { class: 'imp-head' }, el('b', { class: 'imp-title' }), clearBtn);
+    const tray = el('div', { class: 'imp', hidden: true }, head, pending, list);
     const picker = el('input', { type: 'file', multiple: true, accept: 'image/*,video/mp4,video/webm,video/quicktime', hidden: true });
-    const drop = el('div', { class: 'imp-drop', tabindex: '0', role: 'button', onclick: () => picker.click() },
-      el('span', { class: 'imp-drop-ic', html: svg('<path d="M12 16V4M7 9l5-5 5 5M5 20h14"/>', 22) }),
-      el('b', { text: 'Drop files here, or click to choose' }),
-      el('span', { text: 'Whatever a file’s name says (kilo-0010_anim_erik_v012.mov) files it at once. Only the ones whose names say nothing are asked about. Nothing goes on a board.' }));
-    const node = el('div', { class: 'imp' }, drop, pending, list, picker);
-    state = { rows, node };
-    imports.set(project.id, state);
+    document.body.append(picker);
+    let pickFor = null;
+    picker.addEventListener('change', () => {
+      add([...picker.files], pickFor);
+      picker.value = '';
+    });
 
     let cat = catalogues.get(project.id) || null;
     const catalogue = async () => cat || (cat = await api('GET', `/api/projects/${project.id}`));
@@ -714,11 +735,15 @@
       },
         el('span', { class: 'imp-thumb' }, r.preview && el('img', { src: r.preview, alt: '' })),
         el('span', { class: 'imp-name', text: r.file.name }),
-        el('span', { class: 'imp-said', text: [r.parsed.entity, r.parsed.task, r.parsed.hip != null && `HIP v${String(r.parsed.hip).padStart(3, '0')}`].filter(Boolean).join(' · ') }),
+        el('span', { class: 'imp-said', text: r.entity ? `Into ${r.entity.name}` : [r.parsed.entity, r.parsed.task, r.parsed.hip != null && `HIP v${String(r.parsed.hip).padStart(3, '0')}`].filter(Boolean).join(' · ') }),
         el('span', { class: 'imp-status', text: status }));
     }
 
     function paint() {
+      tray.hidden = !rows.length;
+      const busy = rows.filter((r) => r.status === 'queued' || r.status === 'uploading' || r.status === 'filing').length;
+      head.firstChild.textContent = busy ? `Bringing in ${busy} of ${rows.length}` : `Brought in ${rows.filter((r) => r.status === 'filed').length} of ${rows.length}`;
+      clearBtn.hidden = !!busy && rows.every((r) => r.status !== 'filed' && r.status !== 'failed');
       list.replaceChildren(...rows.filter((r) => r.status !== 'needs').map(rowNode).reverse());
       const needs = rows.filter((r) => r.status === 'needs');
       if (!needs.length) return pending.replaceChildren();
@@ -761,6 +786,17 @@
       check();
     }
 
+    // What has been filed shows in the catalogue behind the strip at once.
+    let redraw = 0;
+    const showFiled = () => {
+      clearTimeout(redraw);
+      redraw = setTimeout(() => {
+        if (currentFolder() !== project.id) return;
+        shownProject = '';
+        render();
+      }, 300);
+    };
+
     async function fileRows(list, choice = {}) {
       for (const r of list) r.status = 'filing';
       paint();
@@ -769,17 +805,18 @@
         res.versions.forEach((v, i) => { list[i].status = 'filed'; list[i].label = v.label; list[i].version = v; });
         cat = null;
         await catalogue().catch(() => {});
+        showFiled();
       } catch (err) {
         for (const r of list) {
-          r.status = choice.entity ? 'needs' : 'failed';
+          r.status = choice.entity && !list[0].entity ? 'needs' : 'failed';
           r.error = err.message;
         }
-        if (choice.entity) WB.dialog({ title: 'Those were not filed', text: err.message, ok: 'OK', cancellable: false });
+        if (choice.entity && !list[0].entity) WB.dialog({ title: 'Those were not filed', text: err.message, ok: 'OK', cancellable: false });
       }
       paint();
     }
 
-    // One file at a time: read, upload, and file at once when its name says what it is.
+    // One file at a time: read, upload, and file at once when it is known where it goes.
     let running = false;
     async function work() {
       if (running) return;
@@ -792,7 +829,9 @@
         try {
           r.look = await bringIn(r, paint);
           r.preview = r.look.th || (r.look.type === 'image' ? r.look.prev || r.look.src : r.look.poster) || null;
-          if (r.parsed.entity) await fileRows([r]);
+          // Added on an asset, set or shot's page, it goes there, whatever its name says; its task still comes from the name.
+          if (r.entity) await fileRows([r], { entity: r.entity.id });
+          else if (r.parsed.entity) await fileRows([r]);
           else r.status = 'needs';
         } catch (err) {
           r.status = 'failed';
@@ -803,25 +842,74 @@
       running = false;
     }
 
-    function add(files) {
+    // `entity`, when the files are added on an entity's page, is where they all go.
+    function add(files, entity = null) {
+      let n = 0;
       for (const file of files) {
         if (!/^(image|video)\//.test(file.type) && !/\.(png|jpe?g|gif|webp|avif|bmp|svg|mp4|m4v|webm|mov)$/i.test(file.name)) continue;
-        rows.push({ file, status: 'queued', progress: 0, parsed: N.parse(file.name, presetId), look: null, preview: null });
+        rows.push({ file, entity, status: 'queued', progress: 0, parsed: N.parse(file.name, presetId), look: null, preview: null });
+        n++;
       }
+      if (!n) return void WB.dialog({ title: 'Nothing to bring in', text: 'Only images and MP4, WebM or MOV video can be added.', ok: 'OK', cancellable: false });
       paint();
       work();
     }
-    picker.addEventListener('change', () => { add([...picker.files]); picker.value = ''; });
-    drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); picker.click(); } });
-    for (const type of ['dragover', 'dragenter']) drop.addEventListener(type, (e) => { e.preventDefault(); drop.classList.add('drop'); });
-    drop.addEventListener('dragleave', () => drop.classList.remove('drop'));
-    drop.addEventListener('drop', (e) => {
+
+    function pick(entity = null) {
+      pickFor = entity;
+      picker.click();
+    }
+
+    // Leaving while a file is still on its way in would lose it.
+    window.addEventListener('beforeunload', (e) => {
+      if (!rows.some((r) => r.status === 'queued' || r.status === 'uploading' || r.status === 'filing')) return;
       e.preventDefault();
-      drop.classList.remove('drop');
-      add([...e.dataTransfer.files]);
+      e.returnValue = '';
     });
-    return node;
+
+    state = { tray, add, pick };
+    imports.set(project.id, state);
+    return state;
   }
+
+  // Files dropped anywhere on a project's catalogue go into it; on an asset, set or shot's page, into that.
+  let dropTargetEntity = null;
+  const catalogueOpen = () => {
+    const cur = currentFolder();
+    const f = cur && folderById(cur);
+    return f && f.project && currentView().page === 'catalogue' ? f : null;
+  };
+  const carriesFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  let dragDepth = 0;
+  window.addEventListener('dragenter', (e) => {
+    if (!carriesFiles(e) || !catalogueOpen()) return;
+    e.preventDefault();
+    if (dragDepth++ === 0) {
+      const view = currentView();
+      dropTargetEntity = view.entity;
+      $('catdrop').querySelector('span').textContent = view.entity ? 'Drop to add versions of it' : `Drop to add to ${catalogueOpen().name}`;
+      $('catdrop').hidden = false;
+    }
+  });
+  window.addEventListener('dragover', (e) => { if (carriesFiles(e) && catalogueOpen()) e.preventDefault(); });
+  window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('catdrop').hidden = true; } });
+  window.addEventListener('drop', async (e) => {
+    const project = carriesFiles(e) && catalogueOpen();
+    dragDepth = 0;
+    $('catdrop').hidden = true;
+    if (!project) return;
+    e.preventDefault();
+    const files = [...e.dataTransfer.files];
+    let entity = null;
+    if (dropTargetEntity) {
+      try {
+        entity = (await api('GET', `/api/entities/${dropTargetEntity}`)).entity;
+      } catch {
+        entity = null;
+      }
+    }
+    importer(project).add(files, entity);
+  });
 
   // ------------------------------------------------------------- actions
 

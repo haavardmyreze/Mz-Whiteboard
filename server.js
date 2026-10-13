@@ -706,13 +706,13 @@ function moveFolderToSpace(folder, key) {
 //
 // A project folder keeps a catalogue: its entities (assets, sets and shots) and the versions filed under
 // them. A version is filed from a piece of media on a board in the project, or from the project's
-// Import page. A piece on a board that shows a version says which (`ver`); the board shows what it is
+// catalogue page. A piece on a board that shows a version says which (`ver`); the board shows what it is
 // called, and when there is a newer one.
 
 const LOOK_KEYS = ['type', 'src', 'orig', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'wf', 'name'];
 const UPLOAD_KEYS = new Set(['src', 'orig', 'prev', 'th', 'poster']);
 
-// What a board needs to show a file, taken from a piece on a board or from the Import page, keeping
+// What a board needs to show a file, taken from a piece on a board or from a file brought into the catalogue, keeping
 // only what such a piece has: addresses of uploaded files, its size, length and rate, its name.
 function cleanLook(asked) {
   const look = {};
@@ -797,7 +797,7 @@ function resolveEntity(project, spec, by) {
 const tokenOrNull = (v) => (typeof v === 'string' && naming.tokenize(v) ? naming.tokenize(v) : null);
 
 // Files pieces of media as versions. Each file is a piece on a board ({ board, item }) or a file
-// uploaded from the Import page ({ look }); what each says about itself (entity, task, descriptor,
+// brought into the catalogue ({ look }); what each says about itself (entity, task, descriptor,
 // artist) goes before what is said for them all. What its name says fills in the rest.
 async function fileVersions(req, project, body) {
   const by = req.user ? req.user.name : cleanName(body.by, null);

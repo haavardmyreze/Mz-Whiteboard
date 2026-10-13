@@ -1,7 +1,7 @@
 'use strict';
 
 // Bringing media in: everything that happens to a file between being chosen and being something the
-// app can show, wherever it is brought in (dropped on a board, or on a project's Import page). An image
+// app can show, wherever it is brought in (dropped on a board, or into a project's catalogue). An image
 // goes up as it is, with a small still and, when it is large, a preview. A video is turned into a review
 // copy here, in the browser, which is what is played everywhere; the file it was made from is kept too.
 // Its timeline strip (the colours of its picture and the loudness of its sound) and its frame rate are

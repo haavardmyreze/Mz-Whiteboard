@@ -1,6 +1,6 @@
 'use strict';
 
-// What someone is told about on the home page, worked out from the comments themselves rather than
+// What someone is told about on the home page, worked out from the notes themselves rather than
 // kept as a separate list. A comment by somebody else is news to you when it
 //   mentions you        "@Anna" or "@Anna Berg" anywhere in it
 //   replies to you      it is in a thread you wrote in
@@ -37,10 +37,10 @@ function noticesFor(store, who, spaces, now = Date.now()) {
   const isMe = (name) => lower(name) === me;
   const rows = store.commentsForNotices(spaces, since);
 
-  // Who has written in each thread.
+  // Who has written in each thread. A thread about a version can run across the boards it is on.
   const threads = new Map();
   for (const r of rows) {
-    const key = `${r.board_id}:${r.comment.re || r.comment.id}`;
+    const key = r.comment.re || r.comment.id;
     if (!threads.has(key)) threads.set(key, new Set());
     threads.get(key).add(lower(r.comment.name));
   }
@@ -53,7 +53,7 @@ function noticesFor(store, who, spaces, now = Date.now()) {
     if (r.created_at <= since || isMe(c.name) || typeof c.text !== 'string') continue;
     let kind = null;
     if (mentions(c.text, who.name)) kind = 'mention';
-    else if (c.re && threads.get(`${r.board_id}:${c.re}`).has(me)) kind = 'reply';
+    else if (c.re && threads.get(c.re)?.has(me)) kind = 'reply';
     else if (isMe(r.host_by)) kind = 'work';
     else if (isMe(r.board_by)) kind = 'board';
     if (!kind) continue;

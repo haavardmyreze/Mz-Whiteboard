@@ -1299,7 +1299,7 @@ test('a board remembers what it is set to, and who opened and changed it', async
 
 test('a board is kept as it was before each round of changes, and can be put back to any of them', async (t) => {
   // A round is whatever follows a quiet spell: ten minutes as it runs, a moment here.
-  const s = start(4835, { WIPBOARD_VERSION_MS: '250' });
+  const s = start(4835, { WIPBOARD_SNAPSHOT_MS: '250' });
   t.after(s.stop);
   await s.ready;
   const json = { 'content-type': 'application/json' };
@@ -1311,23 +1311,23 @@ test('a board is kept as it was before each round of changes, and can be put bac
   t.after(() => ben.ws.close());
   const ops = (conn, list) => conn.ws.send(JSON.stringify({ t: 'op', ops: list }));
   const note = (id, text) => ({ id, type: 'note', x: 0, y: 0, w: 100, h: 100, text });
-  const versions = async () => (await (await fetch(`${s.base}/api/boards/${board.id}/activity`)).json()).versions;
+  const snapshots = async () => (await (await fetch(`${s.base}/api/boards/${board.id}/activity`)).json()).snapshots;
 
   ops(anna, [{ t: 'add', item: note('noteone01', 'first') }]);
   await pause(150);
-  assert.deepEqual(await versions(), []); // there was nothing on it to keep
+  assert.deepEqual(await snapshots(), []); // there was nothing on it to keep
   await pause(300);
   ops(anna, [{ t: 'add', item: note('notetwo01', 'second') }]);
   ops(anna, [{ t: 'set', id: 'notetwo01', patch: { x: 9 } }]); // the same round
   await pause(400);
   ops(ben, [{ t: 'del', ids: ['noteone01'] }]);
   await pause(150);
-  let kept = await versions();
+  let kept = await snapshots();
   assert.deepEqual(kept.map((v) => [v.who, v.count]), [['Ben', 2], ['Anna', 1]]);
 
   // Back to the oldest: one note. Everybody on the board is given it afresh, without themselves among the others.
   const before = [anna.seen.length, ben.seen.length];
-  const put = await fetch(`${s.base}/api/boards/${board.id}/versions/${kept[1].at}/restore`, { method: 'POST', headers: json, body: JSON.stringify({ by: 'Anna' }) });
+  const put = await fetch(`${s.base}/api/boards/${board.id}/snapshots/${kept[1].at}/restore`, { method: 'POST', headers: json, body: JSON.stringify({ by: 'Anna' }) });
   assert.equal(put.status, 200);
   await pause(150);
   for (const [conn, from] of [[anna, before[0]], [ben, before[1]]]) {
@@ -1340,12 +1340,254 @@ test('a board is kept as it was before each round of changes, and can be put bac
   const carla = await open(`board=${board.id}`, 'Carla');
   t.after(() => carla.ws.close());
   assert.deepEqual(carla.seen.find((m) => m.t === 'init').items.map((it) => it.id), ['noteone01']);
-  kept = await versions();
+  kept = await snapshots();
   assert.deepEqual(kept.map((v) => [v.who, v.count]), [['Anna', 1], ['Ben', 2], ['Anna', 1]]);
-  await fetch(`${s.base}/api/boards/${board.id}/versions/${kept[0].at}/restore`, { method: 'POST', headers: json, body: JSON.stringify({ by: 'Ben' }) });
+  await fetch(`${s.base}/api/boards/${board.id}/snapshots/${kept[0].at}/restore`, { method: 'POST', headers: json, body: JSON.stringify({ by: 'Ben' }) });
   await pause(150);
   assert.deepEqual(anna.seen.filter((m) => m.t === 'init').pop().items.map((it) => [it.id, it.x]), [['notetwo01', 9]]);
   const events = (await (await fetch(`${s.base}/api/boards/${board.id}/activity`)).json()).events;
   assert.deepEqual(events.filter((e) => e.what === 'restore').map((e) => e.who).sort(), ['Anna', 'Ben']);
-  assert.equal((await fetch(`${s.base}/api/boards/${board.id}/versions/12345/restore`, { method: 'POST', headers: json, body: '{}' })).status, 404);
+  assert.equal((await fetch(`${s.base}/api/boards/${board.id}/snapshots/12345/restore`, { method: 'POST', headers: json, body: '{}' })).status, 404);
+});
+
+// ---------------------------------------------------------------- the catalogue: projects, versions, notes
+
+const naming = require('../public/naming');
+
+test('a file name fills in what it can, and a name that says nothing is no trouble', () => {
+  assert.deepEqual(naming.parse('kilo-0010_anim_erik_v012.mov'), { entity: 'kilo-0010', tier: 'shot', task: 'anim', descriptor: null, artist: 'erik', hip: 12 });
+  assert.deepEqual(naming.parse('char-robot_lookdev_metal_worn_anna_v3.png'), { entity: 'char-robot', tier: 'asset', task: 'lookdev', descriptor: 'metal_worn', artist: 'anna', hip: 3 });
+  assert.equal(naming.parse('set-living-room_dressing_v001.jpg').task, 'dressing');
+  assert.equal(naming.parse('set-living-room_erik_v001.jpg').artist, 'erik');
+  assert.deepEqual(naming.parse('screenshoot_090126.png'), { entity: null, tier: null, task: null, descriptor: null, artist: null, hip: null });
+  assert.equal(naming.parse('Robot Final v3.png').hip, 3);
+  assert.equal(naming.tierOf('kilo-0010'), 'shot');
+  assert.equal(naming.tierOf('veh-truck'), 'asset');
+  assert.equal(naming.tierOf('robot'), null);
+  assert.equal(naming.tokenize('  Living Room! '), 'living-room');
+  assert.equal(naming.seqOf('kilo-0010'), 'kilo');
+  assert.equal(naming.label('kilo-0010', 'anim', 5), 'kilo-0010 anim v5');
+  assert.equal(naming.label('char-robot', null, 2), 'char-robot v2');
+});
+
+test('a database from before keeps its comments, as notes, and its board history, as snapshots', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wipboard-old-'));
+  try {
+    const old = new DatabaseSync(path.join(dir, 'wipboard.db'));
+    old.exec(`
+      CREATE TABLE versions (board_id TEXT NOT NULL, at INTEGER NOT NULL, who TEXT, count INTEGER NOT NULL, sig TEXT NOT NULL, items BLOB NOT NULL, PRIMARY KEY (board_id, at));
+      CREATE TABLE items (board_id TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, type TEXT NOT NULL, label TEXT, label_key TEXT, frame_id TEXT, parent_id TEXT,
+        media TEXT, thumb TEXT, created_at INTEGER NOT NULL, created_by TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY (board_id, id));
+      CREATE TABLE folders (id TEXT PRIMARY KEY, name TEXT NOT NULL, parent_id TEXT, workspace TEXT NOT NULL, created_at INTEGER NOT NULL);`);
+    const add = old.prepare('INSERT INTO items (board_id, id, data, type, created_at, created_by, updated_at) VALUES (?, ?, ?, ?, 1, ?, 1)');
+    add.run('board1', 'imageone1', JSON.stringify({ id: 'imageone1', type: 'image', src: '/uploads/a.png' }), 'image', 'Anna');
+    add.run('board1', 'comment01', JSON.stringify({ id: 'comment01', type: 'comment', on: 'imageone1', text: 'Lovely', name: 'Ben', t: 5 }), 'comment', 'Ben');
+    add.run('board1', 'comment02', JSON.stringify({ id: 'comment02', type: 'comment', on: 'imageone1', re: 'comment01', text: 'Thanks', name: 'Anna', t: 6 }), 'comment', 'Anna');
+    old.prepare('INSERT INTO versions VALUES (?, ?, ?, ?, ?, ?)').run('board1', 100, 'Anna', 1, 'x',
+      require('node:zlib').gzipSync(JSON.stringify([{ id: 'imageone1', type: 'image' }, { id: 'commentold', type: 'comment', on: 'imageone1', text: 'old' }])));
+    old.close();
+
+    const store = openStore(dir);
+    assert.deepEqual(store.loadItems('board1').map((it) => it.id), ['imageone1']);
+    const notes = store.notesForBoard('board1');
+    assert.deepEqual(notes.map((n) => [n.id, n.itemId, n.re, n.data.text, n.createdBy]), [['comment01', 'imageone1', null, 'Lovely', 'Ben'], ['comment02', 'imageone1', 'comment01', 'Thanks', 'Anna']]);
+    assert.deepEqual(store.snapshots('board1').map((v) => v.at), [100]);
+    // what a snapshot from before held of the comments is not put back with the board
+    assert.deepEqual(store.snapshot('board1', 100).map((it) => it.id), ['imageone1']);
+    assert.deepEqual(store.folders(), []);
+    // and the database as it was is kept aside
+    assert.equal(fs.readdirSync(path.join(dir, 'backups')).filter((f) => f.startsWith('wipboard-before-catalogue-')).length, 1);
+    store.close();
+    // opening it again changes nothing
+    const again = openStore(dir);
+    assert.equal(again.notesForBoard('board1').length, 2);
+    assert.equal(fs.readdirSync(path.join(dir, 'backups')).length, 1);
+    again.close();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a project is a folder with a catalogue: not inside another project, and not dissolved like a folder', async (t) => {
+  const s = start(4836);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const kilo = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  const inside = (await call('POST', '/api/folders', { name: 'Reviews', parentId: kilo.id })).body;
+  const other = (await call('POST', '/api/folders', { name: 'Other' })).body;
+
+  const marked = await call('PATCH', `/api/folders/${kilo.id}`, { project: true });
+  assert.equal(marked.status, 200);
+  assert.equal(marked.body.project, true);
+  assert.equal(marked.body.settings.naming, 'myreze');
+  assert.equal((await call('GET', '/api/library')).body.folders.find((f) => f.id === kilo.id).project, true);
+  // not inside it, nor around it
+  assert.equal((await call('PATCH', `/api/folders/${inside.id}`, { project: true })).status, 400);
+  const around = (await call('POST', '/api/folders', { name: 'Studio' })).body;
+  await call('PATCH', `/api/folders/${kilo.id}`, { parentId: around.id });
+  assert.equal((await call('PATCH', `/api/folders/${around.id}`, { project: true })).status, 400);
+  await call('PATCH', `/api/folders/${other.id}`, { project: true });
+  assert.equal((await call('PATCH', `/api/folders/${other.id}`, { parentId: inside.id })).status, 400);
+
+  // its catalogue
+  const robot = await call('POST', `/api/projects/${kilo.id}/entities`, { name: 'Char Robot' });
+  assert.equal(robot.status, 201);
+  assert.equal(robot.body.name, 'char-robot');
+  assert.equal(robot.body.tier, 'asset');
+  const shot = (await call('POST', `/api/projects/${kilo.id}/entities`, { name: 'kilo-0010' })).body;
+  assert.equal(shot.tier, 'shot');
+  assert.equal((await call('POST', `/api/projects/${kilo.id}/entities`, { name: 'kilo-0010' })).body.id, shot.id);
+  const cat = (await call('GET', `/api/projects/${kilo.id}`)).body;
+  assert.deepEqual(cat.entities.map((e) => e.name), ['char-robot', 'kilo-0010']);
+  assert.ok(cat.tasks.includes('anim'));
+  assert.equal((await call('GET', `/api/projects/${inside.id}`)).status, 404);
+
+  // a project is not deleted, and one with a catalogue stays a project
+  assert.equal((await call('DELETE', `/api/folders/${kilo.id}`)).status, 409);
+  assert.equal((await call('PATCH', `/api/folders/${kilo.id}`, { project: false })).status, 409);
+  assert.equal((await call('PATCH', `/api/folders/${other.id}`, { project: false })).status, 200);
+  assert.equal((await call('DELETE', `/api/folders/${inside.id}`)).status, 200);
+});
+
+test('media filed as a version takes its notes along, and they show on every board the version is on', async (t) => {
+  const s = start(4837);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const standup = (await call('POST', '/api/boards', { name: 'Standup', folderId: project.id })).body;
+  const client = (await call('POST', '/api/boards', { name: 'Client call', folderId: project.id })).body;
+  const loose = (await call('POST', '/api/boards', { name: 'Elsewhere' })).body;
+  const up = async (name) => (await (await fetch(`${s.base}/api/upload?name=${name}`, { method: 'POST', body: crypto.randomBytes(400) })).json()).url;
+  const shotA = await up('a.png');
+  const shotB = await up('b.png');
+
+  const open = joiner(4837);
+  const anna = await open(`board=${standup.id}`, 'Anna');
+  t.after(() => anna.ws.close());
+  const ops = (conn, list) => conn.ws.send(JSON.stringify({ t: 'op', ops: list }));
+  const at = { x: 0, y: 0, w: 100, h: 100 };
+  ops(anna, [
+    { t: 'add', item: { id: 'imageone1', type: 'image', ...at, src: shotA, name: 'screenshoot_090126.png', nw: 1920, nh: 1080 } },
+    { t: 'add', item: { id: 'comment01', type: 'comment', on: 'imageone1', text: 'Darker sky' } },
+  ]);
+  await pause(200);
+  ops(anna, [{ t: 'add', item: { id: 'comment02', type: 'comment', on: 'imageone1', re: 'comment01', text: 'Agreed' } }]);
+  await pause(200);
+
+  // filed under a shot made on the way, with a task: the first version of it
+  const filed = await call('POST', `/api/projects/${project.id}/versions`, { entity: { name: 'kilo-0010' }, task: 'anim', files: [{ board: standup.id, item: 'imageone1' }] });
+  assert.equal(filed.status, 201);
+  const v1 = filed.body.versions[0];
+  assert.equal(v1.label, 'kilo-0010 anim v1');
+  assert.equal(v1.hip, null);
+  assert.equal(v1.look.src, shotA);
+  await pause(200);
+  // everybody on the board is told the piece is that version now, and what it is called
+  const set = anna.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).find((o) => o.t === 'set' && o.id === 'imageone1');
+  assert.deepEqual(set.patch, { ver: v1.id });
+  assert.equal(anna.seen.filter((m) => m.t === 'versions').pop().list[0].label, 'kilo-0010 anim v1');
+  // a piece is filed once; a board outside the project cannot file into it
+  assert.equal((await call('POST', `/api/projects/${project.id}/versions`, { entity: v1.entityId, files: [{ board: standup.id, item: 'imageone1' }] })).status, 409);
+  assert.equal((await call('POST', `/api/projects/${project.id}/versions`, { entity: v1.entityId, files: [{ board: loose.id, item: 'x' }] })).status, 400);
+
+  // the version on another board brings what was said about it, saying where it was said
+  const ben = await open(`board=${client.id}`, 'Ben');
+  t.after(() => ben.ws.close());
+  ops(ben, [{ t: 'add', item: { id: 'placed001', type: 'image', ...at, src: shotA, ver: v1.id } }]);
+  await pause(250);
+  const brought = ben.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).filter((o) => o.t === 'add' && o.item.type === 'comment').map((o) => o.item);
+  assert.deepEqual(brought.map((c) => [c.id, c.on, c.ob, c.obn]), [['comment01', 'placed001', standup.id, 'Standup'], ['comment02', 'placed001', standup.id, 'Standup']]);
+  assert.equal(ben.seen.filter((m) => m.t === 'versions').pop().list[0].label, 'kilo-0010 anim v1');
+  // a note made there is on the standup board too, live
+  ops(ben, [{ t: 'add', item: { id: 'comment03', type: 'comment', on: 'placed001', text: 'Client likes it' } }]);
+  await pause(250);
+  const arrived = anna.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).find((o) => o.t === 'add' && o.item.id === 'comment03');
+  assert.equal(arrived.item.on, 'imageone1');
+  assert.equal(arrived.item.ob, client.id);
+  assert.equal(arrived.item.name, 'Ben');
+
+  // a link to the client board shows only what was said on it
+  const { token } = (await call('POST', `/api/boards/${client.id}/share`, { access: 'comments' })).body;
+  await call('PATCH', `/api/boards/${client.id}/share`, { access: 'comments' });
+  const eve = await open(`share=${token}`, 'Eve');
+  t.after(() => eve.ws.close());
+  assert.deepEqual(eve.seen.find((m) => m.t === 'init').items.filter((it) => it.type === 'comment').map((c) => c.id), ['comment03']);
+
+  // taking the version off the client board leaves its notes alone; the standup board still has them all
+  ops(ben, [{ t: 'del', ids: ['placed001', 'comment01', 'comment02', 'comment03'] }]);
+  await pause(250);
+  const later = await open(`board=${standup.id}`, 'Cara');
+  t.after(() => later.ws.close());
+  assert.deepEqual(later.seen.find((m) => m.t === 'init').items.filter((it) => it.type === 'comment').map((c) => c.id).sort(), ['comment01', 'comment02', 'comment03']);
+  // deleting a thread is deleting it, everywhere; undo brings it back as it was written
+  ops(anna, [{ t: 'del', ids: ['comment01', 'comment02'] }]);
+  await pause(200);
+  const entity = (await call('GET', `/api/entities/${v1.entityId}`)).body;
+  assert.deepEqual(entity.notes.map((n) => n.id), ['comment03']);
+  ops(anna, [{ t: 'add', item: { id: 'comment01', type: 'comment', on: 'imageone1', text: 'Tampered', name: 'Mallory' } }]);
+  await pause(200);
+  const back = (await call('GET', `/api/entities/${v1.entityId}`)).body.notes.find((n) => n.id === 'comment01');
+  assert.equal(back.text, 'Darker sky');
+  assert.equal(back.name, 'Anna');
+  assert.equal(back.board.name, 'Standup');
+
+  // more versions of the shot and task count on, each told to the boards showing an older one
+  ops(anna, [{ t: 'add', item: { id: 'imagetwo1', type: 'image', ...at, src: shotB, name: 'kilo-0010_anim_erik_v012.png' } }]);
+  await pause(200);
+  const v2 = (await call('POST', `/api/projects/${project.id}/versions`, { files: [{ board: standup.id, item: 'imagetwo1' }] })).body.versions[0];
+  assert.equal(v2.label, 'kilo-0010 anim v2');
+  assert.equal(v2.hip, 12);
+  assert.equal(v2.artist, 'erik');
+  assert.equal(v2.entityId, v1.entityId);
+  await pause(200);
+  const told = anna.seen.filter((m) => m.t === 'versions').pop().list.find((v) => v.id === v1.id);
+  assert.deepEqual(told.newest, { id: v2.id, number: 2 });
+  // hidden, it no longer counts as the newest
+  await call('PATCH', `/api/versions/${v2.id}`, { hidden: true });
+  await pause(150);
+  assert.equal(anna.seen.filter((m) => m.t === 'versions').pop().list.find((v) => v.id === v1.id).newest, null);
+  const lighting = (await call('POST', `/api/projects/${project.id}/versions`, { task: 'lighting', entity: v1.entityId, files: [{ look: { type: 'image', src: shotB, name: 'x.png' } }] })).body.versions[0];
+  assert.equal(lighting.label, 'kilo-0010 lighting v1');
+  assert.equal((await call('POST', `/api/projects/${project.id}/versions`, { entity: v1.entityId, files: [{ look: { type: 'image', src: '/uploads/nothere.png' } }] })).status, 400);
+
+  // the entity lists every version, where each is, and what was said
+  const page = (await call('GET', `/api/entities/${v1.entityId}`)).body;
+  assert.deepEqual(page.versions.map((v) => v.label).sort(), ['kilo-0010 anim v1', 'kilo-0010 anim v2', 'kilo-0010 lighting v1']);
+  assert.deepEqual(page.versions.find((v) => v.id === v1.id).boards.map((b) => b.name), ['Standup']);
+});
+
+test('putting a board back moves what is on it, never what was said', async (t) => {
+  const s = start(4838, { WIPBOARD_SNAPSHOT_MS: '200' });
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const board = await (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: json, body: JSON.stringify({ name: 'Layout' }) })).json();
+  const open = joiner(4838);
+  const anna = await open(`board=${board.id}`, 'Anna');
+  t.after(() => anna.ws.close());
+  const ops = (list) => anna.ws.send(JSON.stringify({ t: 'op', ops: list }));
+  ops([{ t: 'add', item: { id: 'imageone1', type: 'image', x: 0, y: 0, w: 100, h: 100, src: '/x.png' } }]);
+  await pause(300);
+  ops([{ t: 'set', id: 'imageone1', patch: { x: 50 } }]);
+  await pause(100);
+  ops([{ t: 'add', item: { id: 'comment01', type: 'comment', on: 'imageone1', text: 'Keep me' } }]);
+  await pause(150);
+  const kept = (await (await fetch(`${s.base}/api/boards/${board.id}/activity`)).json()).snapshots;
+  assert.equal(kept.length, 1);
+  await fetch(`${s.base}/api/boards/${board.id}/snapshots/${kept[0].at}/restore`, { method: 'POST', headers: json, body: '{}' });
+  await pause(150);
+  const init = anna.seen.filter((m) => m.t === 'init').pop();
+  assert.deepEqual(init.items.map((it) => [it.id, it.x ?? null]), [['imageone1', 0], ['comment01', null]]);
 });

@@ -63,11 +63,12 @@ private networks, otherwise only the host machine can connect.
   board: whether every image and video shows its file name (the same for everyone on the board, and
   kept with it), and the way to its sharing, its files and its activity.
 - **Activity, and going back.** The clock in the bar lists who opened a board and who changed it,
-  newest first; the same thing done again within ten minutes is one line. Under it are earlier
-  versions: before each round of changes (whatever follows ten quiet minutes) the board is kept as it
-  was, the last forty times, and any of them can be put back for everyone. What is replaced is kept as
-  one more version, so putting back can itself be undone. A version is the board's items packed small
-  (about 13 KB for a board of thirty pieces); the files stay where they are.
+  newest first; the same thing done again within ten minutes is one line. Under it are snapshots:
+  before each round of changes (whatever follows ten quiet minutes) the board is kept as it was, the
+  last forty times, and any of them can be put back for everyone. What is replaced is kept as one more
+  snapshot, so putting back can itself be undone. A snapshot is the board's items packed small (about
+  13 KB for a board of thirty pieces); the files stay where they are. Putting one back moves what is
+  on the board only: notes, and versions in a project's catalogue, stay as they are.
 - **Frame-accurate video.** Each video knows its frame rate, read from the file when it is added. `,` and `.` step one frame
   (with Shift, one second), Space or K plays and pauses, M turns the sound on and off,
   and scrubbing lands on whole frames. Click the time on a video to switch between minutes and seconds,
@@ -149,8 +150,11 @@ private networks, otherwise only the host machine can connect.
   the number of open threads, or a tick once they are all resolved; click it to open the piece with
   its comments beside it. Comments belong to the viewer, so there is no button for them out on the
   board; Shift+C there still lists every thread on the board, and picking one opens what it is about. Who wrote a comment comes from the sign-in, not from the
-  browser. Comments go when the thing they are on is deleted, and come back with it on undo, still in
-  their author's name whoever pressed undo.
+  browser. Comments are kept apart from the board, as notes: taking a piece off the board takes its
+  comments out of sight, and undo brings them back, still in their author's name whoever pressed undo.
+  Only deleting a thread deletes it. On a piece filed as a version (see Projects, below) the comments
+  belong to the version, so they are there on every board the version is on, each saying which board
+  it was made on.
 - **Drawings go with comments.** To point at something, circle it. A stroke on the open piece
   belongs to the comment being written, and starts one if none is: the box takes the keyboard, so
   draw, type what it is about, Enter. On a video the comment is about the frame that was drawn on,
@@ -242,13 +246,53 @@ name in the path above the list, to move it; the `...` menu on each card has Ren
 "Move to..." and Delete. Deleting a folder only removes the folder: its boards and
 subfolders move up one level.
 
+## Projects: versions and the catalogue
+
+A folder can be made a project (the `...` menu on its card: "Make it a project"). A project keeps a
+catalogue of what the team makes for it, its **assets, sets and shots**, and every **version** of them,
+while its boards stay what they are: playlists for one review each, a standup, a client call. A
+project cannot sit inside another one, cannot be deleted, and stays a project once something is
+filed in it.
+
+- **Filing a version.** On a board in a project, select images or videos and press Shift+V (or the
+  button in the floating toolbar). The one thing asked is which asset, set or shot it is, and the task
+  if the project uses them; typing a name the project does not have yet makes it. Nothing has to be
+  named a particular way: `screenshoot_090126.png` is filed like anything else. What a file's name
+  does say is filled in ahead, and so is the frame it sits in (a frame titled `kilo-0010`) and the last
+  choice made. Several pieces are filed at once; when some names say what they are and some do not,
+  only the others are asked about.
+- **Numbering.** The catalogue counts versions itself: `kilo-0010 anim v1`, `v2`, `v3`, per asset, set
+  or shot and task, in the order they were filed. A version number in the file's name (`_v012`) is
+  kept beside it as a label ("from HIP v012").
+- **On the board.** A piece that is a version says which in its corner. When a newer one of the same
+  thing has been filed since, the chip says so; click it to swap the newer one in, or to see them all.
+  The layers button in the bar opens the project's catalogue beside the board: pick an asset, set or
+  shot, then click a version to put it on the board.
+- **Notes.** Comments on a version belong to it (see Comments above). Filing a piece takes the comments
+  already made on it along. People holding a link to a board see only the notes made on that board;
+  the team sees them all.
+- **The catalogue page.** In a project folder, the tabs are Boards, Catalogue and Import. The catalogue
+  is laid out like the project on disk: assets, sets, and shots by sequence, each with its newest
+  still. An asset, set or shot opens on every version of it (where each is on a board, who filed it,
+  what its name said) and every note made about any of them, on any board. A version is never
+  deleted; it can be hidden, and then no longer counts as the newest.
+- **Import.** Drop many files at once. Each is uploaded and, when its name says what it is, filed
+  straight away; the ones whose names say nothing wait together for one answer. Nothing goes on a
+  board. (Videos go up as they are here, without the lighter review copy a board makes.)
+
+Names are read by the project's naming preset. The one there is follows the Myreze styleguide:
+`_` separates parts, `-` joins words, all lower case. An asset is `char-`, `prop-`, `env-`, `veh-` or
+`fx-` something, a set is `set-` something, a shot is `<sequence>-<number>` (`kilo-0010`). A file named
+`<context>_<task>[_<descriptor>]_<artist>_v###` (`kilo-0010_anim_erik_v012.mov`) says all of it. The
+rules are in `public/naming.js`, shared by the server and the pages.
+
 ## Data and backup
 
 Everything lives in `data/` next to the server:
 
 | Path            | Contents                                                        |
 | --------------- | --------------------------------------------------------------- |
-| `data/wipboard.db` | Boards, their items, folders and the catalogue, in one SQLite database (with `-wal` and `-shm` files beside it while the server runs) |
+| `data/wipboard.db` | Boards, their items and snapshots, folders, projects' catalogues (assets, sets, shots and their versions) and every note, in one SQLite database (with `-wal` and `-shm` files beside it while the server runs) |
 | `data/uploads/` | Uploaded media, named by content hash (duplicates stored once): pictures, videos' review copies, and the files those were made from |
 | `data/backups/` | A copy of the database made each day the server runs; the last seven are kept |
 | `data/.session-secret` | Signs the sign-in cookies. Made on first start with a sign-in mode; keep it private |
@@ -262,19 +306,23 @@ opens it, so the number of old boards does not slow the server down.
 and copy the whole `data` folder. Copying `wipboard.db` while the server runs can catch it halfway
 through a write; the files in `data/backups/` are always whole.
 
+**Updating from before projects** moves every board's comments into the notes table and renames the
+boards' history to snapshots, once, the first time the server starts. A copy of the database as it was
+is put in `data/backups/` first (`wipboard-before-catalogue-<time>.db`).
+
 **Deleted boards** are kept, only hidden. To bring one back, stop the server and run
 `node scripts/restore-board.js` to list them, then `node scripts/restore-board.js <board id>`. It
 comes back at the top level of its workspace.
 
-## The catalogue
+## Searching across boards
 
 Every item on every board is indexed by what it is, what it is called, which frame holds it and which
-uploaded file it shows, so questions across boards are quick. For now the catalogue is there for the
-features that will use it, and can be asked directly. `GET /api/catalog` takes any of:
+uploaded file it shows, so questions across boards are quick. It can be asked directly.
+`GET /api/catalog` takes any of:
 
 | Parameter | Finds |
 | --------- | ----- |
-| `type`    | `frame`, `image`, `video`, `note`, `text`, `block`, `comment`, `stroke`, or several: `image,video` |
+| `type`    | `frame`, `image`, `video`, `note`, `text`, `block`, `stroke`, or several: `image,video` |
 | `name`    | Items called exactly this, ignoring case and spacing: a frame's title, a file's name, a note's text |
 | `in`      | Items inside a frame called this |
 | `q`       | Words anywhere in what items are called or say; the last word may be the start of one |
@@ -288,6 +336,10 @@ item, its board, the frame it is in, when it was added and by whom. `GET /api/ca
 describes an uploaded file (its size, original name, size in pixels, length and frame rate, who
 uploaded it) and lists every board it is on. Only boards in workspaces the person asking can see are
 searched, and deleted boards never are.
+
+A project's catalogue has its own: `GET /api/projects/<folder>` (its assets, sets and shots),
+`GET /api/entities/<id>` (one of them, every version and every note), `GET` and `PATCH /api/versions/<id>`
+(`{ "hidden": true }`), and `POST /api/projects/<folder>/versions` to file versions.
 
 ## Settings
 
@@ -321,14 +373,15 @@ Environment variables, or lines in a `.env` file next to `server.js`. All option
 
 ```
 server.js          HTTP + WebSocket server, boards in memory
-store.js           The database: boards, items, folders and the catalogue
-notifications.js   What each person is told about, worked out from the comments
+store.js           The database: boards, items, folders, projects' catalogues and notes
+notifications.js   What each person is told about, worked out from the notes
 auth.js            Who is asking: the four sign-in modes
 public/board.js    The canvas: rendering, input, sync, the viewer, following
-public/home.js     Board list
+public/home.js     Board list, and a project's catalogue and Import page
+public/naming.js   How file names are read for the catalogue (shared with the server)
 public/common.js   Shared helpers
 public/login.html  Sign-in page (password and Google modes)
 public/style.css   All styling
 scripts/           restore-board.js: bring back a deleted board
-test/              npm test: sign-in, uploads, live sync, workspaces, links, the database, catalogue and notifications
+test/              npm test: sign-in, uploads, live sync, workspaces, links, the database, catalogue, versions, notes and notifications
 ```

@@ -8,6 +8,8 @@
   const FOLDER = '<path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>';
   const ICON_FOLDER = svg(FOLDER, 20);
   const ICON_FOLDER_SM = svg(FOLDER, 16);
+  const STACK = '<path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5"/>';
+  const ICON_PROJECT = svg(STACK, 20);
   const ICON_MORE = svg('<circle cx="5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/>', 18);
 
   let everything = { folders: [], boards: [] }; // all you may see, in every workspace
@@ -118,6 +120,12 @@
   function currentFolder() {
     const m = /^#\/f\/([\w-]+)/.exec(location.hash);
     return m && folderById(m[1]) ? m[1] : null;
+  }
+
+  // In a project folder: which of its pages is open (boards, catalogue or import), and the entity open in the catalogue.
+  function currentView() {
+    const m = /^#\/f\/[\w-]+\/(catalogue|import)(?:\/([\w-]+))?/.exec(location.hash);
+    return m ? { page: m[1], entity: m[2] || null } : { page: 'boards', entity: null };
   }
 
   function trailTo(id) {
@@ -398,12 +406,30 @@
     return `${n} ${word}${n === 1 ? '' : 's'}`;
   }
 
+  // A project is never inside another, nor around one.
+  const inProject = (id) => trailTo(id).some((f) => f.project);
+  const holdsProject = (id) => lib.folders.some((f) => f.project && isWithin(f.id, id));
+
+  async function setProject(folder, on) {
+    if (on) {
+      const sure = await WB.dialog({
+        title: `Make “${folder.name}” a project?`,
+        text: 'A project keeps a catalogue: its assets, sets and shots, and every version filed of them from its boards or its Import page. A project cannot be deleted, and stays one once something is filed in it.',
+        ok: 'Make it a project',
+      });
+      if (!sure) return;
+    }
+    await api('PATCH', `/api/folders/${folder.id}`, { project: on });
+    await refresh();
+    if (on) location.hash = `#/f/${folder.id}/catalogue`;
+  }
+
   function folderCard(folder) {
     const subs = childrenOf(folder.id).length;
     const boards = boardsIn(folder.id).length;
-    const meta = [boards && plural(boards, 'board'), subs && plural(subs, 'folder')].filter(Boolean).join(' · ') || 'Empty';
-    const card = el('a', { class: 'card folder', href: `#/f/${folder.id}` },
-      el('div', { class: 'folder-icon', html: ICON_FOLDER }),
+    const meta = [folder.project && 'Project', boards && plural(boards, 'board'), subs && plural(subs, 'folder')].filter(Boolean).join(' · ') || 'Empty';
+    const card = el('a', { class: `card folder${folder.project ? ' project' : ''}`, href: `#/f/${folder.id}` },
+      el('div', { class: 'folder-icon', html: folder.project ? ICON_PROJECT : ICON_FOLDER }),
       el('div', { class: 'card-body' },
         el('div', { class: 'card-name', text: folder.name }),
         el('div', { class: 'card-meta', text: meta })),
@@ -411,7 +437,10 @@
         ['Rename', () => rename('folder', folder)],
         ['Move to…', () => moveDialog('folder', folder)],
         hasPersonal && [`Move to ${SPACES[otherSpace()]} workspace`, () => moveSpace('folder', folder)],
-        ['Delete folder', () => removeFolder(folder), true],
+        !folder.project && !inProject(folder.id) && !holdsProject(folder.id) && ['Make it a project', () => setProject(folder, true)],
+        folder.project && ['Open the catalogue', () => { location.hash = `#/f/${folder.id}/catalogue`; }],
+        folder.project && ['Make it a plain folder', () => setProject(folder, false)],
+        !folder.project && ['Delete folder', () => removeFolder(folder), true],
       ].filter(Boolean)));
     draggable(card, 'folder', folder.id);
     dropTarget(card, folder.id);
@@ -449,7 +478,7 @@
   }
 
   function crumb(folder) {
-    const node = el('a', { class: 'crumb', href: folder ? `#/f/${folder.id}` : '#/', text: folder ? folder.name : (hasPersonal ? SPACES[space] : 'All boards') });
+    const node = el('a', { class: `crumb${folder && folder.project ? ' project' : ''}`, href: folder ? `#/f/${folder.id}` : '#/', text: folder ? folder.name : (hasPersonal ? SPACES[space] : 'All boards') });
     dropTarget(node, folder ? folder.id : null);
     return node;
   }
@@ -463,6 +492,14 @@
     crumbs[crumbs.length - 1].classList.add('current');
     document.title = `${trail.length ? trail[trail.length - 1].name : hasPersonal ? SPACES[space] : 'All boards'} · Boards`;
 
+    // A project has its boards, its catalogue and its Import page.
+    const here = cur && folderById(cur);
+    const view = here && here.project ? currentView() : { page: 'boards' };
+    $('q').placeholder = view.page === 'catalogue' ? 'Search the catalogue' : 'Search boards and folders';
+    if (view.page !== 'boards') {
+      $('empty').hidden = true;
+      return renderProject(here, view);
+    }
     // A search looks through every folder; without one you see the folder you are in.
     const q = $('q').value.trim().toLowerCase();
     const matches = (name) => name.toLowerCase().includes(q);
@@ -470,6 +507,7 @@
     const boards = q ? lib.boards.filter((b) => matches(b.name)) : boardsIn(cur);
     const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
     $('content').replaceChildren(...[
+      here && here.project && projectTabs(here, 'boards'),
       subs.length > 0 && label('Folders', subs.length),
       subs.length > 0 && el('div', { class: 'folder-grid' }, subs.map(folderCard)),
       (subs.length > 0 || q) && label('Boards', boards.length),
@@ -477,6 +515,360 @@
       q && !subs.length && !boards.length && el('p', { class: 'home-empty', text: `Nothing matches "${$('q').value.trim()}".` }),
     ].filter(Boolean));
     $('empty').hidden = true;
+  }
+
+  // ------------------------------------------------------------- a project: its catalogue and Import page
+  //
+  // A project's catalogue is every asset, set and shot in it, each with the versions filed of it. It
+  // mirrors how the project is laid out on disk: assets, sets, and shots by sequence. The Import page
+  // takes many files at once and files them straight into the catalogue: what its name says is filed
+  // at once, and only what it does not say is asked. Nothing from it lands on a board.
+
+  const N = window.WBNaming;
+  const catalogues = new Map(); // project id -> its catalogue as last fetched
+
+  function projectTabs(project, page) {
+    const tab = (id, label, href) => el('a', { class: `space${page === id ? ' current' : ''}`, href }, label);
+    return el('nav', { class: 'spaces ptabs', 'aria-label': 'Project' },
+      tab('boards', 'Boards', `#/f/${project.id}`),
+      tab('catalogue', 'Catalogue', `#/f/${project.id}/catalogue`),
+      tab('import', 'Import', `#/f/${project.id}/import`));
+  }
+
+  let shownProject = '';
+  async function renderProject(project, view) {
+    const sig = `${project.id}|${view.page}|${view.entity}`;
+    const fresh = shownProject !== sig;
+    shownProject = sig;
+    if (view.page === 'import') return $('content').replaceChildren(projectTabs(project, 'import'), importView(project));
+    if (fresh && (view.entity || !catalogues.has(project.id))) $('content').replaceChildren(projectTabs(project, 'catalogue'), el('p', { class: 'home-empty', text: 'Loading…' }));
+    try {
+      if (view.entity) {
+        const page = await api('GET', `/api/entities/${view.entity}`);
+        if (shownProject !== sig) return;
+        return $('content').replaceChildren(projectTabs(project, 'catalogue'), entityPage(project, page));
+      }
+      // What was fetched last shows at once (a search narrows it as it is typed); then it is brought up to date.
+      if (catalogues.has(project.id)) $('content').replaceChildren(projectTabs(project, 'catalogue'), ...catalogueView(project, catalogues.get(project.id)));
+      const cat = await api('GET', `/api/projects/${project.id}`);
+      catalogues.set(project.id, cat);
+      if (shownProject !== sig) return;
+      $('content').replaceChildren(projectTabs(project, 'catalogue'), ...catalogueView(project, cat));
+    } catch (err) {
+      $('content').replaceChildren(projectTabs(project, view.page), el('p', { class: 'home-empty', text: err.message }));
+    }
+  }
+
+  function entityTile(project, e) {
+    return el('a', { class: 'card ent', href: `#/f/${project.id}/catalogue/${e.id}` },
+      el('div', { class: `card-thumbs n${e.thumb ? 1 : 0}` }, e.thumb && el('img', { src: e.thumb, alt: '', loading: 'lazy', draggable: 'false' })),
+      el('div', { class: 'card-body' },
+        el('div', { class: 'card-name', text: e.name }),
+        el('div', { class: 'card-meta', text: e.versions ? `${plural(e.versions, 'version')} · last ${ago(e.latestAt)}` : 'Nothing filed yet' })));
+  }
+
+  function catalogueView(project, cat) {
+    const q = $('q').value.trim().toLowerCase();
+    const list = cat.entities.filter((e) => !q || e.name.includes(q));
+    const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
+    const out = [];
+    for (const tier of cat.preset.tiers) {
+      const of = list.filter((e) => e.tier === tier.id);
+      if (!of.length) continue;
+      out.push(label(tier.label, of.length));
+      if (tier.id !== 'shot') {
+        out.push(el('div', { class: 'board-grid ent-grid' }, of.map((e) => entityTile(project, e))));
+        continue;
+      }
+      // Shots by sequence, as they are on disk.
+      const seqs = new Map();
+      for (const e of of) {
+        const seq = N.seqOf(e.name) || 'other';
+        (seqs.get(seq) || seqs.set(seq, []).get(seq)).push(e);
+      }
+      for (const [seq, shots] of seqs) {
+        out.push(el('div', { class: 'seq-label', text: seq }), el('div', { class: 'board-grid ent-grid' }, shots.map((e) => entityTile(project, e))));
+      }
+    }
+    if (!out.length) {
+      out.push(el('div', { class: 'home-empty cat-empty' },
+        el('p', { text: q ? `Nothing in the catalogue matches "${$('q').value.trim()}".` : 'Nothing is filed in this project yet.' }),
+        !q && el('p', { text: 'On one of its boards, select images or videos and file them as versions (Shift+V). Or bring many files in at once from Import.' }),
+        !q && el('a', { class: 'btn', href: `#/f/${project.id}/import`, text: 'Import files' })));
+    }
+    return out;
+  }
+
+  // A version's media, large, over the page.
+  function showMedia(v) {
+    const dlg = el('dialog', { class: 'dlg media-dlg', 'aria-label': v.label });
+    const media = v.look.type === 'video'
+      ? el('video', { src: v.look.src, controls: true, autoplay: true, loop: true, playsinline: true, poster: v.look.poster || v.look.th || null })
+      : el('img', { src: v.look.src, alt: v.label });
+    dlg.append(el('div', { class: 'media-head' }, el('b', { text: v.label }), el('span', { text: v.originalName || '' }),
+      el('button', { type: 'button', class: 'iconbtn', html: ICON.close, title: 'Close (Esc)', onclick: () => dlg.close() })), media);
+    dlg.addEventListener('close', () => dlg.remove());
+    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
+    document.body.append(dlg);
+    dlg.showModal();
+  }
+
+  let showHidden = false;
+  function entityPage(project, page) {
+    const { entity } = page;
+    const hidden = page.versions.filter((v) => v.hidden).length;
+    const versions = page.versions.filter((v) => showHidden || !v.hidden);
+    const byVersion = new Map(page.versions.map((v) => [v.id, v]));
+    const hip = (v) => (v.hip != null ? `from HIP v${String(v.hip).padStart(3, '0')}` : null);
+    const card = (v) => el('div', { class: `card ver${v.hidden ? ' hidden-ver' : ''}` },
+      el('button', { type: 'button', class: `card-thumbs n${v.thumb ? 1 : 0}`, title: 'Look at it', onclick: () => showMedia(v) },
+        v.thumb && el('img', { src: v.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
+        v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })),
+      el('div', { class: 'card-body' },
+        el('div', { class: 'card-name', text: v.label }),
+        el('div', { class: 'card-meta', text: [v.artist, v.descriptor, hip(v)].filter(Boolean).join(' · ') || v.originalName || '' }),
+        el('div', { class: 'card-meta', text: `Filed ${ago(v.createdAt)}${v.createdBy ? ` by ${v.createdBy}` : ''}${v.hidden ? ' · hidden' : ''}` }),
+        v.boards.length > 0 && el('div', { class: 'ver-boards' }, v.boards.map((b) => el('a', { class: 'ver-board', href: `/b/${b.id}`, text: b.name })))),
+      menuButton([
+        [v.hidden ? 'Show it again' : 'Hide it', async () => { await api('PATCH', `/api/versions/${v.id}`, { hidden: !v.hidden }); render(); }],
+        ['Download', () => { location.href = v.look.orig || v.look.src; }],
+      ]));
+    // What was said, by thread, newest version first.
+    const roots = page.notes.filter((n) => !n.re);
+    const replies = (id) => page.notes.filter((n) => n.re === id).sort((a, b) => a.t - b.t);
+    const order = new Map(page.versions.map((v, i) => [v.id, i]));
+    roots.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0) || a.t - b.t);
+    const msg = (n, first) => el('div', { class: `ent-msg${first ? '' : ' reply'}` },
+      el('span', { class: 'avatar sm', style: { background: /^#[0-9a-f]{6}$/i.test(n.color || '') ? n.color : '#8a8a8a' }, text: WB.initials(n.name || '?') }),
+      el('div', { class: 'ent-msg-main' },
+        el('div', { class: 'ent-msg-top' }, el('strong', { text: n.name }), el('span', { text: ago(n.t) }),
+          first && el('a', { href: `/b/${n.board.id}#c=${n.id}`, text: `on ${n.board.name || 'a board'}` })),
+        el('div', { class: 'ent-msg-text', text: n.text })));
+    const threads = roots.map((n) => el('div', { class: `ent-thread${n.done ? ' done' : ''}` },
+      el('div', { class: 'ent-thread-ver' }, byVersion.get(n.versionId)?.label || '', n.done && el('span', { class: 'ent-done', text: 'Resolved' })),
+      msg(n, true), replies(n.id).map((r) => msg(r, false))));
+    const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
+    return el('div', { class: 'ent-page' },
+      el('a', { class: 'ent-back', href: `#/f/${project.id}/catalogue`, text: '← Catalogue' }),
+      el('div', { class: 'ent-head' }, el('h1', { text: entity.name }), el('span', { class: 'ent-tier', text: entity.tier })),
+      label('Versions', versions.length),
+      hidden > 0 && el('label', { class: 'ent-hidden' }, el('input', { type: 'checkbox', checked: showHidden, onchange: (e) => { showHidden = e.target.checked; render(); } }), `Show hidden (${hidden})`),
+      versions.length ? el('div', { class: 'board-grid ent-grid' }, versions.map(card)) : el('p', { class: 'home-empty', text: 'No versions yet' }),
+      label('Notes', roots.length),
+      roots.length ? el('div', { class: 'ent-threads' }, threads) : el('p', { class: 'home-empty', text: 'Nothing said about it yet. Notes made on any board it is on show here.' }));
+  }
+
+  // ---- importing: many files at once, straight into the catalogue
+
+  const imports = new Map(); // project id -> { rows, node }
+  const PIECE = 8 * 1024 * 1024;
+  const uid = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => (b % 36).toString(36)).join('');
+  const extOf = (name) => (/\.[a-z0-9]+$/i.exec(name) || [''])[0].toLowerCase();
+
+  async function sendFile(blob, ext, onProgress) {
+    const id = uid();
+    let offset = 0;
+    let result = null;
+    do {
+      const end = Math.min(blob.size, offset + PIECE);
+      const res = await fetch(`/api/upload?name=file${ext}&uid=${id}&offset=${offset}&done=${end >= blob.size ? 1 : 0}`, { method: 'POST', body: blob.slice(offset, end) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Upload failed (${res.status})`);
+      result = data;
+      offset = end;
+      if (onProgress) onProgress(offset / Math.max(1, blob.size));
+    } while (offset < blob.size);
+    return result;
+  }
+
+  const still = async (source, w, h, max) => {
+    const k = Math.min(1, max / Math.max(w, h));
+    const canvas = el('canvas', { width: Math.max(1, Math.round(w * k)), height: Math.max(1, Math.round(h * k)) });
+    canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.86));
+    return blob ? { url: (await sendFile(blob, '.webp')).url, w: canvas.width } : null;
+  };
+
+  // What a board needs to show the file, made here: its size, a small still and, for a large picture, a preview.
+  async function lookOf(file, onProgress) {
+    const url = URL.createObjectURL(file);
+    try {
+      if (file.type.startsWith('video/') || /\.(mp4|m4v|webm|mov)$/i.test(file.name)) {
+        const video = el('video', { muted: true, preload: 'auto', playsinline: true });
+        video.muted = true;
+        await new Promise((resolve, reject) => {
+          video.onloadeddata = resolve;
+          video.onerror = () => reject(new Error('This browser cannot play that video. Export H.264 MP4 or WebM'));
+          video.src = url;
+        });
+        video.currentTime = Math.min(0.1, (video.duration || 1) / 2);
+        await new Promise((resolve) => { video.onseeked = resolve; setTimeout(resolve, 3000); });
+        const w = video.videoWidth;
+        const h = video.videoHeight;
+        const th = await still(video, w, h, 480).catch(() => null);
+        const poster = await still(video, w, h, 1600).catch(() => null);
+        const up = await sendFile(file, extOf(file.name), onProgress);
+        return { type: 'video', src: up.url, orig: up.url, nw: w, nh: h, name: file.name, ...(th && { th: th.url }), ...(poster && { poster: poster.url }), ...(isFinite(video.duration) && { dur: Math.round(video.duration * 1000) / 1000 }) };
+      }
+      const img = await new Promise((resolve, reject) => {
+        const i = new Image();
+        i.onload = () => resolve(i);
+        i.onerror = () => reject(new Error('This image could not be read'));
+        i.src = url;
+      });
+      const nw = img.naturalWidth || 512;
+      const nh = img.naturalHeight || 512;
+      const look = { type: 'image', nw, nh, name: file.name };
+      if (Math.max(nw, nh) > 2048 * 1.25 && !/\.(gif|svg)$/i.test(file.name)) {
+        const prev = await still(img, nw, nh, 2048).catch(() => null);
+        if (prev) Object.assign(look, { prev: prev.url, pw: prev.w });
+      }
+      if (Math.max(nw, nh) > 480 * 1.5) {
+        const th = await still(img, nw, nh, 480).catch(() => null);
+        if (th) look.th = th.url;
+      }
+      look.src = (await sendFile(file, extOf(file.name), onProgress)).url;
+      return look;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  function importView(project) {
+    let state = imports.get(project.id);
+    if (state) return state.node;
+    const presetId = project.settings && project.settings.naming;
+    const rows = [];
+    const list = el('div', { class: 'imp-list' });
+    const pending = el('div', { class: 'imp-pending' });
+    const picker = el('input', { type: 'file', multiple: true, accept: 'image/*,video/mp4,video/webm,video/quicktime', hidden: true });
+    const drop = el('div', { class: 'imp-drop', tabindex: '0', role: 'button', onclick: () => picker.click() },
+      el('span', { class: 'imp-drop-ic', html: svg('<path d="M12 16V4M7 9l5-5 5 5M5 20h14"/>', 22) }),
+      el('b', { text: 'Drop files here, or click to choose' }),
+      el('span', { text: 'Whatever a file’s name says (kilo-0010_anim_erik_v012.mov) files it at once. Only the ones whose names say nothing are asked about. Nothing goes on a board.' }));
+    const node = el('div', { class: 'imp' }, drop, pending, list, picker);
+    state = { rows, node };
+    imports.set(project.id, state);
+
+    let cat = catalogues.get(project.id) || null;
+    const catalogue = async () => cat || (cat = await api('GET', `/api/projects/${project.id}`));
+    const remembered = () => store(`wb:file:${project.id}`) || {};
+
+    function rowNode(r) {
+      const status = {
+        reading: 'Reading…', uploading: `Uploading ${Math.round(r.progress * 100)}%`, filing: 'Filing…',
+        filed: r.label ? `Filed as ${r.label}` : 'Filed', failed: r.error || 'Failed', needs: 'Which asset, set or shot?',
+      }[r.status];
+      return el('div', { class: `imp-row ${r.status}` },
+        el('span', { class: 'imp-thumb' }, r.preview && el('img', { src: r.preview, alt: '' })),
+        el('span', { class: 'imp-name', text: r.file.name }),
+        el('span', { class: 'imp-said', text: [r.parsed.entity, r.parsed.task, r.parsed.hip != null && `HIP v${String(r.parsed.hip).padStart(3, '0')}`].filter(Boolean).join(' · ') }),
+        el('span', { class: 'imp-status', text: status }));
+    }
+
+    function paint() {
+      list.replaceChildren(...rows.filter((r) => r.status !== 'needs').map(rowNode).reverse());
+      const needs = rows.filter((r) => r.status === 'needs');
+      if (!needs.length) return pending.replaceChildren();
+      const last = remembered();
+      const entIn = el('input', { type: 'text', list: 'imp-entities', placeholder: 'kilo-0010, char-robot, set-kitchen…', value: pending.dataset.entity ?? last.entity ?? '', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Asset, set or shot' });
+      const taskIn = el('input', { type: 'text', list: 'imp-tasks', placeholder: 'No task', value: pending.dataset.task ?? last.task ?? '', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Task' });
+      const tierSel = el('select', { 'aria-label': 'What it is' }, (cat ? cat.preset.tiers : N.preset(presetId).tiers).map((t) => el('option', { value: t.id, text: `A new ${t.one}` })));
+      const go = el('button', { type: 'submit', class: 'btn primary', text: `File ${needs.length === 1 ? 'it' : `these ${needs.length}`}` });
+      const check = () => {
+        pending.dataset.entity = entIn.value;
+        pending.dataset.task = taskIn.value;
+        const name = N.tokenize(entIn.value);
+        const have = cat && cat.entities.find((e) => e.name === name);
+        const shape = name && N.tierOf(name, presetId);
+        tierSel.hidden = !name || !!have || !!shape;
+        if (shape) tierSel.value = shape;
+        go.disabled = !name;
+      };
+      entIn.addEventListener('input', check);
+      taskIn.addEventListener('input', check);
+      const form = el('form', {
+        class: 'imp-ask',
+        onsubmit: async (e) => {
+          e.preventDefault();
+          const name = N.tokenize(entIn.value);
+          if (!name) return;
+          const have = cat && cat.entities.find((x) => x.name === name);
+          const task = N.tokenize(taskIn.value);
+          store(`wb:file:${project.id}`, { entity: name, task });
+          await fileRows(needs, { entity: have ? have.id : { name, tier: tierSel.hidden ? N.tierOf(name, presetId) || 'asset' : tierSel.value }, task: task || null });
+        },
+      },
+      el('div', { class: 'imp-ask-head' }, el('b', { text: needs.length === 1 ? 'One file’s name says nothing' : `${needs.length} files’ names say nothing` }),
+        el('span', { text: 'Say what they are, and they are filed together.' })),
+      el('div', { class: 'imp-ask-thumbs' }, needs.map((r) => el('span', { class: 'imp-thumb', title: r.file.name }, r.preview && el('img', { src: r.preview, alt: '' })))),
+      el('div', { class: 'imp-ask-fields' }, entIn, tierSel, taskIn, go),
+      el('datalist', { id: 'imp-entities' }, (cat ? cat.entities : []).map((x) => el('option', { value: x.name }))),
+      el('datalist', { id: 'imp-tasks' }, (cat ? cat.tasks : N.preset(presetId).tasks).map((t) => el('option', { value: t }))));
+      pending.replaceChildren(form);
+      check();
+    }
+
+    async function fileRows(list, choice = {}) {
+      for (const r of list) r.status = 'filing';
+      paint();
+      try {
+        const res = await api('POST', `/api/projects/${project.id}/versions`, { files: list.map((r) => ({ look: r.look })), ...choice, by: me.name });
+        res.versions.forEach((v, i) => { list[i].status = 'filed'; list[i].label = v.label; });
+        cat = null;
+        await catalogue().catch(() => {});
+      } catch (err) {
+        for (const r of list) {
+          r.status = choice.entity ? 'needs' : 'failed';
+          r.error = err.message;
+        }
+        if (choice.entity) WB.dialog({ title: 'Those were not filed', text: err.message, ok: 'OK', cancellable: false });
+      }
+      paint();
+    }
+
+    // One file at a time: read, upload, and file at once when its name says what it is.
+    let running = false;
+    async function work() {
+      if (running) return;
+      running = true;
+      await catalogue().catch(() => {});
+      for (let r = rows.find((x) => x.status === 'queued'); r; r = rows.find((x) => x.status === 'queued')) {
+        r.status = 'uploading';
+        r.progress = 0;
+        paint();
+        try {
+          r.look = await lookOf(r.file, (k) => { r.progress = k; paint(); });
+          if (r.look.th || r.look.type === 'image') r.preview = r.look.th || r.look.src;
+          if (r.parsed.entity) await fileRows([r]);
+          else r.status = 'needs';
+        } catch (err) {
+          r.status = 'failed';
+          r.error = err.message;
+        }
+        paint();
+      }
+      running = false;
+    }
+
+    function add(files) {
+      for (const file of files) {
+        if (!/^(image|video)\//.test(file.type) && !/\.(png|jpe?g|gif|webp|avif|bmp|svg|mp4|m4v|webm|mov)$/i.test(file.name)) continue;
+        rows.push({ file, status: 'queued', progress: 0, parsed: N.parse(file.name, presetId), look: null, preview: null });
+      }
+      paint();
+      work();
+    }
+    picker.addEventListener('change', () => { add([...picker.files]); picker.value = ''; });
+    drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); picker.click(); } });
+    for (const type of ['dragover', 'dragenter']) drop.addEventListener(type, (e) => { e.preventDefault(); drop.classList.add('drop'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('drop'));
+    drop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      drop.classList.remove('drop');
+      add([...e.dataTransfer.files]);
+    });
+    return node;
   }
 
   // ------------------------------------------------------------- actions

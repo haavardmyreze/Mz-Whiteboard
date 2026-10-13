@@ -71,6 +71,7 @@
     </span>
     <span id="themeslot"></span>
     <button id="help" class="iconbtn" title="Keyboard shortcuts (?)">?</button>
+    <button id="catalogue" class="iconbtn board-only" title="The project's catalogue: its assets, sets and shots, to put on the board" hidden></button>
     <button id="activity" class="iconbtn board-only" title="Activity: who has opened and changed this board, and earlier versions of it" hidden></button>
     <button id="boardmenu" class="iconbtn board-only" title="Board settings: file names, sharing, files, activity" hidden></button>
     <button id="share" class="btn primary board-only" title="Make a view-only link anyone can open" hidden>Share</button>
@@ -91,11 +92,13 @@
 
   <div id="helppanel" hidden></div>
   <div id="actpanel" class="chrome" hidden></div>
+  <div id="catpanel" class="chrome" aria-label="Catalogue" hidden></div>
   <div id="setpanel" class="chrome" hidden></div>
   <div id="toasts"></div>
   <input id="filepick" type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple hidden>
 
   <script src="/common.js"></script>
+  <script src="/naming.js"></script>
   <script src="/board.js"></script>
 </body>
 </html>

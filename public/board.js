@@ -200,6 +200,9 @@
     restore: icon('<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/><path d="M12 8v4l3 2"/>'),
     cloud: icon('<path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 9.5 4.3 4.3 0 0 1 17.5 18z"/>'),
     more: icon('<circle cx="5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/>'),
+    stack: icon('<path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5"/>'),
+    file: icon('<path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 3-1.5M17 18h5M19.5 15.5v5"/>'),
+    search: icon('<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4-4"/>'),
   };
   const CURSOR_SVG = '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M1 1l4.5 13 2.2-5.3L13 6.5z" fill="var(--c)" stroke="#fff" stroke-width="1"/></svg>';
 
@@ -207,6 +210,7 @@
 
   const items = new Map();       // id -> item; the shared document
   const comments = new Map();    // id -> comment; kept apart from items so they never take part in layout, snapping or fitting
+  const versionInfo = new Map(); // catalogue version id -> what it is called, and whether there is a newer one (see the catalogue below)
   const els = new Map();         // id -> DOM node
   const sel = new Set();
   const peers = new Map();       // id -> { id, name, color, p, cur }
@@ -241,6 +245,7 @@
   let focusId = null;
   let focusReturn = null;
   let cmDirty = false;
+  let project = null;            // the project this board is in, if it is in one: { id, name, naming }
 
   // ------------------------------------------------------------- helpers
 
@@ -739,7 +744,10 @@
       els.set(it.id, node);
       (it.type === 'frame' ? framesLayer : it.type === 'stroke' ? inksLayer : itemsLayer).append(node);
     }
-    if (it.type === 'image' || it.type === 'video') node.dataset.name = it.name || '';
+    if (it.type === 'image' || it.type === 'video') {
+      node.dataset.name = it.name || '';
+      paintVerChip(node, it);
+    }
     const st = node.style;
     st.transform = `translate(${it.x}px, ${it.y}px)`;
     st.zIndex = it.z || 0;
@@ -902,9 +910,12 @@
     for (const op of ops) {
       if (op.t === 'add') {
         if (op.item.type === 'comment') {
+          // Told only of a comment that is new here: not one brought along with a version put on the
+          // board, nor one that has only been resolved or moved to another piece showing its version.
+          const fresh = remote === true && !op.item.re && !comments.has(op.item.id);
           comments.set(op.item.id, { ...op.item });
           cmDirty = true;
-          if (remote && !op.item.re) toast(`${op.item.name} commented on ${hostLabel(op.item)}`);
+          if (fresh) toast(`${op.item.name} commented on ${hostLabel(op.item)}`);
           continue;
         }
         items.set(op.item.id, { ...op.item });
@@ -1219,7 +1230,7 @@
     // Blocks, however many, are aligned together.
     const blocks = types.size === 1 && types.has('block') ? list : null;
     const align = blocks && blocks.every((it) => it.align === blocks[0].align) ? blocks[0].align : null;
-    const sig = `${[...types].sort().join()}|${Math.min(list.length, 2)}|${one ? `${one.lvl}${one.auto}` : ''}|${align}`;
+    const sig = `${[...types].sort().join()}|${Math.min(list.length, 2)}|${one ? `${one.lvl}${one.auto}` : ''}|${align}|${project ? fileable(list).length : 0}`;
     if (seltools.dataset.sig === sig) return;
     seltools.dataset.sig = sig;
 
@@ -1256,6 +1267,7 @@
     kids.push(btn(ICON.dup, 'Duplicate (Ctrl+D)', duplicate));
     if (one && (one.type === 'image' || one.type === 'video')) kids.push(btn(ICON.focus, 'Open it, to comment and draw on it (double-click)', () => enterFocus(one.id)));
     if (one && onServer(one)) kids.push(btn(ICON.download, downloadTitle(one), () => downloadPiece(one.id)));
+    if (project && !viewOnly && fileable(list).length) kids.push(btn(ICON.file, fileable(list).length > 1 ? `File these ${fileable(list).length} as versions in ${project.name} (Shift+V)` : `File as a version in ${project.name} (Shift+V)`, () => fileSelection()));
     kids.push(btn(ICON.trash, 'Delete (Del)', deleteSel));
     seltools.replaceChildren(...kids);
   }
@@ -2073,7 +2085,7 @@
     setSel([]);
     document.body.classList.add('focus');
     document.body.classList.toggle('focus-video', it.type === 'video');
-    $('focusname').textContent = it.name || (it.type === 'video' ? 'Video' : 'Image');
+    $('focusname').textContent = focusTitle(it);
     $('focusclear').title = `Delete what is drawn on this ${it.type}, apart from drawings that belong to comments`;
     $('filmstrip').hidden = false;
     $('timeline').hidden = it.type !== 'video';
@@ -4488,7 +4500,7 @@
   }
 
   vp.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.vbar, a, .cchip')) return;
+    if (e.target.closest('.vbar, a, .cchip, .vchip')) return;
     // A hand on the board while Space is down is a pan, not a tap of the key.
     spaceTap = false;
     if (editing) {
@@ -5062,7 +5074,7 @@
   if (viewOnly) {
     let down = null;
     vp.addEventListener('pointerdown', (e) => {
-      down = e.button === 0 ? { x: e.clientX, y: e.clientY, skip: !!e.target.closest('.vbar, a, .cchip'), play: !!e.target.closest('.vplay') } : null;
+      down = e.button === 0 ? { x: e.clientX, y: e.clientY, skip: !!e.target.closest('.vbar, a, .cchip, .vchip'), play: !!e.target.closest('.vplay') } : null;
     }, true);
     vp.addEventListener('pointerup', (e) => {
       const start = down;
@@ -5762,6 +5774,7 @@
           // The moment it is about sits on the same line as who wrote it, so a short comment is two lines, not three.
           moment != null && el('button', { class: 'tchip', title: 'Go to this frame', onclick: () => pickThread(c.id) }, el('span', { html: ICON.play }), fmtMoment(moment, fpsOf(c.on))),
           el('span', { class: 'msg-time', text: WB.ago(c.t), title: new Date(c.t).toLocaleString() }),
+          c.obn && el('span', { class: 'msg-from', text: `on ${c.obn}`, title: `Said on the board “${c.obn}”, about the same version` }),
           c.edited && el('span', { class: 'msg-edited', text: 'edited', title: `Edited ${new Date(c.edited).toLocaleString()}` }),
           el('span', { class: 'msg-acts' },
             !viewOnly && mine(c) && !editing && el('button', { class: 'iconbtn mini', html: ICON.pen, title: 'Edit', onclick: () => startCommentEdit(c) }),
@@ -6238,12 +6251,14 @@
     else if (k === 'f' && !e.shiftKey) activateFrame();
     else if (k === 'c' && e.shiftKey) togglePanel();
     else if (k === 'c') startComment();
+    else if (k === 'v' && e.shiftKey && !focusId) fileSelection();
     else if (k === 'delete' || k === 'backspace') deleteSel();
     else if (k === 'escape') {
       // One thing at a time, the nearest first.
       if (!$('helppanel').hidden) toggleHelp();
       if (!$('actpanel').hidden) toggleActivity(false);
       if (!keptPop.hidden) toggleKeptPop(false);
+      else if (!catPanel.hidden) toggleCatalogue(false);
       else if (!$('setpanel').hidden) toggleSettings(false);
       else if (focusId && (tool === 'laser' || tool === 'eraser')) setTool('pen');
       else if (focusId) exitFocus();
@@ -6321,6 +6336,7 @@
     { id: 'arrange', label: 'Arrange', icon: ICON.tidy, rows: [
       ['Duplicate', combo('mod', 'D'), '~or', combo('alt'), '~+ drag'],
       ['Tidy into a grid', combo('mod', 'P')],
+      ['File as a version', combo('shift', 'V')],
       ['Bring to front', ']'],
       ['Send to back', '['],
       ['Scale a note with its text', combo('shift'), '~+ drag a corner'],
@@ -6344,9 +6360,10 @@
       ['Time, frame or timecode', '~click the time'],
     ] },
     { id: 'guide', label: 'Guide', icon: ICON.help, guide: [
+      [ICON.stack, 'Versions', 'On a board in a project, select images or videos and file them as versions of an asset, set or shot (Shift+V). Their notes go with them, and show on every board the version is on. The catalogue button adds versions to the board.'],
       [ICON.comment, 'Comments with drawings', 'Draw on the open image or video while writing a comment, and the drawing belongs to it: it shows when the comment is read, on the frame it is about.'],
       [ICON.kept, 'Video cache', `The videos on boards you open are saved on this computer, so they open and scrub at once. Up to ${KEPT_MAX / 1024 ** 3} GB across all boards; the ones opened longest ago make room.`],
-      [ICON.activity, 'Versions', 'Before each round of changes the board is kept as it was. Putting one back keeps what is there now as a version too, so nothing is lost.'],
+      [ICON.activity, 'Snapshots', 'Before each round of changes the board is kept as it was. Putting one back keeps what is there now as a snapshot too, so nothing is lost. Notes and catalogue versions are not touched.'],
       [ICON.download, 'Originals', 'Video is made lighter on upload so it plays smoothly for review. The file it came from is kept, and is what is downloaded.'],
       [ICON.link, 'Sharing', 'A link lets people outside the team look, read the comments or comment, without signing in, until you turn it off or it runs out.'],
       [ICON.tag, 'File names', 'Board settings can show every image and video with its file name, for everyone on the board.'],
@@ -6389,6 +6406,7 @@
       paintHelp();
       toggleActivity(false);
       toggleSettings(false);
+      toggleCatalogue(false);
     }
     // Out on the board the two would sit on top of each other.
     if (!help.hidden && boardPanel && !focusId) togglePanel(false);
@@ -6696,6 +6714,11 @@
     }
     items.clear();
     comments.clear();
+    versionInfo.clear();
+    for (const v of msg.versions || []) versionInfo.set(v.id, v);
+    project = msg.project || null;
+    $('catalogue').hidden = !project || viewOnly;
+    if (!project && !catPanel.hidden) toggleCatalogue(false);
     for (const it of msg.items) {
       if (it.type === 'comment') {
         comments.set(it.id, it);
@@ -6751,10 +6774,12 @@
     if (msg.t === 'init') {
       onInit(msg);
     } else if (msg.t === 'op') {
-      applyOps(msg.ops, true);
+      applyOps(msg.ops, msg.sync ? 'sync' : true);
       refreshPeerSel();
     } else if (msg.t === 'ack') {
       onAck();
+    } else if (msg.t === 'versions') {
+      learnVersions(msg.list);
     } else if (msg.t === 'join') {
       addPeer(msg.peer);
       updateFollowUI();
@@ -6912,7 +6937,7 @@
           el('span', { class: `set-chip${shared ? ' on' : ''}`, text: shared ? 'Link on' : 'Team only' }), () => openShare(meta)),
         go(ICON.download, 'Download originals',
           el('span', { class: 'set-value', text: files ? `${files} ${files === 1 ? 'file' : 'files'} · zip` : 'Nothing yet' }), downloadBoard, !files),
-        go(ICON.activity, 'Activity and versions', null, () => toggleActivity(true))));
+        go(ICON.activity, 'Activity and snapshots', null, () => toggleActivity(true))));
   }
 
   // A panel in the corner, like the shortcuts and the activity, and in their place: one of them at a time.
@@ -6922,8 +6947,301 @@
     if (!show) return;
     closeHelp();
     toggleActivity(false);
+    toggleCatalogue(false);
     if (boardPanel && !focusId) togglePanel(false);
     paintSettings();
+  }
+
+  // ------------------------------------------------------------- the catalogue
+  //
+  // A board in a project folder can file its images and videos as versions of the project's assets,
+  // sets and shots, and take versions from the catalogue onto itself. A piece that shows a version says
+  // which in its corner ("kilo-0010 anim v5"), and says so when a newer one has been filed since. What
+  // is said about a version is said about it on every board it is on (see the notes in server.js).
+  //
+  // Nothing has to be named for this: filing asks only which asset, set or shot it is (and the task, if
+  // the project uses them). What the file's name, the frame it is in, and the last choice made here say
+  // is filled in ahead.
+
+  const N = window.WBNaming;
+
+  function learnVersions(list) {
+    const ids = new Set();
+    for (const v of list || []) {
+      versionInfo.set(v.id, v);
+      ids.add(v.id);
+    }
+    for (const it of items.values()) {
+      if (!ids.has(it.ver)) continue;
+      const node = els.get(it.id);
+      if (node) paintVerChip(node, it);
+    }
+    const open = focusId && items.get(focusId);
+    if (open) $('focusname').textContent = focusTitle(open);
+    seltools.dataset.sig = '';
+    updateOverlay();
+  }
+
+  // What the viewer's bar calls the open piece: its version first, when it is one.
+  function focusTitle(it) {
+    const v = it.ver && versionInfo.get(it.ver);
+    const name = it.name || (it.type === 'video' ? 'Video' : 'Image');
+    return v ? `${v.label} · ${name}` : name;
+  }
+
+  function paintVerChip(node, it) {
+    const v = it.ver ? versionInfo.get(it.ver) : null;
+    let chip = node.querySelector(':scope > .vchip');
+    node.classList.toggle('filed', !!v);
+    if (!v) {
+      if (chip) chip.remove();
+      return;
+    }
+    if (!chip) {
+      chip = el('button', { class: 'vchip', onclick: (e) => { e.stopPropagation(); verMenu(it.id, chip); } },
+        el('span', { class: 'vchip-label' }), el('span', { class: 'vchip-new' }));
+      node.append(chip);
+    }
+    chip.firstChild.textContent = v.label;
+    chip.lastChild.textContent = v.newest ? `v${v.newest.number}` : '';
+    chip.classList.toggle('stale', !!v.newest);
+    const hip = v.hip != null ? ` From HIP v${String(v.hip).padStart(3, '0')}.` : '';
+    chip.title = v.newest
+      ? `${v.label}. Version ${v.newest.number} has been filed since. Click to swap it in`
+      : `${v.label}${v.artist ? `, by ${v.artist}` : ''}.${hip} Click for more`;
+  }
+
+  function closeMenus() {
+    for (const m of document.querySelectorAll('.menu.vmenu')) m.remove();
+  }
+  document.addEventListener('pointerdown', (e) => { if (!e.target.closest('.vmenu, .vchip')) closeMenus(); });
+
+  // What can be done from a version's chip: swap in the newer one, look it up in the catalogue.
+  function verMenu(id, anchor) {
+    closeMenus();
+    const it = items.get(id);
+    const v = it && versionInfo.get(it.ver);
+    if (!v) return;
+    const entries = [
+      el('div', { class: 'vmenu-head' }, el('b', { text: v.label }),
+        el('span', { text: [v.artist && `by ${v.artist}`, v.descriptor, v.hip != null && `from HIP v${String(v.hip).padStart(3, '0')}`].filter(Boolean).join(' · ') || 'In the catalogue' })),
+      v.newest && !viewOnly && el('button', { class: 'menu-item', text: `Swap in v${v.newest.number}`, onclick: () => { closeMenus(); swapVersion(id, v.newest.id); } }),
+      !viewOnly && el('button', { class: 'menu-item', text: 'All versions of it', onclick: () => { closeMenus(); toggleCatalogue(true, v.entityId); } }),
+      !viewOnly && el('a', { class: 'menu-item', href: `/#/f/${v.projectId}/catalogue/${v.entityId}`, text: 'Open in the catalogue' }),
+    ];
+    const menu = el('div', { class: 'menu vmenu', role: 'menu' }, entries);
+    document.body.append(menu);
+    const r = anchor.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(r.left, innerWidth - menu.offsetWidth - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8))}px`;
+  }
+
+  // The piece shows another version of the same thing, in its place and at its width. One that is an
+  // image where the other was a video goes in beside it instead.
+  async function swapVersion(id, toId) {
+    let v;
+    try {
+      v = await WB.api('GET', `/api/versions/${toId}`);
+    } catch (err) {
+      return toast(err.message);
+    }
+    const it = items.get(id);
+    if (!it) return;
+    versionInfo.set(v.id, v);
+    if (v.look.type !== it.type) return placeMedia([{ ...v.look, ver: v.id }], { x: it.x + it.w + 40, y: it.y + it.h / 2 });
+    const patch = { ver: v.id };
+    for (const key of ['src', 'orig', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'wf', 'name']) patch[key] = v.look[key] ?? null;
+    if (v.look.nw && v.look.nh) patch.h = round(it.w * (v.look.nh / v.look.nw));
+    exec([{ t: 'set', id, patch }]);
+    toast(`Now ${v.label}`, { ms: 2500 });
+  }
+
+  // The images and videos among these that could be filed: on the server, and not a version already.
+  const fileable = (list) => list.filter((it) => onServer(it) && !(it.ver && versionInfo.has(it.ver)));
+
+  async function fileSelection() {
+    if (!project || viewOnly) return;
+    const list = fileable([...sel].map((id) => items.get(id)).filter(Boolean));
+    if (!list.length) return void toast(project ? 'Select images or videos to file them as versions' : 'Put this board in a project folder to file versions');
+    let cat;
+    try {
+      cat = await WB.api('GET', `/api/projects/${project.id}`);
+    } catch (err) {
+      return toast(err.message);
+    }
+    openFiling(list, cat);
+  }
+
+  // The dialog that files pieces as versions. It asks for one thing, which asset, set or shot, and the
+  // task if any; both come filled in when anything says what they are.
+  function openFiling(list, cat) {
+    const presetId = project.naming;
+    const remembered = store(`wb:file:${project.id}`) || {};
+    const parsed = list.map((it) => N.parse(it.name || '', presetId));
+    const named = parsed.map((p) => p.entity);
+    // What the pieces have in common says the most; then the frame they are in; then the last choice.
+    const same = (vals) => (vals.length && vals.every((x) => x && x === vals[0]) ? vals[0] : null);
+    const frames = list.map((it) => frameOf(it)).map((f) => (f ? N.tokenize(f.title) : null));
+    const known = (name) => !!name && (cat.entities.some((e) => e.name === name) || !!N.tierOf(name, presetId));
+    // Some names say what they are and some do not: those that do go where they say, and what is asked
+    // is about the rest.
+    const mixed = named.some(Boolean) && !named.every(Boolean);
+    const asked = mixed ? parsed.filter((p) => !p.entity) : parsed;
+    const askedFrames = mixed ? frames.filter((f, i) => !named[i]) : frames;
+    let entity = (mixed ? null : same(named)) || (known(same(askedFrames)) ? same(askedFrames) : null) || (!mixed && named.some(Boolean) ? '' : remembered.entity || '');
+    let task = same(asked.map((p) => p.task)) || (asked.some((p) => p.task) ? '' : remembered.task || '');
+    let tier = null;
+
+    const dlg = el('dialog', { class: 'dlg file-dlg' });
+    const entityList = el('datalist', { id: 'file-entities' }, cat.entities.map((e) => el('option', { value: e.name })));
+    const taskList = el('datalist', { id: 'file-tasks' }, cat.tasks.map((t) => el('option', { value: t })));
+    const entityIn = el('input', { type: 'text', list: 'file-entities', value: entity, placeholder: !mixed && named.some(Boolean) ? 'From each file’s name' : 'kilo-0010, char-robot, set-kitchen…', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Asset, set or shot' });
+    const taskIn = el('input', { type: 'text', list: 'file-tasks', value: task, placeholder: 'No task', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Task' });
+    const tierRow = el('div', { class: 'seg file-tier', role: 'radiogroup' });
+    const hint = el('p', { class: 'file-hint' });
+    const ok = el('button', { type: 'submit', class: 'btn primary', text: 'File' });
+    const rows = el('div', { class: 'file-rows' }, list.map((it, i) => el('div', { class: 'file-row' },
+      el('img', { src: it.th || it.prev || (it.type === 'image' ? it.src : it.poster) || '', alt: '' }),
+      el('span', { class: 'file-name', text: it.name || (it.type === 'video' ? 'Video' : 'Image') }),
+      el('span', { class: 'file-said', text: [parsed[i].entity, parsed[i].task, parsed[i].hip != null && `HIP v${String(parsed[i].hip).padStart(3, '0')}`].filter(Boolean).join(' · ') }))));
+
+    function paint() {
+      entity = N.tokenize(entityIn.value);
+      task = N.tokenize(taskIn.value);
+      const have = cat.entities.find((e) => e.name === entity);
+      const shape = entity ? N.tierOf(entity, presetId) : null;
+      if (!tier || shape) tier = shape || tier || 'asset';
+      tierRow.hidden = !entity || !!have;
+      tierRow.replaceChildren(...N.preset(presetId).tiers.map((t) => el('button', {
+        type: 'button', class: `seg-btn${tier === t.id ? ' on' : ''}`, role: 'radio', 'aria-checked': String(tier === t.id),
+        onclick: () => { tier = t.id; paint(); },
+      }, t.one[0].toUpperCase() + t.one.slice(1))));
+      const missing = !entity && parsed.some((p) => !p.entity);
+      ok.disabled = missing;
+      const what = (n) => (n === 1 ? 'the next version' : 'new versions');
+      const rest = asked.length === 1 ? 'the one whose name says nothing' : `the ${asked.length} whose names say nothing`;
+      if (mixed) {
+        hint.textContent = missing ? `The others go where their names say. Which asset, set or shot is ${rest}?`
+          : `The others go where their names say; ${rest} ${asked.length === 1 ? 'goes' : 'go'} under ${entity}${task ? ` · ${task}` : ''}${have ? '' : `, a new ${N.preset(presetId).tiers.find((t) => t.id === tier).one}`}.`;
+        return;
+      }
+      hint.textContent = missing ? 'Which asset, set or shot is it? Type a name, or pick one.'
+        : !entity ? `Each goes under what its name says, as ${what(list.length)}.`
+          : have ? `Filed under ${have.name}${task ? ` · ${task}` : ''} as ${what(list.length)}.`
+            : `A new ${N.preset(presetId).tiers.find((t) => t.id === tier).one}, ${entity}, is made for ${list.length === 1 ? 'it' : 'them'}.`;
+    }
+    entityIn.addEventListener('input', paint);
+    taskIn.addEventListener('input', paint);
+
+    let confirmed = false;
+    dlg.append(el('form', { method: 'dialog', onsubmit: () => { confirmed = true; } },
+      el('h2', { text: list.length > 1 ? `File ${list.length} pieces as versions` : 'File as a version' }),
+      rows,
+      el('label', { class: 'file-field' }, el('span', { text: 'Asset, set or shot' }), entityIn), tierRow,
+      el('label', { class: 'file-field' }, el('span', { text: 'Task' }), taskIn),
+      hint, entityList, taskList,
+      el('div', { class: 'dlg-actions' },
+        el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }), ok)));
+    dlg.addEventListener('close', async () => {
+      dlg.remove();
+      if (!confirmed) return;
+      const have = cat.entities.find((e) => e.name === entity);
+      const chosen = {
+        ...(entity && { entity: have ? have.id : { name: entity, tier } }),
+        ...(taskIn.value.trim() && { task }),
+      };
+      const body = {
+        files: list.map((it, i) => ({ board: boardId, item: it.id, ...(mixed && !named[i] && chosen) })),
+        ...(!mixed && chosen),
+        by: me.name,
+      };
+      try {
+        const res = await WB.api('POST', `/api/projects/${project.id}/versions`, body);
+        if (entity) store(`wb:file:${project.id}`, { entity, task });
+        learnVersions(res.versions);
+        toast(res.versions.length === 1 ? `Filed as ${res.versions[0].label}` : `Filed ${res.versions.length} versions: ${res.versions.map((v) => v.label).join(', ')}`, { ms: 5000 });
+      } catch (err) {
+        toast(err.message, { ms: 6000 });
+      }
+    });
+    paint();
+    document.body.append(dlg);
+    dlg.showModal();
+    (entity ? taskIn : entityIn).focus();
+  }
+
+  // ---- the catalogue beside the board: the project's assets, sets and shots, and their versions, to
+  // put on the board with a click
+
+  const catPanel = $('catpanel');
+  let catSeen = null;     // what the project's catalogue was when last asked
+  let catEntity = null;   // the entity open in the panel, by id
+  let catQuery = '';
+  const catBody = el('div', { class: 'cat-body' });
+  const catSearch = el('input', { type: 'search', placeholder: 'Find an asset, set or shot', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Find' });
+  catSearch.addEventListener('input', () => { catQuery = catSearch.value.trim().toLowerCase(); paintCatalogue(); });
+  const catTitle = el('h2');
+  catPanel.append(
+    el('div', { class: 'act-head' }, catTitle,
+      el('button', { class: 'iconbtn', html: ICON.close, title: 'Close (Esc)', onclick: () => toggleCatalogue(false) })),
+    el('label', { class: 'cat-search' }, el('span', { html: ICON.search }), catSearch),
+    catBody);
+
+  const thumbOf = (src) => (src ? el('img', { src, alt: '', loading: 'lazy', draggable: 'false' }) : el('span', { class: 'cat-nothumb', html: ICON.stack }));
+
+  async function paintCatalogue() {
+    if (!project) return;
+    catTitle.textContent = project.name;
+    if (catEntity) return paintCatEntity();
+    if (!catSeen) {
+      try {
+        catSeen = await WB.api('GET', `/api/projects/${project.id}`);
+      } catch (err) {
+        return catBody.replaceChildren(el('p', { class: 'act-none', text: err.message }));
+      }
+    }
+    const shown = catSeen.entities.filter((e) => !catQuery || e.name.includes(catQuery));
+    const groups = catSeen.preset.tiers.map((t) => [t, shown.filter((e) => e.tier === t.id)]).filter(([, list]) => list.length);
+    catBody.replaceChildren(...(groups.length ? groups.map(([t, list]) => el('section', { class: 'cat-group' },
+      el('h3', {}, t.label, el('span', { class: 'tally', text: String(list.length) })),
+      el('div', { class: 'cat-grid' }, list.map((e) => el('button', { type: 'button', class: 'cat-tile', title: `${e.name}: ${e.versions} ${e.versions === 1 ? 'version' : 'versions'}`, onclick: () => { catEntity = e.id; paintCatalogue(); } },
+        thumbOf(e.thumb), el('span', { class: 'cat-name', text: e.name }), el('span', { class: 'cat-meta', text: e.versions ? `${e.versions} ${e.versions === 1 ? 'version' : 'versions'}` : 'Nothing filed' }))))))
+      : [el('p', { class: 'act-none' }, el('span', { html: ICON.stack }), el('span', { text: catQuery ? 'Nothing by that name' : 'Nothing filed in this project yet. Select images or videos on the board and file them (Shift+V).' }))]));
+  }
+
+  async function paintCatEntity() {
+    let page;
+    try {
+      page = await WB.api('GET', `/api/entities/${catEntity}`);
+    } catch (err) {
+      catEntity = null;
+      return paintCatalogue();
+    }
+    const here = new Set([...items.values()].map((it) => it.ver).filter(Boolean));
+    const shown = page.versions.filter((v) => !v.hidden);
+    catBody.replaceChildren(
+      el('button', { type: 'button', class: 'cat-back', onclick: () => { catEntity = null; paintCatalogue(); } }, el('span', { html: ICON.prev }), 'All of the project'),
+      el('div', { class: 'cat-ent' }, el('b', { text: page.entity.name }), el('span', { text: `${page.entity.tier} · ${shown.length} ${shown.length === 1 ? 'version' : 'versions'}` })),
+      shown.length ? el('div', { class: 'cat-versions' }, shown.map((v) => el('button', {
+        type: 'button', class: `cat-ver${here.has(v.id) ? ' here' : ''}`, title: here.has(v.id) ? `${v.label} is on this board. Click to put it on again` : `Put ${v.label} on the board`,
+        onclick: () => placeMedia([{ ...v.look, ver: v.id }], viewCenter()),
+      }, thumbOf(v.thumb), el('span', { class: 'cat-name', text: v.label }),
+      el('span', { class: 'cat-meta', text: [v.artist, WB.ago(v.createdAt)].filter(Boolean).join(' · ') }),
+      here.has(v.id) && el('span', { class: 'cat-here', text: 'On the board' }))))
+        : el('p', { class: 'act-none', text: 'No versions yet' }));
+  }
+
+  function toggleCatalogue(show = catPanel.hidden, entityId) {
+    catPanel.hidden = !show;
+    $('catalogue').classList.toggle('active', show);
+    if (!show) return;
+    closeHelp();
+    toggleActivity(false);
+    toggleSettings(false);
+    if (boardPanel && !focusId) togglePanel(false);
+    catSeen = null;
+    if (entityId !== undefined) catEntity = entityId;
+    paintCatalogue();
   }
 
   // ---- what has happened on this board
@@ -6936,7 +7254,8 @@
     link: [ICON.link, () => 'looked through the link'],
     edit: [ICON.pen, (n) => (n === 1 ? '1 change' : `${n} changes`)],
     comment: [ICON.comment, () => 'commented'],
-    restore: [ICON.restore, () => 'put back a version'],
+    file: [ICON.file, () => 'filed a version'],
+    restore: [ICON.restore, () => 'put back a snapshot'],
   };
   const whenExactly = (at) => new Date(at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
   // Today and yesterday by name, the time to the minute.
@@ -6965,12 +7284,12 @@
   async function putBack(v) {
     const sure = await WB.dialog({
       title: 'Put the board back?',
-      text: `Everything goes back to ${whenExactly(v.at)}, for everyone. What is there now is kept as a version too.`,
+      text: `Everything on it goes back to ${whenExactly(v.at)}, for everyone. What is there now is kept as a snapshot too. Notes and versions stay as they are.`,
       ok: 'Put it back',
     });
     if (!sure) return;
     try {
-      await WB.api('POST', `/api/boards/${boardId}/versions/${v.at}/restore`, { by: me.name });
+      await WB.api('POST', `/api/boards/${boardId}/snapshots/${v.at}/restore`, { by: me.name });
       toast(`The board is as it was on ${whenExactly(v.at)}.`, { ms: 7000 });
       paintActivity();
     } catch (err) {
@@ -6979,8 +7298,8 @@
   }
 
   function paintActTabs() {
-    const n = actSeen ? actSeen.versions.length : 0;
-    actTabs.replaceChildren(...[['events', ICON.activity, 'Activity'], ['versions', ICON.restore, n ? `Versions · ${n}` : 'Versions']].map(([id, ic, label]) => el('button', {
+    const n = actSeen ? actSeen.snapshots.length : 0;
+    actTabs.replaceChildren(...[['events', ICON.activity, 'Activity'], ['snapshots', ICON.restore, n ? `Snapshots · ${n}` : 'Snapshots']].map(([id, ic, label]) => el('button', {
       class: `seg-btn${actTab === id ? ' on' : ''}`, role: 'tab', 'aria-selected': String(actTab === id),
       onclick: () => { actTab = id; paintActTabs(); paintActBody(); },
     }, el('span', { class: 'seg-ic', html: ic }), el('span', { text: label }))));
@@ -6998,14 +7317,14 @@
           el('time', { text: WB.ago(e.at), title: whenExactly(e.at) }))))
         : el('p', { class: 'act-none' }, el('span', { html: ICON.activity }), el('span', { text: 'Nothing yet' })));
     }
-    const versions = actSeen.versions;
-    actBody.replaceChildren(versions.length
-      ? el('ol', { class: 'act-list versions' }, versions.map((v) => el('li', {},
+    const snaps = actSeen.snapshots;
+    actBody.replaceChildren(snaps.length
+      ? el('ol', { class: 'act-list versions' }, snaps.map((v) => el('li', {},
         el('i', { class: 'ver-dot' }),
         el('span', { class: 'act-what' }, el('b', { text: whenShort(v.at), title: whenExactly(v.at) }),
           el('span', { class: 'act-did', text: `${v.count} ${v.count === 1 ? 'item' : 'items'}${v.who ? ` · before ${v.who}` : ''}` })),
         el('button', { type: 'button', class: 'iconbtn', html: ICON.restore, title: 'Put the board back to this', onclick: () => putBack(v) }))))
-      : el('p', { class: 'act-none' }, el('span', { html: ICON.restore }), el('span', { text: 'No versions yet' })));
+      : el('p', { class: 'act-none' }, el('span', { html: ICON.restore }), el('span', { text: 'No snapshots yet' })));
   }
 
   async function paintActivity() {
@@ -7025,6 +7344,7 @@
     if (!show) return;
     closeHelp();
     toggleSettings(false);
+    toggleCatalogue(false);
     if (boardPanel && !focusId) togglePanel(false);
     paintActTabs();
     paintActivity();
@@ -7139,6 +7459,8 @@
       $(id).hidden = false;
       $(id).addEventListener('click', run);
     }
+    $('catalogue').innerHTML = ICON.stack;
+    $('catalogue').addEventListener('click', () => toggleCatalogue());
   }
   $('focusprev').innerHTML = ICON.prev;
   $('focusnext').innerHTML = ICON.next;

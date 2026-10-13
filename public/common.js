@@ -353,5 +353,12 @@ const WB = (() => {
 
   welcome();
 
-  return { el, store, user, dialog, askName, info, offline, watchServer, initials, ago, api, theme, setTheme, themeButton, media, colors: USER_COLORS, saveUser };
+  // What was opened lately, newest first, for Home: { kind: 'board' | 'entity', id, … }.
+  function remember(entry) {
+    const list = (Array.isArray(store('wb:recent')) ? store('wb:recent') : []).filter((x) => !(x.kind === entry.kind && x.id === entry.id));
+    list.unshift({ ...entry, at: Date.now() });
+    store('wb:recent', list.slice(0, 40));
+  }
+
+  return { el, store, remember, user, dialog, askName, info, offline, watchServer, initials, ago, api, theme, setTheme, themeButton, media, colors: USER_COLORS, saveUser };
 })();

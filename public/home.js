@@ -131,21 +131,37 @@
   // ------------------------------------------------------------- library helpers
 
   const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
-  const folderById = (id) => lib.folders.find((f) => f.id === id) || null;
-  const childrenOf = (id) => lib.folders.filter((f) => (f.parentId || null) === id).sort(byName);
-  const boardsIn = (id) => lib.boards.filter((b) => (b.folderId || null) === id);
+  // A folder is found whatever workspace it is in; only the top level, `null`, is the workspace's own.
+  const folderById = (id) => everything.folders.find((f) => f.id === id) || null;
+  const childrenOf = (id, ws = space) => (id ? everything.folders : everything.folders.filter((f) => f.workspace === ws)).filter((f) => (f.parentId || null) === id).sort(byName);
+  const boardsIn = (id, ws = space) => (id ? everything.boards : everything.boards.filter((b) => b.workspace === ws)).filter((b) => (b.folderId || null) === id);
 
   function currentFolder() {
     const m = /^#\/f\/([\w-]+)/.exec(location.hash);
     return m && folderById(m[1]) ? m[1] : null;
   }
 
-  // In a project folder: which of its pages is open (boards, catalogue or import), and the entity open in the catalogue.
+  // In a project folder: which of its pages is open, boards or catalogue, and in the catalogue the tier
+  // (#/f/<id>/catalogue/t/shot), the sequence (…/s/kilo) or the entity (…/<entity id>) being looked at.
   function currentView() {
     // The Import page that was is part of the catalogue now.
-    const m = /^#\/f\/[\w-]+\/(catalogue|import)(?:\/([\w-]+))?/.exec(location.hash);
-    return m ? { page: 'catalogue', entity: m[1] === 'catalogue' ? m[2] || null : null } : { page: 'boards', entity: null };
+    const m = /^#\/f\/[\w-]+\/(catalogue|import)(?:\/(?:(t|s)\/([\w-]+)|([\w-]+)))?/.exec(location.hash);
+    if (!m) return { page: 'boards', entity: null };
+    if (m[1] === 'import') return { page: 'catalogue', entity: null };
+    return { page: 'catalogue', tier: m[2] === 't' ? m[3] : null, seq: m[2] === 's' ? m[3] : null, entity: m[4] || null };
   }
+
+  // Where the page is: Home (#/), a workspace's top level (#/w/<workspace>), or a folder (#/f/<id>…).
+  function route() {
+    const f = currentFolder();
+    if (f) return { kind: 'folder', id: f };
+    const w = /^#\/w\/(myreze|personal)/.exec(location.hash);
+    if (w && (w[1] === 'myreze' || hasPersonal)) return { kind: 'space', space: w[1] };
+    if (/^#\/(w|f)\//.test(location.hash)) return { kind: 'space', space };
+    return { kind: 'home' };
+  }
+  const spaceHref = (ws) => `#/w/${ws}`;
+  const spaceName = (ws) => (hasPersonal ? SPACES[ws] : 'All boards');
 
   function trailTo(id) {
     const out = [];
@@ -167,15 +183,11 @@
   async function refresh(quiet = false) {
     try {
       const next = await api('GET', '/api/library');
-      const sig = `${space}|${JSON.stringify(next)}`;
+      const sig = JSON.stringify(next);
       if (quiet === true && sig === shown && Date.now() - shownAt < 60000) return;
       shown = sig;
       shownAt = Date.now();
       everything = next;
-      lib = {
-        folders: everything.folders.filter((f) => f.workspace === space),
-        boards: everything.boards.filter((b) => b.workspace === space),
-      };
       render();
     } catch (err) {
       $('empty').hidden = false;
@@ -183,46 +195,11 @@
     }
   }
 
-  const otherSpace = () => (space === 'myreze' ? 'personal' : 'myreze');
+  const otherSpace = (ws = space) => (ws === 'myreze' ? 'personal' : 'myreze');
 
   async function moveSpace(kind, thing) {
-    await api('PATCH', kind === 'board' ? `/api/boards/${thing.id}` : `/api/folders/${thing.id}`, { workspace: otherSpace() });
+    await api('PATCH', kind === 'board' ? `/api/boards/${thing.id}` : `/api/folders/${thing.id}`, { workspace: otherSpace(thing.workspace) });
     await refresh();
-  }
-
-  function switchSpace(next) {
-    if (next === space) return;
-    space = next;
-    store('wb:workspace', space);
-    $('q').value = '';
-    if (location.hash && location.hash !== '#/') location.hash = '#/';
-    refresh();
-  }
-
-  // The two tabs. Dropping a board or folder on the other one moves it there.
-  function renderSpaces() {
-    $('spaces').hidden = !hasPersonal;
-    if (!hasPersonal) return;
-    $('spaces').replaceChildren(...Object.keys(SPACES).map((name) => {
-      const count = everything.boards.filter((b) => b.workspace === name).length;
-      const tab = el('button', { class: `space${name === space ? ' current' : ''}`, type: 'button', onclick: () => switchSpace(name) },
-        SPACES[name], el('span', { class: 'tally', text: String(count) }));
-      tab.addEventListener('dragover', (e) => {
-        if (!dragging || name === space) return;
-        e.preventDefault();
-        tab.classList.add('drop');
-      });
-      tab.addEventListener('dragleave', () => tab.classList.remove('drop'));
-      tab.addEventListener('drop', (e) => {
-        tab.classList.remove('drop');
-        if (!dragging || name === space) return;
-        e.preventDefault();
-        const { kind, id } = dragging;
-        dragging = null;
-        api('PATCH', kind === 'board' ? `/api/boards/${id}` : `/api/folders/${id}`, { workspace: name }).then(() => refresh()).catch(fail);
-      });
-      return tab;
-    }));
   }
 
   async function moveTo(kind, id, folderId) {
@@ -233,20 +210,23 @@
 
   // ------------------------------------------------------------- drag and drop
 
-  function canDrop(folderId) {
-    if (!dragging) return false;
+  const dragged = () => dragging && (dragging.kind === 'folder' ? folderById(dragging.id) : everything.boards.find((x) => x.id === dragging.id));
+
+  // `ws` is the workspace of the place dropped on. Into another workspace goes to its top level.
+  function canDrop(folderId, ws = space) {
+    const thing = dragged();
+    if (!thing) return false;
+    if (thing.workspace !== ws) return folderId === null;
     if (dragging.kind === 'folder') {
-      const f = folderById(dragging.id);
-      if (!f || folderId === f.id || (folderId && isWithin(folderId, f.id))) return false;
-      return (f.parentId || null) !== folderId;
+      if (folderId === thing.id || (folderId && isWithin(folderId, thing.id))) return false;
+      return (thing.parentId || null) !== folderId;
     }
-    const b = lib.boards.find((x) => x.id === dragging.id);
-    return !!b && (b.folderId || null) !== folderId;
+    return (thing.folderId || null) !== folderId;
   }
 
-  function dropTarget(node, folderId) {
+  function dropTarget(node, folderId, ws = space) {
     node.addEventListener('dragover', (e) => {
-      if (!canDrop(folderId)) return;
+      if (!canDrop(folderId, ws)) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
       node.classList.add('drop');
@@ -256,11 +236,12 @@
     });
     node.addEventListener('drop', (e) => {
       node.classList.remove('drop');
-      if (!canDrop(folderId)) return;
+      if (!canDrop(folderId, ws)) return;
       e.preventDefault();
+      const thing = dragged();
       const { kind, id } = dragging;
       dragging = null;
-      moveTo(kind, id, folderId).catch(fail);
+      (thing.workspace !== ws ? moveSpace(kind, thing) : moveTo(kind, id, folderId)).catch(fail);
     });
   }
 
@@ -427,7 +408,7 @@
 
   // A project is never inside another, nor around one.
   const inProject = (id) => trailTo(id).some((f) => f.project);
-  const holdsProject = (id) => lib.folders.some((f) => f.project && isWithin(f.id, id));
+  const holdsProject = (id) => everything.folders.some((f) => f.project && isWithin(f.id, id));
 
   async function setProject(folder, on) {
     if (on) {
@@ -455,7 +436,8 @@
       menuButton([
         ['Rename', () => rename('folder', folder)],
         ['Move to…', () => moveDialog('folder', folder)],
-        hasPersonal && [`Move to ${SPACES[otherSpace()]} workspace`, () => moveSpace('folder', folder)],
+        [isPinned('folder', folder.id) ? 'Unpin from Home' : 'Pin to Home', () => togglePin({ kind: 'folder', id: folder.id })],
+        hasPersonal && [`Move to ${SPACES[otherSpace(folder.workspace)]} workspace`, () => moveSpace('folder', folder)],
         !folder.project && !inProject(folder.id) && !holdsProject(folder.id) && ['Make it a project', () => setProject(folder, true)],
         folder.project && ['Open the catalogue', () => { location.hash = `#/f/${folder.id}/catalogue`; }],
         folder.project && ['Make it a plain folder', () => setProject(folder, false)],
@@ -479,7 +461,8 @@
       menuButton([
         ['Rename', () => rename('board', board)],
         ['Move to…', () => moveDialog('board', board)],
-        hasPersonal && [`Move to ${SPACES[otherSpace()]} workspace`, () => moveSpace('board', board)],
+        [isPinned('board', board.id) ? 'Unpin from Home' : 'Pin to Home', () => togglePin({ kind: 'board', id: board.id })],
+        hasPersonal && [`Move to ${SPACES[otherSpace(board.workspace)]} workspace`, () => moveSpace('board', board)],
         ['Delete board', () => removeBoard(board), true],
       ].filter(Boolean)));
     draggable(card, 'board', board.id);
@@ -496,44 +479,291 @@
         el('span', { class: 'card-meta', text: 'Start from a blank canvas' })));
   }
 
-  function crumb(folder) {
-    const node = el('a', { class: `crumb${folder && folder.project ? ' project' : ''}`, href: folder ? `#/f/${folder.id}` : '#/', text: folder ? folder.name : (hasPersonal ? SPACES[space] : 'All boards') });
-    dropTarget(node, folder ? folder.id : null);
-    return node;
+  // ------------------------------------------------------------- pinned and recent
+  //
+  // Both are kept by this browser. What you opened (boards, from board.js, and assets, sets and shots)
+  // is remembered as you go; what you pin stays on Home until you unpin it.
+
+  const pins = () => (Array.isArray(store('wb:pins')) ? store('wb:pins') : []);
+  const isPinned = (kind, id) => pins().some((p) => p.kind === kind && p.id === id);
+  function togglePin(entry) {
+    const list = pins();
+    const at = list.findIndex((p) => p.kind === entry.kind && p.id === entry.id);
+    if (at >= 0) list.splice(at, 1);
+    else list.unshift({ ...entry, at: Date.now() });
+    store('wb:pins', list.slice(0, 60));
+    render();
+  }
+  const recents = () => (Array.isArray(store('wb:recent')) ? store('wb:recent') : []);
+
+  // ------------------------------------------------------------- the sidebar
+  //
+  // Always there on a wide window, and a drawer on a narrow one: Home, then each workspace with its
+  // folders as a tree. A project opens to its boards and its catalogue, and the catalogue to its assets,
+  // sets and shots, the shots by sequence. What is open in the tree is remembered.
+
+  const ICON_HOME = svg('<path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5"/>', 16);
+  const ICON_BOARDS = svg('<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>', 16);
+  const ICON_CAT = svg('<path d="M5 4h4v16H5zM10 4h4v16h-4z"/><path d="M15.5 4.6l3.8-1 3.7 15.5-3.8 1z"/>', 16);
+  const ICON_DOT = svg('<circle cx="12" cy="12" r="2" fill="currentColor"/>', 16);
+  const ICON_CHEVRON = svg('<path d="M9 6l6 6-6 6"/>', 14);
+  const ICON_STAR = svg('<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9z"/>', 16);
+  const FOLDER_SM = svg(FOLDER, 16);
+  const PROJECT_SM = svg(STACK, 16);
+
+  const opened = new Set(Array.isArray(store('wb:tree')) ? store('wb:tree') : []);
+  const setOpen = (key, on) => {
+    if (on) opened.add(key);
+    else opened.delete(key);
+    store('wb:tree', [...opened]);
+  };
+
+  // The key of the place the page is on, as the tree names its rows.
+  function hereKey(rt) {
+    if (rt.kind === 'home') return 'home';
+    if (rt.kind === 'space') return `w:${rt.space}`;
+    const f = folderById(rt.id);
+    const v = f && f.project ? currentView() : { page: 'boards' };
+    if (v.page !== 'catalogue') return f && f.project ? `p:${rt.id}` : `f:${rt.id}`;
+    if (v.seq) return `s:${rt.id}:${v.seq}`;
+    if (v.tier) return `t:${rt.id}:${v.tier}`;
+    if (v.entity) {
+      const e = (catalogues.get(rt.id)?.entities || []).find((x) => x.id === v.entity);
+      if (e && e.tier === 'shot' && N.seqOf(e.name)) return `s:${rt.id}:${N.seqOf(e.name)}`;
+      return e ? `t:${rt.id}:${e.tier}` : `c:${rt.id}`;
+    }
+    return `c:${rt.id}`;
+  }
+
+  // The rows above the place the page is on are opened, so it can be seen in the tree.
+  function openTo(rt) {
+    if (rt.kind !== 'folder') return;
+    for (const f of trailTo(rt.id).slice(0, -1)) opened.add(`f:${f.id}`);
+    const f = folderById(rt.id);
+    if (!f) return;
+    if (f.project) {
+      opened.add(`f:${f.id}`);
+      const v = currentView();
+      if (v.page === 'catalogue') opened.add(`c:${f.id}`);
+      const key = hereKey(rt);
+      if (key.startsWith('s:')) opened.add(`t:${f.id}:shot`);
+    }
+  }
+
+  function sideRow({ key, depth, icon, label, href, count, kids, drop, hereK, cls = '' }) {
+    const isOpen = kids && opened.has(key);
+    const row = el('div', { class: `side-row${key === hereK ? ' here' : ''}${cls ? ` ${cls}` : ''}`, style: { paddingLeft: `${depth * 14}px` } },
+      kids
+        ? el('button', {
+          type: 'button', class: `side-twist${isOpen ? ' open' : ''}`, html: ICON_CHEVRON, 'aria-label': isOpen ? `Close ${label}` : `Open ${label}`, 'aria-expanded': String(!!isOpen),
+          onclick: () => { setOpen(key, !isOpen); renderSide(route()); },
+        })
+        : el('span', { class: 'side-twist none' }),
+      el('a', { class: 'side-link', href, onclick: () => { if (kids && !isOpen) setOpen(key, true); closeDrawer(); } },
+        el('span', { class: 'side-icon', html: icon }),
+        el('span', { class: 'side-name', text: label }),
+        count != null && el('span', { class: 'side-count', text: String(count) })));
+    if (drop) drop(row);
+    const out = [row];
+    if (isOpen) out.push(...kids());
+    return out;
+  }
+
+  function folderRows(f, depth, ws, hereK) {
+    const subs = () => childrenOf(f.id).flatMap((c) => folderRows(c, depth + 1, ws, hereK));
+    const drop = (row) => dropTarget(row, f.id, ws);
+    if (!f.project) {
+      return sideRow({ key: `f:${f.id}`, depth, icon: FOLDER_SM, label: f.name, href: `#/f/${f.id}`, kids: childrenOf(f.id).length ? subs : null, drop, hereK });
+    }
+    // A project: its boards (and folders), and its catalogue.
+    const cat = catalogues.get(f.id);
+    const tierRows = () => {
+      if (!cat) {
+        loadCatalogue(f.id);
+        return [el('div', { class: 'side-row side-note', style: { paddingLeft: `${(depth + 2) * 14 + 32}px` }, text: 'Loading…' })];
+      }
+      return cat.preset.tiers.flatMap((t) => {
+        const of = cat.entities.filter((e) => e.tier === t.id);
+        const seqs = t.id === 'shot' ? [...new Set(of.map((e) => N.seqOf(e.name)).filter(Boolean))].sort() : [];
+        return sideRow({
+          key: `t:${f.id}:${t.id}`, depth: depth + 2, icon: ICON_DOT, label: t.label, href: `#/f/${f.id}/catalogue/t/${t.id}`, count: of.length, hereK,
+          kids: seqs.length ? () => seqs.flatMap((q) => sideRow({ key: `s:${f.id}:${q}`, depth: depth + 3, icon: ICON_DOT, label: q, href: `#/f/${f.id}/catalogue/s/${q}`, count: of.filter((e) => N.seqOf(e.name) === q).length, hereK })) : null,
+        });
+      });
+    };
+    const kids = () => [
+      ...sideRow({ key: `p:${f.id}`, depth: depth + 1, icon: ICON_BOARDS, label: 'Boards', href: `#/f/${f.id}`, count: boardsIn(f.id).length, drop, hereK }),
+      ...sideRow({ key: `c:${f.id}`, depth: depth + 1, icon: ICON_CAT, label: 'Catalogue', href: `#/f/${f.id}/catalogue`, kids: tierRows, hereK }),
+      ...subs(),
+    ];
+    return sideRow({ key: `f:${f.id}`, depth, icon: PROJECT_SM, label: f.name, href: `#/f/${f.id}`, kids, drop, hereK, cls: 'project' });
+  }
+
+  const loading = new Set();
+  async function loadCatalogue(id) {
+    if (loading.has(id)) return;
+    loading.add(id);
+    try {
+      catalogues.set(id, await api('GET', `/api/projects/${id}`));
+    } catch {
+      // the tree shows the project without its catalogue's parts
+    }
+    loading.delete(id);
+    renderSide(route());
+    renderCrumbs(route());
+  }
+
+  function renderSide(rt) {
+    const hereK = hereKey(rt);
+    const wsList = hasPersonal ? ['myreze', 'personal'] : ['myreze'];
+    $('side').replaceChildren(
+      ...sideRow({ key: 'home', depth: 0, icon: ICON_HOME, label: 'Home', href: '#/', hereK, cls: 'top' }),
+      ...wsList.flatMap((ws) => {
+        const head = el('a', { class: `side-head${hereK === `w:${ws}` ? ' here' : ''}`, href: spaceHref(ws), onclick: closeDrawer },
+          el('span', { text: spaceName(ws) }),
+          el('span', { class: 'side-count', text: String(everything.boards.filter((b) => b.workspace === ws).length) }));
+        dropTarget(head, null, ws);
+        return [head, ...childrenOf(null, ws).flatMap((f) => folderRows(f, 0, ws, hereK))];
+      }));
+  }
+
+  // On a narrow window the sidebar is a drawer, opened from the bar.
+  function closeDrawer() {
+    document.body.classList.remove('side-open');
+    $('sidetoggle').setAttribute('aria-expanded', 'false');
+  }
+  $('sidetoggle').addEventListener('click', () => {
+    const on = !document.body.classList.contains('side-open');
+    document.body.classList.toggle('side-open', on);
+    $('sidetoggle').setAttribute('aria-expanded', String(on));
+  });
+  $('sidescrim').addEventListener('click', closeDrawer);
+
+  // ------------------------------------------------------------- where you are
+  //
+  // One line: the workspace, the folders down to here, and in a catalogue the tier, the sequence and
+  // the asset, set or shot. Every part goes there, folders take drops, and the star pins what is here.
+
+  function renderCrumbs(rt) {
+    const parts = []; // [label, href, folderId for drops (undefined: none), ws]
+    let pin = null;
+    if (rt.kind === 'home') parts.push(['Home', '#/']);
+    else if (rt.kind === 'space') parts.push([spaceName(rt.space), spaceHref(rt.space), null, rt.space]);
+    else {
+      const trail = trailTo(rt.id);
+      const ws = trail.length ? trail[0].workspace : space;
+      parts.push([spaceName(ws), spaceHref(ws), null, ws]);
+      for (const f of trail) parts.push([f.name, `#/f/${f.id}`, f.id, ws]);
+      const f = trail[trail.length - 1];
+      pin = f && { kind: 'folder', id: f.id };
+      if (f && f.project) {
+        const v = currentView();
+        if (v.page === 'catalogue') {
+          parts.push(['Catalogue', `#/f/${f.id}/catalogue`]);
+          const cat = catalogues.get(f.id);
+          const e = v.entity && cat && cat.entities.find((x) => x.id === v.entity);
+          const tier = v.tier || (v.seq && 'shot') || (e && e.tier);
+          const t = tier && cat && cat.preset.tiers.find((x) => x.id === tier);
+          if (t) parts.push([t.label, `#/f/${f.id}/catalogue/t/${t.id}`]);
+          const seq = v.seq || (e && e.tier === 'shot' && N.seqOf(e.name));
+          if (seq) parts.push([seq, `#/f/${f.id}/catalogue/s/${seq}`]);
+          if (v.entity) {
+            const name = e ? e.name : shownEntity && shownEntity.id === v.entity ? shownEntity.name : '…';
+            parts.push([name, `#/f/${f.id}/catalogue/${v.entity}`]);
+            pin = e || (shownEntity && shownEntity.id === v.entity) ? { kind: 'entity', id: v.entity, name, projectId: f.id, tier: (e || shownEntity).tier, thumb: (e && e.thumb) || null } : null;
+          }
+        } else parts.push(['Boards', `#/f/${f.id}`]);
+      }
+    }
+    const nodes = parts.map(([label, href, folderId, ws], i) => {
+      const node = el('a', { class: `crumb${i === parts.length - 1 ? ' current' : ''}`, href, text: label });
+      if (folderId !== undefined) dropTarget(node, folderId, ws);
+      return node;
+    });
+    const pinned = pin && isPinned(pin.kind, pin.id);
+    $('crumbs').replaceChildren(
+      ...[...nodes.flatMap((node, i) => (i ? [el('span', { class: 'crumb-sep', 'aria-hidden': 'true', text: '/' }), node] : [node])),
+      pin && el('button', {
+        type: 'button', class: `iconbtn crumb-pin${pinned ? ' on' : ''}`, html: ICON_STAR,
+        title: pinned ? 'Pinned to Home. Click to unpin' : 'Pin to Home', 'aria-pressed': String(!!pinned),
+        onclick: () => togglePin(pin),
+      })].filter(Boolean));
+    document.title = `${parts[parts.length - 1][0]} · Boards`;
+  }
+
+  // ------------------------------------------------------------- Home
+  //
+  // What you pinned, what you opened lately, and every project.
+
+  function homeView() {
+    const label = (text, n) => el('div', { class: 'section-label' }, text, n != null && el('span', { class: 'tally', text: String(n) }));
+    const q = $('q').value.trim().toLowerCase();
+    if (q) {
+      const subs = everything.folders.filter((f) => f.name.toLowerCase().includes(q)).sort(byName);
+      const boards = everything.boards.filter((b) => b.name.toLowerCase().includes(q));
+      return [
+        subs.length > 0 && label('Folders', subs.length), subs.length > 0 && el('div', { class: 'folder-grid' }, subs.map(folderCard)),
+        label('Boards', boards.length), el('div', { class: 'board-grid' }, boards.map(boardCard)),
+        !subs.length && !boards.length && el('p', { class: 'home-empty', text: `Nothing matches "${$('q').value.trim()}".` }),
+      ];
+    }
+    const card = (p) => {
+      if (p.kind === 'board') { const b = everything.boards.find((x) => x.id === p.id); return b && boardCard(b); }
+      if (p.kind === 'folder') { const f = folderById(p.id); return f && folderCard(f); }
+      if (p.kind === 'entity' && folderById(p.projectId)) return entityTile(folderById(p.projectId), { id: p.id, name: p.name, thumb: p.thumb, tier: p.tier, versions: null });
+      return null;
+    };
+    const pinnedCards = pins().map(card).filter(Boolean);
+    const recentBoards = recents().filter((x) => x.kind === 'board').map(card).filter(Boolean).slice(0, 8);
+    const recentEnts = recents().filter((x) => x.kind === 'entity').map(card).filter(Boolean).slice(0, 8);
+    const edited = recentBoards.length ? [] : [...everything.boards].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8).map(boardCard);
+    const projects = everything.folders.filter((f) => f.project).sort(byName);
+    const out = [];
+    if (pinnedCards.length) out.push(label('Pinned', pinnedCards.length), el('div', { class: 'board-grid' }, pinnedCards));
+    if (recentBoards.length) out.push(label('Boards you opened lately'), el('div', { class: 'board-grid' }, recentBoards));
+    else if (edited.length) out.push(label('Edited lately'), el('div', { class: 'board-grid' }, edited));
+    if (recentEnts.length) out.push(label('Looked at in the catalogue'), el('div', { class: 'board-grid ent-grid' }, recentEnts));
+    if (projects.length) out.push(label('Projects', projects.length), el('div', { class: 'folder-grid' }, projects.map(folderCard)));
+    if (!out.length) out.push(el('p', { class: 'home-empty', text: 'Nothing here yet. Make a board, or open a workspace on the left.' }));
+    if (!pinnedCards.length && out.length) out.push(el('p', { class: 'home-hint', text: 'Pin boards, folders, projects and shots to keep them here: the star beside where you are, or a card\'s menu.' }));
+    return out.filter(Boolean);
   }
 
   function render() {
-    renderSpaces();
-    const cur = currentFolder();
-    const trail = trailTo(cur);
-    const crumbs = [crumb(null), ...trail.map(crumb)];
-    $('crumbs').replaceChildren(...crumbs.flatMap((node, i) => (i ? [el('span', { class: 'crumb-sep', text: '/' }), node] : [node])));
-    crumbs[crumbs.length - 1].classList.add('current');
-    document.title = `${trail.length ? trail[trail.length - 1].name : hasPersonal ? SPACES[space] : 'All boards'} · Boards`;
+    const rt = route();
+    if (rt.kind === 'folder') space = folderById(rt.id).workspace || space;
+    else if (rt.kind === 'space') space = rt.space;
+    if (rt.kind !== 'home') store('wb:workspace', space);
+    lib = {
+      folders: everything.folders.filter((f) => f.workspace === space),
+      boards: everything.boards.filter((b) => b.workspace === space),
+    };
+    openTo(rt);
+    store('wb:tree', [...opened]);
+    renderSide(rt);
+    renderCrumbs(rt);
 
-    // A project has its boards and its catalogue.
+    const cur = rt.kind === 'folder' ? rt.id : null;
     const here = cur && folderById(cur);
     const view = here && here.project ? currentView() : { page: 'boards' };
     $('q').placeholder = view.page === 'catalogue' ? 'Search the catalogue' : 'Search boards and folders';
-    if (view.page !== 'boards') {
-      $('empty').hidden = true;
-      return renderProject(here, view);
-    }
-    // A search looks through every folder; without one you see the folder you are in.
+    $('empty').hidden = true;
+    if (rt.kind === 'home') return $('content').replaceChildren(...homeView());
+    // A project has its boards and its catalogue.
+    if (view.page !== 'boards') return renderProject(here, view);
+    // A search looks through every folder of the workspace; without one you see the folder you are in.
     const q = $('q').value.trim().toLowerCase();
     const matches = (name) => name.toLowerCase().includes(q);
     const subs = q ? lib.folders.filter((f) => matches(f.name)).sort(byName) : childrenOf(cur);
     const boards = q ? lib.boards.filter((b) => matches(b.name)) : boardsIn(cur);
     const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
     $('content').replaceChildren(...[
-      here && here.project && projectTabs(here, 'boards'),
       subs.length > 0 && label('Folders', subs.length),
       subs.length > 0 && el('div', { class: 'folder-grid' }, subs.map(folderCard)),
       (subs.length > 0 || q) && label('Boards', boards.length),
       el('div', { class: 'board-grid' }, [...(q ? [] : [newBoardTile()]), ...boards.map(boardCard)]),
       q && !subs.length && !boards.length && el('p', { class: 'home-empty', text: `Nothing matches "${$('q').value.trim()}".` }),
     ].filter(Boolean));
-    $('empty').hidden = true;
   }
 
   // ------------------------------------------------------------- a project: its catalogue
@@ -546,35 +776,39 @@
   const N = window.WBNaming;
   const catalogues = new Map(); // project id -> its catalogue as last fetched
 
-  function projectTabs(project, page) {
-    const tab = (id, label, href) => el('a', { class: `space${page === id ? ' current' : ''}`, href }, label);
-    return el('nav', { class: 'spaces ptabs', 'aria-label': 'Project' },
-      tab('boards', 'Boards', `#/f/${project.id}`),
-      tab('catalogue', 'Catalogue', `#/f/${project.id}/catalogue`));
-  }
-
   let shownProject = '';
+  let shownEntity = null; // the asset, set or shot whose page is showing, for the crumbs before its catalogue is in
   async function renderProject(project, view) {
     const sig = `${project.id}|${view.page}|${view.entity}`;
     const fresh = shownProject !== sig;
     shownProject = sig;
     // What is being brought in shows above the catalogue, on its page and on each entity's.
     const tray = importer(project).tray;
-    if (fresh && (view.entity || !catalogues.has(project.id))) $('content').replaceChildren(projectTabs(project, 'catalogue'), el('p', { class: 'home-empty', text: 'Loading…' }));
+    if (fresh && (view.entity || !catalogues.has(project.id))) $('content').replaceChildren(el('p', { class: 'home-empty', text: 'Loading…' }));
     try {
       if (view.entity) {
         const page = await api('GET', `/api/entities/${view.entity}`);
         if (shownProject !== sig) return;
-        return $('content').replaceChildren(projectTabs(project, 'catalogue'), tray, entityPage(project, page));
+        shownEntity = page.entity;
+        WB.remember({ kind: 'entity', id: page.entity.id, name: page.entity.name, tier: page.entity.tier, projectId: project.id, thumb: (page.versions.find((v) => !v.hidden && v.thumb) || {}).thumb || null });
+        if (!catalogues.has(project.id)) loadCatalogue(project.id);
+        renderCrumbs(route());
+        return $('content').replaceChildren(tray, entityPage(project, page));
       }
       // What was fetched last shows at once (a search narrows it as it is typed); then it is brought up to date.
-      if (catalogues.has(project.id)) $('content').replaceChildren(projectTabs(project, 'catalogue'), tray, ...catalogueView(project, catalogues.get(project.id)));
+      if (catalogues.has(project.id)) $('content').replaceChildren(tray, ...catalogueView(project, catalogues.get(project.id), view));
+      const had = catalogues.get(project.id);
       const cat = await api('GET', `/api/projects/${project.id}`);
       catalogues.set(project.id, cat);
       if (shownProject !== sig) return;
-      $('content').replaceChildren(projectTabs(project, 'catalogue'), tray, ...catalogueView(project, cat));
+      $('content').replaceChildren(tray, ...catalogueView(project, cat, view));
+      // New assets, sets or shots show in the tree too.
+      if (!had || JSON.stringify(had.entities.map((e) => e.id)) !== JSON.stringify(cat.entities.map((e) => e.id))) {
+        renderSide(route());
+        renderCrumbs(route());
+      }
     } catch (err) {
-      $('content').replaceChildren(projectTabs(project, view.page), el('p', { class: 'home-empty', text: err.message }));
+      $('content').replaceChildren(el('p', { class: 'home-empty', text: err.message }));
     }
   }
 
@@ -593,12 +827,13 @@
       el('div', { class: `card-thumbs n${e.thumb ? 1 : 0}` }, e.thumb && el('img', { src: e.thumb, alt: '', loading: 'lazy', draggable: 'false' })),
       el('div', { class: 'card-body' },
         el('div', { class: 'card-name', text: e.name }),
-        el('div', { class: 'card-meta', text: e.versions ? `${plural(e.versions, 'version')} · last ${ago(e.latestAt)}` : 'Nothing filed yet' })));
+        el('div', { class: 'card-meta', text: e.versions == null ? (N.TIERS.includes(e.tier) ? e.tier : '') : e.versions ? `${plural(e.versions, 'version')} · last ${ago(e.latestAt)}` : 'Nothing filed yet' })));
   }
 
-  function catalogueView(project, cat) {
+  function catalogueView(project, cat, view = {}) {
     const q = $('q').value.trim().toLowerCase();
-    const list = cat.entities.filter((e) => !q || e.name.includes(q));
+    const list = cat.entities.filter((e) => (!q || e.name.includes(q))
+      && (!view.tier || e.tier === view.tier) && (!view.seq || (e.tier === 'shot' && N.seqOf(e.name) === view.seq)));
     const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
     const out = [];
     for (const tier of cat.preset.tiers) {
@@ -788,8 +1023,6 @@
       msg(n, true), replies(n.id).map((r) => msg(r, false))));
     const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
     return el('div', { class: 'ent-page' },
-      el('a', { class: 'ent-back', href: `#/f/${project.id}/catalogue`, text: '← Catalogue' }),
-      el('div', { class: 'ent-head' }, el('h1', { text: entity.name }), el('span', { class: 'ent-tier', text: entity.tier })),
       label('Versions', versions.length),
       hidden > 0 && el('label', { class: 'ent-hidden' }, el('input', { type: 'checkbox', checked: showHidden, onchange: (e) => { showHidden = e.target.checked; render(); } }), `Show archived (${hidden})`),
       el('div', { class: 'board-grid ent-grid' },

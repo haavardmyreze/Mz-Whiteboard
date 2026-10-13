@@ -4734,8 +4734,9 @@
   } catch {
     return fatal(viewOnly ? 'This link is not shared any more.' : 'This board does not exist.');
   }
-  // Home opens on the workspace this board lives in.
+  // Home opens on the workspace this board lives in, and lists it among the boards opened lately.
   if (!viewOnly && meta.workspace) store('wb:workspace', meta.workspace);
+  if (!viewOnly) WB.remember({ kind: 'board', id: boardId });
   if (viewOnly) {
     setAccess(meta.access);
     $('boardname').readOnly = true;

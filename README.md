@@ -25,6 +25,16 @@ private networks, otherwise only the host machine can connect.
 
 ## What it does
 
+- **Getting around the home page.** A sidebar on the left holds Home, then each workspace with its
+  folders and projects as a tree: open a row with its arrow, go there with a click. A project opens to
+  its Boards and its Catalogue, and the catalogue to its assets, sets and shots, the shots by sequence,
+  each with a count. What is open in the tree is remembered, and the way to the page you are on is
+  opened for you. Above the page one slim line says where you are (Myreze / Kilo / Catalogue / Shots /
+  kilo / kilo-0010), each part a link; the star at its end pins that folder, project or shot to Home.
+  On a narrow window the sidebar is a drawer, opened with the button at the left of the bar.
+- **Home.** What you pinned (boards, folders, projects, shots), the boards you opened lately (or, until
+  you have, the ones edited lately), the assets and shots you looked at in the catalogue, and every
+  project. Pins and what you opened are kept by this browser. Pin from a card's `...` menu or the star.
 - **Cards or compact rows.** The button beside the theme in the top bar shows boards, folders and the
   catalogue as cards, or as compact rows (a small still beside each name), remembered per browser.
 - **One bar across the top, the same on every page.** The mark in the corner goes to all boards, and
@@ -248,8 +258,9 @@ commands, the settings and why it should run as a single instance.
 
 ## Folders
 
-The board list is organised in folders. Drag a board or folder onto a folder, or onto a
-name in the path above the list, to move it; the `...` menu on each card has Rename,
+The board list is organised in folders. Drag a board or folder onto a folder (a card, a row in the
+sidebar, or a name in the path above the list) to move it, or onto the other workspace's name in the
+sidebar to move it there; the `...` menu on each card has Rename,
 "Move to..." and Delete. Deleting a folder only removes the folder: its boards and
 subfolders move up one level.
 
@@ -278,7 +289,7 @@ filed in it.
 - **Notes.** Comments on a version belong to it (see Comments above). Filing a piece takes the comments
   already made on it along. People holding a link to a board see only the notes made on that board;
   the team sees them all.
-- **The catalogue page.** In a project folder, the tabs are Boards and Catalogue. The catalogue
+- **The catalogue page.** A project has its Boards and its Catalogue, both in the sidebar. The catalogue
   is laid out like the project on disk: assets, sets, and shots by sequence, each with its newest
   still. An asset, set or shot opens on every version of it (where each is on a board, who filed it,
   what its name said) and every note made about any of them, on any board. Click a version and it opens

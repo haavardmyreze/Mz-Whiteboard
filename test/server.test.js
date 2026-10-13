@@ -1591,3 +1591,77 @@ test('putting a board back moves what is on it, never what was said', async (t) 
   const init = anna.seen.filter((m) => m.t === 'init').pop();
   assert.deepEqual(init.items.map((it) => [it.id, it.x ?? null]), [['imageone1', 0], ['comment01', null]]);
 });
+
+test('what is drawn for a comment is kept with it, and a database from before has its comment drawings moved in', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wipboard-ink-'));
+  try {
+    const old = new DatabaseSync(path.join(dir, 'wipboard.db'));
+    old.exec(`CREATE TABLE items (board_id TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, type TEXT NOT NULL, label TEXT, label_key TEXT, frame_id TEXT, parent_id TEXT,
+      media TEXT, thumb TEXT, created_at INTEGER NOT NULL, created_by TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY (board_id, id));`);
+    const add = old.prepare('INSERT INTO items (board_id, id, data, type, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1)');
+    add.run('b1', 'imageone1', JSON.stringify({ id: 'imageone1', type: 'image', x: 100, y: 50, w: 500, h: 250 }), 'image');
+    add.run('b1', 'comment01', JSON.stringify({ id: 'comment01', type: 'comment', on: 'imageone1', text: 'Here' }), 'comment');
+    // drawn for the comment, and drawn for one never sent: that one is an ordinary drawing
+    add.run('b1', 'stroke001', JSON.stringify({ id: 'stroke001', type: 'stroke', pid: 'imageone1', cid: 'comment01', x: 150, y: 100, w: 50, h: 25, pts: [0, 0, 1, 1], ws: [1, 1], size: 2, color: '#e5484d' }), 'stroke');
+    add.run('b1', 'stroke002', JSON.stringify({ id: 'stroke002', type: 'stroke', pid: 'imageone1', cid: 'neversent', x: 0, y: 0, w: 10, h: 10, pts: [0, 0], size: 2 }), 'stroke');
+    old.close();
+    const store = openStore(dir);
+    assert.deepEqual(store.loadItems('b1').map((it) => it.id), ['imageone1', 'stroke002']);
+    const [note] = store.notesForBoard('b1');
+    // measured against the piece, whose width is 1000
+    assert.deepEqual(note.data.drawing, [{ x: 100, y: 100, w: 100, h: 50, pts: [0, 0, 1, 1], size: 4, color: '#e5484d', ws: [1, 1] }]);
+    store.close();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the catalogue viewer has every note on an entity live, and what is written there reaches the boards', async (t) => {
+  const s = start(4839);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => (await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) })).json();
+  const project = await call('POST', '/api/folders', { name: 'Kilo' });
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const board = await call('POST', '/api/boards', { name: 'Standup', folderId: project.id });
+  const src = (await (await fetch(`${s.base}/api/upload?name=a.png`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
+  const [v1] = (await call('POST', `/api/projects/${project.id}/versions`, { entity: { name: 'kilo-0010' }, files: [{ look: { type: 'image', src, nw: 100, nh: 50 } }] })).versions;
+
+  const open = joiner(4839);
+  const anna = await open(`board=${board.id}`, 'Anna');
+  t.after(() => anna.ws.close());
+  anna.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'placed001', type: 'image', x: 0, y: 0, w: 100, h: 50, src, ver: v1.id } }] }));
+  await pause(200);
+  const ben = await open(`entity=${v1.entityId}`, 'Ben');
+  t.after(() => ben.ws.close());
+  assert.deepEqual(ben.seen.find((m) => m.t === 'init').notes, []);
+
+  // written in the catalogue, with a drawing: on the board at once, saying where it was said
+  const drawing = [{ x: 10, y: 10, w: 100, h: 50, pts: [0, 0, 1, 1], ws: [0.5, 0.5], size: 4, color: '#2f7df6', junk: 1 }];
+  ben.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'catnote01', type: 'comment', on: v1.id, text: 'From the catalogue', drawing } }] }));
+  await pause(250);
+  const there = anna.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).find((o) => o.t === 'add' && o.item.id === 'catnote01').item;
+  assert.equal(there.on, 'placed001');
+  assert.equal(there.name, 'Ben');
+  assert.equal(there.obn, 'the catalogue');
+  assert.deepEqual(there.drawing, [{ x: 10, y: 10, w: 100, h: 50, pts: [0, 0, 1, 1], size: 4, color: '#2f7df6', ws: [0.5, 0.5] }]);
+  // a reply on the board reaches the room
+  anna.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'reply0001', type: 'comment', on: 'placed001', re: 'catnote01', text: 'Agreed' } }] }));
+  await pause(250);
+  const told = ben.seen.filter((m) => m.t === 'notes').pop().notes;
+  assert.deepEqual(told.map((n) => [n.id, n.on, n.obn]), [['catnote01', v1.id, 'the catalogue'], ['reply0001', v1.id, 'Standup']]);
+  // resolved and deleted from the room, as on a board; nothing outside the entity is touched
+  ben.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'set', id: 'catnote01', patch: { done: true, text: 'Reworded', name: 'X' } }] }));
+  await pause(200);
+  const resolved = anna.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).filter((o) => o.t === 'add' && o.item.id === 'catnote01').pop().item;
+  assert.equal(resolved.done, true);
+  assert.equal(resolved.text, 'Reworded');
+  assert.ok(resolved.edited > 0);
+  assert.equal(resolved.name, 'Ben');
+  ben.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'del', ids: ['catnote01', 'reply0001'] }] }));
+  await pause(250);
+  assert.ok(anna.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).some((o) => o.t === 'del' && o.ids.includes('catnote01')));
+  assert.deepEqual(ben.seen.filter((m) => m.t === 'notes').pop().notes, []);
+});

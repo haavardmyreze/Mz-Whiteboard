@@ -349,7 +349,8 @@ function noteItem(board, n, host) {
   // Made on another board: which one, so the thread can say so.
   if (n.boardId !== board.id) {
     c.ob = n.boardId;
-    c.obn = boards.get(n.boardId)?.name || 'another board';
+    // Made in the catalogue, on no board at all.
+    c.obn = n.boardId === '' ? 'the catalogue' : boards.get(n.boardId)?.name || 'another board';
   }
   return c;
 }
@@ -414,6 +415,25 @@ function spreadNotes(versionIds, from) {
     const ops = syncNotes(board);
     if (ops.length) broadcast(board, { t: 'op', ops, from: null });
   }
+  tellRooms(versionIds);
+}
+
+// What was drawn for a comment, kept with it: strokes measured against the piece, whose width is 1000.
+// Each as a board's drawing is: a box, its points within the box from 0 to 1, how wide the line is
+// along them, its colour.
+function cleanDrawing(list) {
+  if (!Array.isArray(list)) return null;
+  const out = [];
+  const n = (v) => Number.isFinite(v);
+  for (const s of list.slice(0, 100)) {
+    if (!s || typeof s !== 'object' || !['x', 'y', 'w', 'h', 'size'].every((k) => n(s[k]))) continue;
+    if (!Array.isArray(s.pts) || s.pts.length < 2 || s.pts.length > 6000 || !s.pts.every(n)) continue;
+    const stroke = { x: s.x, y: s.y, w: s.w, h: s.h, pts: s.pts, size: s.size, color: typeof s.color === 'string' && s.color.length <= 16 ? s.color : 'ink' };
+    if (Array.isArray(s.ws) && s.ws.length * 2 === s.pts.length && s.ws.every(n)) stroke.ws = s.ws;
+    if (s.arrow === true) stroke.arrow = true;
+    out.push(stroke);
+  }
+  return out.length ? out : null;
 }
 
 // A comment is built from scratch rather than copied: who wrote it comes from the connection, not
@@ -448,6 +468,8 @@ function cleanComment(it, peer) {
   if (num(it.at) !== null && it.at >= 0) clean.at = it.at;
   // On a video whose frame rate is known, the exact frame as well.
   if (Number.isSafeInteger(it.fr) && it.fr >= 0) clean.fr = it.fr;
+  const drawing = cleanDrawing(it.drawing);
+  if (drawing) clean.drawing = drawing;
   return clean;
 }
 
@@ -1664,6 +1686,14 @@ server.on('upgrade', async (req, socket, head) => {
       if (!viewed) return socket.destroy();
       return wss.handleUpgrade(req, socket, head, (ws) => onConnect(ws, viewed, null, shared));
     }
+    const entityId = url.searchParams.get('entity');
+    if (entityId) {
+      const entity = store.entity(entityId);
+      if (!entity || !fromOurPages(req)) return socket.destroy();
+      const who = await auth.authenticate(req);
+      if (who.status || !visibleFolder(who.user, entity.projectId)) return socket.destroy();
+      return wss.handleUpgrade(req, socket, head, (ws) => joinRoom(ws, entity, who.user));
+    }
     const board = boards.get(url.searchParams.get('board'));
     if (!board || !fromOurPages(req)) return socket.destroy();
     const who = await auth.authenticate(req);
@@ -1684,7 +1714,7 @@ function send(ws, msg) {
 
 // What people holding a link are shown: the board, and the team's comments only if the link includes them.
 // A link shows the notes made on its own board, not those made about the same version on others.
-const hiddenNote = (board, c) => !!c && c.type === 'comment' && (board.shareAccess === 'view' || !!c.ob);
+const hiddenNote = (board, c) => !!c && c.type === 'comment' && (board.shareAccess === 'view' || c.ob !== undefined);
 const hiddenFromViewers = (board, op) => (op.t === 'add' ? hiddenNote(board, op.item) : op.t === 'set' && hiddenNote(board, board.items.get(op.id)));
 
 // All that somebody commenting through a link can send: new comments and replies on what is there.
@@ -1816,7 +1846,9 @@ function onConnect(ws, board, user, viewToken = null) {
     } else if (msg.t === 'laser') {
       if (!Array.isArray(msg.pts)) return;
       const pts = msg.pts.slice(0, 200).filter((n) => Number.isFinite(n));
-      if (pts.length >= 2) broadcast(board, { t: 'laser', id: peer.id, pts: pts.slice(0, pts.length - (pts.length % 2)) }, peer);
+      // On the board the points are where on the board; in the viewer, where on the open piece (`on`).
+      const on = typeof msg.on === 'string' && ID_RE.test(msg.on) ? msg.on : undefined;
+      if (pts.length >= 2) broadcast(board, { t: 'laser', id: peer.id, pts: pts.slice(0, pts.length - (pts.length % 2)), ...(on && { on }) }, peer);
     } else if (msg.t === 'media') {
       broadcast(board, { t: 'media', from: peer.id, id: msg.id, playing: !!msg.playing, time: Number(msg.time) || 0 }, peer);
     }
@@ -1849,6 +1881,120 @@ setInterval(() => {
     ws.ping();
   }
 }, 30000).unref();
+
+// ---------------------------------------------------------------- the catalogue, live
+//
+// An asset, set or shot opened in the catalogue's viewer has a room of its own: everyone in it has all
+// the notes on all its versions, live, and what they write there is there on every board the version
+// is on, as what is written on those boards is there in the room. A note written in the catalogue was
+// made on no board (its board is '').
+
+const rooms = new Map(); // entity id -> Set of { ws, name, color, user }
+
+function roomNotes(entityId) {
+  const versions = store.versionsOf(entityId).map((v) => v.id);
+  return store.notesOfVersions(versions).map((n) => ({
+    ...noteData(n.data), id: n.id, type: 'comment', on: n.versionId, ...(n.re && { re: n.re }),
+    ob: n.boardId, obn: n.boardId === '' ? 'the catalogue' : boards.get(n.boardId)?.name || n.boardName || 'a board',
+  }));
+}
+
+function tellRoom(entityId) {
+  const peers = rooms.get(entityId);
+  if (!peers || !peers.size) return;
+  const msg = { t: 'notes', notes: roomNotes(entityId) };
+  for (const peer of peers) send(peer.ws, msg);
+}
+
+// Notes on these versions have changed somewhere: the rooms of their entities are told.
+function tellRooms(versionIds) {
+  if (!rooms.size) return;
+  const entities = new Set();
+  for (const id of versionIds) {
+    const v = store.version(id);
+    if (v && rooms.has(v.entityId)) entities.add(v.entityId);
+  }
+  for (const id of entities) tellRoom(id);
+}
+
+function joinRoom(ws, entity, user) {
+  const peer = { ws, user, name: user ? user.name : 'Guest', color: user ? user.color : '#888888', joined: false, viewer: false };
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+  const ofEntity = (versionId) => {
+    const v = typeof versionId === 'string' && store.version(versionId);
+    return !!v && v.entityId === entity.id;
+  };
+  const receive = (msg) => {
+    if (msg.t === 'hello') {
+      if (peer.joined) return;
+      peer.joined = true;
+      if (!user) {
+        peer.name = String(msg.name || 'Guest').slice(0, 32);
+        if (/^#[0-9a-f]{6}$/i.test(msg.color)) peer.color = msg.color;
+      }
+      (rooms.get(entity.id) || rooms.set(entity.id, new Set()).get(entity.id)).add(peer);
+      return send(ws, { t: 'init', notes: roomNotes(entity.id) });
+    }
+    if (!peer.joined || msg.t !== 'op' || !Array.isArray(msg.ops)) return;
+    const touched = new Set();
+    for (const op of msg.ops) {
+      if (!op || typeof op !== 'object') continue;
+      if (op.t === 'add' && op.item && ID_RE.test(op.item.id)) {
+        const known = store.note(op.item.id);
+        if (known) {
+          // Undo bringing a deleted note back, as its author wrote it.
+          if (known.deletedAt && ofEntity(known.versionId)) {
+            store.restoreNote(known.id);
+            touched.add(known.versionId);
+          }
+          continue;
+        }
+        const c = cleanComment(op.item, peer);
+        if (!c || !ofEntity(c.on)) continue;
+        let re = null;
+        if (c.re) {
+          const root = store.note(c.re);
+          if (!root || root.deletedAt || root.re || root.versionId !== c.on) continue;
+          re = root.id;
+        }
+        store.addNote({ id: c.id, boardId: '', itemId: c.on, versionId: c.on, re, data: noteData(c), by: peer.name });
+        touched.add(c.on);
+      } else if (op.t === 'set' && typeof op.id === 'string' && op.patch && typeof op.patch === 'object') {
+        const n = store.note(op.id);
+        if (!n || n.deletedAt || !ofEntity(n.versionId)) continue;
+        const patch = commentPatch(n.data, op.patch, peer);
+        if (!patch) continue;
+        store.setNote(n.id, { ...n.data, ...patch });
+        touched.add(n.versionId);
+      } else if (op.t === 'del' && Array.isArray(op.ids)) {
+        for (const id of op.ids) {
+          const n = typeof id === 'string' && store.note(id);
+          if (!n || n.deletedAt || !ofEntity(n.versionId)) continue;
+          store.deleteNote(n.id);
+          touched.add(n.versionId);
+        }
+      }
+    }
+    send(ws, { t: 'ack' });
+    if (touched.size) spreadNotes(touched, null);
+  };
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw);
+      if (msg && typeof msg === 'object') receive(msg);
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) console.error(`A message in the catalogue could not be handled: ${err.message}`);
+    }
+  });
+  ws.on('close', () => {
+    const peers = rooms.get(entity.id);
+    if (!peers) return;
+    peers.delete(peer);
+    if (!peers.size) rooms.delete(entity.id);
+  });
+  ws.on('error', () => {});
+}
 
 // ---------------------------------------------------------------- start
 

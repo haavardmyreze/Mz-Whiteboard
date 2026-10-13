@@ -287,6 +287,42 @@ function moveCommentsToNotes(db) {
   }
 }
 
+// What was drawn for a comment used to be strokes on the board, beside the piece. It belongs to the note
+// now, measured against the piece (its width is 1000), so it goes wherever the note goes. A stroke whose
+// comment was never sent is an ordinary drawing and stays where it is.
+const r2 = (v) => Math.round(v * 100) / 100;
+function moveDrawingsToNotes(db) {
+  const rows = db.prepare(`SELECT board_id, id, data FROM items WHERE type = 'stroke' AND data LIKE '%"cid"%'`).all();
+  if (!rows.length) return;
+  const readHost = db.prepare('SELECT data FROM items WHERE board_id = ? AND id = ?');
+  const readNote = db.prepare('SELECT data FROM notes WHERE id = ?');
+  const putData = db.prepare('UPDATE notes SET data = ? WHERE id = ?');
+  const drop = db.prepare('DELETE FROM items WHERE board_id = ? AND id = ?');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    for (const r of rows) {
+      const s = JSON.parse(r.data);
+      const note = typeof s.cid === 'string' && readNote.get(s.cid);
+      const hostRow = note && typeof s.pid === 'string' && readHost.get(r.board_id, s.pid);
+      if (!hostRow) continue;
+      const h = JSON.parse(hostRow.data);
+      if (!(h.w > 0)) continue;
+      const k = 1000 / h.w;
+      const stroke = { x: r2((s.x - h.x) * k), y: r2((s.y - h.y) * k), w: r2(s.w * k), h: r2(s.h * k), pts: s.pts, size: r2(s.size * k), color: s.color || 'ink' };
+      if (Array.isArray(s.ws)) stroke.ws = s.ws;
+      if (s.arrow) stroke.arrow = true;
+      const data = JSON.parse(note.data);
+      data.drawing = [...(Array.isArray(data.drawing) ? data.drawing : []), stroke];
+      putData.run(JSON.stringify(data), s.cid);
+      drop.run(r.board_id, r.id);
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
 function openStore(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
   const file = path.join(dataDir, 'wipboard.db');
@@ -297,7 +333,7 @@ function openStore(dataDir) {
   // What a board was before a round of changes used to be called a version. Versions are now what the
   // catalogue keeps, so the board's own are snapshots, and a database from before has its table renamed.
   const oldSnapshots = hasTable('versions') && hasColumn('versions', 'sig');
-  const oldComments = hasTable('items') && !!db.prepare("SELECT 1 FROM items WHERE type = 'comment' LIMIT 1").get();
+  const oldComments = hasTable('items') && !!db.prepare(`SELECT 1 FROM items WHERE type = 'comment' OR (type = 'stroke' AND data LIKE '%"cid"%') LIMIT 1`).get();
   // The database as it was is copied aside first, whole, in case anything about the move is not as it should be.
   if (oldSnapshots || oldComments) {
     fs.mkdirSync(path.join(dataDir, 'backups'), { recursive: true });
@@ -316,6 +352,7 @@ function openStore(dataDir) {
   if (!hasColumn('items', 'version_id')) db.exec('ALTER TABLE items ADD COLUMN version_id TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS items_by_version ON items (version_id)');
   moveCommentsToNotes(db);
+  moveDrawingsToNotes(db);
 
   function transaction(fn) {
     db.exec('BEGIN IMMEDIATE');
@@ -414,10 +451,14 @@ function openStore(dataDir) {
   }
   const snapshots = (boardId) => listSnapshots.all(boardId);
   const lastSnapshotAt = (boardId) => newestSnapshot.get(boardId)?.at || 0;
-  // Snapshots from before notes had their own table hold the comments too; those are not put back.
+  // Snapshots from before notes had their own table hold the comments too, and what was drawn for
+  // them; those are not put back.
+  const noteExists = db.prepare('SELECT 1 FROM notes WHERE id = ?');
   function snapshot(boardId, at) {
     const row = readSnapshot.get(boardId, at);
-    return row ? JSON.parse(zlib.gunzipSync(row.items).toString('utf8')).filter((it) => it.type !== 'comment') : null;
+    if (!row) return null;
+    return JSON.parse(zlib.gunzipSync(row.items).toString('utf8'))
+      .filter((it) => it.type !== 'comment' && !(it.type === 'stroke' && typeof it.cid === 'string' && noteExists.get(it.cid)));
   }
 
   const readItems = db.prepare('SELECT data FROM items WHERE board_id = ? ORDER BY rowid');

@@ -579,6 +579,9 @@ const WBViewer = (() => {
       if (!was) {
         root.hidden = false;
         document.body.classList.add('focus');
+        // Whatever opened it (a card, a thumbnail) is behind it now, and must not keep the keyboard: Space
+        // on it would open it again.
+        if (document.activeElement && !root.contains(document.activeElement) && document.activeElement !== document.body) document.activeElement.blur();
         tool = narrow() && matchMedia('(hover: none) and (pointer: coarse)').matches ? 'pan' : can.draw() ? 'pen' : 'pan';
         syncTools();
       }
@@ -2029,7 +2032,9 @@ const WBViewer = (() => {
     window.addEventListener('keydown', (e) => {
       if (!open || isTyping(e.target) || document.querySelector('dialog[open]')) return;
       const k = e.key.toLowerCase();
-      if ((e.code === 'Space' || k === 'enter') && e.target.closest && e.target.closest('button, a[href], input')) return;
+      // Enter works a button that has the keyboard; Space always plays and pauses, even when a button
+      // clicked a moment ago still has it.
+      if (k === 'enter' && e.target.closest && e.target.closest('button, a[href], input')) return;
       const done = () => {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -2078,6 +2083,7 @@ const WBViewer = (() => {
     }, true);
     window.addEventListener('keyup', (e) => {
       if (e.code !== 'Space' || !spaceDown) return;
+      e.preventDefault();
       const tapped = spaceTap && performance.now() - spaceAt < 400;
       spaceDown = false;
       spaceTap = false;

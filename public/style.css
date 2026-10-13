@@ -675,7 +675,9 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport, body[data-
 .vmark { position: absolute; top: 50%; width: 9px; height: 9px; margin: -13px 0 0 -4.5px; padding: 0; border: 0; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.45); cursor: pointer; pointer-events: auto; }
 .vmark:hover { transform: scale(1.3); }
 /* Drawn on another frame of its video than the one showing. */
-.item.offframe { visibility: hidden; pointer-events: none; }
+.item.offframe { visibility: hidden; }
+/* A stroke's line can be pressed whether or not it is in sight (Firefox holds to that), so the line is put out of reach as well. */
+.item.offframe, .item.offframe * { pointer-events: none !important; }
 
 /* The scrub bar: a hairline that fills as the clip plays, with a small round playhead. */
 .vbar input[type="range"] { -webkit-appearance: none; appearance: none; flex: 1; min-width: 30px; height: 16px; margin: 0; background: transparent; cursor: pointer; --p: 0%; }

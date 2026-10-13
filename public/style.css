@@ -1292,9 +1292,8 @@ body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: var(--si
 .cp-grip::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--accent); opacity: 0; transition: opacity 0.12s var(--ease); }
 .cp-grip:hover::after, .cp-grip.held::after, .cp-grip:focus-visible::after { opacity: 1; }
 .cp-grip:focus-visible { outline: none; }
-.cp-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 8px 0 16px; }
+.cp-head { flex: none; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 8px 0 16px; }
 .cp-head h2 { margin: 0; font-size: 15px; font-weight: 650; line-height: 1.3; letter-spacing: -0.012em; }
-.cp-head .iconbtn { margin-left: auto; }
 .cp-opts { flex: none; display: flex; gap: 16px; padding: 4px 16px 12px; border-bottom: 1px solid var(--line); }
 .cp-show { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12px; cursor: pointer; }
 .cp-show:hover { color: var(--text); }

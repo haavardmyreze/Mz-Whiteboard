@@ -1799,8 +1799,8 @@ const WBViewer = (() => {
     };
     const cpGrip = el('div', { class: 'cp-grip', role: 'separator', tabindex: '0', 'aria-orientation': 'vertical', 'aria-label': 'Width of the comments', title: 'Drag to make the comments wider or narrower. Double-click to put them back' });
     panel.append(
-      el('div', { class: 'cp-head' }, cpTitle, cpCount,
-        el('button', { class: 'iconbtn', html: ICON.close, title: 'Hide the comments (Shift+C)', onclick: () => togglePanel(false) })),
+      // No close button here: the tab at the side shows and hides the comments, and "Done" closes the player.
+      el('div', { class: 'cp-head' }, cpTitle, cpCount),
       el('div', { class: 'cp-opts' },
         cpToggle('Hide resolved', 'Leave out threads that have been resolved', hideDone, (v) => {
           hideDone = v;

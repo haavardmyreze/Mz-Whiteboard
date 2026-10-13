@@ -615,7 +615,7 @@ body.board { overflow: hidden; overscroll-behavior: none; background-color: var(
   -webkit-user-select: none;
   cursor: default;
 }
-body[data-tool="pan"] #viewport, body.space #viewport { cursor: grab; }
+body[data-tool="pan"] #viewport, body.space-held #viewport { cursor: grab; }
 body.panning #viewport { cursor: grabbing; }
 body[data-tool="note"] #viewport, body[data-tool="text"] #viewport,
 body[data-tool="frame"] #viewport, body[data-tool="block"] #viewport, body[data-tool="pen"] #viewport,
@@ -1961,7 +1961,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .viewer { position: fixed; inset: 0; z-index: 36; background: var(--viewer-bg); }
 .viewer[hidden] { display: none; }
 .v-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: crosshair; }
-.viewer[data-tool="pan"] .v-stage, .viewer.space .v-stage { cursor: grab; }
+.viewer[data-tool="pan"] .v-stage, .viewer.space-held .v-stage { cursor: grab; }
 .v-piece { position: absolute; left: 0; top: 0; transform-origin: 0 0; background: var(--thumb-bg); box-shadow: 0 0 0 1px var(--ring-c), 0 12px 40px -12px rgba(0, 0, 0, 0.6); }
 .v-piece > img, .v-piece > video, .v-piece > .vhold { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
 .v-ink { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }

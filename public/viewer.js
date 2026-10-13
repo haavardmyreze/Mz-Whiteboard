@@ -2045,7 +2045,7 @@ const WBViewer = (() => {
           spaceAt = performance.now();
         }
         spaceDown = true;
-        root.classList.add('space');
+        root.classList.add('space-held');
         return done();
       }
       const altGr = e.ctrlKey && e.altKey;
@@ -2087,12 +2087,12 @@ const WBViewer = (() => {
       const tapped = spaceTap && performance.now() - spaceAt < 400;
       spaceDown = false;
       spaceTap = false;
-      root.classList.remove('space');
+      root.classList.remove('space-held');
       if (open && tapped && videoOpen()) togglePlay();
     }, true);
     window.addEventListener('blur', () => {
       spaceDown = false;
-      root.classList.remove('space');
+      root.classList.remove('space-held');
     });
     // Text pasted while a piece is open is on its way into a comment.
     window.addEventListener('paste', (e) => {

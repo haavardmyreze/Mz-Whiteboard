@@ -4084,7 +4084,7 @@
         spaceAt = performance.now();
       }
       spaceDown = true;
-      document.body.classList.add('space');
+      document.body.classList.add('space-held');
       return;
     }
     const altGr = e.ctrlKey && e.altKey;
@@ -4147,14 +4147,14 @@
     const tapped = spaceDown && spaceTap && performance.now() - spaceAt < 400;
     spaceDown = false;
     spaceTap = false;
-    document.body.classList.remove('space');
+    document.body.classList.remove('space-held');
     const video = tapped ? keyVideo() : null;
     if (video) toggleVideo(video);
   });
   window.addEventListener('blur', () => {
     spaceDown = false;
     spaceTap = false;
-    document.body.classList.remove('space');
+    document.body.classList.remove('space-held');
   });
   window.addEventListener('resize', () => (unframed ? frameFirst() : applyCam()));
 

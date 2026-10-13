@@ -727,8 +727,8 @@ function cleanLook(asked) {
     } else if (key === 'name') {
       if (typeof v === 'string') look.name = v.slice(0, 200);
     } else if (key === 'wf') {
-      if (typeof v === 'string' && v.length < 200000) look.wf = v;
-      else if (Array.isArray(v) && v.length < 20000) look.wf = v;
+      // The timeline strip: the colours of the picture and the loudness of the sound, each packed small.
+      if (v && typeof v === 'object' && typeof v.c === 'string' && v.c.length < 100000 && (v.p === undefined || (typeof v.p === 'string' && v.p.length < 100000))) look.wf = { c: v.c, ...(v.p && { p: v.p }) };
     } else if (Number.isFinite(v) && v >= 0) {
       look[key] = v;
     }

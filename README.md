@@ -74,7 +74,8 @@ private networks, otherwise only the host machine can connect.
   and scrubbing lands on whole frames. Click the time on a video to switch between minutes and seconds,
   the frame number and a timecode; the choice is remembered per browser. Starting to draw or comment
   on a playing video stops it on the frame showing. Whoever follows you sees exactly the frame you stop on.
-- **The viewer.** Double-click an image or video (or tap it on a phone) and it opens on its own, laid
+- **The viewer.** Double-click an image or video (or tap it on a phone) and it opens in the player,
+  the same one that opens versions from a project's catalogue (`public/viewer.js`). It is laid
   out like a review tool: the rest of the board is hidden behind a plain backdrop, every image and
   video on the board runs down the left edge as a strip of small numbered thumbnails, the comments on
   the open piece sit in a panel on the right, and under a video is its timeline. The bar across the
@@ -161,12 +162,13 @@ private networks, otherwise only the host machine can connect.
   and its drawing shows only while the video is stopped there. Only the drawing of the comment being
   read is on the picture: pick another thread and its drawing takes the other's place, so two
   comments about the same frame never draw over one another. Whoever follows you reads the thread
-  you are reading, and sees its drawing with you. What is drawn for a comment is part
-  of the review, not of the board: it shows in the viewer only, never out on the board, and a copy of
-  the piece does not take it along. A thread with a drawing says so under its text. Deleting a thread
-  deletes its drawing. A drawing whose comment was never sent is not thrown away: it stays on the piece
-  as an ordinary drawing, there on every frame and out on the board too. "Clear drawing" in the bar asks
-  first, and clears only those ordinary drawings: what was drawn for a comment stays with its thread.
+  you are reading, and sees its drawing with you. What is drawn for a comment is kept with the comment,
+  measured against the picture, so it goes wherever the comment goes: on a version, to every board the
+  version is on and to the catalogue. It shows in the viewer only, never out on the board. A thread with
+  a drawing says so under its text. Deleting a thread deletes its drawing. A drawing whose comment is
+  never sent is taken away when you move on, and says so. What is drawn out on the board with the
+  pen shows in the viewer too, as an ordinary drawing; "Clear drawing" in the bar asks first, and clears
+  only those: what was drawn for a comment stays with its thread.
 - **Smart snapping.** Dragged items snap to the edges and centres of their neighbours and
   to equal gaps, with guide lines. Toggle with S, hold Ctrl while dragging to bypass.
 - **Live collaboration.** Everyone sees edits, cursors and selections as they happen.
@@ -274,11 +276,16 @@ filed in it.
 - **The catalogue page.** In a project folder, the tabs are Boards, Catalogue and Import. The catalogue
   is laid out like the project on disk: assets, sets, and shots by sequence, each with its newest
   still. An asset, set or shot opens on every version of it (where each is on a board, who filed it,
-  what its name said) and every note made about any of them, on any board. A version is never
-  deleted; it can be hidden, and then no longer counts as the newest.
-- **Import.** Drop many files at once. Each is uploaded and, when its name says what it is, filed
-  straight away; the ones whose names say nothing wait together for one answer. Nothing goes on a
-  board. (Videos go up as they are here, without the lighter review copy a board makes.)
+  what its name said) and every note made about any of them, on any board. Click a version and it opens
+  in the player, the same one a board uses, with the other versions in the strip beside it: comment and
+  draw there, and it is on every board the version is on, live, as what is said on those boards is
+  live there. The same is a click away from inside a board (the catalogue panel, or a version's chip).
+  A version is never deleted; it can be hidden, and then no longer counts as the newest.
+- **Import.** Drop many files at once. Each is brought in exactly as a file dropped on a board is
+  (`public/ingest.js`): a video gets its review copy, its timeline strip, its stills and its frame
+  rate, and the file it was made from is kept too. When its name says what it is, it is filed straight
+  away; the ones whose names say nothing wait together for one answer. Nothing goes on a board. Click
+  a filed one to open it in the player.
 
 Names are read by the project's naming preset. The one there is follows the Myreze styleguide:
 `_` separates parts, `-` joins words, all lower case. An asset is `char-`, `prop-`, `env-`, `veh-` or
@@ -376,7 +383,9 @@ server.js          HTTP + WebSocket server, boards in memory
 store.js           The database: boards, items, folders, projects' catalogues and notes
 notifications.js   What each person is told about, worked out from the notes
 auth.js            Who is asking: the four sign-in modes
-public/board.js    The canvas: rendering, input, sync, the viewer, following
+public/board.js    The canvas: rendering, input, sync, following
+public/viewer.js   The player: one piece at a time, its strip, timeline, comments and drawings; used by boards and the catalogue
+public/ingest.js   Bringing media in: review copies of video, originals, timeline strips, stills; used by boards and Import
 public/home.js     Board list, and a project's catalogue and Import page
 public/naming.js   How file names are read for the catalogue (shared with the server)
 public/common.js   Shared helpers

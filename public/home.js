@@ -599,18 +599,16 @@
     return out;
   }
 
-  // A version's media, large, over the page.
-  function showMedia(v) {
-    const dlg = el('dialog', { class: 'dlg media-dlg', 'aria-label': v.label });
-    const media = v.look.type === 'video'
-      ? el('video', { src: v.look.src, controls: true, autoplay: true, loop: true, playsinline: true, poster: v.look.poster || v.look.th || null })
-      : el('img', { src: v.look.src, alt: v.label });
-    dlg.append(el('div', { class: 'media-head' }, el('b', { text: v.label }), el('span', { text: v.originalName || '' }),
-      el('button', { type: 'button', class: 'iconbtn', html: ICON.close, title: 'Close (Esc)', onclick: () => dlg.close() })), media);
-    dlg.addEventListener('close', () => dlg.remove());
-    dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
-    document.body.append(dlg);
-    dlg.showModal();
+  // A version opens in the player (viewer.js), the same one a board opens its media in: with every other
+  // version of the same thing beside it, and what has been said about them, live.
+  let player = null;
+  async function lookAt(entityId, versionId) {
+    if (!player) player = WBViewer.create({ me: () => me, title: () => '', media: () => [], notes: () => [], add() {}, set() {}, remove() {} });
+    try {
+      await WBViewer.openEntity(player, entityId, { version: versionId, me, onClose: () => { shownProject = ''; render(); } });
+    } catch (err) {
+      fail(err);
+    }
   }
 
   let showHidden = false;
@@ -621,7 +619,7 @@
     const byVersion = new Map(page.versions.map((v) => [v.id, v]));
     const hip = (v) => (v.hip != null ? `from HIP v${String(v.hip).padStart(3, '0')}` : null);
     const card = (v) => el('div', { class: `card ver${v.hidden ? ' hidden-ver' : ''}` },
-      el('button', { type: 'button', class: `card-thumbs n${v.thumb ? 1 : 0}`, title: 'Look at it', onclick: () => showMedia(v) },
+      el('button', { type: 'button', class: `card-thumbs n${v.thumb ? 1 : 0}`, title: 'Open it, to look, comment and draw', onclick: () => lookAt(entity.id, v.id) },
         v.thumb && el('img', { src: v.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
         v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })),
       el('div', { class: 'card-body' },
@@ -661,77 +659,28 @@
   // ---- importing: many files at once, straight into the catalogue
 
   const imports = new Map(); // project id -> { rows, node }
-  const PIECE = 8 * 1024 * 1024;
-  const uid = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => (b % 36).toString(36)).join('');
-  const extOf = (name) => (/\.[a-z0-9]+$/i.exec(name) || [''])[0].toLowerCase();
+  const megabytes = (bytes) => `${Math.round(bytes / 1048576).toLocaleString()} MB`;
 
-  async function sendFile(blob, ext, onProgress) {
-    const id = uid();
-    let offset = 0;
-    let result = null;
-    do {
-      const end = Math.min(blob.size, offset + PIECE);
-      const res = await fetch(`/api/upload?name=file${ext}&uid=${id}&offset=${offset}&done=${end >= blob.size ? 1 : 0}`, { method: 'POST', body: blob.slice(offset, end) });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Upload failed (${res.status})`);
-      result = data;
-      offset = end;
-      if (onProgress) onProgress(offset / Math.max(1, blob.size));
-    } while (offset < blob.size);
-    return result;
-  }
-
-  const still = async (source, w, h, max) => {
-    const k = Math.min(1, max / Math.max(w, h));
-    const canvas = el('canvas', { width: Math.max(1, Math.round(w * k)), height: Math.max(1, Math.round(h * k)) });
-    canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.86));
-    return blob ? { url: (await sendFile(blob, '.webp')).url, w: canvas.width } : null;
-  };
-
-  // What a board needs to show the file, made here: its size, a small still and, for a large picture, a preview.
-  async function lookOf(file, onProgress) {
-    const url = URL.createObjectURL(file);
-    try {
-      if (file.type.startsWith('video/') || /\.(mp4|m4v|webm|mov)$/i.test(file.name)) {
-        const video = el('video', { muted: true, preload: 'auto', playsinline: true });
-        video.muted = true;
-        await new Promise((resolve, reject) => {
-          video.onloadeddata = resolve;
-          video.onerror = () => reject(new Error('This browser cannot play that video. Export H.264 MP4 or WebM'));
-          video.src = url;
-        });
-        video.currentTime = Math.min(0.1, (video.duration || 1) / 2);
-        await new Promise((resolve) => { video.onseeked = resolve; setTimeout(resolve, 3000); });
-        const w = video.videoWidth;
-        const h = video.videoHeight;
-        const th = await still(video, w, h, 480).catch(() => null);
-        const poster = await still(video, w, h, 1600).catch(() => null);
-        const up = await sendFile(file, extOf(file.name), onProgress);
-        return { type: 'video', src: up.url, orig: up.url, nw: w, nh: h, name: file.name, ...(th && { th: th.url }), ...(poster && { poster: poster.url }), ...(isFinite(video.duration) && { dur: Math.round(video.duration * 1000) / 1000 }) };
-      }
-      const img = await new Promise((resolve, reject) => {
-        const i = new Image();
-        i.onload = () => resolve(i);
-        i.onerror = () => reject(new Error('This image could not be read'));
-        i.src = url;
-      });
-      const nw = img.naturalWidth || 512;
-      const nh = img.naturalHeight || 512;
-      const look = { type: 'image', nw, nh, name: file.name };
-      if (Math.max(nw, nh) > 2048 * 1.25 && !/\.(gif|svg)$/i.test(file.name)) {
-        const prev = await still(img, nw, nh, 2048).catch(() => null);
-        if (prev) Object.assign(look, { prev: prev.url, pw: prev.w });
-      }
-      if (Math.max(nw, nh) > 480 * 1.5) {
-        const th = await still(img, nw, nh, 480).catch(() => null);
-        if (th) look.th = th.url;
-      }
-      look.src = (await sendFile(file, extOf(file.name), onProgress)).url;
-      return look;
-    } finally {
-      URL.revokeObjectURL(url);
+  // A file brought in here goes through what a file dropped on a board does (ingest.js): a video is made
+  // into its review copy, with its timeline strip, stills and frame rate, and the file it was made from is
+  // kept too. Only then is it filed.
+  async function bringIn(r, paint) {
+    const { ingest, upload, fileExt, VID_EXT } = WBIngest;
+    const isVideo = VID_EXT.test(fileExt(r.file));
+    const at = { enc: 0, up: 0, strip: 0, orig: 0 };
+    const tell = (part, k) => {
+      at[part] = Math.max(at[part], Math.min(1, k));
+      r.progress = isVideo ? at.enc * 0.4 + at.up * 0.25 + at.strip * 0.15 + at.orig * 0.2 : at.up;
+      r.phase = part;
+      paint();
+    };
+    const look = await ingest(r.file, (k) => tell('up', k), isVideo ? { onPhase: (k) => tell('enc', k), onStrip: (k) => tell('strip', k) } : {});
+    if (isVideo && !look.orig) {
+      const max = WB.info().maxUpload;
+      if (!max || r.file.size <= max) look.orig = (await upload(r.file, fileExt(r.file), (k) => tell('orig', k))).url;
+      else r.note = `The original is ${megabytes(r.file.size)}, more than is kept here, so only its review copy is`;
     }
+    return look;
   }
 
   function importView(project) {
@@ -754,12 +703,15 @@
     const catalogue = async () => cat || (cat = await api('GET', `/api/projects/${project.id}`));
     const remembered = () => store(`wb:file:${project.id}`) || {};
 
+    const PHASE = { enc: 'Preparing', up: 'Uploading', strip: 'Building timeline', orig: 'Keeping the original' };
     function rowNode(r) {
       const status = {
-        reading: 'Reading…', uploading: `Uploading ${Math.round(r.progress * 100)}%`, filing: 'Filing…',
+        queued: 'Waiting', uploading: `${PHASE[r.phase] || 'Preparing'} ${Math.min(99, Math.round((r.progress || 0) * 100))}%`, filing: 'Filing…',
         filed: r.label ? `Filed as ${r.label}` : 'Filed', failed: r.error || 'Failed', needs: 'Which asset, set or shot?',
       }[r.status];
-      return el('div', { class: `imp-row ${r.status}` },
+      return el(r.version ? 'button' : 'div', {
+        class: `imp-row ${r.status}`, ...(r.version && { type: 'button', title: 'Open it, to look, comment and draw', onclick: () => lookAt(r.version.entityId, r.version.id) }),
+      },
         el('span', { class: 'imp-thumb' }, r.preview && el('img', { src: r.preview, alt: '' })),
         el('span', { class: 'imp-name', text: r.file.name }),
         el('span', { class: 'imp-said', text: [r.parsed.entity, r.parsed.task, r.parsed.hip != null && `HIP v${String(r.parsed.hip).padStart(3, '0')}`].filter(Boolean).join(' · ') }),
@@ -814,7 +766,7 @@
       paint();
       try {
         const res = await api('POST', `/api/projects/${project.id}/versions`, { files: list.map((r) => ({ look: r.look })), ...choice, by: me.name });
-        res.versions.forEach((v, i) => { list[i].status = 'filed'; list[i].label = v.label; });
+        res.versions.forEach((v, i) => { list[i].status = 'filed'; list[i].label = v.label; list[i].version = v; });
         cat = null;
         await catalogue().catch(() => {});
       } catch (err) {
@@ -838,13 +790,13 @@
         r.progress = 0;
         paint();
         try {
-          r.look = await lookOf(r.file, (k) => { r.progress = k; paint(); });
-          if (r.look.th || r.look.type === 'image') r.preview = r.look.th || r.look.src;
+          r.look = await bringIn(r, paint);
+          r.preview = r.look.th || (r.look.type === 'image' ? r.look.prev || r.look.src : r.look.poster) || null;
           if (r.parsed.entity) await fileRows([r]);
           else r.status = 'needs';
         } catch (err) {
           r.status = 'failed';
-          r.error = err.message;
+          r.error = err.refused ? `This browser cannot process this video. Import it from ${WBIngest.OTHER_BROWSERS} instead` : err.message;
         }
         paint();
       }

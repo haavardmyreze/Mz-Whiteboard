@@ -1558,8 +1558,11 @@ test('media filed as a version takes its notes along, and they show on every boa
   await call('PATCH', `/api/versions/${v2.id}`, { hidden: true });
   await pause(150);
   assert.equal(anna.seen.filter((m) => m.t === 'versions').pop().list.find((v) => v.id === v1.id).newest, null);
-  const lighting = (await call('POST', `/api/projects/${project.id}/versions`, { task: 'lighting', entity: v1.entityId, files: [{ look: { type: 'image', src: shotB, name: 'x.png' } }] })).body.versions[0];
+  const lighting = (await call('POST', `/api/projects/${project.id}/versions`, { task: 'lighting', entity: v1.entityId, files: [{ look: { type: 'video', src: shotB, name: 'x.mp4', wf: { c: 'AAEC', p: 'AwQF', junk: 1 }, fps: 24 } }] })).body.versions[0];
   assert.equal(lighting.label, 'kilo-0010 lighting v1');
+  // a video keeps its timeline strip and frame rate, whatever it came with besides
+  assert.deepEqual(lighting.look.wf, { c: 'AAEC', p: 'AwQF' });
+  assert.equal(lighting.look.fps, 24);
   assert.equal((await call('POST', `/api/projects/${project.id}/versions`, { entity: v1.entityId, files: [{ look: { type: 'image', src: '/uploads/nothere.png' } }] })).status, 400);
 
   // the entity lists every version, where each is, and what was said

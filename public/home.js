@@ -621,6 +621,111 @@
     }
   }
 
+  // What a version is filed as: its asset, set or shot, task and number make its name. Moved to another
+  // asset or task with its number left as it was, it becomes the next one there.
+  async function editVersion(project, entity, v) {
+    const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`).catch(() => null);
+    const presetId = project.settings && project.settings.naming;
+    const list = (id, values) => el('datalist', { id }, (values || []).map((value) => el('option', { value })));
+    const field = (label, input) => el('label', { class: 've-field' }, el('span', { text: label }), input);
+    const ent = el('input', { type: 'text', value: entity.name, list: 've-entities', autocomplete: 'off', required: true, spellcheck: 'false' });
+    const task = el('input', { type: 'text', value: v.task || '', list: 've-tasks', autocomplete: 'off', placeholder: 'None', spellcheck: 'false' });
+    const num = el('input', { type: 'number', value: String(v.number), min: '1', step: '1' });
+    const artist = el('input', { type: 'text', value: v.artist || '', list: 've-artists', autocomplete: 'off', placeholder: 'None', spellcheck: 'false' });
+    const desc = el('input', { type: 'text', value: v.descriptor || '', autocomplete: 'off', placeholder: 'None', spellcheck: 'false' });
+    const name = el('div', { class: 've-name' });
+    const error = el('p', { class: 've-error', hidden: true });
+    const moved = () => N.tokenize(ent.value) !== entity.name || (N.tokenize(task.value) || null) !== (v.task || null);
+    // Moving it without saying a number: the number field is cleared, and the next one there is taken.
+    let numTouched = false;
+    num.addEventListener('input', () => { numTouched = true; paint(); });
+    const paint = () => {
+      if (!numTouched) num.value = moved() ? '' : String(v.number);
+      num.placeholder = moved() ? 'Next' : '';
+      const e = N.tokenize(ent.value);
+      const t = N.tokenize(task.value) || null;
+      name.textContent = !e ? '…' : num.value ? N.label(e, t, Number(num.value)) : `${[e, t].filter(Boolean).join(' ')}, its next version`;
+      error.hidden = true;
+    };
+    for (const input of [ent, task, artist, desc]) input.addEventListener('input', paint);
+    paint();
+    const save = el('button', { type: 'submit', class: 'btn primary', text: 'Save' });
+    const dlg = el('dialog', { class: 'dlg ve' },
+      el('form', {
+        method: 'dialog',
+        onsubmit: async (e) => {
+          e.preventDefault();
+          const e2 = N.tokenize(ent.value);
+          if (!e2) return;
+          const body = { task: task.value, artist: artist.value, descriptor: desc.value };
+          if (e2 !== entity.name) body.entity = { name: e2, tier: N.tierOf(e2, presetId) || entity.tier };
+          if (num.value) body.number = Number(num.value);
+          save.disabled = true;
+          try {
+            const done = await api('PATCH', `/api/versions/${v.id}`, body);
+            catalogues.delete(project.id);
+            dlg.close();
+            if (done.entityId !== entity.id) location.hash = `#/f/${project.id}/catalogue/${done.entityId}`;
+            else render();
+          } catch (err) {
+            error.textContent = err.message;
+            error.hidden = false;
+            save.disabled = false;
+          }
+        },
+      },
+      el('h2', { text: `Edit ${v.label}` }),
+      el('p', { text: 'Its notes, and every board it is on, go with it.' }),
+      el('div', { class: 've-grid' },
+        field('Asset, set or shot', ent), field('Task', task), field('Version', num), field('Artist', artist), field('Description', desc)),
+      el('div', { class: 've-preview' }, el('span', { text: 'Called' }), name),
+      error,
+      list('ve-entities', cat && cat.entities.map((x) => x.name)), list('ve-tasks', cat && cat.tasks), list('ve-artists', cat && cat.artists),
+      el('div', { class: 'dlg-actions' },
+        el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }),
+        save)));
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.append(dlg);
+    dlg.showModal();
+    ent.select();
+  }
+
+  async function deleteVersion(v) {
+    if (v.boards.length) {
+      await WB.dialog({ title: `${v.label} is on ${v.boards.length === 1 ? 'a board' : `${v.boards.length} boards`}`, text: `Take it off ${v.boards.map((b) => `“${b.name}”`).join(', ')} first, or archive it instead: archived, it is out of the way but still there.`, ok: 'OK', cancellable: false });
+      return;
+    }
+    const sure = await WB.dialog({
+      title: `Delete ${v.label}?`,
+      text: 'It disappears from the catalogue, with what was said about it. Its number is not given to another version.',
+      ok: 'Delete version',
+      danger: true,
+    });
+    if (!sure) return;
+    try {
+      await api('DELETE', `/api/versions/${v.id}`);
+    } catch (err) {
+      return fail(err);
+    }
+    render();
+    undoable(`${v.label} deleted`, async () => {
+      await api('PATCH', `/api/versions/${v.id}`, { deleted: false });
+      render();
+    });
+  }
+
+  // A note at the bottom of the page for a few seconds, with a way to take back what was just done.
+  let undoNode = null;
+  function undoable(text, undo) {
+    if (undoNode) undoNode.remove();
+    const node = el('div', { class: 'undo-toast', role: 'status' },
+      el('span', { text }),
+      el('button', { type: 'button', class: 'btn small ghost', text: 'Undo', onclick: async () => { node.remove(); try { await undo(); } catch (err) { fail(err); } } }));
+    undoNode = node;
+    document.body.append(node);
+    setTimeout(() => node.remove(), 8000);
+  }
+
   let showHidden = false;
   function entityPage(project, page) {
     const { entity } = page;
@@ -628,6 +733,11 @@
     const versions = page.versions.filter((v) => showHidden || !v.hidden);
     const byVersion = new Map(page.versions.map((v) => [v.id, v]));
     const hip = (v) => (v.hip != null ? `from HIP v${String(v.hip).padStart(3, '0')}` : null);
+    const archive = async (v, hide) => {
+      await api('PATCH', `/api/versions/${v.id}`, { hidden: hide });
+      render();
+      if (hide) undoable(`${v.label} archived`, async () => { await api('PATCH', `/api/versions/${v.id}`, { hidden: false }); render(); });
+    };
     const card = (v) => el('div', { class: `card ver${v.hidden ? ' hidden-ver' : ''}` },
       el('button', { type: 'button', class: `card-thumbs n${v.thumb ? 1 : 0}`, title: 'Open it, to look, comment and draw', onclick: () => lookAt(entity.id, v.id) },
         v.thumb && el('img', { src: v.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
@@ -635,11 +745,13 @@
       el('div', { class: 'card-body' },
         el('div', { class: 'card-name', text: v.label }),
         el('div', { class: 'card-meta', text: [v.artist, v.descriptor, hip(v)].filter(Boolean).join(' · ') || v.originalName || '' }),
-        el('div', { class: 'card-meta', text: `Filed ${ago(v.createdAt)}${v.createdBy ? ` by ${v.createdBy}` : ''}${v.hidden ? ' · hidden' : ''}` }),
+        el('div', { class: 'card-meta', text: `Filed ${ago(v.createdAt)}${v.createdBy ? ` by ${v.createdBy}` : ''}${v.hidden ? ' · archived' : ''}` }),
         v.boards.length > 0 && el('div', { class: 'ver-boards' }, v.boards.map((b) => el('a', { class: 'ver-board', href: `/b/${b.id}`, text: b.name })))),
       menuButton([
-        [v.hidden ? 'Show it again' : 'Hide it', async () => { await api('PATCH', `/api/versions/${v.id}`, { hidden: !v.hidden }); render(); }],
+        ['Edit…', () => editVersion(project, entity, v)],
+        [v.hidden ? 'Bring back from the archive' : 'Archive', () => archive(v, !v.hidden)],
         ['Download', () => { location.href = v.look.orig || v.look.src; }],
+        ['Delete…', () => deleteVersion(v), true],
       ]));
     // What was said, by thread, newest version first.
     const roots = page.notes.filter((n) => !n.re);
@@ -660,7 +772,7 @@
       el('a', { class: 'ent-back', href: `#/f/${project.id}/catalogue`, text: '← Catalogue' }),
       el('div', { class: 'ent-head' }, el('h1', { text: entity.name }), el('span', { class: 'ent-tier', text: entity.tier })),
       label('Versions', versions.length),
-      hidden > 0 && el('label', { class: 'ent-hidden' }, el('input', { type: 'checkbox', checked: showHidden, onchange: (e) => { showHidden = e.target.checked; render(); } }), `Show hidden (${hidden})`),
+      hidden > 0 && el('label', { class: 'ent-hidden' }, el('input', { type: 'checkbox', checked: showHidden, onchange: (e) => { showHidden = e.target.checked; render(); } }), `Show archived (${hidden})`),
       el('div', { class: 'board-grid ent-grid' },
         el('button', { type: 'button', class: 'card new', title: `Add new versions of ${entity.name}: choose files, or drop them anywhere here`, onclick: () => importer(project).pick(entity) },
           el('span', { class: 'new-thumb' }, el('span', { class: 'plus', html: ICON_PLUS })),

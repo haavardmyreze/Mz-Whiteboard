@@ -504,10 +504,17 @@ function addNote(board, c, peer) {
   return store.addNote({ id: c.id, boardId: board.id, itemId: c.on, versionId, re: c.re || null, data: noteData(c), by: peer ? peer.name : null });
 }
 
-// A piece may show a catalogue version (`ver`) only if there is such a version.
+// A version that is there: not one that never was, nor one deleted.
+const liveVersion = (id) => {
+  const v = typeof id === 'string' && store.version(id);
+  return v && !v.deletedAt ? v : null;
+};
+
+// A piece may show a catalogue version (`ver`) only if there is such a version. A snapshot or an undo
+// that brings back a piece of a version since deleted brings it back as plain media.
 function checkVer(it) {
   if (it.ver === undefined || it.ver === null) return;
-  if (typeof it.ver !== 'string' || !store.version(it.ver)) delete it.ver;
+  if (!liveVersion(it.ver)) delete it.ver;
 }
 
 // `touch` is false for housekeeping a browser does by itself, which must not make the board look edited.
@@ -740,7 +747,7 @@ function cleanLook(asked) {
 // A version as a board and the catalogue show it: what it is called, and the newest of its entity and
 // task when that is a later one.
 function versionInfo(ref) {
-  const v = typeof ref === 'string' ? store.version(ref) : ref;
+  const v = typeof ref === 'string' ? liveVersion(ref) : ref;
   const e = v && store.entity(v.entityId);
   if (!e) return null;
   const newest = store.newestVersion(v.entityId, v.task);
@@ -817,7 +824,7 @@ async function fileVersions(req, project, body) {
       openItems(board);
       item = board.items.get(f.item);
       if (!item || (item.type !== 'image' && item.type !== 'video')) throw refusal(400, 'Only images and videos are filed as versions');
-      if (typeof item.ver === 'string' && store.version(item.ver)) throw refusal(409, `“${item.name || 'That piece'}” is ${versionInfo(item.ver).label} already`);
+      if (liveVersion(item.ver)) throw refusal(409, `“${item.name || 'That piece'}” is ${versionInfo(item.ver).label} already`);
       look = cleanLook(item);
       if (!look) throw refusal(400, `“${item.name || 'That piece'}” has not finished uploading`);
     } else {
@@ -903,18 +910,66 @@ async function handleCatalogue(req, res, parts) {
       notes,
     });
   }
-  // GET /api/versions/:id; PATCH { hidden }. A version is never deleted; hidden, it is left out of the
-  // catalogue and no longer counts as the newest.
+  // GET /api/versions/:id
+  // PATCH  { entity, task, number, descriptor, artist }   what it is filed as: its name follows
+  // PATCH  { hidden }                                      archived: out of the catalogue's way, and no longer the newest
+  // PATCH  { deleted: false }                              a deleted one brought back
+  // DELETE                                                 only one that no board shows; it is marked, not removed
   if (parts[1] === 'versions' && parts.length === 3) {
     const v = store.version(parts[2]);
     const entity = v && store.entity(v.entityId);
-    if (!entity || !projectFor(entity.projectId)) return sendJson(res, 404, { error: 'Not found' });
+    const project = entity && projectFor(entity.projectId);
+    if (!project) return sendJson(res, 404, { error: 'Not found' });
+    if (v.deletedAt && !(req.method === 'PATCH')) return sendJson(res, 404, { error: 'That version was deleted' });
     if (req.method === 'GET') return sendJson(res, 200, publicVersion(v));
+    if (req.method === 'DELETE') {
+      flushAll();
+      const on = store.boardsWithVersion(v.id);
+      if (on.length) {
+        const seen = on.filter((b) => canSee(req.user, b.workspace)).map((b) => `“${b.name}”`);
+        const where = seen.length ? `on ${seen.length === 1 ? seen[0] : `${seen.slice(0, -1).join(', ')} and ${seen.at(-1)}`}` : 'on a board';
+        return sendJson(res, 409, { error: `${versionInfo(v).label} is ${where}. Take it off ${on.length === 1 ? 'that board' : 'those boards'} first, or archive it instead.` });
+      }
+      store.deleteVersion(v.id);
+      retellEntity(entity.id);
+      tellRoom(entity.id);
+      return sendJson(res, 200, { ok: true });
+    }
     if (req.method === 'PATCH') {
       const body = await readJson(req);
+      if (v.deletedAt) {
+        if (body.deleted !== false) return sendJson(res, 404, { error: 'That version was deleted' });
+        store.restoreVersion(v.id);
+      }
       if ('hidden' in body) store.hideVersion(v.id, !!body.hidden);
-      retellEntity(entity.id);
-      return sendJson(res, 200, publicVersion(store.version(v.id)));
+      const edit = {};
+      if (body.entity !== undefined) {
+        const by = req.user ? req.user.name : cleanName(body.by, null);
+        edit.entityId = resolveEntity(project, body.entity, by).id;
+      }
+      if (body.task !== undefined) edit.task = tokenOrNull(body.task);
+      if (body.descriptor !== undefined) edit.descriptor = tokenOrNull(body.descriptor);
+      if (body.artist !== undefined) edit.artist = tokenOrNull(body.artist);
+      if (body.number !== undefined && body.number !== null) {
+        const n = Number(body.number);
+        if (!Number.isSafeInteger(n) || n < 1 || n > 99999) return sendJson(res, 400, { error: 'A version number is a whole number from 1' });
+        edit.number = n;
+      }
+      if (Object.keys(edit).length) {
+        const done = store.editVersion(v.id, edit);
+        if (!done.ok) {
+          const t = done.taken;
+          const name = naming.label(store.entity(t.entityId).name, t.task, t.number);
+          return sendJson(res, 409, { error: t.deletedAt ? `${name} was given to a version since deleted, so it can't be used again` : `There is a ${name} already` });
+        }
+      }
+      // The boards showing it, and the catalogue rooms it was and is in, are told what it is now called.
+      const now = store.version(v.id);
+      for (const id of new Set([entity.id, now.entityId])) {
+        retellEntity(id);
+        tellRoom(id);
+      }
+      return sendJson(res, 200, publicVersion(now));
     }
   }
   return sendJson(res, 404, { error: 'Not found' });

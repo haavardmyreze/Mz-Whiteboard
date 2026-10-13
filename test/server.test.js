@@ -1668,3 +1668,76 @@ test('the catalogue viewer has every note on an entity live, and what is written
   assert.ok(anna.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).some((o) => o.t === 'del' && o.ids.includes('catnote01')));
   assert.deepEqual(ben.seen.filter((m) => m.t === 'notes').pop().notes, []);
 });
+
+test('a version can be filed as something else, archived, and deleted once no board shows it', async (t) => {
+  const s = start(4840);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const board = (await call('POST', '/api/boards', { name: 'Standup', folderId: project.id })).body;
+  const up = async (name) => (await (await fetch(`${s.base}/api/upload?name=${name}`, { method: 'POST', body: crypto.randomBytes(400) })).json()).url;
+  const file = async (name, extra) => (await call('POST', `/api/projects/${project.id}/versions`, { ...extra, files: [{ look: { type: 'image', src: await up('a.png'), name } }] })).body.versions[0];
+  const v1 = await file('kilo-0010_anim_erik_v003.png');
+  const v2 = await file('kilo-0010_anim_erik_v004.png');
+  assert.deepEqual([v1.label, v2.label], ['kilo-0010 anim v1', 'kilo-0010 anim v2']);
+
+  const open = joiner(4840);
+  const anna = await open(`board=${board.id}`, 'Anna');
+  t.after(() => anna.ws.close());
+  const ops = (list) => anna.ws.send(JSON.stringify({ t: 'op', ops: list }));
+  ops([
+    { t: 'add', item: { id: 'placed001', type: 'image', x: 0, y: 0, w: 100, h: 100, src: v2.look.src, ver: v2.id } },
+    { t: 'add', item: { id: 'comment01', type: 'comment', on: 'placed001', text: 'Darker' } },
+  ]);
+  await pause(250);
+
+  // filed as another shot and task: its name, and the board's chip, follow; its notes go with it
+  const moved = await call('PATCH', `/api/versions/${v2.id}`, { entity: { name: 'kilo-0020' }, task: 'comp', artist: 'ben' });
+  assert.equal(moved.status, 200);
+  assert.equal(moved.body.label, 'kilo-0020 comp v1');
+  assert.equal(moved.body.artist, 'ben');
+  await pause(150);
+  assert.equal(anna.seen.filter((m) => m.t === 'versions').pop().list.find((v) => v.id === v2.id).label, 'kilo-0020 comp v1');
+  assert.deepEqual((await call('GET', `/api/entities/${moved.body.entityId}`)).body.notes.map((n) => n.text), ['Darker']);
+  // a number some other version has is refused
+  const v3 = await file('x.png', { entity: { name: 'kilo-0020' }, task: 'comp' });
+  assert.equal(v3.label, 'kilo-0020 comp v2');
+  const clash = await call('PATCH', `/api/versions/${v3.id}`, { number: 1 });
+  assert.equal(clash.status, 409);
+  assert.match(clash.body.error, /kilo-0020 comp v1 already/);
+  assert.equal((await call('PATCH', `/api/versions/${v3.id}`, { number: 0 })).status, 400);
+  assert.equal((await call('PATCH', `/api/versions/${v3.id}`, { number: 7 })).body.label, 'kilo-0020 comp v7');
+
+  // archived, it is still listed (marked) but no longer the newest
+  await call('PATCH', `/api/versions/${v3.id}`, { hidden: true });
+  assert.equal((await call('GET', `/api/entities/${v3.entityId}`)).body.versions.find((v) => v.id === v3.id).hidden, true);
+
+  // a version on a board is not deleted: it says which board
+  const refused = await call('DELETE', `/api/versions/${v2.id}`);
+  assert.equal(refused.status, 409);
+  assert.match(refused.body.error, /“Standup”/);
+  // one on no board is; it is gone from the catalogue, its number is not given out again, and it can be brought back
+  assert.equal((await call('DELETE', `/api/versions/${v3.id}`)).status, 200);
+  assert.deepEqual((await call('GET', `/api/entities/${v3.entityId}`)).body.versions.map((v) => v.id), [v2.id]);
+  assert.equal((await call('GET', `/api/versions/${v3.id}`)).status, 404);
+  assert.match((await call('PATCH', `/api/versions/${v2.id}`, { number: 7 })).body.error, /deleted/);
+  assert.equal((await file('y.png', { entity: { name: 'kilo-0020' }, task: 'comp' })).label, 'kilo-0020 comp v8');
+  assert.equal((await call('PATCH', `/api/versions/${v3.id}`, { hidden: false })).status, 404);
+  const back = await call('PATCH', `/api/versions/${v3.id}`, { deleted: false });
+  assert.equal(back.body.label, 'kilo-0020 comp v7');
+  // a board cannot put a deleted version back by naming it
+  await call('DELETE', `/api/versions/${v3.id}`);
+  ops([{ t: 'add', item: { id: 'placed002', type: 'image', x: 0, y: 0, w: 100, h: 100, src: v2.look.src, ver: v3.id } }]);
+  await pause(200);
+  const ben = await open(`board=${board.id}`, 'Ben');
+  t.after(() => ben.ws.close());
+  const added = ben.seen.find((m) => m.t === 'init').items.find((it) => it.id === 'placed002');
+  assert.equal(added.type, 'image');
+  assert.equal(added.ver, undefined);
+});

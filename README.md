@@ -280,7 +280,17 @@ filed in it.
   in the player, the same one a board uses, with the other versions in the strip beside it: comment and
   draw there, and it is on every board the version is on, live, as what is said on those boards is
   live there. The same is a click away from inside a board (the catalogue panel, or a version's chip).
-  A version is never deleted; it can be hidden, and then no longer counts as the newest.
+- **Editing, archiving and deleting versions.** A version's menu on its asset, set or shot's page:
+  - *Edit…* changes what it is filed as: the asset, set or shot, the task, the number, the artist and
+    the description. Its name follows, on every board it is on, and its notes go with it. Moved to
+    another asset or task without a number, it becomes the next version there. A number another
+    version has is refused.
+  - *Archive* puts it out of the way: it is left out of the catalogue (tick "Show archived" to see
+    it) and no longer counts as the newest. Boards it is on keep it.
+  - *Delete…* is for a version no board shows; one on a board says which, so it can be taken off
+    first or archived instead. A deleted version is marked, not removed: its number is never given
+    out again, and Undo brings it back. A snapshot or an undo on a board that would bring back a
+    piece of it brings back plain media.
 - **Bringing files in.** Drop images and videos anywhere on a project's catalogue, or press Import above
   it. Each is brought in exactly as a file dropped on a board is (`public/ingest.js`): a video gets its
   review copy, its timeline strip, its stills and its frame rate, and the file it was made from is kept
@@ -348,8 +358,10 @@ uploaded it) and lists every board it is on. Only boards in workspaces the perso
 searched, and deleted boards never are.
 
 A project's catalogue has its own: `GET /api/projects/<folder>` (its assets, sets and shots),
-`GET /api/entities/<id>` (one of them, every version and every note), `GET` and `PATCH /api/versions/<id>`
-(`{ "hidden": true }`), and `POST /api/projects/<folder>/versions` to file versions.
+`GET /api/entities/<id>` (one of them, every version and every note), `GET`, `PATCH` and `DELETE
+/api/versions/<id>` (`PATCH` takes `entity`, `task`, `number`, `artist`, `descriptor`, `hidden`, or
+`{ "deleted": false }` to bring a deleted one back), and `POST /api/projects/<folder>/versions` to file
+versions.
 
 ## Settings
 

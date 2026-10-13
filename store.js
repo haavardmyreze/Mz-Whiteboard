@@ -129,7 +129,8 @@ CREATE TABLE IF NOT EXISTS entities (
 -- A version: one file filed under an entity, and a task if the project uses them. The number counts the
 -- versions of that entity and task in the order they were filed; hip is a version number read from
 -- the file's name, kept only as a label. Its look is what a board needs to show the file (its address,
--- stills, size, length), as JSON. Versions are never deleted, only hidden.
+-- stills, size, length), as JSON. An archived version (hidden) is kept out of the catalogue's way; a
+-- deleted one is marked, never removed, so its number is not given out again and it can be brought back.
 CREATE TABLE IF NOT EXISTS versions (
   id TEXT PRIMARY KEY,
   entity_id TEXT NOT NULL,
@@ -147,6 +148,7 @@ CREATE TABLE IF NOT EXISTS versions (
   created_at INTEGER NOT NULL,
   created_by TEXT,
   hidden INTEGER NOT NULL DEFAULT 0,
+  deleted_at INTEGER,
   UNIQUE (entity_id, task, number)
 );
 CREATE INDEX IF NOT EXISTS versions_by_entity ON versions (entity_id, task, number);
@@ -350,6 +352,7 @@ function openStore(dataDir) {
   if (!hasColumn('folders', 'project')) db.exec('ALTER TABLE folders ADD COLUMN project INTEGER NOT NULL DEFAULT 0');
   if (!hasColumn('folders', 'settings')) db.exec('ALTER TABLE folders ADD COLUMN settings TEXT');
   if (!hasColumn('items', 'version_id')) db.exec('ALTER TABLE items ADD COLUMN version_id TEXT');
+  if (!hasColumn('versions', 'deleted_at')) db.exec('ALTER TABLE versions ADD COLUMN deleted_at INTEGER');
   db.exec('CREATE INDEX IF NOT EXISTS items_by_version ON items (version_id)');
   moveCommentsToNotes(db);
   moveDrawingsToNotes(db);
@@ -646,9 +649,9 @@ function openStore(dataDir) {
   const entityOf = (r) => ({ id: r.id, projectId: r.project_id, tier: r.tier, name: r.name, createdAt: r.created_at, createdBy: r.created_by });
   const readEntities = db.prepare(`
     SELECT e.*,
-      (SELECT count(*) FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0) AS n,
-      (SELECT max(v.created_at) FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0) AS latest,
-      (SELECT v.thumb FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.thumb IS NOT NULL ORDER BY v.created_at DESC, v.number DESC LIMIT 1) AS thumb
+      (SELECT count(*) FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL) AS n,
+      (SELECT max(v.created_at) FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL) AS latest,
+      (SELECT v.thumb FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL AND v.thumb IS NOT NULL ORDER BY v.created_at DESC, v.number DESC LIMIT 1) AS thumb
     FROM entities e WHERE e.project_id = ? ORDER BY e.name`);
   // A project's entities, each with how many versions it has, when the last came, and its newest still.
   const entities = (projectId) => readEntities.all(projectId).map((r) => ({ ...entityOf(r), versions: r.n, latestAt: r.latest || null, thumb: r.thumb || null }));
@@ -674,7 +677,7 @@ function openStore(dataDir) {
   const versionOf = (r) => ({
     id: r.id, entityId: r.entity_id, task: r.task, number: r.number, descriptor: r.descriptor, artist: r.artist, hip: r.hip,
     media: r.media, thumb: r.thumb, kind: r.kind, originalName: r.original_name, look: JSON.parse(r.look), boardId: r.board_id,
-    createdAt: r.created_at, createdBy: r.created_by, hidden: !!r.hidden,
+    createdAt: r.created_at, createdBy: r.created_by, hidden: !!r.hidden, deletedAt: r.deleted_at || null,
   });
   const nextNumber = db.prepare('SELECT coalesce(max(number), 0) + 1 AS n FROM versions WHERE entity_id = ? AND task IS ?');
   const putVersion = db.prepare(`INSERT INTO versions (id, entity_id, task, number, descriptor, artist, hip, media, thumb, kind, original_name, look, board_id, created_at, created_by)
@@ -693,11 +696,32 @@ function openStore(dataDir) {
       return version(id);
     });
   }
-  const readVersionsOf = db.prepare('SELECT * FROM versions WHERE entity_id = ? ORDER BY created_at DESC, number DESC');
+  const readVersionsOf = db.prepare('SELECT * FROM versions WHERE entity_id = ? AND deleted_at IS NULL ORDER BY created_at DESC, number DESC');
   const versionsOf = (entityId) => readVersionsOf.all(entityId).map(versionOf);
   const putHidden = db.prepare('UPDATE versions SET hidden = ? WHERE id = ?');
   const hideVersion = (id, hidden) => putHidden.run(hidden ? 1 : 0, id).changes > 0;
-  const readNewest = db.prepare('SELECT id, number FROM versions WHERE entity_id = ? AND task IS ? AND hidden = 0 ORDER BY number DESC LIMIT 1');
+  // Who has a number: a deleted version keeps its own, so that bringing it back finds it free.
+  const readHolder = db.prepare('SELECT * FROM versions WHERE entity_id = ? AND task IS ? AND number = ?');
+  const putPlace = db.prepare('UPDATE versions SET entity_id = ?, task = ?, number = ?, descriptor = ?, artist = ? WHERE id = ?');
+  // Changes what a version is filed as. Moved to another entity or task without a number, it is the next
+  // of those; a number some other version has is refused, with that version.
+  function editVersion(id, { entityId, task, number, descriptor, artist }) {
+    return transaction(() => {
+      const v = version(id);
+      if (!v) return { ok: false };
+      const to = { entityId: entityId ?? v.entityId, task: task !== undefined ? task : v.task, descriptor: descriptor !== undefined ? descriptor : v.descriptor, artist: artist !== undefined ? artist : v.artist };
+      const moved = to.entityId !== v.entityId || to.task !== v.task;
+      to.number = number ?? (moved ? nextNumber.get(to.entityId, to.task).n : v.number);
+      const holder = readHolder.get(to.entityId, to.task, to.number);
+      if (holder && holder.id !== id) return { ok: false, taken: versionOf(holder) };
+      putPlace.run(to.entityId, to.task, to.number, to.descriptor, to.artist, id);
+      return { ok: true, version: version(id) };
+    });
+  }
+  const putGone = db.prepare('UPDATE versions SET deleted_at = ? WHERE id = ?');
+  const deleteVersion = (id) => putGone.run(Date.now(), id).changes > 0;
+  const restoreVersion = (id) => putGone.run(null, id).changes > 0;
+  const readNewest = db.prepare('SELECT id, number FROM versions WHERE entity_id = ? AND task IS ? AND hidden = 0 AND deleted_at IS NULL ORDER BY number DESC LIMIT 1');
   // The newest version of an entity and task that is not hidden: what a board points out is there.
   const newestVersion = (entityId, task) => readNewest.get(entityId, task ?? null) || null;
   const readTasks = db.prepare('SELECT DISTINCT v.task FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ? AND v.task IS NOT NULL ORDER BY v.task');
@@ -797,7 +821,7 @@ function openStore(dataDir) {
   return {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
-    entities, entity, entityNamed, addEntity, entityCount, addVersion, version, versionsOf, hideVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion,
+    entities, entity, entityNamed, addEntity, entityCount, addVersion, version, versionsOf, hideVersion, editVersion, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion,
     note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,

@@ -111,9 +111,14 @@ Good to know: the name is only a label. Anyone who knows the password can type a
 same name share one Personal workspace. Wrong passwords are slowed down (8 tries per 10 minutes per address), and changing
 `SITE_PASSWORD` signs everybody out. Cloudflare's free quick tunnels are meant for testing, with no uptime promise.
 
-The address counted for wrong passwords is the visitor's own when they come in through a tunnel or proxy on this PC
-(which says who it is passing along), and otherwise the address the connection came from. A proxy on another machine
-therefore counts as one visitor; put the limit there instead if you run one.
+Wrong passwords are counted per visitor. Behind a tunnel every visitor's connection comes from the tunnel, so tell
+the server which tunnel is passing along who they are: add `TRUST_PROXY=cloudflare` to `.env` for a Cloudflare tunnel
+(it then believes Cloudflare's `CF-Connecting-IP`), or `TRUST_PROXY=1` for another proxy that adds `X-Forwarded-For`.
+Without it, everyone coming through the tunnel shares one count. Do not set it when nothing sits in front of the
+server: anyone could then claim to be anyone.
+
+The server answers only to the addresses it knows: its own machine's names and addresses, `PUBLIC_URL`, and
+`*.trycloudflare.com`. A fixed tunnel name that is not `PUBLIC_URL` goes in `ALLOWED_HOSTS` (comma separated).
 
 ## Running it from your own PC, for people outside (Google sign-in)
 

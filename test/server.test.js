@@ -2363,7 +2363,6 @@ test('the Versions list hands out where its next page starts, and still takes a 
 });
 
 test('shot names are read by the project\'s naming rules, whatever their sequence is called', {
-  skip: require('../public/naming').tierOf('ch01-0010') !== 'shot' && 'waits for public/naming.js to read ch01-0010 as a shot of sequence ch01',
 }, async (t) => {
   const s = start(4853);
   t.after(s.stop);

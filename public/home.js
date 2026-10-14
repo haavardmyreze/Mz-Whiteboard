@@ -911,7 +911,7 @@
       el('span', { class: 'feed-what' }, ...what),
       item.note && el('span', { class: 'feed-text', text: item.note.text }),
       el('span', { class: 'feed-where', text: where })),
-    fresh && el('i', { class: 'feed-dot', 'aria-label': 'New' }));
+    fresh && el('span', { class: 'feed-dot', role: 'img', 'aria-label': 'New' }));
   }
 
   // An asset, set or shot as its project's catalogue has it, so its card scrubs and plays like any other.
@@ -1001,6 +1001,7 @@
   // one of the project's boards, or on a new board, as those versions.
 
   const versionLists = new Map(); // project id -> the list as last fetched
+  const olderShown = new Set();   // projects whose older versions were asked for
   const vpick = { project: null, ids: new Set(), last: null, order: [] };
   const DAY = 24 * 3600 * 1000;
   const dayOf = (t) => new Date(t).setHours(0, 0, 0, 0);
@@ -1031,8 +1032,13 @@
     else if (fresh) $('content').replaceChildren(el('p', { class: 'home-empty', text: 'Loading…' }));
     if (searching && versionLists.has(project.id)) return;
     try {
-      const data = await api('GET', `/api/projects/${project.id}/versions`);
+      let data = await api('GET', `/api/projects/${project.id}/versions`);
       const was = versionLists.get(project.id);
+      // Older pages already shown stay shown below the newest.
+      if (was && olderShown.has(project.id)) {
+        const have = new Set(data.versions.map((v) => v.id));
+        data = { ...data, versions: [...data.versions, ...was.versions.filter((v) => !have.has(v.id) && v.createdAt <= (data.versions.at(-1) || {}).createdAt)], next: was.next };
+      }
       versionLists.set(project.id, data);
       if (!was || JSON.stringify(was) !== JSON.stringify(data)) show(data);
     } catch (err) {
@@ -1133,7 +1139,25 @@
       }
     }
     if (!list.length) out.push(el('p', { class: 'home-empty', text: q ? `No version matches "${$('q').value.trim()}".` : 'Nothing is filed in this project yet.' }));
-    if (data.more && !q) out.push(el('p', { class: 'home-quiet', text: 'The 300 newest are shown.' }));
+    // A page at a time: older versions are fetched when asked for, after the ones shown.
+    if (data.next && !q) {
+      out.push(el('button', {
+        type: 'button', class: 'feed-more', text: 'Show older versions',
+        onclick: async (e) => {
+          e.currentTarget.disabled = true;
+          try {
+            const older = await api('GET', `/api/projects/${project.id}/versions?before=${encodeURIComponent(data.next)}`);
+            const merged = { ...older, versions: [...data.versions, ...older.versions] };
+            versionLists.set(project.id, merged);
+            olderShown.add(project.id);
+            $('content').replaceChildren(...versionsView(project, merged));
+            paintVersionPick(project);
+          } catch (err) {
+            fail(err);
+          }
+        },
+      }));
+    }
     return out;
   }
 
@@ -2697,17 +2721,19 @@
   }
 
   function paintNotices() {
+    // A comment made on a board opens there, at the comment; one made in the catalogue opens the asset,
+    // set or shot it is about.
     const row = (n) => el('a', {
       class: `notice${n.read ? '' : ' unread'}`,
-      href: `/b/${n.board.id}#c=${n.id}`,
+      href: n.board ? `${WB.href.board(n.board.id)}#c=${n.id}` : n.projectId && n.entityId ? WB.href.abs(WB.href.catalogue(n.projectId, { entity: n.entityId })) : '/',
       onclick: () => { if (!n.read) markNotices({ ids: [n.id] }); },
     },
     WB.avatar(n.author, n.color),
     el('span', { class: 'notice-body' },
       el('span', { class: 'notice-what' }, el('strong', { text: n.author }), n.guest && el('span', { class: 'notice-guest', text: 'guest' }), ` ${NOTICE_TEXT[n.kind](n)}`),
       el('span', { class: 'notice-text', text: n.text }),
-      el('span', { class: 'notice-where', text: `${n.board.name} · ${ago(n.at)}` })),
-    !n.read && el('i', { class: 'notice-dot', 'aria-label': 'Unread' }));
+      el('span', { class: 'notice-where', text: `${n.board ? n.board.name || 'A board' : 'In the catalogue'} · ${ago(n.at)}` })),
+    !n.read && el('span', { class: 'notice-dot', role: 'img', 'aria-label': 'Unread' }));
     $('notices').replaceChildren(
       el('header', { class: 'notices-head' },
         el('h2', { text: 'Notifications' }),

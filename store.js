@@ -687,6 +687,9 @@ function openStore(dataDir) {
     for (const t of readTops.all(projectId)) (tops.get(t.entity_id) || tops.set(t.entity_id, {}).get(t.entity_id))[t.task ?? ''] = t.top;
     return readEntities.all(projectId).map((r) => ({ ...entityOf(r), versions: r.n, latestAt: r.latest || null, thumb: r.thumb || null, newest: glance(r.newest), tops: tops.get(r.id) || {} }));
   };
+  // An entity's newest version (of any task), as its card shows it.
+  const readNewestAny = db.prepare('SELECT id FROM versions WHERE entity_id = ? AND hidden = 0 AND deleted_at IS NULL ORDER BY created_at DESC, number DESC LIMIT 1');
+  const newestGlance = (entityId) => glance((readNewestAny.get(entityId) || {}).id);
   // The newest version of each entity, of one task or of any; for a project's timeline.
   const readNewestOfTask = db.prepare('SELECT id FROM versions WHERE entity_id = ? AND task IS ? AND hidden = 0 AND deleted_at IS NULL ORDER BY number DESC LIMIT 1');
   const newestOfTask = (entityId, task) => glance((readNewestOfTask.get(entityId, task) || {}).id);
@@ -730,6 +733,9 @@ function openStore(dataDir) {
       role: e.artists.some((a) => a.toLowerCase() === key) ? 'artist' : e.cc.some((a) => a.toLowerCase() === key) ? 'cc' : null,
     })).filter((e) => e.role);
   }
+  // The entities this person has filed versions of (in any project): their work too, named or not.
+  const readFiledBy = db.prepare('SELECT DISTINCT entity_id FROM versions WHERE lower(created_by) = ? AND deleted_at IS NULL');
+  const entitiesFiledBy = (name) => readFiledBy.all(String(name || '').trim().toLowerCase()).map((r) => entity(r.entity_id)).filter(Boolean);
   // What happened lately to some entities: versions filed and notes written, newest first.
   function happenings(entityIds, since, limit = 80) {
     if (!entityIds.length) return { versions: [], notes: [] };
@@ -906,7 +912,7 @@ function openStore(dataDir) {
   return {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
-    transaction, entities, newestOfTask, entity, entityNamed, addEntity, setEntity, entitiesOf, happenings, people, entityCount, addVersion, version, versionsOf, hideVersion, editVersion, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion,
+    transaction, entities, newestOfTask, newestGlance, entity, entityNamed, addEntity, setEntity, entitiesOf, entitiesFiledBy, happenings, people, entityCount, addVersion, version, versionsOf, hideVersion, editVersion, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion,
     note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,

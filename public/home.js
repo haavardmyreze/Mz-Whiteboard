@@ -495,7 +495,6 @@
     store('wb:pins', list.slice(0, 60));
     render();
   }
-  const recents = () => (Array.isArray(store('wb:recent')) ? store('wb:recent') : []);
 
   // ------------------------------------------------------------- the sidebar
   //
@@ -615,6 +614,7 @@
     loading.delete(id);
     renderSide(route());
     renderCrumbs(route());
+    if (route().kind === 'home' && !$('q').value.trim()) render();
   }
 
   function renderSide(rt) {
@@ -698,10 +698,10 @@
 
   // ------------------------------------------------------------- Home
   //
-  // What is relevant to you (the feed), what you pinned, what you opened lately, and every project.
+  // What you pinned, along the top; then Updates, what happened to your work and to what you are cc'd on,
+  // and beside it My work, what you make. Nothing else, so what matters is easy to see.
 
-  // The feed: versions filed and notes written by others on the assets, sets and shots you are an artist
-  // on or cc'd on, and those you are on. Fetched when Home shows, at most every half minute.
+  // The feed (GET /api/feed): fetched when Home shows, at most every half minute.
   let feed = null;
   let feedAt = 0;
   async function loadFeed() {
@@ -713,14 +713,20 @@
     }
     if (route().kind === 'home' && !$('q').value.trim()) render();
   }
+  // What came since you last marked Updates read, kept by this browser.
+  const feedSeen = () => Number(store('wb:feed:seen')) || 0;
+  let feedShow = store('wb:feed:show') || 'all'; // all | notes | versions
+  let feedMore = false;
 
-  function feedRow(item) {
+  function feedRow(item, seen) {
+    const thing = el('strong', { text: item.version.label || item.entity.name });
     const what = item.kind === 'version'
-      ? [el('strong', { text: item.by || 'Somebody' }), ' filed ', el('strong', { text: item.version.label || item.entity.name })]
-      : [el('strong', { text: item.by || 'Somebody' }), item.note.reply ? ' replied on ' : ' commented on ', el('strong', { text: item.version.label || item.entity.name })];
-    const where = [item.entity.project, item.entity.role === 'artist' ? 'you are an artist' : 'you are cc\'d', item.note && item.note.board && `on ${item.note.board.name}`, ago(item.at)].filter(Boolean).join(' · ');
+      ? [el('strong', { text: item.by || 'Somebody' }), ' filed ', thing]
+      : [el('strong', { text: item.by || 'Somebody' }), item.note.reply ? ' replied on ' : ' commented on ', thing];
+    const why = item.entity.role === 'cc' ? 'you are cc\'d' : 'your work';
+    const where = [item.entity.project, why, item.note && item.note.board && `on ${item.note.board.name}`, ago(item.at)].filter(Boolean).join(' · ');
     return el('button', {
-      type: 'button', class: `feed-row ${item.kind}`, title: 'Open it, to look, comment and draw',
+      type: 'button', class: `feed-row ${item.kind}${item.at > seen ? ' unread' : ''}`, title: 'Open it, to look, comment and draw',
       onclick: () => lookAt(item.entity.id, item.version.id),
     },
     item.kind === 'version'
@@ -729,11 +735,22 @@
     el('span', { class: 'feed-body' },
       el('span', { class: 'feed-what' }, ...what),
       item.note && el('span', { class: 'feed-text', text: item.note.text }),
-      el('span', { class: 'feed-where', text: where })));
+      el('span', { class: 'feed-where', text: where })),
+    item.at > seen && el('i', { class: 'feed-dot', 'aria-label': 'New' }));
+  }
+
+  // An asset, set or shot as its project's catalogue has it, so its card scrubs and plays like any other.
+  function entityCard(p) {
+    const project = folderById(p.projectId);
+    if (!project) return null;
+    const cat = catalogues.get(project.id);
+    const full = cat && cat.entities.find((e) => e.id === p.id);
+    if (!cat) loadCatalogue(project.id);
+    return entityTile(project, full || { id: p.id, name: p.name, thumb: p.thumb, tier: p.tier, versions: null });
   }
 
   function homeView() {
-    const label = (text, n) => el('div', { class: 'section-label' }, text, n != null && el('span', { class: 'tally', text: String(n) }));
+    const label = (text, n, ...extra) => el('div', { class: 'section-label' }, text, n != null && el('span', { class: 'tally', text: String(n) }), ...extra);
     const q = $('q').value.trim().toLowerCase();
     if (q) {
       const subs = everything.folders.filter((f) => f.name.toLowerCase().includes(q)).sort(byName);
@@ -742,38 +759,48 @@
         subs.length > 0 && label('Folders', subs.length), subs.length > 0 && el('div', { class: 'folder-grid' }, subs.map(folderCard)),
         label('Boards', boards.length), el('div', { class: 'board-grid' }, boards.map(boardCard)),
         !subs.length && !boards.length && el('p', { class: 'home-empty', text: `Nothing matches "${$('q').value.trim()}".` }),
-      ];
+      ].filter(Boolean);
     }
-    const card = (p) => {
+    if (!feed || Date.now() - feedAt > 30000) loadFeed();
+
+    // Pinned: the same cards as everywhere.
+    const pinned = pins().map((p) => {
       if (p.kind === 'board') { const b = everything.boards.find((x) => x.id === p.id); return b && boardCard(b); }
       if (p.kind === 'folder') { const f = folderById(p.id); return f && folderCard(f); }
-      if (p.kind === 'entity' && folderById(p.projectId)) return entityTile(folderById(p.projectId), { id: p.id, name: p.name, thumb: p.thumb, tier: p.tier, versions: null });
+      if (p.kind === 'entity') return entityCard(p);
       return null;
-    };
-    if (!feed || Date.now() - feedAt > 30000) loadFeed();
-    const assigned = (feed ? feed.assigned : []).filter((e) => folderById(e.projectId)).map((e) => {
-      const tile = entityTile(folderById(e.projectId), e);
-      if (e.role === 'cc') tile.querySelector('.card-name').append(el('span', { class: 'feed-cc', text: 'CC' }));
-      return tile;
-    });
-    const items = feed ? feed.items : [];
-    const pinnedCards = pins().map(card).filter(Boolean);
-    const recentBoards = recents().filter((x) => x.kind === 'board').map(card).filter(Boolean).slice(0, 8);
-    const recentEnts = recents().filter((x) => x.kind === 'entity').map(card).filter(Boolean).slice(0, 8);
-    const edited = recentBoards.length ? [] : [...everything.boards].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8).map(boardCard);
-    const projects = everything.folders.filter((f) => f.project).sort(byName);
-    const out = [];
-    if (items.length) out.push(label('For you', items.length), el('div', { class: 'feed' }, items.slice(0, 12).map(feedRow)));
-    if (assigned.length) out.push(label('Yours', assigned.length), el('div', { class: 'board-grid ent-grid' }, assigned));
-    if (pinnedCards.length) out.push(label('Pinned', pinnedCards.length), el('div', { class: 'board-grid' }, pinnedCards));
-    if (recentBoards.length) out.push(label('Boards you opened lately'), el('div', { class: 'board-grid' }, recentBoards));
-    else if (edited.length) out.push(label('Edited lately'), el('div', { class: 'board-grid' }, edited));
-    if (recentEnts.length) out.push(label('Looked at in the catalogue'), el('div', { class: 'board-grid ent-grid' }, recentEnts));
-    if (projects.length) out.push(label('Projects', projects.length), el('div', { class: 'folder-grid' }, projects.map(folderCard)));
-    if (!out.length) out.push(el('p', { class: 'home-empty', text: 'Nothing here yet. Make a board, or open a workspace on the left.' }));
-    if (!pinnedCards.length && out.length) out.push(el('p', { class: 'home-hint', text: 'Pin boards, folders, projects and shots to keep them here: the star beside where you are, or a card\'s menu.' }));
-    if (feed && !assigned.length) out.push(el('p', { class: 'home-hint', text: 'Be named an artist or cc\'d on an asset, set or shot (on its page in the catalogue), and what happens to it shows here, under For you.' }));
-    return out.filter(Boolean);
+    }).filter(Boolean);
+
+    // Updates: what happened to your work, and new versions of what you are cc'd on.
+    const seen = feedSeen();
+    const all = feed ? feed.items : [];
+    const fresh = all.filter((x) => x.at > seen).length;
+    const shown = all.filter((x) => feedShow === 'all' || (feedShow === 'notes' ? x.kind === 'note' : x.kind === 'version'));
+    const seg = el('div', { class: 'seg feed-seg', role: 'tablist' }, [['all', 'All'], ['notes', 'Comments'], ['versions', 'New versions']].map(([k, text]) => el('button', {
+      type: 'button', class: `seg-btn${feedShow === k ? ' on' : ''}`, role: 'tab', 'aria-selected': String(feedShow === k), text,
+      onclick: () => { feedShow = k; store('wb:feed:show', k); feedMore = false; render(); },
+    })));
+    const markRead = fresh > 0 && el('button', { type: 'button', class: 'btn small ghost', text: 'Mark all read', onclick: () => { store('wb:feed:seen', Date.now()); render(); } });
+    const updates = el('section', { class: 'home-main' },
+      label('Updates', fresh || null, el('span', { class: 'label-gap' }), seg, markRead),
+      !feed ? el('p', { class: 'home-quiet', text: 'Loading…' })
+        : shown.length ? el('div', { class: 'feed' }, shown.slice(0, feedMore ? 80 : 15).map((x) => feedRow(x, seen)),
+          shown.length > 15 && !feedMore && el('button', { type: 'button', class: 'feed-more', text: `Show ${shown.length - 15} more`, onclick: () => { feedMore = true; render(); } }))
+          : el('p', { class: 'home-quiet', text: all.length ? 'Nothing of that kind in the last two weeks.' : 'Nothing in the last two weeks. Comments on your work, and new versions of what you are cc\'d on, come here.' }));
+
+    // My work: what you are an artist on, or have filed.
+    const work = (feed ? feed.work : []).map((e) => folderById(e.projectId) && entityTile(folderById(e.projectId), e)).filter(Boolean);
+    const side = el('aside', { class: 'home-side' },
+      label('My work', work.length || null),
+      !feed ? el('p', { class: 'home-quiet', text: 'Loading…' })
+        : work.length ? el('div', { class: 'board-grid ent-grid home-work' }, work)
+          : el('p', { class: 'home-quiet', text: 'What you are named an artist on, on its page in the catalogue, and what you file, is listed here.' }));
+
+    return [
+      pinned.length > 0 && label('Pinned', pinned.length),
+      pinned.length > 0 && el('div', { class: 'board-grid' }, pinned),
+      el('div', { class: 'home-cols' }, updates, side),
+    ].filter(Boolean);
   }
 
   // A project's timeline: its shots played through in the player, as an edit (viewer.js, openRun): the

@@ -1779,13 +1779,17 @@ test('a project is set up with its assets, sets and shots ahead, each with artis
   t.after(() => room.ws.close());
   room.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'feednote1', type: 'comment', on: v.id, text: 'Lovely timing' } }] }));
   await pause(250);
+  // Erik is its artist: it is his work, and the note and the version by others reach him
   const erik = (await call('GET', '/api/feed?name=erik')).body;
-  assert.deepEqual(erik.assigned.map((e) => [e.name, e.role, e.versions]), [['kilo-0010', 'artist', 1]]);
+  assert.deepEqual(erik.work.map((e) => [e.name, e.role, e.versions, e.newest.label]), [['kilo-0010', 'artist', 1, 'kilo-0010 anim v1']]);
   assert.deepEqual(erik.items.map((i) => [i.kind, i.by, i.entity.name, i.version.label]), [['note', 'Anna', 'kilo-0010', 'kilo-0010 anim v1'], ['version', 'Ben', 'kilo-0010', 'kilo-0010 anim v1']]);
   assert.equal(erik.items[0].note.text, 'Lovely timing');
+  // Anna is cc'd: new versions reach her, it is not her work
   const anna = (await call('GET', '/api/feed?name=Anna')).body;
-  assert.deepEqual([anna.assigned[0].role, anna.items.map((i) => i.kind)], ['cc', ['version']]);
-  assert.deepEqual((await call('GET', '/api/feed?name=Ben')).body.assigned, []);
+  assert.deepEqual([anna.work, anna.items.map((i) => i.kind)], [[], ['version']]);
+  // Ben filed it: it is his work too, and Anna's note reaches him; his own version does not
+  const ben = (await call('GET', '/api/feed?name=Ben')).body;
+  assert.deepEqual([ben.work.map((e) => [e.name, e.role]), ben.items.map((i) => [i.kind, i.by])], [[['kilo-0010', 'filed']], [['note', 'Anna']]]);
 });
 
 test('a project\'s timeline is every shot in order with its newest version, and a card knows its newest', async (t) => {

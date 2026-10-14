@@ -2229,3 +2229,23 @@ body.picking main { padding-bottom: 120px; }
 .dlg .pf-in { display: inline-block; flex: 1; width: auto; min-width: 120px; height: 26px; margin: 0; padding: 0 6px; border: 0; background: transparent; box-shadow: none; }
 .dlg .pf-in:focus { border: 0; box-shadow: none; }
 .be-ctl .pf { min-height: 34px; }
+
+/* Home: Updates beside My work, under what is pinned. */
+.home-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: 40px; align-items: start; }
+.home-cols .section-label { margin-top: 32px; }
+.section-label .label-gap { flex: 1; }
+.section-label:has(.label-gap)::after { display: none; }
+.feed-seg { margin: 0; }
+.home-quiet { margin: 0; padding: 20px 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.home-cols .feed { max-width: none; }
+.feed-row { position: relative; width: 100%; }
+.feed-row.unread { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.feed-dot { position: absolute; top: 14px; right: 14px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.feed-more { display: block; width: 100%; padding: 10px; border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
+.feed-more:hover { background: var(--hover); color: var(--text); }
+.home-work { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+@media (max-width: 1100px) {
+  .home-cols { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+.feed-seg .seg-btn { padding: 0 10px; }
+.home-cols .section-label { align-items: center; min-height: 36px; margin-bottom: 12px; }

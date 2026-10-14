@@ -998,18 +998,23 @@ async function handleCatalogue(req, res, parts) {
     flushAll();
     return sendJson(res, 200, { people: store.people() });
   }
-  // GET /api/feed?name=: what is relevant to the person asking (signed in, or by the name given). The
-  // assets, sets and shots they are an artist on or cc'd on, and what happened to them in the last two
-  // weeks: versions filed and notes written, by others.
+  // GET /api/feed?name=: what is relevant to the person asking (signed in, or by the name given).
+  //   work: what they make: the assets, sets and shots they are an artist on, or have filed versions of
+  //   items: in the last two weeks, by others: notes on their work, and versions filed of their work and
+  //          of what they are cc'd on
   if (parts[1] === 'feed' && parts.length === 2 && req.method === 'GET') {
     const url = new URL(req.url, 'http://x');
     const name = req.user ? req.user.name : cleanName(url.searchParams.get('name'), null);
-    if (!name) return sendJson(res, 200, { assigned: [], items: [] });
+    if (!name) return sendJson(res, 200, { work: [], items: [] });
     flushAll();
-    const mine = store.entitiesOf(name).filter((e) => projectFor(e.projectId));
-    const byId = new Map(mine.map((e) => [e.id, e]));
+    const byId = new Map();
+    for (const e of store.entitiesOf(name)) byId.set(e.id, e);
+    for (const e of store.entitiesFiledBy(name)) if (!byId.has(e.id)) byId.set(e.id, { ...e, role: 'filed' });
+    for (const [id, e] of byId) if (!projectFor(e.projectId)) byId.delete(id);
+    const mine = [...byId.values()];
+    const isWork = (e) => e.role === 'artist' || e.role === 'filed';
     const since = Date.now() - 14 * 24 * 3600 * 1000;
-    const { versions, notes } = store.happenings(mine.map((e) => e.id), since);
+    const { versions, notes } = store.happenings(mine.map((e) => e.id), since, 150);
     const me = name.toLowerCase();
     const about = (e) => ({ id: e.id, name: e.name, tier: e.tier, projectId: e.projectId, project: folders.get(e.projectId).name, role: e.role });
     const labelOf = new Map();
@@ -1021,16 +1026,20 @@ async function handleCatalogue(req, res, parts) {
       ...versions.filter((v) => (v.createdBy || '').toLowerCase() !== me).map((v) => ({
         kind: 'version', at: v.createdAt, by: v.createdBy, entity: about(byId.get(v.entityId)), version: { id: v.id, label: label(v.id)?.label, thumb: v.thumb, kind: v.kind },
       })),
-      ...notes.filter((n) => (n.data.name || n.createdBy || '').toLowerCase() !== me).map((n) => ({
+      ...notes.filter((n) => isWork(byId.get(n.entityId)) && (n.data.name || n.createdBy || '').toLowerCase() !== me).map((n) => ({
         kind: 'note', at: n.createdAt, by: n.data.name || n.createdBy, color: n.data.color, entity: about(byId.get(n.entityId)),
-        version: { id: n.versionId, label: label(n.versionId)?.label }, note: { id: n.id, text: String(n.data.text || '').slice(0, 300), reply: !!n.re, board: n.boardId ? { id: n.boardId, name: n.boardName } : null },
+        version: { id: n.versionId, label: label(n.versionId)?.label }, note: { id: n.id, text: String(n.data.text || '').slice(0, 300), reply: !!n.re, done: !!n.data.done, board: n.boardId ? { id: n.boardId, name: n.boardName } : null },
       })),
-    ].sort((a, b) => b.at - a.at).slice(0, 60);
-    const assigned = mine.map((e) => {
+    ].sort((a, b) => b.at - a.at).slice(0, 80);
+    const work = mine.filter(isWork).map((e) => {
       const list = store.versionsOf(e.id).filter((v) => !v.hidden);
-      return { ...about(e), versions: list.length, latestAt: list.length ? Math.max(...list.map((v) => v.createdAt)) : null, thumb: (list.find((v) => v.thumb) || {}).thumb || null, artists: e.artists, cc: e.cc };
-    }).sort((a, b) => (a.role === b.role ? (b.latestAt || 0) - (a.latestAt || 0) : a.role === 'artist' ? -1 : 1));
-    return sendJson(res, 200, { name, assigned, items });
+      const newest = list[0] || null;
+      return {
+        ...about(e), versions: list.length, latestAt: newest ? newest.createdAt : null, thumb: (list.find((v) => v.thumb) || {}).thumb || null,
+        newest: newest && { ...store.newestGlance(e.id), label: label(newest.id)?.label }, artists: e.artists, cc: e.cc,
+      };
+    }).sort((a, b) => (b.latestAt || 0) - (a.latestAt || 0) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+    return sendJson(res, 200, { name, work, items });
   }
   // GET /api/versions/:id
   // PATCH  { entity, task, number, descriptor, artist }   what it is filed as: its name follows

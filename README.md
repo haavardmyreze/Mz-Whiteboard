@@ -32,9 +32,13 @@ private networks, otherwise only the host machine can connect.
   opened for you. Above the page one slim line says where you are (Myreze / Kilo / Catalogue / Shots /
   kilo / kilo-0010), each part a link; the star at its end pins that folder, project or shot to Home.
   On a narrow window the sidebar is a drawer, opened with the button at the left of the bar.
-- **Home.** What you pinned (boards, folders, projects, shots), the boards you opened lately (or, until
-  you have, the ones edited lately), the assets and shots you looked at in the catalogue, and every
-  project. Pins and what you opened are kept by this browser. Pin from a card's `...` menu or the star.
+- **Home.** Three things, and nothing else. What you pinned (boards, folders, projects, shots) along
+  the top. Updates: in the last two weeks, by others, comments on your work and new versions of it, and
+  new versions of what you are cc'd on, newest first; what came since you last marked them read is
+  marked, and All, Comments and New versions narrow it. Click one to open it in the player. Beside it,
+  My work: the assets, sets and shots you are an artist on or have filed versions of. Every card is the
+  catalogue's own: it scrubs under the pointer and plays the latest. Pin from a card's `...` menu or
+  the star beside where you are; pins and what is read are kept by this browser.
 - **Cards or compact rows.** The button beside the theme in the top bar shows boards, folders and the
   catalogue as cards, or as compact rows (a small still beside each name), remembered per browser.
 - **One bar across the top, the same on every page.** The mark in the corner goes to all boards, and
@@ -133,94 +137,6 @@ private networks, otherwise only the host machine can connect.
   changes them together: artists and people cc'd added, taken off or set outright, and what they are
   (assets, sets or shots), showing who each field has now. What is left alone stays as each has it, and
   all of them change or none do. Esc, or Done, stops selecting.
-- **For you.** Home opens on what is relevant to you: versions filed and notes written by others, in
-  the last two weeks, on the assets, sets and shots you are an artist on or cc'd on (click one to open
-  it in the player), and those assets, sets and shots themselves. Signed in, you are who you signed in
-  as; otherwise, the name you gave.
-
-Names are read by the project's naming preset. The one there is follows the Myreze styleguide:
-`_` separates parts, `-` joins words, all lower case. An asset is `char-`, `prop-`, `env-`, `veh-` or
-`fx-` something, a set is `set-` something, a shot is `<sequence>-<number>` (`kilo-0010`). A file named
-`<context>_<task>[_<descriptor>]_<artist>_v###` (`kilo-0010_anim_erik_v012.mov`) says all of it. The
-rules are in `public/naming.js`, shared by the server and the pages.
-
-## Data and backup
-
-Everything lives in `data/` next to the server:
-
-| Path            | Contents                                                        |
-| --------------- | --------------------------------------------------------------- |
-| `data/wipboard.db` | Boards, their items and snapshots, folders, projects' catalogues (assets, sets, shots and their versions) and every note, in one SQLite database (with `-wal` and `-shm` files beside it while the server runs) |
-| `data/uploads/` | Uploaded media, named by content hash (duplicates stored once): pictures, videos' review copies, and the files those were made from |
-| `data/backups/` | A copy of the database made each day the server runs; the last seven are kept |
-| `data/.session-secret` | Signs the sign-in cookies. Made on first start with a sign-in mode; keep it private |
-
-Changes are written 0.8 s after the last one, and only what changed is written. Everything still
-unsaved is written when the server is stopped (Ctrl+C, `stop.bat`, or the host shutting it down).
-A board nobody has had open for five minutes is let go of from memory and read back when someone
-opens it, so the number of old boards does not slow the server down.
-
-**Back up** by copying `data/uploads/` and the newest file in `data/backups/`, or stop the server
-and copy the whole `data` folder. Copying `wipboard.db` while the server runs can catch it halfway
-through a write; the files in `data/backups/` are always whole.
-
-**Updating from before projects** moves every board's comments into the notes table and renames the
-boards' history to snapshots, once, the first time the server starts. A copy of the database as it was
-is put in `data/backups/` first (`wipboard-before-catalogue-<time>.db`).
-
-**Deleted boards** are kept, only hidden. To bring one back, stop the server and run
-`node scripts/restore-board.js` to list them, then `node scripts/restore-board.js <board id>`. It
-comes back at the top level of its workspace.
-
-## Searching across boards
-
-Every item on every board is indexed by what it is, what it is called, which frame holds it and which
-uploaded file it shows, so questions across boards are quick. It can be asked directly.
-`GET /api/catalog` takes any of:
-
-| Parameter | Finds |
-| --------- | ----- |
-| `type`    | `frame`, `image`, `video`, `note`, `text`, `block`, `stroke`, or several: `image,video` |
-| `name`    | Items called exactly this, ignoring case and spacing: a frame's title, a file's name, a note's text |
-| `in`      | Items inside a frame called this |
-| `q`       | Words anywhere in what items are called or say; the last word may be the start of one |
-| `media`   | Items showing this uploaded file (its name in `data/uploads/`) |
-| `board`   | Items on this board |
-| `limit`   | At most this many (200 unless set, 1000 at most) |
-
-For example `/api/catalog?type=frame&name=desk` is every frame titled "Desk" on every board, and
-`/api/catalog?in=desk&type=image,video` is every image and video inside one. Each result has the
-item, its board, the frame it is in, when it was added and by whom. `GET /api/catalog/media/<file>`
-describes an uploaded file (its size, original name, size in pixels, length and frame rate, who
-uploaded it) and lists every board it is on. Only boards in workspaces the person asking can see are
-searched, and deleted boards never are.
-
-A project's catalogue has its own: `GET /api/projects/<folder>` (its assets, sets and shots),
-`GET /api/entities/<id>` (one of them, every version and every note), `GET`, `PATCH` and `DELETE
-/api/versions/<id>` (`PATCH` takes `entity`, `task`, `number`, `artist`, `descriptor`, `hidden`, or
-`{ "deleted": false }` to bring a deleted one back), and `POST /api/projects/<folder>/versions` to file
-versions (each file may say its own `entity`, `task` and `number`; the catalogue's `tops` says the
-highest number each task of each entity has reached). `POST /api/projects/<folder>/entities` takes
-`{ "names": [...], "tier" }` to set many up at once; `PATCH /api/entities/<id>` takes `name`, `tier`,
-`artists` and `cc`; `PATCH /api/projects/<folder>/entities` takes `{ "ids": [...], "tier", "artists": { "add" |
-"remove" | "set": [...] }, "cc": { ... } }` to change many at once. `GET /api/people` lists the names the app knows, and `GET /api/feed?name=` is
-Home's For you. `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest
-version.
-
-## Settings
-
-Environment variables, or lines in a `.env` file next to `server.js`. All optional:
-
-| Variable                 | Default  | Meaning                                  |
-| ------------------------ | -------- | ---------------------------------------- |
-| `PORT`                   | `4680`   | Port to listen on                        |
-| `HOST`                   | `0.0.0.0`| Interface to bind (`127.0.0.1` = local only) |
-| `WIPBOARD_DATA`          | `./data` | Where boards and uploads are stored      |
-| `WIPBOARD_MAX_UPLOAD_MB` | `1024`   | Largest accepted file. A video's original above this is not kept, only its review copy |
-| `AUTH_MODE`              | `none`   | Who gets in, see above. Its own settings are listed in [DEPLOY.md](DEPLOY.md) |
-
-## Good to know
-
 - **Without `AUTH_MODE` there are no accounts or passwords.** Anyone who can reach the server can
   open, edit and delete every board. Run it that way on a trusted studio network or behind a VPN,
   never on the open internet; for anything else pick a sign-in mode.

@@ -984,18 +984,18 @@ body:not(.focus) .viewer-only, body.focus .board-only { display: none !important
 #peers { display: flex; align-items: center; padding: 0 2px 0 8px; }
 #share, #focusdone { margin-left: 4px; }
 /* The ring for what is kept on this computer. Quiet while it fills, quieter still once it is full. */
-#kept { flex: none; display: flex; align-items: center; gap: 5px; height: var(--h-sm); padding: 0 8px 0 5px; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text-2); cursor: pointer; transition: background 0.12s var(--ease); }
-#kept:hover { background: var(--hover); }
-#kept svg { flex: none; width: 18px; height: 18px; transform: rotate(-90deg); }
+.kept-ring { flex: none; display: flex; align-items: center; gap: 5px; height: var(--h-sm); padding: 0 8px 0 5px; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text-2); cursor: pointer; transition: background 0.12s var(--ease); }
+.kept-ring:hover { background: var(--hover); }
+.kept-ring svg { flex: none; width: 18px; height: 18px; transform: rotate(-90deg); }
 .kept-label { font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
-#kept circle { fill: none; stroke-width: 2; }
-#kept .track { stroke: var(--line-strong); }
-#kept .arc { stroke: currentColor; stroke-linecap: round; }
-#kept .tick { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; opacity: 0; transform: rotate(90deg); transform-origin: 10px 10px; }
-#kept.full { color: var(--muted); }
-#kept.full .tick { opacity: 1; }
-#kept.off .arc { stroke-dasharray: 2 3 !important; stroke-dashoffset: 0 !important; }
-#kept.active { background: var(--hover); color: var(--text); }
+.kept-ring circle { fill: none; stroke-width: 2; }
+.kept-ring .track { stroke: var(--line-strong); }
+.kept-ring .arc { stroke: currentColor; stroke-linecap: round; }
+.kept-ring .tick { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; opacity: 0; transform: rotate(90deg); transform-origin: 10px 10px; }
+.kept-ring.full { color: var(--muted); }
+.kept-ring.full .tick { opacity: 1; }
+.kept-ring.off .arc { stroke-dasharray: 2 3 !important; stroke-dashoffset: 0 !important; }
+.kept-ring.active { background: var(--hover); color: var(--text); }
 /* What a press on the ring opens: how much is cached, and what is on its way. */
 .kept-pop { width: 280px; max-width: calc(100vw - 16px); padding: 12px; gap: 10px; font-size: 12.5px; }
 .kp-head { display: flex; align-items: center; gap: 12px; }
@@ -1037,7 +1037,7 @@ body:not(.focus) .viewer-only, body.focus .board-only { display: none !important
 }
 @media (max-width: 640px) {
   #topbar { gap: 4px; padding: 0 8px; }
-  #topbar .bar-group.board-only, #help, #focusclear, #kept { display: none !important; }
+  #topbar .bar-group.board-only, #help, #focusclear, .kept-ring { display: none !important; }
   #peers .avatar:not(.me) { display: none; }
   /* With a piece open the bar is the viewer's: its name gets the room, and who is here and the theme can wait. */
   body.focus #peers, body.focus #topbar .themebtn { display: none; }
@@ -2334,3 +2334,17 @@ body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
 /* The kinds of thing cached ahead, under the switch for all of it. */
 .acct-row.sub { min-height: 30px; margin-top: 2px; padding-left: 14px; }
 .acct-row.sub.off { opacity: 0.5; cursor: default; }
+/* The ring in Home's bar: what the page or the timeline shows, cached. */
+.home-head .kept-ring { margin-right: 2px; }
+@media (max-width: 700px) { .home-head .kept-ring .kept-label { display: none; } }
+/* A card's cache badge, in its top right corner: a tick, a filling ring, or a cloud. */
+.cache-badge { position: absolute; top: 7px; right: 7px; z-index: 2; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: rgba(0, 0, 0, 0.55); color: rgba(255, 255, 255, 0.75); pointer-events: auto; }
+.cache-badge svg { width: 12px; height: 12px; stroke-width: 2.2; }
+.cache-badge[data-state="cached"] { background: var(--ok); color: #fff; }
+.cache-badge[data-state="cached"] svg { stroke-width: 3; }
+.cache-badge[data-state="coming"] { background: conic-gradient(var(--accent) var(--p, 0%), rgba(0, 0, 0, 0.55) 0); }
+.cache-badge[data-state="coming"]::after { content: ''; width: 12px; height: 12px; border-radius: 50%; background: rgba(0, 0, 0, 0.7); }
+.vl-thumb .cache-badge { top: 4px; right: 4px; width: 16px; height: 16px; }
+.vl-thumb .cache-badge svg { width: 10px; height: 10px; }
+[data-density="compact"] .cache-badge { top: 4px; right: 4px; width: 16px; height: 16px; }
+[data-density="compact"] .cache-badge svg { width: 10px; height: 10px; }

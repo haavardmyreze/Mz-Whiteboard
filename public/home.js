@@ -279,7 +279,7 @@
   // ------------------------------------------------------------- menus and dialogs
 
   function closeMenu() {
-    for (const m of document.querySelectorAll('.menu')) m.remove();
+    for (const m of document.querySelectorAll('.menu:not(.kept-pop)')) m.remove();
   }
 
   function openMenu(anchor, entries) {
@@ -820,16 +820,28 @@
   // What the page shows: every video card that can be scrubbed, in the order they are made. The cards of
   // one go (one render) make the list; the next go makes it afresh.
   let pageSrcs = null;
-  function keepForPage(src) {
+  function keepForPage(src, name) {
     if (!pageSrcs) {
       pageSrcs = [];
       queueMicrotask(() => {
-        WB.media.want('page', pageSrcs.slice(0, 60), { rank: WB.media.RANK.page, hold: true });
+        WB.media.want('page', pageSrcs.slice(0, 60).map((x) => x.src), { rank: WB.media.RANK.page, hold: true });
+        pageScope = { label: 'this page', items: pageSrcs };
         pageSrcs = null;
+        cacheRing.paint();
       });
     }
-    pageSrcs.push(src);
+    pageSrcs.push({ src, name });
   }
+
+  // The ring in the bar: how much of what you are looking at (the timeline, or the page's cards) is cached.
+  let pageScope = null;
+  let tlScope = null;
+  let runOf = null; // the project whose timeline is open
+  const cacheRing = (() => {
+    const button = el('button', { id: 'kept', class: 'kept-ring', hidden: true });
+    document.querySelector('.home-head .bellwrap').before(button);
+    return WB.media.ring(button, () => (runOf && tlScope) || pageScope);
+  })();
   // The feed is fetched now and then wherever you are, so what is new is kept before you look.
   setInterval(() => { if (!document.hidden) loadFeed(); }, 5 * 60 * 1000);
   // What came since you last marked Updates read, kept by this browser.
@@ -1022,7 +1034,7 @@
       const thumb = scrubber(el('button', {
         type: 'button', class: `card-thumbs vl-thumb n${v.thumb ? 1 : 0}`, title: 'Open it, to look, comment and draw',
         onclick: (e) => { e.stopPropagation(); lookAt(v.entityId, v.id); },
-      }, v.thumb && el('img', { src: v.thumb, alt: '', loading: 'lazy', draggable: 'false' }), v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })), v.look);
+      }, v.thumb && el('img', { src: v.thumb, alt: '', loading: 'lazy', draggable: 'false' }), v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })), v.look, v.label);
       return el('div', {
         class: `vl-row${vpick.ids.has(v.id) ? ' picked' : ''}`, 'data-id': v.id,
         onclick: (e) => {
@@ -1181,7 +1193,7 @@
   // Esc lets go of whatever is selected, wherever things can be: the catalogue (handled with its own
   // Select mode), versions, and boards and folders. A dialog, a menu or the player takes Esc first.
   window.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || document.querySelector('dialog[open], .menu') || (document.querySelector('.viewer') && !document.querySelector('.viewer').hidden)) return;
+    if (e.key !== 'Escape' || document.querySelector('dialog[open], .menu:not([hidden])') || (document.querySelector('.viewer') && !document.querySelector('.viewer').hidden)) return;
     if (document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
     if (vpick.ids.size) {
       vpick.ids.clear();
@@ -1269,7 +1281,7 @@
 
   // A project's timeline: its shots played through in the player, as an edit (viewer.js, openRun): the
   // newest version of each, of one task or any, all sequences or one, chosen in the player's bar.
-  let runOf = null;
+  // runOf: the project whose timeline is open (declared with the cache ring, which asks for it).
   // The card that stands in for a shot with nothing filed: its name, and that it has nothing yet.
   const slates = new Map();
   function slate(name, task) {
@@ -1311,6 +1323,11 @@
       data = await api('GET', `/api/projects/${project.id}/timeline${task ? `?task=${encodeURIComponent(task)}` : ''}`);
       if (seq && !data.shots.some((x) => x.seq === seq)) seq = '';
       if (!data.shots.length) return [];
+      // All of it is cached, after the next few shots the player asks for first; the ring says how far.
+      const videos = data.shots.filter((x) => x.version && x.version.look.type === 'video' && (!seq || x.seq === seq));
+      tlScope = { label: 'this timeline', items: videos.map((x) => ({ src: x.version.look.src, name: x.version.label })) };
+      WB.media.want('timeline', tlScope.items.map((x) => x.src), { rank: WB.media.RANK.timeline, hold: true });
+      cacheRing.paint();
       return data.shots.filter((x) => (x.version || withEmpty) && (!seq || x.seq === seq)).map((x) => (x.version ? {
         ...x.version.look, id: x.version.id, type: x.version.look.type, label: x.version.label, name: x.name, seq: x.seq, entityId: x.id,
       } : {
@@ -1339,6 +1356,9 @@
         },
         onClose: () => {
           runOf = null;
+          tlScope = null;
+          WB.media.want('timeline', []);
+          cacheRing.paint();
           if (currentView().page === 'timeline' && currentFolder() === project.id) location.hash = `#/f/${project.id}`;
         },
       });
@@ -1354,6 +1374,8 @@
     if (renderedFor !== location.hash) {
       renderedFor = location.hash;
       WB.media.want('page', []);
+      pageScope = null;
+      cacheRing.paint();
     }
     // The timeline is docked beside the sidebar: going elsewhere from it (the sidebar, the bar) closes it.
     if (runOf && !(rt.kind === 'folder' && rt.id === runOf && currentView().page === 'timeline') && thePlayer().isOpen()) {
@@ -1684,9 +1706,11 @@
   // Moving the pointer across a video's picture scrubs through it, as if the pointer were dragging its
   // playhead: the left edge is the start, the right edge the end. Only while the pointer is over it is
   // the video fetched at all.
-  function scrubber(box, look) {
+  function scrubber(box, look, name) {
     if (!look || look.type !== 'video' || !look.src) return box;
-    keepForPage(look.src);
+    keepForPage(look.src, name || look.name);
+    // In its corner: whether it is cached on this computer (media.js).
+    box.append(WB.media.badge(look.src));
     let video = null;
     let head = null;
     let want = null;
@@ -1782,7 +1806,7 @@
     paintPicked();
   }
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && picking.on && !document.querySelector('dialog[open], .menu') && !(document.querySelector('.viewer') && !document.querySelector('.viewer').hidden)) {
+    if (e.key === 'Escape' && picking.on && !document.querySelector('dialog[open], .menu:not([hidden])') && !(document.querySelector('.viewer') && !document.querySelector('.viewer').hidden)) {
       const f = folderById(picking.project);
       if (f) setPicking(f, false);
     }
@@ -1794,7 +1818,7 @@
       e.thumb && el('img', { src: e.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
       newest && el('span', { class: 'play-latest', html: `${ICON_PLAY}<span>Latest</span>` }));
     if (newest) {
-      scrubber(thumbs, newest.look);
+      scrubber(thumbs, newest.look, newest.label || e.name);
       thumbs.addEventListener('click', (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -2049,7 +2073,7 @@
     const card = (v) => el('div', { class: `card ver${v.hidden ? ' hidden-ver' : ''}${vpick.ids.has(v.id) ? ' picked' : ''}`, 'data-id': v.id },
       scrubber(el('button', { type: 'button', class: `card-thumbs n${v.thumb ? 1 : 0}`, title: 'Open it, to look, comment and draw', onclick: () => lookAt(entity.id, v.id) },
         v.thumb && el('img', { src: v.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
-        v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })), v.look),
+        v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })), v.look, v.label),
       el('div', { class: 'card-body' },
         el('div', { class: 'card-name', text: v.label }),
         el('div', { class: 'card-meta', text: [v.artist, v.descriptor].filter(Boolean).join(' · ') || v.originalName || '' }),
@@ -2530,5 +2554,5 @@
   window.addEventListener('hashchange', render);
   await refresh();
   if (!feed) loadFeed();
-  setInterval(() => { if (!document.hidden && !dragging && !document.querySelector('dialog[open], .menu')) refresh(true); }, 15000);
+  setInterval(() => { if (!document.hidden && !dragging && !document.querySelector('dialog[open], .menu:not([hidden])')) refresh(true); }, 15000);
 })();

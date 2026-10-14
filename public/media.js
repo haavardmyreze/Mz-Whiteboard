@@ -254,7 +254,7 @@
   }
 
   // ---- fetching ahead
-  const RANK = { run: 1, board: 2, page: 3, work: 4, cc: 5, pinned: 6 };
+  const RANK = { run: 1, timeline: 1.5, board: 2, page: 3, work: 4, cc: 5, pinned: 6 };
   function want(key, srcs, { rank = 5, kind = null, hold = false } = {}) {
     const list = [...new Set((srcs || []).filter((s) => typeof s === 'string' && /^\/uploads\//.test(s)))];
     const was = wants.get(key);
@@ -376,6 +376,162 @@
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 
+  // ---- showing it: the ring in a page's bar, and the badge on a card
+  //
+  // ring(button, scope): the button fills as what the page is about is cached, with a count beside it,
+  // and turns to a tick and "Cached" once all of it is; pressed, it opens a little card with the details.
+  // scope() says what the page is about: { label: 'this board', items: [{ src, name }] }, or null.
+  const SVG = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  const ICON = {
+    check: SVG('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
+    pause: SVG('<path d="M7 4v16M17 4v16" stroke-width="3.5"/>'),
+    cloud: SVG('<path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 9.5 4.3 4.3 0 0 1 17.5 18z"/>'),
+    kept: SVG('<path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>'),
+  };
+  const RING = '<svg viewBox="0 0 20 20" aria-hidden="true"><circle class="track" cx="10" cy="10" r="7"/><circle class="arc" cx="10" cy="10" r="7"/><path class="tick" d="M6.6 10.3l2.3 2.3 4.6-5"/></svg><span class="kept-label"></span>';
+  const sizeLabel = (bytes) => {
+    if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+    const mb = bytes / 1048576;
+    return `${mb >= 10 || !bytes ? Math.round(mb).toLocaleString() : mb.toFixed(1)} MB`;
+  };
+  const keepable = (src) => typeof src === 'string' && /^\/uploads\//.test(src);
+  // How far a video has come: 1 kept, a fraction on its way (ahead, or opened), 0 not here.
+  function progressOf(src) {
+    if (index.has(src)) return 1;
+    if (current && current.src === src && current.total) return current.loaded / current.total;
+    const o = opening.get(src);
+    return o && o.total ? o.loaded / o.total : 0;
+  }
+  const coming = (src) => !index.has(src) && ((current && current.src === src) || opening.has(src));
+
+  function ring(button, scope) {
+    const el = WB.el;
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    button.classList.add('kept-ring');
+    if (!button.querySelector('.arc')) button.innerHTML = RING;
+    button.type = 'button';
+    const R = 2 * Math.PI * 7;
+    button.querySelector('.arc').style.strokeDasharray = R;
+    const pop = el('div', { class: 'menu kept-pop', role: 'dialog', 'aria-label': 'Video cache', hidden: true });
+    document.body.append(pop);
+    button.setAttribute('aria-haspopup', 'dialog');
+    button.setAttribute('aria-expanded', 'false');
+    button.addEventListener('click', () => toggle());
+    function toggle(show = pop.hidden) {
+      show = show && !button.hidden;
+      pop.hidden = !show;
+      button.classList.toggle('active', show);
+      button.setAttribute('aria-expanded', String(show));
+      if (!show) return;
+      paintPop();
+      place();
+    }
+    function place() {
+      const r = button.getBoundingClientRect();
+      pop.style.top = `${r.bottom + 6}px`;
+      pop.style.left = `${clamp(r.right - pop.offsetWidth, 8, innerWidth - pop.offsetWidth - 8)}px`;
+    }
+    document.addEventListener('pointerdown', (e) => {
+      if (!pop.hidden && !pop.contains(e.target) && !button.contains(e.target)) toggle(false);
+    }, true);
+    window.addEventListener('resize', () => { if (!pop.hidden) place(); });
+
+    // What the scope is about, as this cache sees it.
+    function measure() {
+      const sc = scope() || { label: '', items: [] };
+      const items = (sc.items || []).filter((it) => it && it.src);
+      const all = [...new Set(items.map((it) => it.src))];
+      const srcs = all.filter((src) => keepable(src) && !failed.has(src));
+      const here = srcs.filter((src) => index.has(src));
+      const nameOf = (src) => (items.find((it) => it.src === src) || {}).name || 'A video';
+      return { label: sc.label || 'this page', srcs, here, remote: all.length - srcs.length, nameOf };
+    }
+
+    function paintPop() {
+      const m = measure();
+      const hereBytes = m.here.reduce((sum, src) => sum + ((index.get(src) || {}).size || 0), 0);
+      const allBytes = total();
+      const list = m.srcs.filter(coming).map((src) => [src, progressOf(src)]);
+      const k = m.srcs.length ? m.here.length / m.srcs.length : 0;
+      const C = 2 * Math.PI * 17;
+      const big = el('span', { class: `kp-ring${k >= 1 ? ' full' : ''}`, html: `<svg viewBox="0 0 40 40" aria-hidden="true"><circle class="track" cx="20" cy="20" r="17"/><circle class="arc" cx="20" cy="20" r="17" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - k)}"/></svg>` },
+        k >= 1 ? el('span', { class: 'kp-in', html: ICON.check }) : el('b', { class: 'kp-in', text: `${Math.floor(k * 100)}%` }));
+      const bar = (frac) => el('i', { class: 'kp-bar' }, el('i', { style: { width: `${clamp(frac, 0, 1) * 100}%` } }));
+      pop.replaceChildren(...[
+        el('div', { class: 'kp-head' }, big,
+          el('div', { class: 'kp-title' }, el('b', { text: `${m.here.length} of ${m.srcs.length} ${m.srcs.length === 1 ? 'video' : 'videos'}` }), el('span', { text: `cached from ${m.label}` })),
+          el('b', { class: 'kp-size', text: sizeLabel(hereBytes) })),
+        paused() && m.here.length < m.srcs.length && el('div', { class: 'kp-warn', title: 'Turned off in your settings, the disk is full, or the browser is saving data' }, el('span', { html: ICON.pause }), 'Paused'),
+        list.length > 0 && el('div', { class: 'kp-list' }, list.map(([src, f]) => el('div', { class: 'kp-item' },
+          el('span', { class: 'kp-name', text: m.nameOf(src) }), el('span', { class: 'kp-pct', text: `${Math.floor(f * 100)}%` }), bar(f)))),
+        m.remote > 0 && el('div', { class: 'kp-line', title: 'Too large to cache, or could not be cached' },
+          el('span', { class: 'kp-ic', html: ICON.cloud }), el('span', { text: `${m.remote} from the server` })),
+        el('div', { class: 'kp-total' },
+          el('div', { class: 'kp-line' }, el('span', { class: 'kp-ic', html: ICON.kept }), el('span', { text: 'Everything cached' }),
+            el('span', { class: 'kp-of', text: `${sizeLabel(allBytes)} / ${sizeLabel(MAX)}` })),
+          bar(allBytes / MAX)),
+      ].filter(Boolean));
+    }
+
+    function paint() {
+      const m = measure();
+      const n = m.srcs.length;
+      button.hidden = !available || !n;
+      if (button.hidden) {
+        if (!pop.hidden) toggle(false);
+        return;
+      }
+      const done = m.here.length;
+      // What is on its way counts for as much of itself as has arrived.
+      let part = 0;
+      for (const src of m.srcs) if (coming(src)) part += progressOf(src);
+      const k = clamp((done + part) / n, 0, 1);
+      const full = done >= n;
+      const videos = n === 1 ? 'video' : 'videos';
+      button.querySelector('.arc').style.strokeDashoffset = R * (1 - k);
+      button.querySelector('.kept-label').textContent = full ? 'Cached' : `${done}/${n} cached`;
+      button.classList.toggle('full', full);
+      button.classList.toggle('off', !!paused() && !full);
+      const tip = full
+        ? `${n === 1 ? 'The video' : `All ${n} videos`} of ${m.label} ${n === 1 ? 'is' : 'are'} cached on this computer, so ${n === 1 ? 'it opens and scrubs' : 'they open and scrub'} instantly`
+        : paused()
+          ? `${done} of ${n} ${videos} of ${m.label} cached on this computer. Caching has stopped: it is turned off, the disk is full, or the browser is saving data`
+          : `Caching the videos of ${m.label} on this computer so they open and scrub instantly: ${done} of ${n} done`;
+      if (button.dataset.tip !== tip) {
+        button.dataset.tip = tip;
+        button.title = tip;
+        button.setAttribute('aria-label', tip);
+      }
+      if (!pop.hidden) paintPop();
+    }
+    listeners.add(paint);
+    paint();
+    return { paint, close: () => toggle(false), get open() { return !pop.hidden; } };
+  }
+
+  // A card's badge: a tick once its video is cached, a filling ring while it comes, a cloud while it
+  // plays from the server. Every badge on the page is kept up to date.
+  function badge(src) {
+    const node = WB.el('span', { class: 'cache-badge', 'data-src': src, 'aria-hidden': 'true' });
+    paintBadge(node);
+    return node;
+  }
+  function paintBadge(node) {
+    const src = node.dataset.src;
+    const state = !available || !keepable(src) ? 'none' : index.has(src) ? 'cached' : coming(src) ? 'coming' : 'remote';
+    node.hidden = state === 'none';
+    if (node.dataset.state !== state) {
+      node.dataset.state = state;
+      node.innerHTML = state === 'cached' ? ICON.check : state === 'remote' ? ICON.cloud : '';
+      const tip = state === 'cached' ? 'Cached on this computer: opens and scrubs instantly' : state === 'coming' ? 'Being cached on this computer' : 'Not cached: plays from the server';
+      node.title = tip;
+    }
+    if (state === 'coming') node.style.setProperty('--p', `${Math.round(progressOf(src) * 100)}%`);
+  }
+  listeners.add(() => {
+    for (const node of document.querySelectorAll('.cache-badge[data-src]')) paintBadge(node);
+  });
+
   const api = {
     CACHE, MAX, ITEM_MAX, KINDS, RANK,
     ready,
@@ -384,8 +540,9 @@
     sizeOf: (src) => (index.get(src) || {}).size || 0,
     total,
     failed: (src) => failed.has(src),
-    keepable: (src) => typeof src === 'string' && /^\/uploads\//.test(src),
+    keepable,
     status: () => ({ current: current && { src: current.src, loaded: current.loaded, total: current.total }, opening, paused: paused() }),
+    ring, badge, sizeLabel,
     get, want, on: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
     stats, clear, ahead, setAhead, kinds, setKind,
   };

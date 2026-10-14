@@ -2023,15 +2023,6 @@
   // then finds it there, this time and every time after. What is on the open board is never made room for.
   const media = WB.media;
   const KEPT_MAX = media.MAX;
-  let diskReady = false;
-  media.ready.then((ok) => {
-    diskReady = ok;
-    paintKept();
-  });
-  media.on(() => paintKept());
-  // Fetching ahead has stopped: turned off, the disk is full, or the browser is saving data.
-  const aheadOff = () => !!media.status().paused;
-  const aheadNow = () => media.status().current;
 
   let aheadTimer = 0;
   function queueAhead() {
@@ -2045,112 +2036,14 @@
     }, 1000);
   }
 
-  // The ring in the bar: how much of this board's video is on this computer already.
-  const keptRing = $('kept');
-  // A press opens a little card under it with the details: how much is kept, and what is on its way.
-  const keptPop = el('div', { class: 'menu kept-pop', id: 'keptpop', role: 'dialog', 'aria-label': 'Video cache', hidden: true });
-  document.body.append(keptPop);
-  keptRing.setAttribute('aria-haspopup', 'dialog');
-  keptRing.setAttribute('aria-expanded', 'false');
-  keptRing.addEventListener('click', () => toggleKeptPop());
-  function toggleKeptPop(show = keptPop.hidden) {
-    show = show && !keptRing.hidden;
-    keptPop.hidden = !show;
-    keptRing.classList.toggle('active', show);
-    keptRing.setAttribute('aria-expanded', String(show));
-    if (!show) return;
-    paintKeptPop();
-    placeKeptPop();
-  }
-  function placeKeptPop() {
-    const r = keptRing.getBoundingClientRect();
-    keptPop.style.top = `${r.bottom + 6}px`;
-    keptPop.style.left = `${clamp(r.left, 8, innerWidth - keptPop.offsetWidth - 8)}px`;
-  }
-  // Anywhere else puts it away.
-  document.addEventListener('pointerdown', (e) => {
-    if (!keptPop.hidden && !keptPop.contains(e.target) && !keptRing.contains(e.target)) toggleKeptPop(false);
-  }, true);
-  window.addEventListener('resize', () => { if (!keptPop.hidden) placeKeptPop(); });
-
-  const sizeLabel = (bytes) => {
-    if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-    const mb = bytes / 1048576;
-    return `${mb >= 10 || !bytes ? Math.round(mb).toLocaleString() : mb.toFixed(1)} MB`;
-  };
-
-  function paintKeptPop() {
-    const board = mediaOrder().filter((it) => it.type === 'video');
-    const srcs = [...new Set(board.filter(wholeable).map((it) => it.src))].filter((src) => !media.failed(src));
-    const here = srcs.filter((src) => media.has(src));
-    const hereBytes = here.reduce((sum, src) => sum + media.sizeOf(src), 0);
-    const allBytes = media.total();
-    const ahead = aheadNow();
-    // Too large to keep, or failed on the way: those play from the server, as they always did.
-    const remote = board.length - board.filter((it) => wholeable(it) && !media.failed(it.src)).length;
-    const nameOf = (src) => {
-      const it = board.find((one) => one.src === src);
-      return (it && it.name) || 'A video';
-    };
-    const coming = [];
-    if (ahead && ahead.total && !media.has(ahead.src) && srcs.includes(ahead.src)) coming.push([ahead.src, ahead.loaded / ahead.total]);
-    for (const [src, e] of wholes) if (!e.url && e.total && !media.has(src) && (!ahead || ahead.src !== src)) coming.push([src, e.loaded / e.total]);
-
-    const k = srcs.length ? here.length / srcs.length : 0;
-    const R = 2 * Math.PI * 17;
-    const ring = el('span', { class: `kp-ring${k >= 1 ? ' full' : ''}`, html: `<svg viewBox="0 0 40 40" aria-hidden="true"><circle class="track" cx="20" cy="20" r="17"/><circle class="arc" cx="20" cy="20" r="17" stroke-dasharray="${R}" stroke-dashoffset="${R * (1 - k)}"/></svg>` },
-      k >= 1 ? el('span', { class: 'kp-in', html: ICON.check }) : el('b', { class: 'kp-in', text: `${Math.floor(k * 100)}%` }));
-    const bar = (frac) => el('i', { class: 'kp-bar' }, el('i', { style: { width: `${clamp(frac, 0, 1) * 100}%` } }));
-    keptPop.replaceChildren(...[
-      el('div', { class: 'kp-head' }, ring,
-        el('div', { class: 'kp-title' }, el('b', { text: `${here.length} of ${srcs.length} ${srcs.length === 1 ? 'video' : 'videos'}` }), el('span', { text: 'cached from this board' })),
-        el('b', { class: 'kp-size', text: sizeLabel(hereBytes) })),
-      aheadOff() && here.length < srcs.length && el('div', { class: 'kp-warn', title: 'Turned off in your settings, the disk is full, or the browser is saving data' }, el('span', { html: ICON.pause }), 'Paused'),
-      coming.length > 0 && el('div', { class: 'kp-list' }, coming.map(([src, f]) => el('div', { class: 'kp-item' },
-        el('span', { class: 'kp-name', text: nameOf(src) }), el('span', { class: 'kp-pct', text: `${Math.floor(f * 100)}%` }), bar(f)))),
-      remote > 0 && el('div', { class: 'kp-line', title: 'Too large to cache, or could not be cached' },
-        el('span', { class: 'kp-ic', html: ICON.cloud }), el('span', { text: `${remote} from the server` })),
-      el('div', { class: 'kp-total' },
-        el('div', { class: 'kp-line' }, el('span', { class: 'kp-ic', html: ICON.kept }), el('span', { text: 'Everything cached' }),
-          el('span', { class: 'kp-of', text: `${sizeLabel(allBytes)} / ${sizeLabel(KEPT_MAX)}` })),
-        bar(allBytes / KEPT_MAX)),
-    ].filter(Boolean));
-  }
-
-  const KEPT_RING = 2 * Math.PI * 7;
-  keptRing.querySelector('.arc').style.strokeDasharray = KEPT_RING;
+  // The ring in the bar: how much of this board's video is on this computer already (media.js).
+  let keptRing = null;
+  keptRing = media.ring($('kept'), () => ({
+    label: 'this board',
+    items: mediaOrder().filter((it) => it.type === 'video').map((it) => ({ src: it.src, name: it.name })),
+  }));
   function paintKept() {
-    const srcs = new Set(mediaOrder().filter(wholeable).map((it) => it.src));
-    for (const src of [...srcs]) if (media.failed(src)) srcs.delete(src);
-    const total = srcs.size;
-    keptRing.hidden = !diskReady || !total;
-    if (keptRing.hidden) {
-      if (!keptPop.hidden) toggleKeptPop(false);
-      return;
-    }
-    const done = [...srcs].filter((src) => media.has(src)).length;
-    // What is on its way counts for as much of itself as has arrived.
-    let coming = 0;
-    const ahead = aheadNow();
-    if (ahead && ahead.total && srcs.has(ahead.src) && !media.has(ahead.src)) coming += ahead.loaded / ahead.total;
-    for (const [src, e] of wholes) if (!e.url && e.total && srcs.has(src) && !media.has(src)) coming += e.loaded / e.total;
-    const k = clamp((done + coming) / total, 0, 1);
-    const full = done >= total;
-    const videos = total === 1 ? 'video' : 'videos';
-    keptRing.querySelector('.arc').style.strokeDashoffset = KEPT_RING * (1 - k);
-    keptRing.querySelector('.kept-label').textContent = full ? 'Cached' : `${done}/${total} cached`;
-    keptRing.classList.toggle('full', full);
-    keptRing.classList.toggle('off', aheadOff() && !full);
-    const tip = full
-      ? `${total === 1 ? 'The video' : `All ${total} videos`} on this board ${total === 1 ? 'is' : 'are'} cached on this computer, so ${total === 1 ? 'it opens and scrubs' : 'they open and scrub'} instantly`
-      : aheadOff()
-        ? `${done} of ${total} ${videos} cached on this computer. Caching has stopped: it is turned off, the disk is full, or the browser is saving data`
-        : `Caching this board's videos on this computer so they open and scrub instantly: ${done} of ${total} done`;
-    if (keptRing.dataset.tip !== tip) {
-      keptRing.dataset.tip = tip;
-      keptRing.setAttribute('aria-label', tip);
-    }
-    if (!keptPop.hidden) paintKeptPop();
+    if (keptRing) keptRing.paint();
   }
 
   function fetchWhole(src) {
@@ -4018,7 +3911,7 @@
       // One thing at a time, the nearest first.
       if (!$('helppanel').hidden) toggleHelp();
       if (!$('actpanel').hidden) toggleActivity(false);
-      if (!keptPop.hidden) toggleKeptPop(false);
+      if (keptRing && keptRing.open) keptRing.close();
       else if (!catPanel.hidden) toggleCatalogue(false);
       else if (!$('setpanel').hidden) toggleSettings(false);
       else if (boardPanel) togglePanel(false);

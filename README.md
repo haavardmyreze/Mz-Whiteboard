@@ -143,6 +143,12 @@ private networks, otherwise only the host machine can connect.
   timeline's next shot plays from the disk too. What is kept is listed in IndexedDB, a record a video,
   and a lock for each file keeps two tabs from fetching the same one; the list from before (in
   localStorage) is taken over the first time.
+- **Seeing what is cached.** Every video card (in the catalogue, an asset's versions, the Versions
+  list, Home) has a badge in its top right corner: a green tick once it is cached on this computer, a
+  ring filling while it comes, a cloud while it still plays from the server. The ring a board has in
+  its bar is in Home's bar too, for whatever you are looking at: the cards of the page, or with the
+  timeline open, the whole timeline ("3/12 cached", then "Cached"), which is fetched in full behind the
+  next few shots. Pressed, it says how much of it is here, what is on its way, and how full the cache is.
   A video that is more than the browser can process (a very large frame in Safari, say) is not added:
   a message names it and says which browsers to add it from instead, rather than putting the bare
   file on the board. (On a plain http address, where no browser can make review copies, videos still

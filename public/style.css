@@ -2366,3 +2366,40 @@ body.viewonly #hint .hint-guest { display: inline; }
 @media (max-width: 640px) {
   #activity, #share { display: none !important; }
 }
+
+/* Asking Claude (claude.js): a line to say what these are, and what it said. Quiet until it is used. */
+.ai-box { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 6px 8px; padding: 8px; border: 1px solid var(--line-strong); border-radius: var(--r-3); background: var(--surface-2); }
+.ai-box[hidden] { display: none; }
+.ai-ic { display: grid; place-items: center; height: 30px; color: var(--accent); }
+.ai-box textarea { min-height: 30px; padding: 6px 8px; border: 1px solid transparent; border-radius: var(--r-2); background: transparent; color: var(--text); font: inherit; font-size: 13px; line-height: 18px; resize: none; }
+.ai-box textarea:focus { border-color: var(--accent); outline: none; background: var(--surface-1); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ai-box .btn { height: 30px; }
+.ai-foot { grid-column: 2 / -1; display: flex; align-items: center; gap: 10px; min-height: 0; font-size: 12px; }
+.ai-foot:empty, .ai-said:empty { display: none; }
+.ai-said { color: var(--muted); }
+.ai-said.ok { color: var(--text-2); }
+.ai-said.bad { color: var(--danger); }
+.ai-box.busy .ai-ic { animation: blink 1.2s ease-in-out infinite; }
+.ai-foot .linkbtn[hidden] { display: none; }
+.ai-mark { display: inline-grid; place-items: center; flex: none; width: 16px; height: 16px; color: var(--accent); cursor: help; }
+.ai-mark.warn { color: var(--warn-fg); }
+.imp-ai { margin-top: 10px; }
+.imp-aibtn { gap: 6px; }
+.imp-aibtn svg { color: var(--accent); }
+.be-ai { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-top: 1px solid var(--line); }
+.be-ai-list { display: flex; flex-direction: column; max-height: 240px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-2); }
+.be-ai-list[hidden] { display: none; }
+.be-ai-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1.3fr) auto auto; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.be-ai-row:last-child { border-bottom: none; }
+.be-ai-old { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.be-ai-to { color: var(--muted); }
+.be-ai-row input { margin: 0; }
+.be-ai-row input[type="checkbox"] { display: inline-block; width: 16px; height: 16px; padding: 0; }
+.be-ai-row input[type="text"] { min-width: 0; height: 28px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; }
+.be-ai-row input[type="text"]:focus { border-color: var(--accent); outline: none; }
+.be-ai-row:has(input[type="checkbox"]:not(:checked)) > :not(input) { opacity: 0.45; }
+.be-ai-tier { color: var(--text-2); font-size: 12px; white-space: nowrap; }
+@media (max-width: 560px) {
+  .be-ai-row { grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.3fr) auto; }
+  .be-ai-row .be-ai-to, .be-ai-row .be-ai-tier { display: none; }
+}

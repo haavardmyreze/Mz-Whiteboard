@@ -15,6 +15,7 @@ const { noticesFor, markRead } = require('./notifications');
 const { createAdmin } = require('./admin');
 const zip = require('./zip');
 const naming = require('./public/naming');
+const { createAi } = require('./ai');
 
 // Settings can live in a .env file next to this one (KEY=value per line); real environment variables win.
 try {
@@ -33,6 +34,10 @@ const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const MAX_UPLOAD = (Number(process.env.WIPBOARD_MAX_UPLOAD_MB) || 1024) * 1024 * 1024;
+// Claude, to suggest names when importing and in batch edit (ai.js). Off without ANTHROPIC_API_KEY.
+const ai = createAi();
+// One question to Claude at a time from each person: a second click while it thinks is refused.
+const aiBusy = new Set();
 // Uploads arrive in pieces, so a single request never needs to be large (hosting front ends cap it).
 const MAX_PART = 64 * 1024 * 1024;
 // Files somebody has started sending and not finished, at most, and how much of them may be waiting at
@@ -1234,7 +1239,7 @@ async function handleCatalogue(req, res, parts) {
         }),
       });
     }
-    // PATCH { ids, tier, artists: { add, remove, set }, cc: { add, remove, set } }: many at once. What is not
+    // PATCH { ids, tier, artists: { add, remove, set }, cc: { add, remove, set }, names, tiers }: many at once. What is not
     // said of them is left as each has it; all or none are changed.
     if (parts.length === 4 && parts[3] === 'entities' && req.method === 'PATCH') {
       const body = await readJson(req, 1024 * 1024);
@@ -1242,6 +1247,31 @@ async function handleCatalogue(req, res, parts) {
       const list = ids.map((id) => store.entity(id));
       if (!list.length || list.some((e) => !e || e.projectId !== project.id)) return sendJson(res, 400, { error: 'Pick assets, sets or shots of this project' });
       if (body.tier !== undefined && !naming.TIERS.includes(body.tier)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
+      // { names: { id: name }, tiers: { id: tier } }: each its own (as Claude suggests in batch edit).
+      const own = (map) => (map && typeof map === 'object' && !Array.isArray(map) ? map : {});
+      const names = new Map();
+      for (const [id, n] of Object.entries(own(body.names))) {
+        if (!ids.includes(id)) return sendJson(res, 400, { error: 'Rename only what is picked' });
+        const name = naming.tokenize(n);
+        if (!name) return sendJson(res, 400, { error: 'An asset, set or shot needs a name' });
+        names.set(id, name);
+      }
+      const tiers = own(body.tiers);
+      for (const [id, t] of Object.entries(tiers)) {
+        if (!ids.includes(id)) return sendJson(res, 400, { error: 'Change only what is picked' });
+        if (!naming.TIERS.includes(t)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
+      }
+      // The names as they will all be: none twice, and none another of the project's has.
+      const after = new Map(list.map((e) => [e.id, names.get(e.id) || e.name]));
+      const seen = new Map();
+      for (const [id, n] of after) {
+        if (seen.has(n)) return sendJson(res, 409, { error: `Two would be called ${n}` });
+        seen.set(n, id);
+      }
+      for (const n of names.values()) {
+        const have = store.entityNamed(project.id, n);
+        if (have && !after.has(have.id)) return sendJson(res, 409, { error: `There is a ${n} in this project already` });
+      }
       const change = (now, how) => {
         if (!how || typeof how !== 'object') return now;
         if (Array.isArray(how.set)) return cleanPeople(how.set);
@@ -1250,11 +1280,17 @@ async function handleCatalogue(req, res, parts) {
         for (const n of cleanPeople(how.add)) if (!kept.some((k) => k.toLowerCase() === n.toLowerCase())) kept.push(n);
         return kept;
       };
-      const done = store.transaction(() => list.map((e) => store.setEntity(e.id, {
-        ...(body.tier !== undefined && { tier: body.tier }),
-        artists: change(e.artists, body.artists),
-        cc: change(e.cc, body.cc),
-      }).entity));
+      const done = store.transaction(() => {
+        // Renamed in two steps, so names can go round among them (a to b, b to a).
+        const moving = list.filter((e) => names.has(e.id) && names.get(e.id) !== e.name);
+        for (const e of moving) store.setEntity(e.id, { name: `~${e.id}` });
+        return list.map((e) => store.setEntity(e.id, {
+          ...(names.has(e.id) && { name: names.get(e.id) }),
+          ...(tiers[e.id] ? { tier: tiers[e.id] } : body.tier !== undefined && { tier: body.tier }),
+          artists: change(e.artists, body.artists),
+          cc: change(e.cc, body.cc),
+        }).entity);
+      });
       retellEntities(new Set(done.map((e) => e.id)));
       return sendJson(res, 200, { entities: done });
     }
@@ -1273,6 +1309,40 @@ async function handleCatalogue(req, res, parts) {
     if (parts.length === 4 && parts[3] === 'versions' && req.method === 'POST') {
       const body = await readJson(req, 4 * 1024 * 1024);
       return sendJson(res, 201, { versions: fileVersions(req, project, body) });
+    }
+    // POST /api/projects/:id/ai/files { instruction, files: [{ key, filename, now }] }: what Claude would file
+    // each as. POST /api/projects/:id/ai/entities { instruction, ids }: what Claude would rename them to.
+    // Only suggestions: nothing is changed here (ai.js).
+    if (parts.length === 5 && parts[3] === 'ai' && req.method === 'POST' && (parts[4] === 'files' || parts[4] === 'entities')) {
+      if (!ai.enabled) return sendJson(res, 503, { error: 'Claude is not set up on this server' });
+      const body = await readJson(req, 1024 * 1024);
+      const who = `${project.id}:${actor(req, body, '') || clientAddress(req, process.env.TRUST_PROXY)}`;
+      if (aiBusy.has(who)) return sendJson(res, 429, { error: 'Claude is still answering your last question' });
+      aiBusy.add(who);
+      try {
+        const presetId = project.settings && project.settings.naming;
+        const entities = store.entities(project.id);
+        const tasks = store.projectTasks(project.id);
+        if (parts[4] === 'files') {
+          const files = (Array.isArray(body.files) ? body.files : []).filter((f) => f && typeof f === 'object')
+            .map((f) => ({ key: String(f.key), filename: String(f.filename || ''), now: f.now && typeof f.now === 'object' ? f.now : null }));
+          if (files.length > ai.MAX_FILES) return sendJson(res, 400, { error: `Ask about at most ${ai.MAX_FILES} files at a time` });
+          const answers = await ai.fileNames({ instruction: body.instruction, files, presetId, entities, tasks });
+          return sendJson(res, 200, { model: ai.model, answers });
+        }
+        const ids = Array.isArray(body.ids) ? [...new Set(body.ids.map(String))] : [];
+        if (ids.length > ai.MAX_ENTITIES) return sendJson(res, 400, { error: `Ask about at most ${ai.MAX_ENTITIES} at a time` });
+        const chosen = ids.map((id) => entities.find((e) => e.id === id));
+        if (!chosen.length || chosen.some((e) => !e)) return sendJson(res, 400, { error: 'Pick assets, sets or shots of this project' });
+        const withFiles = chosen.map((e) => ({
+          id: e.id, name: e.name, tier: e.tier,
+          files: [...new Set(store.versionsOf(e.id).map((v) => v.originalName).filter(Boolean))].slice(0, 3),
+        }));
+        const answers = await ai.renameEntities({ instruction: body.instruction, chosen: withFiles, presetId, entities, tasks });
+        return sendJson(res, 200, { model: ai.model, answers });
+      } finally {
+        aiBusy.delete(who);
+      }
     }
     return sendJson(res, 404, { error: 'Not found' });
   }
@@ -1855,7 +1925,7 @@ function shareBases() {
 async function handleApi(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean); // ['api', ...]
   if (parts[1] === 'me') {
-    return sendJson(res, 200, { auth: auth.mode, user: req.user || null, admin: admin.allows(req), canShare: SHARING, maxUpload: MAX_UPLOAD, publicUrl: auth.publicUrl || null, shareBases: shareBases(), signOut: !!auth.interactive });
+    return sendJson(res, 200, { auth: auth.mode, user: req.user || null, admin: admin.allows(req), canShare: SHARING, maxUpload: MAX_UPLOAD, publicUrl: auth.publicUrl || null, shareBases: shareBases(), signOut: !!auth.interactive, ai: ai.enabled ? { model: ai.model } : null });
   }
   if (parts[1] === 'admin') return admin.handle(req, res, parts.slice(2));
   if (['projects', 'entities', 'versions', 'people', 'feed'].includes(parts[1])) return handleCatalogue(req, res, parts);
@@ -2701,6 +2771,7 @@ process.on('exit', shutdown);
 
 server.listen(PORT, HOST, () => {
   console.log(`Boards by Myreze is running. ${boards.size} board(s) loaded from ${DATA_DIR}. Sign-in: ${auth.mode}`);
+  console.log(`  Claude:        ${ai.enabled ? `on, ${ai.model} (suggests names when importing and in batch edit)` : 'off (set ANTHROPIC_API_KEY to turn it on)'}`);
   console.log(`  This machine:  http://localhost:${PORT}`);
   for (const list of Object.values(os.networkInterfaces())) {
     for (const net of list || []) {

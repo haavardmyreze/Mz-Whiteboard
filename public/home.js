@@ -1673,13 +1673,45 @@
     const error = el('p', { class: 've-error', hidden: true });
     const save = el('button', { type: 'submit', class: 'btn primary', text: `Change ${chosen.length}` });
     const names = chosen.map((e) => e.name);
+    // Claude, told what they are, suggests new names and what each is (claude.js). Each suggestion is
+    // ticked to be taken, and can be changed first; nothing is renamed until the dialog is saved.
+    let renames = [];
+    const aiList = el('div', { class: 'be-ai-list', hidden: true });
+    const tierLabel = (id) => (tiers.find((t) => t.id === id) || { one: id }).one;
+    const ai = WBClaude.on() && WBClaude.box({
+      placeholder: 'Tell Claude how to rename them, e.g. "these are all shots of ch01, in the order of their names"',
+      ask: async (instruction) => {
+        const res = await api('POST', `/api/projects/${project.id}/ai/entities`, { instruction, ids: chosen.map((e) => e.id) });
+        renames = chosen.filter((e) => res.answers[e.id]).map((e) => {
+          const a = res.answers[e.id];
+          const take = el('input', { type: 'checkbox', checked: true, 'aria-label': `Rename ${e.name}` });
+          const name = el('input', { type: 'text', value: a.name, spellcheck: 'false', 'aria-label': `New name for ${e.name}` });
+          return {
+            e, a, take, name,
+            node: el('label', { class: 'be-ai-row' }, take,
+              el('span', { class: 'be-ai-old', text: e.name, title: e.tier }), el('span', { class: 'be-ai-to', text: '→' }), name,
+              el('span', { class: 'be-ai-tier', text: a.tier !== e.tier ? `${tierLabel(e.tier)} → ${tierLabel(a.tier)}` : '' }),
+              WBClaude.mark(a.note, a.fits)),
+          };
+        });
+        aiList.replaceChildren(...renames.map((x) => x.node));
+        aiList.hidden = !renames.length;
+        return { text: renames.length ? `${plural(renames.length, 'change')} suggested. Untick what you do not want, then save.` : 'Claude would leave them as they are' };
+      },
+    });
     const dlg = el('dialog', { class: 'dlg be' },
       el('form', {
         method: 'dialog',
         onsubmit: async (ev) => {
           ev.preventDefault();
           const body = { ids: chosen.map((e) => e.id), artists: artists.value(), cc: cc.value(), ...(tierSel.value && { tier: tierSel.value }) };
-          if (!body.artists && !body.cc && !body.tier) return dlg.close();
+          const taken = renames.filter((x) => x.take.checked && x.name.value.trim());
+          if (taken.length) {
+            body.names = Object.fromEntries(taken.filter((x) => x.name.value.trim() !== x.e.name).map((x) => [x.e.id, x.name.value]));
+            body.tiers = Object.fromEntries(taken.filter((x) => x.a.tier !== x.e.tier).map((x) => [x.e.id, x.a.tier]));
+          }
+          const renaming = taken.length && (Object.keys(body.names).length || Object.keys(body.tiers).length);
+          if (!body.artists && !body.cc && !body.tier && !renaming) return dlg.close();
           save.disabled = true;
           try {
             await api('PATCH', `/api/projects/${project.id}/entities`, body);
@@ -1688,8 +1720,14 @@
             shownProject = '';
             render();
             // Undo puts each back as it was: its own artists, cc and tier, not one value for all.
-            const before = chosen.map((e) => ({ id: e.id, artists: e.artists || [], cc: e.cc || [], tier: e.tier }));
+            const before = chosen.map((e) => ({ id: e.id, name: e.name, artists: e.artists || [], cc: e.cc || [], tier: e.tier }));
             undoable(`Changed ${plural(chosen.length, 'asset, set or shot', 'assets, sets and shots')}`, async () => {
+              // Names go back all at once, so names that went round among them can come back round.
+              if (renaming) {
+                await api('PATCH', `/api/projects/${project.id}/entities`, {
+                  ids: before.map((e) => e.id), names: Object.fromEntries(before.map((e) => [e.id, e.name])), tiers: Object.fromEntries(before.map((e) => [e.id, e.tier])),
+                });
+              }
               for (const e of before) await api('PATCH', `/api/entities/${e.id}`, { artists: e.artists, cc: e.cc, tier: e.tier });
               catalogues.delete(project.id);
               shownProject = '';
@@ -1704,6 +1742,7 @@
       },
       el('h2', { text: `Edit ${chosen.length === 1 ? names[0] : `${chosen.length} ${tierNow.length === 1 ? (tiers.find((t) => t.id === tierNow[0]) || { label: 'assets, sets and shots' }).label.toLowerCase() : 'assets, sets and shots'}`}` }),
       el('p', { class: 'be-which', text: names.length > 8 ? `${names.slice(0, 8).join(', ')} and ${names.length - 8} more` : names.join(', ') }),
+      ai && el('div', { class: 'be-ai' }, ai.node, aiList),
       artists.node, cc.node,
       el('div', { class: 'be-row' }, el('span', { class: 'be-label', text: 'What they are' }), el('div', { class: 'be-field' }, el('div', { class: 'be-ctl' }, tierSel))),
       error,
@@ -2297,8 +2336,23 @@
         resyncAll();
       },
     });
-    const head = el('div', { class: 'imp-head' }, title, fillAll, el('span', { class: 'imp-gap' }), clearBtn, fileAll);
-    const tray = el('div', { class: 'imp', hidden: true }, head, list);
+    // Claude, told what these are, fills the rows in (claude.js); they are checked and filed as ever.
+    const ai = WBClaude.on() && WBClaude.box({
+      placeholder: 'Tell Claude what these are, e.g. "all shots of ch02, numbered in the order of their names, anim"',
+      ask: askClaude, cls: 'imp-ai',
+    });
+    const aiBtn = ai && el('button', {
+      type: 'button', class: 'btn small ghost imp-aibtn', html: `${icon('sparkle', 14)}<span>Ask Claude</span>`, 'aria-expanded': 'false',
+      title: 'Let Claude fill in what these are from their names and what you tell it',
+      onclick: () => {
+        ai.node.hidden = !ai.node.hidden;
+        aiBtn.setAttribute('aria-expanded', String(!ai.node.hidden));
+        if (!ai.node.hidden) ai.focus();
+      },
+    });
+    if (ai) ai.node.hidden = true;
+    const head = el('div', { class: 'imp-head' }, title, fillAll, el('span', { class: 'imp-gap' }), aiBtn, clearBtn, fileAll);
+    const tray = el('div', { class: 'imp', hidden: true }, head, ai && ai.node, list);
     const picker = el('input', { type: 'file', multiple: true, accept: 'image/*,video/mp4,video/webm,video/quicktime', hidden: true });
     document.body.append(picker);
     let pickFor = null;
@@ -2324,6 +2378,59 @@
       return n;
     }
     const resyncAll = () => { for (const o of rows) if (o.fields) o.fields.sync(); };
+
+    // What Claude would file each row not yet filed as, put into the rows. Undo puts back what they said.
+    const unfiled = (r) => r.status !== 'filed' && r.status !== 'filing';
+    async function askClaude(instruction) {
+      const asked = rows.filter(unfiled);
+      if (!asked.length) throw new Error('Nothing here is left to file');
+      const res = await api('POST', `/api/projects/${project.id}/ai/files`, {
+        instruction,
+        files: asked.map((r) => ({
+          key: r.key, filename: r.file.name,
+          now: { entity: r.fields.ent.value.trim() || null, task: r.fields.task.value.trim() || null, version: r.numTouched ? Number(r.fields.num.value) || null : null },
+        })),
+      });
+      await catalogue().catch(() => {});
+      const before = [];
+      let n = 0;
+      for (const r of asked) {
+        const a = res.answers[r.key];
+        if (!a || !unfiled(r)) continue;
+        const f = r.fields;
+        before.push({ r, ent: f.ent.value, task: f.task.value, tier: f.tier.value, num: f.num.value, numTouched: r.numTouched });
+        f.ent.value = a.entity;
+        f.task.value = a.task || '';
+        f.tier.value = a.tier;
+        r.numTouched = !!a.version;
+        if (a.version) f.num.value = String(a.version);
+        setMark(r, WBClaude.mark(a.note, a.fits));
+        n++;
+      }
+      resyncAll();
+      if (!n) return { text: 'Claude had nothing to suggest for these' };
+      const missed = asked.length - n;
+      return {
+        text: `Filled in ${plural(n, 'row')}${missed ? ` (not ${missed})` : ''}. Check them, then file.`,
+        undo: () => {
+          for (const b of before) {
+            b.r.fields.ent.value = b.ent;
+            b.r.fields.task.value = b.task;
+            b.r.fields.tier.value = b.tier;
+            b.r.fields.num.value = b.num;
+            b.r.numTouched = b.numTouched;
+            setMark(b.r, null);
+          }
+          resyncAll();
+        },
+      };
+    }
+    // A row Claude filled in says so, until it is changed by hand.
+    function setMark(r, mark) {
+      if (r.fields.mark) r.fields.mark.remove();
+      r.fields.mark = mark;
+      if (mark) r.fields.box.prepend(mark);
+    }
     const canFile = (r) => (r.status === 'ready' || r.status === 'uploading' || r.status === 'queued' || (r.status === 'failed' && r.look)) && !r.fileWhenReady && !!choiceOf(r).name;
 
     function makeRow(r) {
@@ -2353,7 +2460,10 @@
         go.disabled = !canFile(r);
         paintHead();
       };
-      for (const input of [ent, task, num]) input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented && canFile(r)) fileRow(r); });
+      for (const input of [ent, task, num]) {
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented && canFile(r)) fileRow(r); });
+        input.addEventListener('input', () => setMark(r, null));
+      }
       r.fields = { f, ent, task, num, tier, go, status, bar, thumb, said, box: fields, sync };
       // Taken back: whatever is under way for it stops, and the row goes.
       const drop = el('button', {
@@ -2400,6 +2510,8 @@
       fileAll.hidden = !ready;
       clearBtn.hidden = !filed && !rows.some((r) => r.status === 'failed' && !r.look);
       fillAll.hidden = rows.filter((r) => r.status !== 'filed').length < 2;
+      if (aiBtn) aiBtn.hidden = !rows.some(unfiled);
+      if (ai && aiBtn.hidden) ai.node.hidden = true;
     }
 
     // What has been filed shows in the catalogue behind the strip at once.
@@ -2420,7 +2532,7 @@
         r.fileWhenReady = true;
         return paintRow(r);
       }
-      const { task } = choiceOf(r);
+      const { name, task } = choiceOf(r);
       const entity = r.fields.f.entity();
       const number = Number(r.fields.num.value);
       r.status = 'filing';
@@ -2478,7 +2590,7 @@
       let n = 0;
       for (const file of files) {
         if (!/^(image|video)\//.test(file.type) && !/\.(png|jpe?g|gif|webp|avif|bmp|svg|mp4|m4v|webm|mov)$/i.test(file.name)) continue;
-        const r = { file, entity, status: 'queued', progress: 0, parsed: N.parse(file.name, presetId), look: null, preview: null, ctl: new AbortController() };
+        const r = { key: WB.uid(), file, entity, status: 'queued', progress: 0, parsed: N.parse(file.name, presetId), look: null, preview: null, ctl: new AbortController() };
         rows.push(r);
         list.append(makeRow(r));
         paintRow(r);

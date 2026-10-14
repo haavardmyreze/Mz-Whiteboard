@@ -79,7 +79,8 @@ function start(port, env = {}, seed) {
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'wipboard-test-'));
   if (seed) seed(data);
   const child = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', WIPBOARD_DATA: data, WIPBOARD_ENV_FILE: path.join(data, 'no.env'), ...env },
+    // Never the real Claude, whatever key this machine has: a test that wants it gives a stand-in.
+    env: { ...process.env, ANTHROPIC_API_KEY: '', PORT: String(port), HOST: '127.0.0.1', WIPBOARD_DATA: data, WIPBOARD_ENV_FILE: path.join(data, 'no.env'), ...env },
     stdio: 'ignore',
   });
   const base = `http://127.0.0.1:${port}`;
@@ -156,7 +157,7 @@ test('without sign-in /api/me reports no user', async (t) => {
   t.after(s.stop);
   await s.ready;
   const { shareBases, ...me } = await (await fetch(`${s.base}/api/me`)).json();
-  assert.deepEqual(me, { auth: 'none', user: null, admin: true, canShare: true, maxUpload: 1024 ** 3, publicUrl: null, signOut: false });
+  assert.deepEqual(me, { auth: 'none', user: null, admin: true, canShare: true, maxUpload: 1024 ** 3, publicUrl: null, signOut: false, ai: null });
   // share links never point at localhost: only at addresses other computers can reach
   assert.ok(shareBases.every((b) => /^http:\/\/\d+\.\d+\.\d+\.\d+:4794$/.test(b) && !b.includes('127.0.0.1')));
 });
@@ -634,7 +635,7 @@ test('a change made just before shutdown is on disk when the server comes back',
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'wipboard-test-'));
   t.after(() => fs.rmSync(data, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   const run = () => spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
-    env: { ...process.env, PORT: '4814', HOST: '127.0.0.1', WIPBOARD_DATA: data, WIPBOARD_ENV_FILE: path.join(data, 'no.env') },
+    env: { ...process.env, ANTHROPIC_API_KEY: '', PORT: '4814', HOST: '127.0.0.1', WIPBOARD_DATA: data, WIPBOARD_ENV_FILE: path.join(data, 'no.env') },
     stdio: 'ignore',
   });
   const base = 'http://127.0.0.1:4814';
@@ -2428,4 +2429,74 @@ test('nobody has more than twenty files on their way in at once', async (t) => {
   // one already on its way carries on, and once it is in there is room again
   assert.equal((await piece('waiting00', 10, 1)).status, 200);
   assert.equal((await piece('waiting20', 0, 0)).status, 200);
+});
+
+// ---------------------------------------------------------------- Claude
+
+test('Claude suggests names for files and renames, through the server, without changing anything itself', async (t) => {
+  // Claude stood in for by a small server that answers whatever tool it is asked to call.
+  const http = require('node:http');
+  const asked = [];
+  const claude = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => { raw += c; });
+    req.on('end', () => {
+      const body = JSON.parse(raw);
+      asked.push({ key: req.headers['x-api-key'], body });
+      const input = body.tool_choice.name === 'file_versions'
+        ? { files: [{ key: 'r0', entity: 'ch02-0010', tier: 'shot', task: 'anim', version: 4, note: 'v4 in the name' }] }
+        : { entities: [{ id: body.messages[0].content.match(/\n(\S+)\topening/)[1], name: 'ch02-0020', tier: 'shot', note: 'the opening shot' }] };
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ stop_reason: 'tool_use', content: [{ type: 'tool_use', name: body.tool_choice.name, input }] }));
+    });
+  });
+  await new Promise((r) => claude.listen(0, '127.0.0.1', r));
+  t.after(() => claude.close());
+  const s = start(4891, { ANTHROPIC_API_KEY: 'sk-test', ANTHROPIC_BASE_URL: `http://127.0.0.1:${claude.address().port}`, AI_MODEL: '' });
+  t.after(s.stop);
+  await s.ready;
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: { 'content-type': 'application/json' }, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  assert.deepEqual((await call('GET', '/api/me')).body.ai, { model: 'claude-haiku-5-5' });
+  const kilo = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${kilo.id}`, { project: true });
+  const made = (await call('POST', `/api/projects/${kilo.id}/entities`, { names: ['opening', 'char-robot', 'set-kitchen'], tier: 'asset' })).body.made;
+  const [opening, robot, kitchen] = ['opening', 'char-robot', 'set-kitchen'].map((n) => made.find((e) => e.name === n));
+
+  const files = await call('POST', `/api/projects/${kilo.id}/ai/files`, { instruction: 'all shots of ch02', files: [{ key: 'r0', filename: 'Robot walk v4.mov' }] });
+  assert.equal(files.status, 200);
+  assert.deepEqual(files.body.answers.r0, { entity: 'ch02-0010', tier: 'shot', task: 'anim', version: 4, note: 'v4 in the name', fits: true });
+  assert.equal(asked[0].key, 'sk-test');
+  assert.match(asked[0].body.system, /char-robot \(asset\)/, 'the project\'s names go along');
+  assert.match(asked[0].body.messages[0].content, /all shots of ch02/);
+
+  const ren = await call('POST', `/api/projects/${kilo.id}/ai/entities`, { instruction: 'opening is the first shot', ids: [opening.id] });
+  assert.equal(ren.status, 200);
+  assert.deepEqual(ren.body.answers[opening.id], { name: 'ch02-0020', tier: 'shot', note: 'the opening shot', fits: true });
+  assert.equal((await call('GET', `/api/entities/${opening.id}`)).body.entity.name, 'opening', 'only suggested');
+  assert.equal((await call('POST', `/api/projects/${kilo.id}/ai/entities`, { ids: ['nope'] })).status, 400);
+
+  // Applied as one change: each its own name and tier; names can go round among them; all or nothing.
+  const ids = [opening.id, robot.id];
+  const swap = await call('PATCH', `/api/projects/${kilo.id}/entities`, { ids, names: { [opening.id]: 'char-robot', [robot.id]: 'opening' }, tiers: { [robot.id]: 'shot' } });
+  assert.equal(swap.status, 200);
+  const named = (id) => swap.body.entities.find((e) => e.id === id);
+  assert.deepEqual([named(opening.id).name, named(opening.id).tier, named(robot.id).name, named(robot.id).tier], ['char-robot', 'asset', 'opening', 'shot']);
+  assert.equal((await call('PATCH', `/api/projects/${kilo.id}/entities`, { ids, names: { [opening.id]: 'set-kitchen' } })).status, 409, 'another has that name');
+  assert.equal((await call('PATCH', `/api/projects/${kilo.id}/entities`, { ids, names: { [opening.id]: 'x', [robot.id]: 'x' } })).status, 409, 'two would share it');
+  assert.equal((await call('PATCH', `/api/projects/${kilo.id}/entities`, { ids, names: { [kitchen.id]: 'y' } })).status, 400, 'only what is picked');
+  assert.equal((await call('GET', `/api/entities/${opening.id}`)).body.entity.name, 'char-robot', 'refused changes change nothing');
+});
+
+test('without a key Claude is off, and the pages are told', async (t) => {
+  const s = start(4892, { ANTHROPIC_API_KEY: '' });
+  t.after(s.stop);
+  await s.ready;
+  assert.equal((await (await fetch(`${s.base}/api/me`)).json()).ai, null);
+  const kilo = await (await fetch(`${s.base}/api/folders`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Kilo' }) })).json();
+  await fetch(`${s.base}/api/folders/${kilo.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ project: true }) });
+  const res = await fetch(`${s.base}/api/projects/${kilo.id}/ai/files`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ files: [{ key: '0', filename: 'a.mov' }] }) });
+  assert.equal(res.status, 503);
 });

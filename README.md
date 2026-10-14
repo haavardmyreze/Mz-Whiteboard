@@ -408,6 +408,22 @@ filed in it.
   changes them together: artists and people cc'd added, taken off or set outright, and what they are
   (assets, sets or shots), showing who each field has now. What is left alone stays as each has it, and
   all of them change or none do. Esc, or Done, stops selecting.
+- **Asking Claude.** With a Claude API key on the server (`ANTHROPIC_API_KEY`, see Settings), the
+  import strip has "Ask Claude" and batch edit has a line to ask in. Say what the files or names are
+  ("all shots of ch02, numbered in the order of their names, anim") and Claude reads the original file
+  names, the project's naming rules and the names it already has, and suggests what each should be:
+  - Importing, it fills in each row's asset, set or shot, its task and its version (a version only when
+    the file name or you give one; otherwise the next, as ever). A small sparkle beside a row says
+    Claude filled it in, and why on hover; it turns amber when the name is not the usual shape. Change
+    any row by hand, or Undo them all, then file as usual.
+  - In batch edit, it suggests a new name, and what each is, for each picked asset, set or shot that
+    should change, using what its files were called. Untick or retype any, then save: they are renamed
+    all at once, or not at all (a name the project already has, or two the same, is refused), and
+    Undo puts the names back.
+
+  Claude never files or renames anything itself. Sent to it: what you type, the files' names (not the
+  files), the project's names and tasks, and what the rows say now. Haiku is used unless `AI_MODEL`
+  says otherwise. The server's side is `ai.js`; the box is `public/claude.js`.
 
 Names are read by the project's naming preset. The one there is follows the Myreze styleguide:
 `_` separates parts, `-` joins words, all lower case. An asset is `char-`, `prop-`, `env-`, `veh-` or
@@ -517,6 +533,8 @@ Environment variables, or lines in a `.env` file next to `server.js`. All option
 | `WIPBOARD_MAX_UPLOAD_MB` | `1024`   | Largest accepted file. A video's original above this is not kept, only its review copy |
 | `AUTH_MODE`              | `none`   | Who gets in, see above. Its own settings are listed in [DEPLOY.md](DEPLOY.md) |
 | `ALLOWED_HOSTS`          |          | Other names the server may be reached by (see "Requests from other sites") |
+| `ANTHROPIC_API_KEY`      |          | Turns on asking Claude when importing and in batch edit (see "Asking Claude"). Kept on the server |
+| `AI_MODEL`               | `claude-haiku-5-5` | The Claude model asked; `claude-sonnet-5-5` is slower and costlier, and better at sorting out muddled names |
 | `TRUST_PROXY`            |          | Set when a proxy is in front: `cloudflare` (a Cloudflare tunnel; believes `CF-Connecting-IP`) or `1` (believes the last address in `X-Forwarded-For`). Without it the connection's own address is who is counted for wrong passwords and uploads |
 
 ## Good to know
@@ -545,6 +563,7 @@ Environment variables, or lines in a `.env` file next to `server.js`. All option
 server.js          HTTP + WebSocket server, boards in memory
 store.js           The database: boards, items, folders, projects' catalogues and notes
 notifications.js   What each person is told about, worked out from the notes
+ai.js              Asking Claude for names: the prompt, the Claude API, checking what it answers
 auth.js            Who is asking: the four sign-in modes
 public/board.js    The canvas: rendering, input, sync, following
 public/snap.js     Smart snapping's geometry: edges, centres, equal gaps (tested on its own)
@@ -552,6 +571,7 @@ public/viewer.js   The player: one piece at a time, its strip, timeline, comment
 public/ink.js      Drawing: pen strokes, their outlines and colours; used by boards and the player
 public/ingest.js   Bringing media in: review copies of video, originals, timeline strips, stills; used by boards and the catalogue
 public/filing.js   Filing pieces as versions: the same fields on a board (Shift+V) and in the catalogue's import
+public/claude.js   Asking Claude: the box, what it said, and the mark on what it filled in
 public/media.js    The video cache on this computer, with sw.js (the service worker that plays from it)
 public/home.js     Board list, and a project's catalogue
 public/account.js  Your account dialog: name, colour, theme, layout, the video cache, sign out
@@ -563,5 +583,5 @@ public/boot.js     Theme and layout set before the page paints
 public/login.html  Sign-in page (password and Google modes)
 public/style.css   All styling
 scripts/           restore-board.js: bring back a deleted board
-test/              npm test: sign-in, uploads, live sync, workspaces, links, the database, catalogue, versions, notes, notifications and snapping
+test/              npm test: sign-in, uploads, live sync, workspaces, links, the database, catalogue, versions, notes, notifications, snapping and asking Claude (against a stand-in)
 ```

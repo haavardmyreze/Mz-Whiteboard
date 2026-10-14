@@ -90,6 +90,8 @@ All optional locally; the ones in bold matter when deployed.
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | | With `AUTH_MODE=google`: the OAuth client from Google Cloud Console |
 | `PUBLIC_URL` | | With `AUTH_MODE=google`: the address people use, no trailing slash. Also used for share links |
 | `ADMIN_EMAILS` | | With `google` or `iap`: comma separated emails of the first admins, who can open `/admin` and make others admins there |
+| `ANTHROPIC_API_KEY` | | Optional: a Claude API key (console.anthropic.com), to have Claude suggest names when importing and in batch edit. Never sent to the pages |
+| `AI_MODEL` | `claude-haiku-5-5` | Optional: the Claude model, e.g. `claude-sonnet-5-5` |
 | `SESSION_SECRET` | made once, kept in `data/.session-secret` | Signs sign-in cookies; set it only to share sessions between restarts of different data folders |
 
 With `AUTH_MODE=iap` the app checks the signed token Google adds to every request and refuses anything

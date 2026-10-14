@@ -18,13 +18,13 @@
   const TOKEN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
   const PRESETS = {
+    // Each tier's `shape` says in words what its `test` checks (shown to people, and told to Claude).
     myreze: {
       name: 'Myreze styleguide',
       tiers: [
-        { id: 'asset', label: 'Assets', one: 'asset', test: /^(char|prop|env|veh|fx)-[a-z0-9]+(?:-[a-z0-9]+)*$/ },
-        { id: 'set', label: 'Sets', one: 'set', test: /^set-[a-z0-9]+(?:-[a-z0-9]+)*$/ },
-        // <sequence>-<shot>: the shot is always four digits, the sequence is free (kilo, ch01, ep2-intro).
-        { id: 'shot', label: 'Shots', one: 'shot', test: /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9]{4}$/ },
+        { id: 'asset', label: 'Assets', one: 'asset', shape: 'char-, prop-, env-, veh- or fx- and then what it is (char-robot, prop-old-sword)', test: /^(char|prop|env|veh|fx)-[a-z0-9]+(?:-[a-z0-9]+)*$/ },
+        { id: 'set', label: 'Sets', one: 'set', shape: 'set- and then what it is (set-living-room)', test: /^set-[a-z0-9]+(?:-[a-z0-9]+)*$/ },
+        { id: 'shot', label: 'Shots', one: 'shot', shape: '<sequence>-<shot>: the shot is always four digits, the sequence is free (kilo-0010, ch01-0020, ep2-intro-0100)', test: /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9]{4}$/ },
       ],
       tasks: ['model', 'rig', 'lookdev', 'dressing', 'layout', 'anim', 'fx', 'lighting'],
     },

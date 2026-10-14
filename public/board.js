@@ -3806,7 +3806,7 @@
           el('span', { class: 'avatar sm', style: { background: hexOk(c.color) ? c.color : '#8a8a8a' }, text: WB.initials(c.name || '?') }),
           el('div', { class: 'msg-main' },
             el('div', { class: 'msg-top' }, el('strong', { text: c.name }), el('span', { class: 'msg-time', text: WB.ago(c.t) }),
-              c.obn && el('span', { class: 'msg-from', text: `on ${c.obn}` }), c.done && el('span', { class: 'msg-edited', text: 'resolved' })),
+              c.done && el('span', { class: 'msg-edited', text: 'resolved' })),
             el('div', { class: 'msg-where' }, el('span', { class: 'msg-on', text: hostLabel(c) })),
             text,
             replies > 0 && el('span', { class: 'msg-edited', text: replies === 1 ? '1 reply' : `${replies} replies` }))));

@@ -2249,3 +2249,43 @@ body.picking main { padding-bottom: 120px; }
 }
 .feed-seg .seg-btn { padding: 0 10px; }
 .home-cols .section-label { align-items: center; min-height: 36px; margin-bottom: 12px; }
+
+/* A project's versions, newest first, by day and by who filed a run of them. */
+.vl-day { display: flex; align-items: center; gap: 10px; margin: 28px 0 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.vl-day .tally { color: var(--muted); font-weight: 400; }
+#content > .vl-day:first-child { margin-top: 12px; }
+.vl-run { margin: 0 0 6px; }
+.vl-runhead { display: flex; align-items: center; gap: 8px; padding: 8px 0 4px; color: var(--muted); font-size: 12.5px; }
+.vl-runhead b { color: var(--text-2); font-weight: 600; }
+.vl-runhead .avatar.sm { width: 20px; height: 20px; font-size: 9px; background: var(--surface-3); color: var(--text-2); }
+.vl-list { display: flex; flex-direction: column; }
+.vl-row { display: grid; grid-template-columns: 22px 96px minmax(0, 1fr) auto 52px; align-items: center; gap: 14px; padding: 6px 10px 6px 0; border-radius: var(--r-2); cursor: pointer; }
+.vl-row:hover { background: var(--hover); }
+.vl-row.picked { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.vl-thumb { position: relative; width: 96px; height: 54px; padding: 0; border: 0; border-radius: var(--r-1); overflow: hidden; aspect-ratio: auto; cursor: zoom-in; }
+.vl-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.vl-thumb .ver-kind { left: 4px; bottom: 4px; padding: 1px 5px; font-size: 9.5px; }
+.vl-main { min-width: 0; }
+.vl-label { overflow: hidden; font-size: 13.5px; text-overflow: ellipsis; white-space: nowrap; }
+.vl-label a { color: var(--text); font-weight: 600; text-decoration: none; }
+.vl-label a:hover { text-decoration: underline; }
+.vl-label span { color: var(--text-2); }
+.vl-meta { color: var(--muted); font-size: 12px; }
+.vl-boards { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; max-width: 320px; }
+.vl-more { color: var(--muted); font-size: 11.5px; }
+.vl-time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+.vl-box { flex: none; position: relative; width: 18px; height: 18px; padding: 0; border: 1.5px solid var(--line-strong); border-radius: 5px; background: transparent; cursor: pointer; }
+.vl-box:hover { border-color: var(--muted); }
+.vl-box.on, .vl-box.some { border-color: var(--accent); background: var(--accent); }
+.vl-box.on::after { content: ""; position: absolute; left: 4px; top: 2px; width: 7px; height: 4px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg); }
+.vl-box.some::after { content: ""; position: absolute; left: 3px; right: 3px; top: 7px; height: 2px; background: #fff; }
+body.vpicking main { padding-bottom: 120px; }
+.undo-toast a.btn { text-decoration: none; }
+@media (max-width: 760px) {
+  .vl-row { grid-template-columns: 22px 72px minmax(0, 1fr) 44px; }
+  .vl-thumb { width: 72px; height: 40px; }
+  .vl-boards { display: none; }
+}
+
+.ent-thread-open { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.ent-thread-open:hover { color: var(--text); text-decoration: underline; }

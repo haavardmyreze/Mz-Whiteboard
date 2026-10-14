@@ -687,6 +687,11 @@ function openStore(dataDir) {
     for (const t of readTops.all(projectId)) (tops.get(t.entity_id) || tops.set(t.entity_id, {}).get(t.entity_id))[t.task ?? ''] = t.top;
     return readEntities.all(projectId).map((r) => ({ ...entityOf(r), versions: r.n, latestAt: r.latest || null, thumb: r.thumb || null, newest: glance(r.newest), tops: tops.get(r.id) || {} }));
   };
+  // A project's versions, newest filed first (archived and deleted ones left out), each with its entity.
+  const readProjectVersions = db.prepare(`SELECT v.*, e.name AS entity_name, e.tier AS entity_tier FROM versions v JOIN entities e ON e.id = v.entity_id
+    WHERE e.project_id = ? AND v.deleted_at IS NULL AND v.hidden = 0 AND v.created_at < ? ORDER BY v.created_at DESC, v.number DESC LIMIT ?`);
+  const projectVersions = (projectId, { before = Number.MAX_SAFE_INTEGER, limit = 300 } = {}) =>
+    readProjectVersions.all(projectId, before, limit).map((r) => ({ ...versionOf(r), entityName: r.entity_name, entityTier: r.entity_tier }));
   // An entity's newest version (of any task), as its card shows it.
   const readNewestAny = db.prepare('SELECT id FROM versions WHERE entity_id = ? AND hidden = 0 AND deleted_at IS NULL ORDER BY created_at DESC, number DESC LIMIT 1');
   const newestGlance = (entityId) => glance((readNewestAny.get(entityId) || {}).id);
@@ -912,7 +917,7 @@ function openStore(dataDir) {
   return {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
-    transaction, entities, newestOfTask, newestGlance, entity, entityNamed, addEntity, setEntity, entitiesOf, entitiesFiledBy, happenings, people, entityCount, addVersion, version, versionsOf, hideVersion, editVersion, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion,
+    transaction, entities, newestOfTask, newestGlance, projectVersions, entity, entityNamed, addEntity, setEntity, entitiesOf, entitiesFiledBy, happenings, people, entityCount, addVersion, version, versionsOf, hideVersion, editVersion, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion,
     note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,

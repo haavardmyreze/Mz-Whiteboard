@@ -2137,7 +2137,6 @@ const WBViewer = (() => {
             el('strong', { text: c.name }),
             c.guest && el('span', { class: 'notice-guest', text: 'Guest', title: 'Written by somebody holding a link, under a name they typed' }),
             el('span', { class: 'msg-time', text: WB.ago(c.t), title: new Date(c.t).toLocaleString() }),
-            c.obn && el('span', { class: 'msg-from', text: `on ${c.obn}`, title: `Said on ${c.obn}, about the same version` }),
             c.edited && el('span', { class: 'msg-edited', text: 'edited', title: `Edited ${new Date(c.edited).toLocaleString()}` }),
             el('span', { class: 'msg-acts' },
               member && mine(c) && !editing && el('button', { class: 'iconbtn mini', html: ICON.pen, title: 'Edit', onclick: () => startEdit(c) }),

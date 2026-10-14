@@ -146,6 +146,7 @@
   function currentView() {
     // The Import page that was is part of the catalogue now.
     if (/^#\/f\/[\w-]+\/timeline/.test(location.hash)) return { page: 'timeline', entity: null };
+    if (/^#\/f\/[\w-]+\/versions/.test(location.hash)) return { page: 'versions', entity: null };
     const m = /^#\/f\/[\w-]+\/(catalogue|import)(?:\/(?:(t|s)\/([\w-]+)|([\w-]+)))?/.exec(location.hash);
     if (!m) return { page: 'boards', entity: null };
     if (m[1] === 'import') return { page: 'catalogue', entity: null };
@@ -505,6 +506,7 @@
   const ICON_HOME = svg('<path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5"/>', 16);
   const ICON_BOARDS = svg('<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>', 16);
   const ICON_CAT = svg('<path d="M5 4h4v16H5zM10 4h4v16h-4z"/><path d="M15.5 4.6l3.8-1 3.7 15.5-3.8 1z"/>', 16);
+  const ICON_LIST = svg('<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1" fill="currentColor"/><circle cx="4.5" cy="12" r="1" fill="currentColor"/><circle cx="4.5" cy="18" r="1" fill="currentColor"/>', 16);
   const ICON_FILM = svg('<rect x="3" y="6" width="18" height="12" rx="1.5"/><path d="M8 6v12M16 6v12M3 10h5M3 14h5M16 10h5M16 14h5"/>', 16);
   const ICON_DOT = svg('<circle cx="12" cy="12" r="2" fill="currentColor"/>', 16);
   const ICON_CHEVRON = svg('<path d="M9 6l6 6-6 6"/>', 14);
@@ -526,6 +528,7 @@
     const f = folderById(rt.id);
     const v = f && f.project ? currentView() : { page: 'boards' };
     if (v.page === 'timeline') return `tl:${rt.id}`;
+    if (v.page === 'versions') return `vl:${rt.id}`;
     if (v.page !== 'catalogue') return f && f.project ? `p:${rt.id}` : `f:${rt.id}`;
     if (v.seq) return `s:${rt.id}:${v.seq}`;
     if (v.tier) return `t:${rt.id}:${v.tier}`;
@@ -596,6 +599,7 @@
     const kids = () => [
       ...sideRow({ key: `p:${f.id}`, depth: depth + 1, icon: ICON_BOARDS, label: 'Boards', href: `#/f/${f.id}`, count: boardsIn(f.id).length, drop, hereK }),
       ...sideRow({ key: `c:${f.id}`, depth: depth + 1, icon: ICON_CAT, label: 'Catalogue', href: `#/f/${f.id}/catalogue`, kids: tierRows, hereK }),
+      ...sideRow({ key: `vl:${f.id}`, depth: depth + 1, icon: ICON_LIST, label: 'Versions', href: `#/f/${f.id}/versions`, hereK }),
       ...sideRow({ key: `tl:${f.id}`, depth: depth + 1, icon: ICON_FILM, label: 'Timeline', href: `#/f/${f.id}/timeline`, hereK }),
       ...subs(),
     ];
@@ -677,6 +681,7 @@
             pin = e || (shownEntity && shownEntity.id === v.entity) ? { kind: 'entity', id: v.entity, name, projectId: f.id, tier: (e || shownEntity).tier, thumb: (e && e.thumb) || null } : null;
           }
         } else if (v.page === 'timeline') parts.push(['Timeline', `#/f/${f.id}/timeline`]);
+        else if (v.page === 'versions') parts.push(['Versions', `#/f/${f.id}/versions`]);
         else parts.push(['Boards', `#/f/${f.id}`]);
       }
     }
@@ -724,7 +729,7 @@
       ? [el('strong', { text: item.by || 'Somebody' }), ' filed ', thing]
       : [el('strong', { text: item.mine ? 'You' : item.by || 'Somebody' }), item.note.reply ? ' replied on ' : ' commented on ', thing];
     const why = item.entity.role === 'cc' ? 'you are cc\'d' : 'your work';
-    const where = [item.entity.project, why, item.note && item.note.board && `on ${item.note.board.name}`, ago(item.at)].filter(Boolean).join(' · ');
+    const where = [item.entity.project, why, ago(item.at)].filter(Boolean).join(' · ');
     const fresh = item.at > seen && !item.mine;
     return el('button', {
       type: 'button', class: `feed-row ${item.kind}${fresh ? ' unread' : ''}${item.mine ? ' mine' : ''}`, title: 'Open it, to look, comment and draw',
@@ -802,6 +807,195 @@
       pinned.length > 0 && el('div', { class: 'board-grid' }, pinned),
       el('div', { class: 'home-cols' }, updates, side),
     ].filter(Boolean);
+  }
+
+  // ------------------------------------------------------------- a project's versions, newest first
+  //
+  // Every version filed in the project, as it came in: by day, and within a day by who filed a run of
+  // them. Pick some (a click, Shift and a click for a run, or a day's or a run's box), then put them on
+  // one of the project's boards, or on a new board, as those versions.
+
+  const versionLists = new Map(); // project id -> the list as last fetched
+  const vpick = { project: null, ids: new Set(), last: null, order: [] };
+  const DAY = 24 * 3600 * 1000;
+  const dayOf = (t) => new Date(t).setHours(0, 0, 0, 0);
+  function dayName(day) {
+    const today = dayOf(Date.now());
+    if (day === today) return 'Today';
+    if (day === today - DAY) return 'Yesterday';
+    const d = new Date(day);
+    const opts = today - day < 6 * DAY ? { weekday: 'long' } : { weekday: 'short', day: 'numeric', month: 'short', ...(d.getFullYear() !== new Date().getFullYear() && { year: 'numeric' }) };
+    return d.toLocaleDateString(undefined, opts);
+  }
+  const clock = (t) => new Date(t).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
+  function dropVersionPick() {
+    vpick.project = null;
+    vpick.ids.clear();
+    $('vpickbar')?.remove();
+    document.body.classList.remove('vpicking');
+  }
+
+  async function versionsPage(project, fresh) {
+    const sig = `${project.id}|versions`;
+    const show = (data) => {
+      if (shownProject !== sig) return;
+      $('content').replaceChildren(...versionsView(project, data));
+      paintVersionPick(project);
+    };
+    shownProject = sig;
+    if (versionLists.has(project.id)) show(versionLists.get(project.id));
+    else if (fresh) $('content').replaceChildren(el('p', { class: 'home-empty', text: 'Loading…' }));
+    try {
+      const data = await api('GET', `/api/projects/${project.id}/versions`);
+      const was = versionLists.get(project.id);
+      versionLists.set(project.id, data);
+      if (!was || JSON.stringify(was) !== JSON.stringify(data)) show(data);
+    } catch (err) {
+      $('content').replaceChildren(el('p', { class: 'home-empty', text: err.message }));
+    }
+  }
+
+  function versionsView(project, data) {
+    const q = $('q').value.trim().toLowerCase();
+    const list = data.versions.filter((v) => !q || v.label.includes(q) || (v.createdBy || '').toLowerCase().includes(q));
+    vpick.order = list.map((v) => v.id);
+    if (vpick.project !== project.id) {
+      dropVersionPick();
+      vpick.project = project.id;
+    }
+    // By day; within a day, a run is what one person filed one after another.
+    const days = [];
+    for (const v of list) {
+      const day = dayOf(v.createdAt);
+      let d = days[days.length - 1];
+      if (!d || d.day !== day) days.push(d = { day, runs: [] });
+      let r = d.runs[d.runs.length - 1];
+      if (!r || r.by !== (v.createdBy || '') || r.last - v.createdAt > 2 * 3600 * 1000) d.runs.push(r = { by: v.createdBy || '', list: [], last: v.createdAt });
+      r.list.push(v);
+      r.last = v.createdAt;
+    }
+    const box = (ids, label) => {
+      const all = ids.every((id) => vpick.ids.has(id));
+      const some = !all && ids.some((id) => vpick.ids.has(id));
+      return el('button', {
+        type: 'button', class: `vl-box${all ? ' on' : some ? ' some' : ''}`, 'data-ids': ids.join(' '), title: label, 'aria-label': label,
+        onclick: (e) => {
+          e.stopPropagation();
+          const on = !ids.every((id) => vpick.ids.has(id));
+          for (const id of ids) on ? vpick.ids.add(id) : vpick.ids.delete(id);
+          paintVersionPick(project);
+        },
+      });
+    };
+    const row = (v) => {
+      const thumb = scrubber(el('button', {
+        type: 'button', class: `card-thumbs vl-thumb n${v.thumb ? 1 : 0}`, title: 'Open it, to look, comment and draw',
+        onclick: (e) => { e.stopPropagation(); lookAt(v.entityId, v.id); },
+      }, v.thumb && el('img', { src: v.thumb, alt: '', loading: 'lazy', draggable: 'false' }), v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })), v.look);
+      return el('div', {
+        class: `vl-row${vpick.ids.has(v.id) ? ' picked' : ''}`, 'data-id': v.id,
+        onclick: (e) => {
+          if (e.target.closest('a')) return;
+          if (e.shiftKey && vpick.last && vpick.order.includes(vpick.last)) {
+            const [a, b] = [vpick.order.indexOf(vpick.last), vpick.order.indexOf(v.id)].sort((x, y) => x - y);
+            for (const id of vpick.order.slice(a, b + 1)) vpick.ids.add(id);
+          } else if (vpick.ids.has(v.id)) vpick.ids.delete(v.id);
+          else vpick.ids.add(v.id);
+          vpick.last = v.id;
+          paintVersionPick(project);
+        },
+      },
+      box([v.id], `Select ${v.label}`),
+      thumb,
+      el('div', { class: 'vl-main' },
+        el('div', { class: 'vl-label' }, el('a', { href: `#/f/${project.id}/catalogue/${v.entityId}`, text: v.entity, title: `${v.entity}: its page` }), el('span', { text: v.label.slice(v.entity.length) })),
+        el('div', { class: 'vl-meta', text: [v.tier, v.artist && v.artist !== (v.createdBy || '').toLowerCase() && `by ${v.artist}`].filter(Boolean).join(' · ') })),
+      el('div', { class: 'vl-boards' }, v.boards.slice(0, 3).map((b) => el('a', { class: 'ver-board', href: `/b/${b.id}`, text: b.name, onclick: (e) => e.stopPropagation() })),
+        v.boards.length > 3 && el('span', { class: 'vl-more', text: `+${v.boards.length - 3}` })),
+      el('div', { class: 'vl-time', text: clock(v.createdAt), title: new Date(v.createdAt).toLocaleString() }));
+    };
+    const out = [];
+    for (const d of days) {
+      const ids = d.runs.flatMap((r) => r.list.map((v) => v.id));
+      out.push(el('div', { class: 'vl-day' }, box(ids, `Select everything filed ${dayName(d.day).toLowerCase()}`), el('b', { text: dayName(d.day) }), el('span', { class: 'tally', text: String(ids.length) })));
+      for (const r of d.runs) {
+        const runIds = r.list.map((v) => v.id);
+        const span = r.list.length > 1 ? `${clock(r.list[r.list.length - 1].createdAt)} – ${clock(r.list[0].createdAt)}` : clock(r.list[0].createdAt);
+        out.push(el('div', { class: 'vl-run' },
+          el('div', { class: 'vl-runhead' }, box(runIds, `Select what ${r.by || 'somebody'} filed then`),
+            el('span', { class: 'avatar sm', text: WB.initials(r.by || '?') }),
+            el('b', { text: r.by || 'Somebody' }), el('span', { text: `${plural(r.list.length, 'version')} · ${span}` })),
+          el('div', { class: 'vl-list' }, r.list.map(row))));
+      }
+    }
+    if (!list.length) out.push(el('p', { class: 'home-empty', text: q ? `No version matches "${$('q').value.trim()}".` : 'Nothing is filed in this project yet.' }));
+    if (data.more && !q) out.push(el('p', { class: 'home-quiet', text: 'The 300 newest are shown.' }));
+    return out;
+  }
+
+  function paintVersionPick(project) {
+    for (const node of document.querySelectorAll('.vl-row[data-id]')) node.classList.toggle('picked', vpick.ids.has(node.dataset.id));
+    for (const b of document.querySelectorAll('.vl-box[data-ids]')) {
+      const ids = b.dataset.ids.split(' ');
+      const n = ids.filter((id) => vpick.ids.has(id)).length;
+      b.classList.toggle('on', n === ids.length);
+      b.classList.toggle('some', n > 0 && n < ids.length);
+    }
+    const n = vpick.ids.size;
+    document.body.classList.toggle('vpicking', n > 0);
+    let bar = $('vpickbar');
+    if (!n) return void bar?.remove();
+    if (!bar) {
+      const addBtn = el('button', { type: 'button', class: 'btn small', text: 'Add to board', onclick: (e) => { e.stopPropagation(); addToBoardMenu(project, e.currentTarget); } });
+      bar = el('div', { id: 'vpickbar', class: 'pick-bar', role: 'toolbar', 'aria-label': 'Selected versions' },
+        el('span', { class: 'pick-count' }),
+        el('button', { type: 'button', class: 'btn small ghost', text: 'Clear', onclick: () => { vpick.ids.clear(); paintVersionPick(project); } }),
+        el('span', { class: 'pick-gap' }),
+        addBtn,
+        el('button', { type: 'button', class: 'btn small primary', text: 'New board', title: 'A new board in this project, with these on it', onclick: () => newBoardWith(project) }));
+      document.body.append(bar);
+    }
+    bar.querySelector('.pick-count').textContent = `${plural(n, 'version')} selected`;
+  }
+
+  // The project's boards (and those in its folders), newest edited first.
+  const projectBoards = (project) => everything.boards.filter((b) => b.folderId && (b.folderId === project.id || isWithin(b.folderId, project.id))).sort((a, b) => b.updatedAt - a.updatedAt);
+
+  function addToBoardMenu(project, anchor) {
+    const boardsHere = projectBoards(project);
+    if (!boardsHere.length) return void newBoardWith(project);
+    openMenu(anchor, [
+      ...boardsHere.slice(0, 12).map((b) => [b.name, () => placeOn(project, b)]),
+      ['New board…', () => newBoardWith(project)],
+    ]);
+  }
+
+  async function placeOn(project, board) {
+    const ids = vpick.order.filter((id) => vpick.ids.has(id));
+    const res = await api('POST', `/api/projects/${project.id}/place`, { board: board.id, versions: ids, by: me.name });
+    vpick.ids.clear();
+    paintVersionPick(project);
+    versionLists.delete(project.id);
+    shownProject = '';
+    render();
+    undoable(`${plural(res.placed.length, 'version')} put on ${board.name}`, null);
+    const toast = document.querySelector('.undo-toast');
+    if (toast) toast.append(el('a', { class: 'btn small ghost', href: `/b/${board.id}`, text: 'Open board' }));
+  }
+
+  async function newBoardWith(project) {
+    const ids = vpick.order.filter((id) => vpick.ids.has(id));
+    if (!ids.length) return;
+    const name = await WB.dialog({ title: 'New board', text: `With the ${plural(ids.length, 'version')} you picked on it.`, value: `Review ${new Date().toLocaleDateString()}`, placeholder: 'Board name', ok: 'Create board' });
+    if (!name) return;
+    try {
+      const board = await api('POST', '/api/boards', { name, folderId: project.id, workspace: project.workspace, by: me.name });
+      await api('POST', `/api/projects/${project.id}/place`, { board: board.id, versions: ids, by: me.name });
+      location.href = `/b/${board.id}`;
+    } catch (err) {
+      fail(err);
+    }
   }
 
   // A project's timeline: its shots played through in the player, as an edit (viewer.js, openRun): the
@@ -887,6 +1081,7 @@
 
   function render() {
     const rt = route();
+    if (vpick.project && (rt.kind !== 'folder' || rt.id !== vpick.project || currentView().page !== 'versions')) dropVersionPick();
     if (picking.on && (rt.kind !== 'folder' || rt.id !== picking.project || currentView().page !== 'catalogue' || currentView().entity)) {
       const f = folderById(picking.project);
       if (f) setPicking(f, false);
@@ -942,6 +1137,7 @@
     const sig = `${project.id}|${view.page}|${view.entity}`;
     const fresh = shownProject !== sig;
     shownProject = sig;
+    if (view.page === 'versions') return versionsPage(project, fresh);
     if (view.page === 'timeline') {
       // The player plays it; the page behind says so. The background refresh of the library leaves it be.
       if (runOf === project.id && thePlayer().isOpen()) return;
@@ -1530,13 +1726,13 @@
     const msg = (n, first) => el('div', { class: `ent-msg${first ? '' : ' reply'}` },
       el('span', { class: 'avatar sm', style: { background: /^#[0-9a-f]{6}$/i.test(n.color || '') ? n.color : '#8a8a8a' }, text: WB.initials(n.name || '?') }),
       el('div', { class: 'ent-msg-main' },
-        el('div', { class: 'ent-msg-top' }, el('strong', { text: n.name }), el('span', { text: ago(n.t) }),
-          first && (n.board.id
-            ? el('a', { href: `/b/${n.board.id}#c=${n.id}`, text: `on ${n.board.name || 'a board'}` })
-            : el('span', { class: 'ent-msg-where', text: 'in the catalogue' }))),
+        el('div', { class: 'ent-msg-top' }, el('strong', { text: n.name }), el('span', { text: ago(n.t) })),
         el('div', { class: 'ent-msg-text', text: n.text })));
     const threads = roots.map((n) => el('div', { class: `ent-thread${n.done ? ' done' : ''}` },
-      el('div', { class: 'ent-thread-ver' }, byVersion.get(n.versionId)?.label || '', n.done && el('span', { class: 'ent-done', text: 'Resolved' })),
+      // Where it was said is kept, not shown: what it is about is the version, which opens in the player.
+      el('div', { class: 'ent-thread-ver' },
+        el('button', { type: 'button', class: 'ent-thread-open', text: byVersion.get(n.versionId)?.label || '', title: 'Open it in the player', onclick: () => lookAt(entity.id, n.versionId) }),
+        n.done && el('span', { class: 'ent-done', text: 'Resolved' })),
       msg(n, true), replies(n.id).map((r) => msg(r, false))));
     const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
     const latest = page.versions.find((v) => !v.hidden);

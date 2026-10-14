@@ -1886,3 +1886,48 @@ test('many assets, sets and shots are edited at once: artists and cc added, take
   assert.equal((await call('PATCH', url, { ids: [a], tier: 'planet' })).status, 400);
   assert.equal((await call('GET', `/api/projects/${project.id}`)).body.entities.find((e) => e.id === a).tier, 'asset');
 });
+
+test('a project lists its versions newest first, and puts chosen ones on one of its boards', async (t) => {
+  const s = start(4845);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const board = (await call('POST', '/api/boards', { name: 'Dailies', folderId: project.id })).body;
+  const loose = (await call('POST', '/api/boards', { name: 'Elsewhere' })).body;
+  const up = async () => (await (await fetch(`${s.base}/api/upload?name=a.png`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
+  const file = async (name, task, by) => (await call('POST', `/api/projects/${project.id}/versions`, { by, entity: { name }, task, files: [{ look: { type: 'image', src: await up(), name: 'a.png', nw: 1600, nh: 900 } }] })).body.versions[0];
+  const a = await file('kilo-0010', 'anim', 'Erik');
+  const b = await file('kilo-0020', 'comp', 'Anna');
+  const c = await file('kilo-0010', 'anim', 'Erik');
+  await call('PATCH', `/api/versions/${b.id}`, { hidden: true });
+
+  const list = (await call('GET', `/api/projects/${project.id}/versions`)).body;
+  assert.deepEqual(list.versions.map((v) => [v.label, v.createdBy]), [['kilo-0010 anim v2', 'Erik'], ['kilo-0010 anim v1', 'Erik']]);
+  assert.equal(list.versions[0].entity, 'kilo-0010');
+  assert.equal(list.more, false);
+
+  // on the board, below what is there, as those versions
+  const open = joiner(4845);
+  const anna = await open(`board=${board.id}`, 'Anna');
+  t.after(() => anna.ws.close());
+  anna.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'noteitem1', type: 'note', x: 100, y: 50, w: 260, h: 200, text: 'Plan' } }] }));
+  await pause(200);
+  const placed = await call('POST', `/api/projects/${project.id}/place`, { board: board.id, versions: [c.id, a.id] });
+  assert.equal(placed.status, 200);
+  assert.equal(placed.body.placed.length, 2);
+  await pause(200);
+  const added = anna.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).filter((o) => o.t === 'add' && o.item.ver).map((o) => o.item);
+  assert.deepEqual(added.map((it) => [it.ver, it.type, it.w, it.h]), [[c.id, 'image', 750, 422], [a.id, 'image', 750, 422]]);
+  // side by side, in a row starting at the left of what is there, below it
+  assert.deepEqual(added.map((it) => [it.x, it.y]), [[100, 410], [874, 410]]);
+  assert.deepEqual((await call('GET', `/api/projects/${project.id}/versions`)).body.versions[0].boards.map((x) => x.name), ['Dailies']);
+  // not a board of another project, nor versions of nothing
+  assert.equal((await call('POST', `/api/projects/${project.id}/place`, { board: loose.id, versions: [a.id] })).status, 404);
+  assert.equal((await call('POST', `/api/projects/${project.id}/place`, { board: board.id, versions: ['nothing1'] })).status, 400);
+});

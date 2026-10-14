@@ -893,6 +893,65 @@ async function handleCatalogue(req, res, parts) {
         boards: [...boards.values()].filter((b) => visible(req.user, b) && boardProject(b) === project).map((b) => ({ id: b.id, name: b.name })),
       });
     }
+    // GET /api/projects/:id/versions?before=   its versions, newest filed first, a page at a time: the
+    // project's Versions list.
+    if (parts.length === 4 && parts[3] === 'versions' && req.method === 'GET') {
+      flushAll();
+      const before = Number(new URL(req.url, 'http://x').searchParams.get('before')) || undefined;
+      const list = store.projectVersions(project.id, { before, limit: 300 });
+      return sendJson(res, 200, {
+        versions: list.map((v) => {
+          const { src, poster, th, dur, fps, nw, nh, type } = v.look;
+          return {
+            id: v.id, entityId: v.entityId, entity: v.entityName, tier: v.entityTier, task: v.task, number: v.number,
+            label: naming.label(v.entityName, v.task, v.number), kind: v.kind, thumb: v.thumb, look: { type, src, poster, th, dur, fps, nw, nh },
+            artist: v.artist, createdAt: v.createdAt, createdBy: v.createdBy,
+            boards: store.boardsWithVersion(v.id).filter((b) => canSee(req.user, b.workspace)).map((b) => ({ id: b.id, name: b.name })),
+          };
+        }),
+        more: list.length === 300,
+      });
+    }
+    // POST /api/projects/:id/place { board, versions: [ids] }: puts versions on one of the project's
+    // boards, as pieces that are those versions, in rows below what is on it already.
+    if (parts.length === 4 && parts[3] === 'place' && req.method === 'POST') {
+      const body = await readJson(req, 256 * 1024);
+      const board = boards.get(body.board);
+      if (!visible(req.user, board) || boardProject(board) !== project) return sendJson(res, 404, { error: 'Board not found' });
+      const ids = Array.isArray(body.versions) ? [...new Set(body.versions)].slice(0, 200) : [];
+      const list = ids.map((id) => liveVersion(id)).filter((v) => v && store.entity(v.entityId).projectId === project.id);
+      if (!list.length) return sendJson(res, 400, { error: 'Pick versions of this project' });
+      openItems(board);
+      const all = [...board.items.values()].filter((it) => Number.isFinite(it.x) && Number.isFinite(it.y));
+      const left = all.length ? Math.min(...all.map((it) => it.x)) : 0;
+      const top = all.length ? Math.max(...all.map((it) => it.y + (it.h || 0))) + 160 : 0;
+      let z = all.reduce((m, it) => Math.max(m, it.z || 0), 0);
+      const W = 750;
+      const GAP = 24;
+      const cols = Math.min(6, Math.max(1, Math.ceil(Math.sqrt(list.length * 1.5))));
+      let x = 0;
+      let y = 0;
+      let tallest = 0;
+      const ops = list.map((v, i) => {
+        const look = v.look;
+        const h = Math.round(Math.min(1080, W * ((look.nh || 9) / (look.nw || 16))));
+        const w = Math.round(h === 1080 ? 1080 * ((look.nw || 16) / (look.nh || 9)) : W);
+        if (i && i % cols === 0) {
+          x = 0;
+          y += tallest + GAP;
+          tallest = 0;
+        }
+        const item = { ...look, id: newId(), type: look.type, x: left + x, y: top + y, w, h, z: ++z, ver: v.id };
+        x += w + GAP;
+        tallest = Math.max(tallest, h);
+        return { t: 'add', item };
+      });
+      const applied = applyOps(board, ops, null, true);
+      if (applied.length) broadcast(board, { t: 'op', ops: applied, from: null });
+      settle(board, applied);
+      note(board, req.user ? req.user.name : cleanName(body.by, null) || 'Somebody', 'add', ops.length);
+      return sendJson(res, 200, { board: { id: board.id, name: board.name }, placed: ops.map((o) => o.item.id) });
+    }
     // GET /api/projects/:id/timeline?task=   every shot in order, by sequence, with its newest version (of
     // that task, or of any), what the timeline view lays out and plays through.
     if (parts.length === 4 && parts[3] === 'timeline' && req.method === 'GET') {

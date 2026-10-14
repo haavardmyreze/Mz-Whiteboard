@@ -379,7 +379,13 @@ filed in it.
   place of the side strip, the bar under the picture holds every shot as a clip as long as it lasts,
   with its still and where each sequence begins; dragging along it moves through the whole run, and the
   time is the run's, in seconds, frames or timecode as everywhere else. The player's bar picks all
-  sequences or one, and the task; both are remembered. The arrows step from shot to shot, Space plays
+  sequences or one, and the task; both are remembered. Under the whole run is a close-up of it, as on
+  an editor's cut page: the playhead stays in the middle and the shots go by under it as a strip of their
+  own frames, so a cut is seen coming and a moment found to the frame. Drag it to move through the run (it
+  stops while held, and plays on when let go if it was playing), click to go to a moment, use the wheel
+  to move along it, and Ctrl or Cmd with the wheel, a pinch, or its − and + to zoom (remembered). Its
+  frames are taken from the shots in the browser as they come into view, nearest the playhead first;
+  until one is in, its place has the colour the shot has there. The arrows step from shot to shot, Space plays
   and pauses, loop goes round to the first shot, and what is written is about the shot under the
   playhead, on its version, like any other comment. Stills hold for three seconds. The shot on screen
   and its version are written over the picture and in the bar, and each clip in the strip says its
@@ -567,6 +573,7 @@ ai.js              Asking Claude for names: the prompt, the Claude API, checking
 auth.js            Who is asking: the four sign-in modes
 public/board.js    The canvas: rendering, input, sync, following
 public/snap.js     Smart snapping's geometry: edges, centres, equal gaps (tested on its own)
+public/cuttrack.js A run's close-up track: the playhead held in the middle, frames going by under it
 public/viewer.js   The player: one piece at a time, its strip, timeline, comments and drawings; used by boards and the catalogue
 public/ink.js      Drawing: pen strokes, their outlines and colours; used by boards and the player
 public/ingest.js   Bringing media in: review copies of video, originals, timeline strips, stills; used by boards and the catalogue

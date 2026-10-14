@@ -553,6 +553,7 @@ const WBViewer = (() => {
       runPlaying = false;
       cancelAnimationFrame(stillRaf);
       dropSpare();
+      cut.show(false);
       root.hidden = true;
       document.body.classList.remove('focus', 'focus-video', 'cp-open');
       closeNames();
@@ -955,6 +956,7 @@ const WBViewer = (() => {
     // begins. It is the track: dragging along it moves through the whole run.
     let runSig = '';
     function paintRun(force = false) {
+      cut.show(true);
       const sig = runClips.map((c) => `${c.id}:${c.dur.toFixed(2)}:${c.piece.poster || c.piece.th || ''}`).join('|');
       if (force || sig !== runSig) {
         runSig = sig;
@@ -971,6 +973,8 @@ const WBViewer = (() => {
           el('span', { class: 'tl-clippic', style: still && !c.piece.empty ? { backgroundImage: `url("${still}")` } : {} }, starts && el('b', { class: 'tl-seqname', text: c.piece.seq })),
           el('span', { class: 'tl-clipname' }, el('b', { text: c.piece.name || '' }), !c.piece.empty && el('span', { text: versionPart(c.piece) })));
         }));
+        cut.setClips(runClips, runTotal);
+        paintCutMarks();
       }
       for (const n of tlRun.children) n.classList.toggle('at', n.dataset.id === (open && open.id));
       const i = runClips.findIndex((c) => c.id === (open && open.id));
@@ -978,10 +982,46 @@ const WBViewer = (() => {
       posEl.style.minWidth = `${String(runClips.length).length * 2 + 3}ch`;
       prevBtn.disabled = nextBtn.disabled = runClips.length < 2;
     }
+    // Under the whole run, a close-up of it with the playhead held in the middle (cuttrack.js).
+    let cutHold = null;
+    const cut = WBCutTrack.create({
+      onGrab: () => {
+        interact();
+        cutHold = { resume: runPlaying || !!(videoOpen() && !videoOpen().paused) };
+        runPlaying = false;
+        cancelAnimationFrame(stillRaf);
+        if (videoOpen()) videoOpen().pause();
+      },
+      onSeek: (t) => {
+        runSeek(t);
+        told();
+      },
+      onRelease: () => {
+        if (cutHold && cutHold.resume) {
+          runPlaying = true;
+          playOpen();
+        }
+        cutHold = null;
+        syncTimeline();
+        told();
+      },
+    });
+    // Comments on any shot of the run, where they are in it.
+    function paintCutMarks() {
+      if (!runMode()) return;
+      const list = [];
+      for (const c of roots()) {
+        const clip = clipOf(c.on);
+        const at = clip && momentOf(c);
+        if (at == null) continue;
+        list.push({ at: clip.start + Math.min(at, clip.dur), color: hexOk(c.color) ? c.color : '#8a8a8a' });
+      }
+      cut.setMarks(list);
+    }
     timeline.append(tlPlay,
       el('button', { class: 'iconbtn tl-step', html: ICON.frameBack, title: 'Back one frame ( , )   With Shift, one second', onclick: (e) => stepFrame(-1, e.shiftKey) }),
       el('button', { class: 'iconbtn tl-step', html: ICON.frameFwd, title: 'Forward one frame ( . )   With Shift, one second', onclick: (e) => stepFrame(1, e.shiftKey) }),
-      tlTime, tlTrack, tlLoop, tlSound);
+      tlTime, tlTrack, tlLoop, tlSound, cut.node);
     window.addEventListener('wb:theme', () => {
       delete tlWave.dataset.drawn;
       fitWave(tlWave);
@@ -1007,6 +1047,7 @@ const WBViewer = (() => {
       const here = c ? c.start + (video ? at : stillAt) : at;
       const span = c ? runTotal : dur;
       tlTrack.style.setProperty('--p', `${(span > 0 && isFinite(span) ? clamp(here / span, 0, 1) : 0) * 100}%`);
+      if (c) cut.setTime(here);
       const label = timeLabel(here, span, fps);
       if (tlTime.textContent !== label) tlTime.textContent = label;
       const playing = runMode() ? runPlaying || (video && !video.paused) : !video.paused;
@@ -1237,6 +1278,7 @@ const WBViewer = (() => {
     // A mark above the track for every comment, in its writer's colour. Comments about the same moment
     // share a mark that says how many they are, and each click on it goes to the next of them.
     function paintMarks() {
+      paintCutMarks();
       const video = videoOpen();
       const dur = video ? video.duration : 0;
       if (!video || !(dur > 0) || !isFinite(dur)) return void tlMarks.replaceChildren();

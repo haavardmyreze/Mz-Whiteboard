@@ -2403,3 +2403,25 @@ body.viewonly #hint .hint-guest { display: inline; }
   .be-ai-row { grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.3fr) auto; }
   .be-ai-row .be-ai-to, .be-ai-row .be-ai-tier { display: none; }
 }
+
+/* A run's close-up track (cuttrack.js), under the whole run: the playhead held in the middle, the shots
+   going by under it as frames. Only in a run. */
+.cut { display: none; }
+.viewer.run .v-timeline { flex-wrap: wrap; height: auto; padding-bottom: 8px; row-gap: 0; }
+.viewer.run .v-timeline > .tl-track { align-self: center; height: 62px; }
+.viewer.run .cut { position: relative; display: block; flex: 1 0 100%; height: 76px; overflow: hidden; border-radius: 4px; background: #0c0c0c; cursor: grab; touch-action: none; }
+.viewer.run .cut.held { cursor: grabbing; }
+.cut-canvas { display: block; width: 100%; height: 100%; }
+.cut-zooms { position: absolute; right: 6px; bottom: 6px; display: flex; gap: 2px; opacity: 0; transition: opacity 0.15s; }
+.cut:hover .cut-zooms, .cut:focus-within .cut-zooms { opacity: 1; }
+.cut-zoom { display: grid; place-items: center; width: 24px; height: 22px; padding: 0; border: 0; border-radius: var(--r-1); background: rgba(0, 0, 0, 0.7); color: #fff; font: 600 14px/1 var(--sans); cursor: pointer; }
+.cut-zoom:hover { background: rgba(0, 0, 0, 0.9); }
+.cut-zoom:disabled { opacity: 0.35; cursor: default; }
+@media (hover: none) { .cut-zooms { opacity: 1; } }
+@media (max-width: 560px) {
+  /* On a phone the whole run has a row of its own under the buttons, and the close-up one under that. */
+  .viewer.run .v-timeline { padding-top: 2px; }
+  .viewer.run .v-timeline > .iconbtn, .viewer.run .v-timeline > .tl-time { height: 36px; }
+  .viewer.run .v-timeline > .tl-track { order: 1; flex: 1 0 100%; height: 48px; margin: 0 0 6px; }
+  .viewer.run .cut { order: 2; height: 58px; }
+}

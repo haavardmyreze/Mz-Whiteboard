@@ -57,122 +57,8 @@
     el('span', { text: me.name }));
   paintMe();
   $('me').title = 'Your account';
-  $('me').addEventListener('click', () => openAccount());
-
-  // ---- your account: who you are here, how the app looks, and what this computer keeps
-  const ICON = { pen: icon('pen', 16), moon: icon('moon', 16), sun: icon('sun', 16), disk: icon('disk', 18), out: icon('out', 16), shield: icon('shield', 16), close: icon('close', 18) };
-  const size = WB.bytes;
-
-  function openAccount() {
-    const managed = !!WB.info().user;
-    const dlg = el('dialog', { class: 'dlg acct-dlg', 'aria-label': 'Your account' });
-    dlg.addEventListener('close', () => dlg.remove());
-    const section = (title, ...kids) => el('section', { class: 'acct-sec' }, el('h3', { text: title }), ...kids);
-
-    // The dialog is drawn afresh after each change in it; what had the keyboard has it again after.
-    const focusKey = () => {
-      const a = document.activeElement;
-      return a && dlg.contains(a) ? a.getAttribute('aria-label') || a.textContent.trim() : null;
-    };
-    const refocus = (key) => {
-      if (!key) return;
-      const again = [...dlg.querySelectorAll('button, input, a')].find((n) => (n.getAttribute('aria-label') || n.textContent.trim()) === key);
-      if (again) again.focus({ preventScroll: true });
-    };
-    async function paint() {
-      const had = focusKey();
-      await draw();
-      refocus(had);
-    }
-    async function draw() {
-      const u = WB.info().user;
-      const stats = await WB.media.stats();
-      let quota = null;
-      try {
-        quota = navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate() : null;
-      } catch {
-        // not said by this browser
-      }
-      const ahead = el('input', { type: 'checkbox', role: 'switch', 'aria-label': 'Cache videos ahead' });
-      ahead.checked = WB.media.ahead();
-      ahead.addEventListener('change', () => { WB.media.setAhead(ahead.checked); paint(); });
-      const on = WB.media.kinds();
-      const kind = (k, text) => {
-        const box = el('input', { type: 'checkbox', role: 'switch', 'aria-label': text, disabled: !ahead.checked });
-        box.checked = on[k] !== false;
-        box.addEventListener('change', () => WB.media.setKind(k, box.checked));
-        return el('label', { class: `acct-row sub${ahead.checked ? '' : ' off'}` }, el('span', { text }), box);
-      };
-      const theme = WB.theme();
-      dlg.replaceChildren(
-        el('button', { type: 'button', class: 'iconbtn acct-close', html: ICON.close, title: 'Close (Esc)', onclick: () => dlg.close() }),
-        el('div', { class: 'acct-head' },
-          el('span', { class: 'avatar acct-av', style: { background: me.color }, text: WB.initials(me.name) }),
-          el('div', { class: 'acct-who' },
-            el('b', { text: me.name }),
-            el('span', {}, (u && u.email) || 'This browser', WB.info().admin && el('span', { class: 'acct-badge', html: ICON.shield }, 'Admin'))),
-          !managed && el('button', { type: 'button', class: 'iconbtn', html: ICON.pen, title: 'Change your name', onclick: async () => { me = await WB.askName(true); paintMe(); paint(); } })),
-        // A group of radio buttons: one stop for Tab, the arrows move between the colours.
-        !managed && el('div', {
-          class: 'acct-colors', role: 'radiogroup', 'aria-label': 'Your colour',
-          onkeydown: (e) => {
-            const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
-            if (!step) return;
-            e.preventDefault();
-            const i = WB.colors.indexOf(me.color);
-            me = WB.saveUser(me.name, WB.colors[(i + step + WB.colors.length) % WB.colors.length]);
-            paintMe();
-            paint();
-          },
-        }, WB.colors.map((c, i) => el('button', {
-          type: 'button', class: `acct-color${c === me.color ? ' on' : ''}`, style: { background: c }, role: 'radio', 'aria-checked': String(c === me.color),
-          'aria-label': `Colour ${i + 1} of ${WB.colors.length}`, tabindex: c === me.color ? '0' : '-1', title: 'Your colour on the boards',
-          onclick: () => { me = WB.saveUser(me.name, c); paintMe(); paint(); },
-        }))),
-        section('Appearance', el('div', { class: 'seg' }, [['dark', ICON.moon, 'Dark'], ['light', ICON.sun, 'Light']].map(([t, ic, label]) => el('button', {
-          type: 'button', class: `seg-btn${theme === t ? ' on' : ''}`, 'aria-pressed': String(theme === t), onclick: () => { WB.setTheme(t); paint(); },
-        }, el('span', { class: 'seg-ic', html: ic }), label))),
-        // The layout of the lists: cards, or compact rows. Also the button beside the bell.
-        el('div', { class: 'seg acct-seg2' }, [[false, ICON_CARDS, 'Cards'], [true, ICON_ROWS, 'Compact rows']].map(([compact, ic, label]) => {
-          const on = (document.documentElement.dataset.density === 'compact') === compact;
-          return el('button', { type: 'button', class: `seg-btn${on ? ' on' : ''}`, 'aria-pressed': String(on), onclick: () => { setDensity(compact); paint(); } }, el('span', { class: 'seg-ic', html: ic }), label);
-        }))),
-        section('Video cache',
-          el('div', { class: 'acct-cache' },
-            el('span', { class: 'acct-cache-ic', html: ICON.disk }),
-            el('div', { class: 'acct-cache-num' }, el('b', { text: size(stats.bytes) }), el('span', { text: `of ${size(WB.media.MAX)} · ${WB.plural(stats.count, 'video')}` })),
-            el('button', {
-              type: 'button', class: 'btn small', text: 'Clear', disabled: !stats.count,
-              onclick: async () => {
-                const sure = await WB.dialog({ title: 'Clear the video cache?', text: `${size(stats.bytes)} is freed on this computer. Videos load from the server again until they are cached anew.`, ok: 'Clear', danger: true });
-                if (!sure) return;
-                await WB.media.clear();
-                paint();
-              },
-            })),
-          el('i', { class: 'kp-bar' }, el('i', { style: { width: `${Math.min(1, stats.bytes / WB.media.MAX) * 100}%` } })),
-          el('label', { class: 'acct-row' }, el('span', { text: 'Cache videos ahead' }), ahead),
-          kind('boards', 'Boards I open'),
-          kind('work', 'The newest of my work'),
-          kind('cc', 'The newest of what I am cc\'d on'),
-          kind('pinned', 'The newest of what I pinned'),
-          el('p', { class: 'acct-note', text: 'Whatever you open is cached. With caching ahead on, so is what the page you are on and the timeline show. What was opened longest ago makes room.' }),
-          quota && quota.quota && el('p', { class: 'acct-note', text: `Browser storage · ${size(quota.usage || 0)} used of ${size(quota.quota)}` })),
-        (WB.info().admin || WB.info().signOut) && el('div', { class: 'acct-foot' },
-          WB.info().admin && el('a', { class: 'btn', href: '/admin', html: `${ICON.shield}<span>Admin</span>` }),
-          WB.info().signOut && el('button', {
-            type: 'button', class: 'btn', html: `${ICON.out}<span>Sign out</span>`,
-            onclick: async () => {
-              const sure = await WB.dialog({ title: 'Sign out?', text: `You are signed in as ${me.name}.`, ok: 'Sign out' });
-              if (sure) WB.signOut();
-            },
-          })));
-    }
-
-    document.body.append(dlg);
-    paint();
-    dlg.showModal();
-  }
+  // Your account (account.js): a change of name or colour there shows here at once.
+  $('me').addEventListener('click', () => WBAccount.open({ me: () => me, setMe: (m) => { me = m; paintMe(); }, setDensity }));
 
   // ------------------------------------------------------------- library helpers
 
@@ -2687,85 +2573,9 @@
     }
   });
 
-  // ------------------------------------------------------------- notifications
+  // ------------------------------------------------------------- notifications (notices.js)
 
-  // Replies, comments on your work and boards, and mentions, newest first (see notifications.js).
-  // Without sign-in the server only knows you by the name you gave, so it is sent along.
-  const noticeUrl = (p = '') => `/api/notifications${p}${WB.info().user ? '' : `?name=${encodeURIComponent(me.name)}`}`;
-  const NOTICE_TEXT = {
-    mention: () => 'mentioned you',
-    reply: () => 'replied to you',
-    work: (n) => `commented on ${n.on}`,
-    board: (n) => `commented on ${n.on}`,
-  };
-  let notices = { items: [], unread: 0 };
-
-  async function loadNotices() {
-    try {
-      notices = await api('GET', noticeUrl());
-    } catch {
-      return;
-    }
-    $('bellcount').hidden = !notices.unread;
-    $('bellcount').textContent = notices.unread > 99 ? '99+' : notices.unread;
-    $('bell').title = notices.unread ? `Notifications: ${notices.unread} unread` : 'Notifications';
-    if (!$('notices').hidden) paintNotices();
-  }
-
-  async function markNotices(body) {
-    try {
-      await api('POST', noticeUrl('/read'), body);
-    } catch {
-      // the next check shows them as they are
-    }
-  }
-
-  function paintNotices() {
-    // A comment made on a board opens there, at the comment; one made in the catalogue opens the asset,
-    // set or shot it is about.
-    const row = (n) => el('a', {
-      class: `notice${n.read ? '' : ' unread'}`,
-      href: n.board ? `${WB.href.board(n.board.id)}#c=${n.id}` : n.projectId && n.entityId ? WB.href.abs(WB.href.catalogue(n.projectId, { entity: n.entityId })) : '/',
-      onclick: () => { if (!n.read) markNotices({ ids: [n.id] }); },
-    },
-    WB.avatar(n.author, n.color),
-    el('span', { class: 'notice-body' },
-      el('span', { class: 'notice-what' }, el('strong', { text: n.author }), n.guest && el('span', { class: 'notice-guest', text: 'guest' }), ` ${NOTICE_TEXT[n.kind](n)}`),
-      el('span', { class: 'notice-text', text: n.text }),
-      el('span', { class: 'notice-where', text: `${n.board ? n.board.name || 'A board' : 'In the catalogue'} · ${ago(n.at)}` })),
-    !n.read && el('span', { class: 'notice-dot', role: 'img', 'aria-label': 'Unread' }));
-    $('notices').replaceChildren(
-      el('header', { class: 'notices-head' },
-        el('h2', { text: 'Notifications' }),
-        notices.unread > 0 && el('button', {
-          class: 'btn small ghost', text: 'Mark all read',
-          onclick: async () => { await markNotices({ all: true }); loadNotices(); },
-        })),
-      notices.items.length
-        ? el('div', { class: 'notices-list' }, notices.items.map(row))
-        : el('p', { class: 'notices-empty', text: 'Nothing yet. Replies to you, comments on your work and boards, and @mentions of your name show up here.' }));
-  }
-
-  function toggleNotices(open = $('notices').hidden) {
-    const was = !$('notices').hidden;
-    $('notices').hidden = !open;
-    $('bell').setAttribute('aria-expanded', String(open));
-    if (open) {
-      paintNotices();
-      loadNotices();
-      // The keyboard goes into the list, and back to the bell when it closes.
-      $('notices').setAttribute('tabindex', '-1');
-      $('notices').focus({ preventScroll: true });
-    } else if (was && $('notices').contains(document.activeElement)) $('bell').focus();
-  }
-  $('bell').addEventListener('click', () => toggleNotices());
-  document.addEventListener('pointerdown', (e) => {
-    if (!$('notices').hidden && !e.target.closest('.bellwrap')) toggleNotices(false);
-  });
-  loadNotices();
-  setInterval(() => { if (!document.hidden) loadNotices(); }, 30000);
-  // Coming back to this tab from a board: what was read there, or arrived since, shows at once.
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) loadNotices(); });
+  const notices = WBNotices.mount({ name: () => me.name });
 
   // What is typed narrows the page from what it already has, a beat after the last key.
   let searchTimer = 0;
@@ -2799,7 +2609,7 @@
       return;
     }
     if (typing || document.querySelector('dialog[open], .wb-menu') || playerOpen()) return;
-    if (!$('notices').hidden) return void toggleNotices(false);
+    if (notices.isOpen()) return void notices.close();
     if (document.body.classList.contains('side-open')) return void closeDrawer();
     if (vpick.ids.size) {
       vpick.ids.clear();

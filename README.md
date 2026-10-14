@@ -547,13 +547,21 @@ store.js           The database: boards, items, folders, projects' catalogues an
 notifications.js   What each person is told about, worked out from the notes
 auth.js            Who is asking: the four sign-in modes
 public/board.js    The canvas: rendering, input, sync, following
+public/snap.js     Smart snapping's geometry: edges, centres, equal gaps (tested on its own)
 public/viewer.js   The player: one piece at a time, its strip, timeline, comments and drawings; used by boards and the catalogue
+public/ink.js      Drawing: pen strokes, their outlines and colours; used by boards and the player
 public/ingest.js   Bringing media in: review copies of video, originals, timeline strips, stills; used by boards and the catalogue
+public/filing.js   Filing pieces as versions: the same fields on a board (Shift+V) and in the catalogue's import
+public/media.js    The video cache on this computer, with sw.js (the service worker that plays from it)
 public/home.js     Board list, and a project's catalogue
+public/account.js  Your account dialog: name, colour, theme, layout, the video cache, sign out
+public/notices.js  The bell: notifications on the home page
 public/naming.js   How file names are read for the catalogue (shared with the server)
-public/common.js   Shared helpers
+public/common.js   Shared helpers: elements, menus, toasts, links, dialogs
+public/icons.js    Every icon, drawn once
+public/boot.js     Theme and layout set before the page paints
 public/login.html  Sign-in page (password and Google modes)
 public/style.css   All styling
 scripts/           restore-board.js: bring back a deleted board
-test/              npm test: sign-in, uploads, live sync, workspaces, links, the database, catalogue, versions, notes and notifications
+test/              npm test: sign-in, uploads, live sync, workspaces, links, the database, catalogue, versions, notes, notifications and snapping
 ```

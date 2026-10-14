@@ -1830,6 +1830,9 @@ test('a project\'s timeline is every shot in order with its newest version, and 
   assert.equal(k10.newest.id, comp.id);
   assert.equal(k10.newest.look.type, 'video');
   assert.equal(cat.entities.find((e) => e.name === 'char-robot').newest, null);
+  // the project's home: what was filed in it lately, newest first
+  const act = (await call('GET', `/api/projects/${project.id}/activity`)).body;
+  assert.deepEqual(act.items.map((x) => [x.kind, x.version.label, x.entity.project]), [['version', 'kilo-0020 anim v1', 'Kilo'], ['version', 'kilo-0010 comp v1', 'Kilo'], ['version', 'kilo-0010 anim v1', 'Kilo']]);
 });
 
 test('a file brought in can ask for its version number, and the catalogue says what the next one is', async (t) => {

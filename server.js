@@ -980,6 +980,23 @@ async function handleCatalogue(req, res, parts) {
       note(board, req.user ? req.user.name : cleanName(body.by, null) || 'Somebody', 'add', list.length);
       return sendJson(res, 200, { board: { id: board.id, name: board.name }, placed: ops.map((o) => o.item.id) });
     }
+    // GET /api/projects/:id/activity   what happened in the project in the last two weeks, newest first:
+    // versions filed and comments written, on any of its assets, sets and shots (the project's home shows it).
+    if (parts.length === 4 && parts[3] === 'activity' && req.method === 'GET') {
+      flushAll();
+      const byId = new Map(store.entities(project.id).map((e) => [e.id, e]));
+      const { versions, notes } = store.happenings([...byId.keys()], Date.now() - 14 * 24 * 3600 * 1000, 60);
+      const about = (e) => ({ id: e.id, name: e.name, tier: e.tier, projectId: project.id, project: project.name });
+      const label = (id) => versionInfo(id)?.label;
+      const items = [
+        ...versions.map((v) => ({ kind: 'version', at: v.createdAt, by: v.createdBy, entity: about(byId.get(v.entityId)), version: { id: v.id, label: label(v.id), thumb: v.thumb, kind: v.kind } })),
+        ...notes.map((n) => ({
+          kind: 'note', at: n.createdAt, by: n.data.name || n.createdBy, color: n.data.color, entity: about(byId.get(n.entityId)),
+          version: { id: n.versionId, label: label(n.versionId) }, note: { id: n.id, text: String(n.data.text || '').slice(0, 300), reply: !!n.re },
+        })),
+      ].sort((a, b) => b.at - a.at).slice(0, 60);
+      return sendJson(res, 200, { items });
+    }
     // GET /api/projects/:id/timeline?task=   every shot in order, by sequence, with its newest version (of
     // that task, or of any), what the timeline view lays out and plays through.
     if (parts.length === 4 && parts[3] === 'timeline' && req.method === 'GET') {

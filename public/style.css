@@ -2323,3 +2323,11 @@ body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
   body:has(.viewer.docked:not([hidden])).side-open .side-scrim { z-index: 41; }
 }
 .viewer.docked .v-bar .themebtn { display: none; }
+/* The sidebar's Pinned heading is not a place of its own. */
+.side-head.plain:hover { background: none; color: var(--muted); }
+.side-head.plain { margin-top: 12px; }
+/* A project's home: its parts along the top, then activity beside what was filed and worked on last. */
+.ph-parts { margin-bottom: 28px; }
+.home-side .section-label + .home-quiet + .section-label, .home-side .home-work + .section-label { margin-top: 28px; }
+.folder-grid.ph-parts { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 8px; }
+@media (max-width: 1100px) { .folder-grid.ph-parts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

@@ -25,11 +25,11 @@ private networks, otherwise only the host machine can connect.
 
 ## What it does
 
-- **Getting around the home page.** A sidebar on the left holds Home, then each workspace with its
-  folders and projects as a tree: open a row with its arrow, go there with a click. A project opens to
-  its Boards and its Catalogue, and the catalogue to its assets, sets and shots, the shots by sequence,
-  each with a count. What is open in the tree is remembered, and the way to the page you are on is
-  opened for you. Above the page one slim line says where you are (Myreze / Kilo / Catalogue / Shots /
+- **Getting around the home page.** A sidebar on the left holds Home, then what you pinned (each a row
+  that goes there), then each workspace with its folders and projects as a tree. A project opens to its
+  Boards, Catalogue, Versions and Timeline, and the catalogue to its assets, sets and shots, the shots by
+  sequence, each with a count. Only what you are in is open: the way to the page you are on is opened
+  for you, and the rest close as you go elsewhere (an arrow opens a row for a look in the meantime). Above the page one slim line says where you are (Myreze / Kilo / Catalogue / Shots /
   kilo / kilo-0010), each part a link; the star at its end pins exactly what is there to Home: a board's folder, a project, a sequence, a tier of the catalogue, the catalogue, Versions, the Timeline, or an asset, set or shot.
   On a narrow window the sidebar is a drawer, opened with the button at the left of the bar.
 - **Home.** Three things, and nothing else. What you pinned (boards, folders, projects, shots) along
@@ -294,6 +294,10 @@ filed in it.
 - **Notes.** Comments on a version belong to it (see Comments above). Filing a piece takes the comments
   already made on it along. People holding a link to a board see only the notes made on that board;
   the team sees them all.
+- **A project's home.** Clicking a project opens its home page, not its boards: its parts (Catalogue,
+  with how many assets, sets and shots; Boards; Versions; Timeline) along the top, then Activity, the
+  versions filed and comments written in it in the last two weeks, beside what was filed last (cards that
+  scrub and play) and the boards last worked on. Its boards are at `#/f/<project>/boards`.
 - **The catalogue page.** A project has its Boards and its Catalogue, both in the sidebar. The catalogue
   is laid out like the project on disk: assets, sets, and shots by sequence, each with its newest
   still. An asset, set or shot opens on every version of it (where each is on a board, who filed it,
@@ -431,7 +435,8 @@ highest number each task of each entity has reached). `POST /api/projects/<folde
 `artists` and `cc`, and `PATCH /api/projects/<folder>/entities` takes `{ "ids": [...], "tier",
 "artists": { "add" | "remove" | "set": [...] }, "cc": { ... } }` to change many at once. `GET /api/people`
 lists the names the app knows, and `GET /api/feed?name=` is Home's Updates and My work.
-`GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest version,
+`GET /api/projects/<folder>/activity` what happened in the project in the last two weeks (versions
+filed and comments, newest first), `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest version,
 `GET /api/projects/<folder>/versions?before=` the project's versions newest first, and
 `POST /api/projects/<folder>/place` takes `{ "board", "versions": [...], "layout" }` to put versions on
 one of the project's boards (`"layout": "sequences"` for a column per sequence).

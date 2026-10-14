@@ -4744,7 +4744,7 @@
     $('back').removeAttribute('href');
     $('back').removeAttribute('title');
   }
-  else $('back').href = meta.folderId ? `/#/f/${meta.folderId}` : '/';
+  else $('back').href = meta.folderId ? `/#/f/${meta.folderId}/boards` : '/';
 
   // ---- what this board is set to
   //

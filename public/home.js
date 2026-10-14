@@ -683,6 +683,13 @@
         } else if (v.page === 'timeline') parts.push(['Timeline', `#/f/${f.id}/timeline`]);
         else if (v.page === 'versions') parts.push(['Versions', `#/f/${f.id}/versions`]);
         else parts.push(['Boards', `#/f/${f.id}`]);
+        // The star pins what is here, not the project around it: a sequence, a tier, the catalogue,
+        // the timeline or the versions are pinned as that place (an asset, set or shot as itself).
+        if (v.page !== 'boards' && !v.entity) {
+          const [name, href] = parts[parts.length - 1];
+          const what = v.seq ? 'sequence' : v.tier ? 'tier' : v.page;
+          pin = { kind: 'place', id: href, href, name, what, projectId: f.id };
+        }
       }
     }
     const nodes = parts.map(([label, href, folderId, ws], i) => {
@@ -755,6 +762,21 @@
     return entityTile(project, full || { id: p.id, name: p.name, thumb: p.thumb, tier: p.tier, versions: null });
   }
 
+  // A pinned place within a project: what it is, in which project, and a way back to it.
+  function placeCard(p) {
+    const project = folderById(p.projectId);
+    if (!project) return null;
+    const icon = { sequence: ICON_FILM, tier: ICON_CAT, catalogue: ICON_CAT, timeline: ICON_FILM, versions: ICON_LIST }[p.what] || ICON_CAT;
+    const kind = { sequence: 'Sequence', tier: 'In the catalogue', catalogue: 'Catalogue', timeline: 'Timeline', versions: 'Versions' }[p.what] || '';
+    const label = p.what === 'sequence' ? `${p.name}` : p.what === 'tier' ? p.name : `${project.name} ${p.name.toLowerCase()}`;
+    return el('a', { class: 'card folder place', href: p.href },
+      el('div', { class: 'folder-icon', html: icon }),
+      el('div', { class: 'card-body' },
+        el('div', { class: 'card-name', text: label }),
+        el('div', { class: 'card-meta', text: `${kind} · ${project.name}` })),
+      menuButton([['Unpin from Home', () => togglePin({ kind: 'place', id: p.id })]]));
+  }
+
   function homeView() {
     const label = (text, n, ...extra) => el('div', { class: 'section-label' }, text, n != null && el('span', { class: 'tally', text: String(n) }), ...extra);
     const q = $('q').value.trim().toLowerCase();
@@ -769,8 +791,9 @@
     }
     if (!feed || Date.now() - feedAt > 30000) loadFeed();
 
-    // Pinned: the same cards as everywhere.
+    // Pinned: the same cards as everywhere, and a place within a project (a sequence, say) as itself.
     const pinned = pins().map((p) => {
+      if (p.kind === 'place') return placeCard(p);
       if (p.kind === 'board') { const b = everything.boards.find((x) => x.id === p.id); return b && boardCard(b); }
       if (p.kind === 'folder') { const f = folderById(p.id); return f && folderCard(f); }
       if (p.kind === 'entity') return entityCard(p);

@@ -30,7 +30,7 @@ private networks, otherwise only the host machine can connect.
   its Boards and its Catalogue, and the catalogue to its assets, sets and shots, the shots by sequence,
   each with a count. What is open in the tree is remembered, and the way to the page you are on is
   opened for you. Above the page one slim line says where you are (Myreze / Kilo / Catalogue / Shots /
-  kilo / kilo-0010), each part a link; the star at its end pins that folder, project or shot to Home.
+  kilo / kilo-0010), each part a link; the star at its end pins exactly what is there to Home: a board's folder, a project, a sequence, a tier of the catalogue, the catalogue, Versions, the Timeline, or an asset, set or shot.
   On a narrow window the sidebar is a drawer, opened with the button at the left of the bar.
 - **Home.** Three things, and nothing else. What you pinned (boards, folders, projects, shots) along
   the top. Updates: in the last two weeks, comments on your work (yours too, as "You", never marked

@@ -27,19 +27,30 @@
     $('density').setAttribute('aria-label', $('density').title);
     $('density').setAttribute('aria-pressed', String(compact));
   }
-  $('density').addEventListener('click', () => {
-    const compact = document.documentElement.dataset.density !== 'compact';
+  function setDensity(compact) {
     if (compact) document.documentElement.dataset.density = 'compact';
     else delete document.documentElement.dataset.density;
     store(WB.KEYS.density, compact ? 'compact' : 'normal');
     paintDensity();
+  }
+  $('density').addEventListener('click', () => setDensity(document.documentElement.dataset.density !== 'compact'));
+  // On a phone the search is a button in the bar, opening the box over it.
+  $('searchtoggle').addEventListener('click', () => {
+    const on = !document.body.classList.contains('search-open');
+    document.body.classList.toggle('search-open', on);
+    $('searchtoggle').setAttribute('aria-expanded', String(on));
+    if (on) $('q').focus();
+  });
+  $('q').addEventListener('blur', () => {
+    if ($('q').value) return;
+    document.body.classList.remove('search-open');
+    $('searchtoggle').setAttribute('aria-expanded', 'false');
   });
   paintDensity();
   WB.watchServer();
   let me = await WB.askName();
   // Personal workspaces belong to a signed-in account, so without sign-in there is only the shared one.
   const hasPersonal = !!WB.info().user;
-  $('adminlink').hidden = !WB.info().admin;
   if (hasPersonal && store('wb:workspace') === 'personal') space = 'personal';
   const paintMe = () => $('me').replaceChildren(
     WB.avatar(me.name, me.color),
@@ -58,7 +69,22 @@
     dlg.addEventListener('close', () => dlg.remove());
     const section = (title, ...kids) => el('section', { class: 'acct-sec' }, el('h3', { text: title }), ...kids);
 
+    // The dialog is drawn afresh after each change in it; what had the keyboard has it again after.
+    const focusKey = () => {
+      const a = document.activeElement;
+      return a && dlg.contains(a) ? a.getAttribute('aria-label') || a.textContent.trim() : null;
+    };
+    const refocus = (key) => {
+      if (!key) return;
+      const again = [...dlg.querySelectorAll('button, input, a')].find((n) => (n.getAttribute('aria-label') || n.textContent.trim()) === key);
+      if (again) again.focus({ preventScroll: true });
+    };
     async function paint() {
+      const had = focusKey();
+      await draw();
+      refocus(had);
+    }
+    async function draw() {
       const u = WB.info().user;
       const stats = await WB.media.stats();
       let quota = null;
@@ -86,13 +112,31 @@
             el('b', { text: me.name }),
             el('span', {}, (u && u.email) || 'This browser', WB.info().admin && el('span', { class: 'acct-badge', html: ICON.shield }, 'Admin'))),
           !managed && el('button', { type: 'button', class: 'iconbtn', html: ICON.pen, title: 'Change your name', onclick: async () => { me = await WB.askName(true); paintMe(); paint(); } })),
-        !managed && el('div', { class: 'acct-colors', role: 'radiogroup', 'aria-label': 'Your colour' }, WB.colors.map((c) => el('button', {
-          type: 'button', class: `acct-color${c === me.color ? ' on' : ''}`, style: { background: c }, role: 'radio', 'aria-checked': String(c === me.color), title: 'Your colour on the boards',
+        // A group of radio buttons: one stop for Tab, the arrows move between the colours.
+        !managed && el('div', {
+          class: 'acct-colors', role: 'radiogroup', 'aria-label': 'Your colour',
+          onkeydown: (e) => {
+            const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+            if (!step) return;
+            e.preventDefault();
+            const i = WB.colors.indexOf(me.color);
+            me = WB.saveUser(me.name, WB.colors[(i + step + WB.colors.length) % WB.colors.length]);
+            paintMe();
+            paint();
+          },
+        }, WB.colors.map((c, i) => el('button', {
+          type: 'button', class: `acct-color${c === me.color ? ' on' : ''}`, style: { background: c }, role: 'radio', 'aria-checked': String(c === me.color),
+          'aria-label': `Colour ${i + 1} of ${WB.colors.length}`, tabindex: c === me.color ? '0' : '-1', title: 'Your colour on the boards',
           onclick: () => { me = WB.saveUser(me.name, c); paintMe(); paint(); },
         }))),
         section('Appearance', el('div', { class: 'seg' }, [['dark', ICON.moon, 'Dark'], ['light', ICON.sun, 'Light']].map(([t, ic, label]) => el('button', {
-          type: 'button', class: `seg-btn${theme === t ? ' on' : ''}`, onclick: () => { WB.setTheme(t); paint(); },
-        }, el('span', { class: 'seg-ic', html: ic }), label)))),
+          type: 'button', class: `seg-btn${theme === t ? ' on' : ''}`, 'aria-pressed': String(theme === t), onclick: () => { WB.setTheme(t); paint(); },
+        }, el('span', { class: 'seg-ic', html: ic }), label))),
+        // The layout of the lists: cards, or compact rows. Also the button beside the bell.
+        el('div', { class: 'seg acct-seg2' }, [[false, ICON_CARDS, 'Cards'], [true, ICON_ROWS, 'Compact rows']].map(([compact, ic, label]) => {
+          const on = (document.documentElement.dataset.density === 'compact') === compact;
+          return el('button', { type: 'button', class: `seg-btn${on ? ' on' : ''}`, 'aria-pressed': String(on), onclick: () => { setDensity(compact); paint(); } }, el('span', { class: 'seg-ic', html: ic }), label);
+        }))),
         section('Video cache',
           el('div', { class: 'acct-cache' },
             el('span', { class: 'acct-cache-ic', html: ICON.disk }),
@@ -112,7 +156,7 @@
           kind('work', 'The newest of my work'),
           kind('cc', 'The newest of what I am cc\'d on'),
           kind('pinned', 'The newest of what I pinned'),
-          el('p', { class: 'acct-note', text: 'Whatever you open, and what the page you are on and the timeline show, is always cached. What was opened longest ago makes room.' }),
+          el('p', { class: 'acct-note', text: 'Whatever you open is cached. With caching ahead on, so is what the page you are on and the timeline show. What was opened longest ago makes room.' }),
           quota && quota.quota && el('p', { class: 'acct-note', text: `Browser storage · ${size(quota.usage || 0)} used of ${size(quota.quota)}` })),
         (WB.info().admin || WB.info().signOut) && el('div', { class: 'acct-foot' },
           WB.info().admin && el('a', { class: 'btn', href: '/admin', html: `${ICON.shield}<span>Admin</span>` }),
@@ -332,7 +376,7 @@
           walk(f.id, depth + 1);
         }
       };
-      add(null, 'All boards', 0);
+      add(null, spaceName(space), 0);
       walk(null, 1);
       select(chosen);
 
@@ -578,7 +622,7 @@
           onclick: () => { setOpen(key, !isOpen); renderSide(route()); },
         })
         : el('span', { class: 'side-twist none' }),
-      el('a', { class: 'side-link', href, onclick: () => { if (kids && !isOpen) setOpen(key, true); closeDrawer(); } },
+      el('a', { class: 'side-link', href, 'aria-current': key === hereK ? 'page' : null, onclick: () => { if (kids && !isOpen) setOpen(key, true); closeDrawer(); } },
         el('span', { class: 'side-icon', html: icon }),
         el('span', { class: 'side-name', text: label }),
         count != null && el('span', { class: 'side-count', text: String(count) })));
@@ -753,7 +797,7 @@
       }
     }
     const nodes = parts.map(([label, href, folderId, ws], i) => {
-      const node = el('a', { class: `crumb${i === parts.length - 1 ? ' current' : ''}`, href, text: label });
+      const node = el('a', { class: `crumb${i === parts.length - 1 ? ' current' : ''}`, href, text: label, 'aria-current': i === parts.length - 1 ? 'page' : null });
       if (folderId !== undefined) dropTarget(node, folderId, ws);
       return node;
     });
@@ -1004,17 +1048,26 @@
       dropVersionPick();
       vpick.project = project.id;
     }
-    // By day; within a day, a run is what one person filed one after another.
+    // By day; within a day, by who filed them (whoever filed last first), however their filing was
+    // interleaved with others'.
     const days = [];
     for (const v of list) {
       const day = dayOf(v.createdAt);
       let d = days[days.length - 1];
       if (!d || d.day !== day) days.push(d = { day, runs: [] });
-      let r = d.runs[d.runs.length - 1];
-      if (!r || r.by !== (v.createdBy || '') || r.last - v.createdAt > 2 * 3600 * 1000) d.runs.push(r = { by: v.createdBy || '', list: [], last: v.createdAt });
+      const by = v.createdBy || '';
+      let r = d.runs.find((x) => x.by === by);
+      if (!r) d.runs.push(r = { by, list: [] });
       r.list.push(v);
-      r.last = v.createdAt;
     }
+    // Shift and a click picks a run as it is shown.
+    vpick.order = days.flatMap((d) => d.runs.flatMap((r) => r.list.map((v) => v.id)));
+    const cat = catalogues.get(project.id);
+    const tierName = (id) => {
+      const t = cat && cat.preset.tiers.find((x) => x.id === id);
+      const word = t ? t.one : id || '';
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    };
     const box = (ids, label) => {
       const all = ids.every((id) => vpick.ids.has(id));
       const some = !all && ids.some((id) => vpick.ids.has(id));
@@ -1033,24 +1086,33 @@
         type: 'button', class: `card-thumbs vl-thumb n${v.thumb ? 1 : 0}`, title: 'Open it, to look, comment and draw',
         onclick: (e) => { e.stopPropagation(); lookAt(v.entityId, v.id); },
       }, v.thumb && el('img', { src: v.thumb, alt: '', loading: 'lazy', draggable: 'false' }), v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })), v.look, v.label);
+      const toggle = (e) => {
+        if (e.shiftKey && vpick.last && vpick.order.includes(vpick.last)) {
+          const [a, b] = [vpick.order.indexOf(vpick.last), vpick.order.indexOf(v.id)].sort((x, y) => x - y);
+          for (const id of vpick.order.slice(a, b + 1)) vpick.ids.add(id);
+        } else if (vpick.ids.has(v.id)) vpick.ids.delete(v.id);
+        else vpick.ids.add(v.id);
+        vpick.last = v.id;
+        paintVersionPick(project);
+      };
       return el('div', {
-        class: `vl-row${vpick.ids.has(v.id) ? ' picked' : ''}`, 'data-id': v.id,
+        class: `vl-row${vpick.ids.has(v.id) ? ' picked' : ''}`, 'data-id': v.id, tabindex: '0', 'aria-label': `${v.label}: press Space to select`,
+        // From the keyboard too: Space or Enter selects it, as a click does.
+        onkeydown: (e) => {
+          if (e.target !== e.currentTarget || (e.key !== ' ' && e.key !== 'Enter')) return;
+          e.preventDefault();
+          toggle(e);
+        },
         onclick: (e) => {
           if (e.target.closest('a')) return;
-          if (e.shiftKey && vpick.last && vpick.order.includes(vpick.last)) {
-            const [a, b] = [vpick.order.indexOf(vpick.last), vpick.order.indexOf(v.id)].sort((x, y) => x - y);
-            for (const id of vpick.order.slice(a, b + 1)) vpick.ids.add(id);
-          } else if (vpick.ids.has(v.id)) vpick.ids.delete(v.id);
-          else vpick.ids.add(v.id);
-          vpick.last = v.id;
-          paintVersionPick(project);
+          toggle(e);
         },
       },
       box([v.id], `Select ${v.label}`),
       thumb,
       el('div', { class: 'vl-main' },
         el('div', { class: 'vl-label' }, el('a', { href: WB.href.catalogue(project.id, { entity: v.entityId }), text: v.entity, title: `${v.entity}: its page` }), el('span', { text: v.label.slice(v.entity.length) })),
-        el('div', { class: 'vl-meta', text: [v.tier, v.artist && v.artist !== (v.createdBy || '').toLowerCase() && `by ${v.artist}`].filter(Boolean).join(' · ') })),
+        el('div', { class: 'vl-meta', text: [tierName(v.tier), v.artist && v.artist !== (v.createdBy || '').toLowerCase() && `by ${v.artist}`].filter(Boolean).join(' · ') })),
       el('div', { class: 'vl-boards' }, v.boards.slice(0, 3).map((b) => el('a', { class: 'ver-board', href: WB.href.board(b.id), text: b.name, onclick: (e) => e.stopPropagation() })),
         v.boards.length > 3 && el('span', { class: 'vl-more', text: `+${v.boards.length - 3}` })),
       el('div', { class: 'vl-time', text: clock(v.createdAt), title: new Date(v.createdAt).toLocaleString() }));
@@ -1061,11 +1123,12 @@
       out.push(el('div', { class: 'vl-day' }, box(ids, `Select everything filed ${dayName(d.day).toLowerCase()}`), el('b', { text: dayName(d.day) }), el('span', { class: 'tally', text: String(ids.length) })));
       for (const r of d.runs) {
         const runIds = r.list.map((v) => v.id);
-        const span = r.list.length > 1 ? `${clock(r.list[r.list.length - 1].createdAt)} – ${clock(r.list[0].createdAt)}` : clock(r.list[0].createdAt);
+        // The time of each is on its row; the heading gives the span only when there is one.
+        const span = r.list.length > 1 ? ` · ${clock(r.list[r.list.length - 1].createdAt)} – ${clock(r.list[0].createdAt)}` : '';
         out.push(el('div', { class: 'vl-run' },
           el('div', { class: 'vl-runhead' }, box(runIds, `Select what ${r.by || 'somebody'} filed then`),
             WB.avatar(r.by),
-            el('b', { text: r.by || 'Somebody' }), el('span', { text: `${plural(r.list.length, 'version')} · ${span}` })),
+            el('b', { text: r.by || 'Somebody' }), el('span', { text: `${plural(r.list.length, 'version')}${span}` })),
           el('div', { class: 'vl-list' }, r.list.map(row))));
       }
     }
@@ -1084,19 +1147,17 @@
     }
     const n = vpick.ids.size;
     document.body.classList.toggle('vpicking', n > 0);
-    let bar = $('vpickbar');
-    if (!n) return void bar?.remove();
-    if (!bar) {
-      const addBtn = el('button', { type: 'button', class: 'btn small', text: 'Add to board', onclick: (e) => { e.stopPropagation(); addToBoardMenu(project, e.currentTarget); } });
-      bar = el('div', { id: 'vpickbar', class: 'pick-bar', role: 'toolbar', 'aria-label': 'Selected versions' },
-        el('span', { class: 'pick-count' }),
-        el('button', { type: 'button', class: 'btn small ghost', text: 'Clear', onclick: () => { vpick.ids.clear(); paintVersionPick(project); } }),
-        el('span', { class: 'pick-gap' }),
-        addBtn,
-        el('button', { type: 'button', class: 'btn small primary', text: 'New board', title: 'A new board in this project, with these on it', onclick: () => newBoardWith(project) }));
-      document.body.append(bar);
-    }
-    bar.querySelector('.pick-count').textContent = `${plural(n, 'version')} selected`;
+    if (!n) return void $('vpickbar')?.remove();
+    const bar = pickBar('vpickbar', 'Selected versions', {
+      clear: () => { vpick.ids.clear(); paintVersionPick(project); },
+      actions: [
+        el('button', { type: 'button', class: 'btn small', text: 'Add to board', 'aria-haspopup': 'menu', onclick: (e) => { e.stopPropagation(); addToBoardMenu(project, e.currentTarget); } }),
+        el('button', { type: 'button', class: 'btn small primary', text: 'New board', title: 'A new board in this project, with these on it', onclick: () => newBoardWith(project) }),
+      ],
+    });
+    const seen = new Set(vpick.order);
+    const shown = [...vpick.ids].filter((id) => seen.has(id)).length;
+    countPicked(bar, shown, n - shown, 'versions');
   }
 
   // The project's boards (and those in its folders), newest edited first.
@@ -1141,49 +1202,121 @@
   //
   // Boxed in a folder or a workspace: moved together to another folder, or (boards) deleted together.
   const bpick = new Set(); // 'board:<id>' | 'folder:<id>'
+  // ---- what is selected, wherever things can be: one bar at the foot of the page, the same everywhere.
+  // Its count says how many are selected and, when a search hides some of them, that those are left out:
+  // what the buttons do is done to what can be seen.
+  function pickBar(id, label, { clear, done, actions = [] }) {
+    let bar = $(id);
+    if (!bar) {
+      bar = el('div', { id, class: 'pick-bar', role: 'toolbar', 'aria-label': label },
+        el('span', { class: 'pick-count', 'aria-live': 'polite' }),
+        clear && el('button', { type: 'button', class: 'btn small ghost pick-clear', text: 'Clear', onclick: clear }),
+        el('span', { class: 'pick-gap' }),
+        done && el('button', { type: 'button', class: 'btn small', text: 'Done', title: 'Stop selecting (Esc)', onclick: done }),
+        ...actions);
+      document.body.append(bar);
+    }
+    return bar;
+  }
+  function countPicked(bar, n, hidden, what) {
+    bar.querySelector('.pick-count').textContent = !n ? `Select ${what}`
+      : `${n} selected${hidden ? ` · ${hidden} hidden by the search, left out` : ''}`;
+  }
+  // Which of the selected can be seen on the page now.
+  const shownIds = (sel) => new Set([...document.querySelectorAll(sel)].map((n) => n.dataset.id || n.dataset.pick));
+
+  // Boards and folders can be selected with the Select button (then a click selects), or by dragging a box.
+  let bselecting = false;
+  function setBoardSelecting(on) {
+    bselecting = on;
+    document.body.classList.toggle('bpicking', on);
+    for (const b of document.querySelectorAll('.bpick-toggle')) b.classList.toggle('on', on);
+    if (!on) dropBoardPick();
+    else paintBoardPick();
+  }
+  function boardTools() {
+    return el('div', { class: 'cat-tools board-tools' },
+      el('button', { type: 'button', class: `btn bpick-toggle${bselecting ? ' on' : ''}`, html: `${ICON_CHECKS}<span>Select</span>`, title: 'Select boards and folders, to move or delete them together', onclick: () => setBoardSelecting(!bselecting) }));
+  }
+  // A click on a card while selecting selects it rather than opening it.
+  document.addEventListener('click', (e) => {
+    if (!bselecting || !(e.target instanceof Element)) return;
+    const card = e.target.closest('.card[data-pick]');
+    if (!card || e.target.closest('.card-menu')) return;
+    e.preventDefault();
+    const k = card.dataset.pick;
+    if (bpick.has(k)) bpick.delete(k);
+    else bpick.add(k);
+    paintBoardPick();
+  }, true);
+
   function dropBoardPick() {
     bpick.clear();
-    $('bpickbar')?.remove();
+    if (!bselecting) $('bpickbar')?.remove();
+    else paintBoardPick();
     for (const n of document.querySelectorAll('.card[data-pick].picked')) n.classList.remove('picked');
   }
   function paintBoardPick() {
     for (const n of document.querySelectorAll('.card[data-pick]')) n.classList.toggle('picked', bpick.has(n.dataset.pick));
     const n = bpick.size;
-    let bar = $('bpickbar');
-    if (!n) return void bar?.remove();
-    if (!bar) {
-      bar = el('div', { id: 'bpickbar', class: 'pick-bar', role: 'toolbar', 'aria-label': 'Selected boards and folders' },
-        el('span', { class: 'pick-count' }),
-        el('button', { type: 'button', class: 'btn small ghost', text: 'Clear', onclick: dropBoardPick }),
-        el('span', { class: 'pick-gap' }),
+    if (!n && !bselecting) return void $('bpickbar')?.remove();
+    const bar = pickBar('bpickbar', 'Selected boards and folders', {
+      clear: () => { bpick.clear(); paintBoardPick(); },
+      done: () => setBoardSelecting(false),
+      actions: [
         el('button', { type: 'button', class: 'btn small pick-del', text: 'Delete…', onclick: () => deletePicked().catch(fail) }),
-        el('button', { type: 'button', class: 'btn small primary', text: 'Move to…', onclick: () => movePicked().catch(fail) }));
-      document.body.append(bar);
-    }
+        el('button', { type: 'button', class: 'btn small primary pick-move', text: 'Move to…', onclick: () => movePicked().catch(fail) }),
+      ],
+    });
     const boardsN = [...bpick].filter((k) => k.startsWith('board:')).length;
     const foldersN = n - boardsN;
-    bar.querySelector('.pick-count').textContent = [boardsN && plural(boardsN, 'board'), foldersN && plural(foldersN, 'folder')].filter(Boolean).join(' and ') + ' selected';
+    bar.querySelector('.pick-count').textContent = n ? `${[boardsN && plural(boardsN, 'board'), foldersN && plural(foldersN, 'folder')].filter(Boolean).join(' and ')} selected` : 'Select boards and folders';
     bar.querySelector('.pick-del').hidden = !boardsN;
+    bar.querySelector('.pick-move').disabled = !n;
+    bar.querySelector('.pick-clear').hidden = !n;
   }
   async function movePicked() {
     const ids = [...bpick].map((k) => k.split(':'));
     const target = await pickFolder({ title: `Move ${plural(ids.length, 'item')} to`, exclude: ids.length === 1 && ids[0][0] === 'folder' ? ids[0][1] : null, current: currentFolder() });
     if (target === undefined) return;
+    const failed = [];
     for (const [kind, id] of ids) {
       if (kind === 'folder' && (id === target || (target && isWithin(target, id)))) continue;
-      if (kind === 'board') await api('PATCH', `/api/boards/${id}`, { folderId: target });
-      else await api('PATCH', `/api/folders/${id}`, { parentId: target });
+      try {
+        if (kind === 'board') await api('PATCH', `/api/boards/${id}`, { folderId: target });
+        else await api('PATCH', `/api/folders/${id}`, { parentId: target });
+      } catch (err) {
+        failed.push(err.message);
+      }
     }
     dropBoardPick();
-    refresh();
+    await refresh();
+    tellFailed('moved', ids.length, failed);
+  }
+  // Many things done at once go on past one that could not be, and say at the end which could not.
+  function tellFailed(done, total, failed) {
+    if (!failed.length) return;
+    WB.dialog({
+      title: `${failed.length} of ${total} could not be ${done}`,
+      text: [...new Set(failed)].slice(0, 3).join(' '),
+      ok: 'OK', cancellable: false,
+    });
   }
   async function deletePicked() {
     const ids = [...bpick].filter((k) => k.startsWith('board:')).map((k) => k.slice(6));
     const sure = await WB.dialog({ title: `Delete ${plural(ids.length, 'board')}?`, text: 'They disappear for everyone. The server keeps them hidden, so whoever runs the server can still restore them. Folders are left as they are.', ok: 'Delete', danger: true });
     if (!sure) return;
-    for (const id of ids) await api('DELETE', `/api/boards/${id}`);
+    const failed = [];
+    for (const id of ids) {
+      try {
+        await api('DELETE', `/api/boards/${id}`);
+      } catch (err) {
+        failed.push(err.message);
+      }
+    }
     dropBoardPick();
-    refresh();
+    await refresh();
+    tellFailed('deleted', ids.length, failed);
   }
 
 
@@ -1377,8 +1510,14 @@
       if (renderedFor !== null && !searching) $('q').value = '';
       renderedFor = location.hash;
       tlFailed = null;
+      // Going elsewhere from the sidebar or the bar closes a player docked beside them.
+      if (lookingAt && player && player.isOpen()) {
+        lookingAt = null;
+        player.close();
+      }
       // What was selected belongs to the page it was selected on: never carried, unseen, to another.
-      if (bpick.size) dropBoardPick();
+      if (bselecting) setBoardSelecting(false);
+      else if (bpick.size) dropBoardPick();
       WB.media.want('page', []);
       pageScope = null;
       cacheRing.paint();
@@ -1407,20 +1546,36 @@
     const cur = rt.kind === 'folder' ? rt.id : null;
     const here = cur && folderById(cur);
     const view = here && here.project ? currentView() : { page: 'boards' };
-    $('q').placeholder = view.page === 'catalogue' ? 'Search the catalogue' : 'Search boards and folders';
+    // The search says what it searches here, and the bar offers only what can be made here: boards and
+    // folders where boards and folders are listed, not over a catalogue or a list of versions.
+    const inProjectHere = !!(here && here.project);
+    $('q').placeholder = {
+      catalogue: view.entity ? 'Search the catalogue' : 'Search the catalogue',
+      versions: 'Search versions, or who filed them',
+      timeline: 'Search is not used on the timeline',
+      home: inProjectHere ? "Search this project's boards" : 'Search boards and folders',
+      boards: inProjectHere ? "Search this project's boards" : 'Search boards and folders',
+    }[view.page] || 'Search boards and folders';
+    $('q').disabled = view.page === 'timeline';
+    const makesBoards = rt.kind !== 'folder' || !inProjectHere || view.page === 'boards' || view.page === 'home';
+    $('new').hidden = !makesBoards;
+    $('newfolder').hidden = !makesBoards;
     // Searching from a project's home looks through its boards.
     if (view.page === 'home' && $('q').value.trim()) view.page = 'boards';
     $('empty').hidden = true;
     if (rt.kind === 'home') return $('content').replaceChildren(...homeView());
     // A project has its boards and its catalogue.
     if (view.page !== 'boards') return renderProject(here, view);
-    // A search looks through every folder of the workspace; without one you see the folder you are in.
+    // A search looks through every folder of the workspace (of the project, inside one); without one you
+    // see the folder you are in.
     const q = $('q').value.trim().toLowerCase();
     const matches = (name) => name.toLowerCase().includes(q);
-    const subs = q ? lib.folders.filter((f) => matches(f.name)).sort(byName) : childrenOf(cur);
-    const boards = q ? lib.boards.filter((b) => matches(b.name)) : boardsIn(cur);
+    const within = (fid) => !inProjectHere || fid === cur || (fid && isWithin(fid, cur));
+    const subs = q ? lib.folders.filter((f) => matches(f.name) && f.id !== cur && within(f.id)).sort(byName) : childrenOf(cur);
+    const boards = q ? lib.boards.filter((b) => matches(b.name) && within(b.folderId)) : boardsIn(cur);
     const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
     $('content').replaceChildren(...[
+      !q && (subs.length > 0 || boards.length > 0) && boardTools(),
       subs.length > 0 && label('Folders', subs.length),
       subs.length > 0 && el('div', { class: 'folder-grid' }, subs.map(folderCard)),
       (subs.length > 0 || q) && label('Boards', boards.length),
@@ -1574,7 +1729,9 @@
   // what they are. What is left alone stays as each has it.
   async function batchEdit(project) {
     const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`);
-    const chosen = cat.entities.filter((e) => picking.ids.has(e.id));
+    // What is selected and can be seen: what a search hides is left out, as the bar says.
+    const seen = shownIds('.card.ent[data-id]');
+    const chosen = cat.entities.filter((e) => picking.ids.has(e.id) && seen.has(e.id));
     if (!chosen.length) return;
     if (!people.length) await loadPeople();
     const tally = (key) => {
@@ -1620,7 +1777,14 @@
             dlg.close();
             shownProject = '';
             render();
-            undoable(`Changed ${plural(chosen.length, 'asset, set or shot', 'assets, sets and shots')}`, null);
+            // Undo puts each back as it was: its own artists, cc and tier, not one value for all.
+            const before = chosen.map((e) => ({ id: e.id, artists: e.artists || [], cc: e.cc || [], tier: e.tier }));
+            undoable(`Changed ${plural(chosen.length, 'asset, set or shot', 'assets, sets and shots')}`, async () => {
+              for (const e of before) await api('PATCH', `/api/entities/${e.id}`, { artists: e.artists, cc: e.cc, tier: e.tier });
+              catalogues.delete(project.id);
+              shownProject = '';
+              render();
+            });
           } catch (err) {
             error.textContent = err.message;
             error.hidden = false;
@@ -1797,10 +1961,11 @@
     for (const node of document.querySelectorAll('.card.ent[data-id]')) node.classList.toggle('picked', picking.ids.has(node.dataset.id));
     const bar = $('pickbar');
     if (!bar) return;
-    const n = picking.ids.size;
-    bar.querySelector('.pick-count').textContent = n ? `${n} selected` : 'Select assets, sets and shots';
+    const seen = shownIds('.card.ent[data-id]');
+    const n = [...picking.ids].filter((id) => seen.has(id)).length;
+    countPicked(bar, n, picking.ids.size - n, 'assets, sets and shots');
     bar.querySelector('.pick-edit').disabled = !n;
-    bar.querySelector('.pick-clear').hidden = !n;
+    bar.querySelector('.pick-clear').hidden = !picking.ids.size;
   }
   function setPicking(project, on) {
     picking.on = on;
@@ -1809,14 +1974,12 @@
     picking.last = null;
     $('pickbar')?.remove();
     if (on) {
-      const bar = el('div', { id: 'pickbar', class: 'pick-bar', role: 'toolbar', 'aria-label': 'Selected' },
-        el('span', { class: 'pick-count' }),
-        el('button', { type: 'button', class: 'btn small ghost', text: 'Select all', onclick: () => { for (const id of picking.order) picking.ids.add(id); paintPicked(); } }),
-        el('button', { type: 'button', class: 'btn small ghost pick-clear', text: 'Clear', onclick: () => { picking.ids.clear(); paintPicked(); } }),
-        el('span', { class: 'pick-gap' }),
-        el('button', { type: 'button', class: 'btn small', text: 'Done', title: 'Stop selecting (Esc)', onclick: () => setPicking(project, false) }),
-        el('button', { type: 'button', class: 'btn small primary pick-edit', text: 'Edit…', onclick: () => batchEdit(project) }));
-      document.body.append(bar);
+      const bar = pickBar('pickbar', 'Selected assets, sets and shots', {
+        clear: () => { picking.ids.clear(); paintPicked(); },
+        done: () => setPicking(project, false),
+        actions: [el('button', { type: 'button', class: 'btn small primary pick-edit', text: 'Edit…', onclick: () => batchEdit(project) })],
+      });
+      bar.querySelector('.pick-count').after(el('button', { type: 'button', class: 'btn small ghost', text: 'Select all', onclick: () => { for (const id of picking.order) picking.ids.add(id); paintPicked(); } }));
     }
     document.body.classList.toggle('picking', on);
     for (const b of document.querySelectorAll('.pick-toggle')) b.classList.toggle('on', on);
@@ -1830,6 +1993,16 @@
       newest && el('span', { class: 'play-latest', html: `${ICON_PLAY}<span>Latest</span>` }));
     if (newest) {
       scrubber(thumbs, newest.look, newest.label || e.name);
+      // Reached with Tab too: Enter or Space plays the latest.
+      thumbs.setAttribute('tabindex', '0');
+      thumbs.setAttribute('role', 'button');
+      thumbs.setAttribute('aria-label', `Play the latest of ${e.name}`);
+      thumbs.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Enter' && ev.key !== ' ') return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        thumbs.click();
+      });
       thumbs.addEventListener('click', (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -1891,11 +2064,15 @@
   // A version opens in the player (viewer.js), the same one a board opens its media in: with every other
   // version of the same thing beside it, and what has been said about them, live.
   let player = null;
+  let lookingAt = null; // the asset, set or shot open in the (docked) player
   const thePlayer = () => player || (player = WBViewer.create({ me: () => me, title: () => '', media: () => [], notes: () => [], add() {}, set() {}, remove() {} }));
   async function lookAt(entityId, versionId) {
     thePlayer();
     try {
-      await WBViewer.openEntity(player, entityId, { version: versionId, me, onClose: () => { shownProject = ''; render(); } });
+      const project = folderById(currentFolder());
+      // Docked, as the timeline is: the sidebar and the bar stay, and going elsewhere from them closes it.
+      await WBViewer.openEntity(player, entityId, { version: versionId, me, dock: true, title: project ? project.name : null, onClose: () => { lookingAt = null; shownProject = ''; render(); } });
+      lookingAt = entityId;
     } catch (err) {
       fail(err);
     }
@@ -2535,7 +2712,7 @@
       el('header', { class: 'notices-head' },
         el('h2', { text: 'Notifications' }),
         notices.unread > 0 && el('button', {
-          class: 'btn small ghost', text: 'Mark all as read',
+          class: 'btn small ghost', text: 'Mark all read',
           onclick: async () => { await markNotices({ all: true }); loadNotices(); },
         })),
       notices.items.length
@@ -2544,12 +2721,16 @@
   }
 
   function toggleNotices(open = $('notices').hidden) {
+    const was = !$('notices').hidden;
     $('notices').hidden = !open;
     $('bell').setAttribute('aria-expanded', String(open));
     if (open) {
       paintNotices();
       loadNotices();
-    }
+      // The keyboard goes into the list, and back to the bell when it closes.
+      $('notices').setAttribute('tabindex', '-1');
+      $('notices').focus({ preventScroll: true });
+    } else if (was && $('notices').contains(document.activeElement)) $('bell').focus();
   }
   $('bell').addEventListener('click', () => toggleNotices());
   document.addEventListener('pointerdown', (e) => {
@@ -2598,7 +2779,7 @@
       vpick.ids.clear();
       const f = folderById(vpick.project);
       if (f) paintVersionPick(f);
-    } else if (bpick.size) dropBoardPick();
+    } else if (bpick.size || bselecting) setBoardSelecting(false);
     else if (picking.on) {
       const f = folderById(picking.project);
       if (f) setPicking(f, false);

@@ -27,17 +27,19 @@
         <input id="q" type="search" placeholder="Search boards and folders" autocomplete="off" spellcheck="false" aria-label="Search boards and folders">
         <kbd>/</kbd>
       </label>
+      <button id="searchtoggle" class="iconbtn search-toggle" type="button" aria-label="Search" aria-controls="q" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4-4"/></svg>
+      </button>
       <div class="spacer"></div>
       <div class="bellwrap">
-        <button id="bell" class="iconbtn" title="Notifications" aria-label="Notifications" aria-haspopup="true" aria-expanded="false">
+        <button id="bell" class="iconbtn" title="Notifications" aria-label="Notifications" aria-haspopup="dialog" aria-expanded="false">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/></svg>
           <span id="bellcount" class="bell-count" hidden></span>
         </button>
-        <section id="notices" class="notices" hidden aria-label="Notifications"></section>
+        <section id="notices" class="notices" role="dialog" hidden aria-label="Notifications"></section>
       </div>
       <button id="density" class="iconbtn" aria-pressed="false"></button>
       <span id="themeslot"></span>
-      <a id="adminlink" class="btn ghost" href="/admin" hidden>Admin</a>
       <button id="me" class="chip" title="Change your name"></button>
       <button id="newfolder" class="btn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>

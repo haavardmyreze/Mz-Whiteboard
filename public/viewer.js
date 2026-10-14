@@ -710,7 +710,9 @@ const WBViewer = (() => {
     function paintAll() {
       if (!open) return;
       nameEl.textContent = runMode() && open.name ? [open.name, versionPart(open)].filter(Boolean).join(' · ')
-        : open.label ? `${open.label} · ${open.name || ''}`.replace(/ · $/, '') : open.name || (open.type === 'video' ? 'Video' : 'Image');
+        : open.label || open.name || (open.type === 'video' ? 'Video' : 'Image');
+      // A version's file name is still there, on a hover over its label.
+      nameEl.title = open.label && open.name && open.name !== open.label ? open.name : '';
       runCap.hidden = !runMode();
       if (runMode()) runCap.replaceChildren(el('b', { text: open.name || '' }), el('span', { class: open.empty ? 'none' : '', text: versionPart(open) }));
       crumb.textContent = opts.title ? opts.title() : '';
@@ -2386,7 +2388,8 @@ const WBViewer = (() => {
   // Opens the versions of one entity of a project's catalogue in a player, at `version` (or the newest).
   // What is said about them is live: everyone who has the entity open, here or on any board a version is
   // on, sees it as it is written, and what is written here is there on those boards.
-  async function openEntity(viewer, entityId, { version = null, me, onClose = () => {} } = {}) {
+  // `title` is where the entity is (its project), for the bar; `dock` keeps a page's own bar and sidebar.
+  async function openEntity(viewer, entityId, { version = null, me, title = null, dock = false, onClose = () => {} } = {}) {
     const page = await WB.api('GET', `/api/entities/${entityId}`);
     const versions = page.versions.filter((v) => !v.hidden || v.id === version);
     if (!versions.length) throw new Error('There is nothing filed under it yet');
@@ -2401,7 +2404,8 @@ const WBViewer = (() => {
     });
     viewer.use({
       me: () => me,
-      title: () => page.entity.name,
+      dock,
+      title: () => (title ? `${title} · ${page.entity.name}` : page.entity.name),
       media: () => pieces,
       notes: () => notes,
       can: { member: () => true },

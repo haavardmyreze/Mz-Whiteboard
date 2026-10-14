@@ -12,7 +12,9 @@
   };
   const root = document.documentElement;
   root.dataset.theme = read('wb:theme') === 'light' ? 'light' : 'dark';
-  if (read('wb:density') === 'compact') root.dataset.density = 'compact';
+  // Compact rows on a phone, unless this browser chose cards.
+  const density = read('wb:density');
+  if (density === 'compact' || (density == null && matchMedia('(max-width: 560px)').matches)) root.dataset.density = 'compact';
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.content = root.dataset.theme === 'light' ? '#f0f0f0' : '#090909';
 })();

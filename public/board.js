@@ -3909,7 +3909,7 @@
       [ICON.stack, 'Versions', 'On a board in a project, select images or videos and file them as versions of an asset, set or shot (Shift+V). Their notes go with them, and show on every board the version is on. The catalogue button adds versions to the board.'],
       [ICON.comment, 'Comments with drawings', 'Draw on the open image or video while writing a comment, and the drawing belongs to it: it shows when the comment is read, on the frame it is about.'],
       [ICON.kept, 'Video cache', `The videos on boards you open, and the newest of your work, of what you are cc'd on and of what you pinned, are saved on this computer, so they open and scrub at once. Up to ${KEPT_MAX / 1024 ** 3} GB in all; the ones opened longest ago make room.`],
-      [ICON.activity, 'Snapshots', 'Before each round of changes the board is kept as it was. Putting one back keeps what is there now as a snapshot too, so nothing is lost. Notes and catalogue versions are not touched.'],
+      [ICON.activity, 'Snapshots', 'Before each round of changes the board is kept as it was. Putting one back keeps what is there now as a snapshot too, so nothing is lost. Comments and catalogue versions are not touched; sticky notes go back with everything else.'],
       [ICON.download, 'Originals', 'Video is made lighter on upload so it plays smoothly for review. The file it came from is kept, and is what is downloaded.'],
       [ICON.link, 'Sharing', 'A link lets people outside the team look, read the comments or comment, without signing in, until you turn it off or it runs out.'],
       [ICON.tag, 'File names', 'Board settings can show every image and video with its file name, for everyone on the board.'],
@@ -4448,7 +4448,22 @@
     $('back').removeAttribute('href');
     $('back').removeAttribute('title');
   }
-  else $('back').href = meta.folderId ? WB.href.abs(WB.href.boards(meta.folderId)) : '/';
+  else {
+    $('back').href = meta.folderId ? WB.href.abs(WB.href.boards(meta.folderId)) : '/';
+    // Where the board is, between the logo and its name: the folders (or the project) it is in, each a
+    // way back to it.
+    if (meta.folderId) {
+      WB.api('GET', '/api/library').then((lib) => {
+        const byId = new Map(lib.folders.map((f) => [f.id, f]));
+        const trail = [];
+        for (let f = byId.get(meta.folderId); f && trail.length < 8; f = byId.get(f.parentId)) trail.unshift(f);
+        $('boardname').before(...trail.flatMap((f) => [
+          el('a', { class: 'bar-crumb board-folder', href: WB.href.abs(f.project ? WB.href.folder(f.id) : WB.href.boards(f.id)), text: f.name, title: f.project ? `The ${f.name} project` : `The ${f.name} folder` }),
+          el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' }),
+        ]));
+      }).catch(() => { /* the logo still goes back */ });
+    }
+  }
 
   // ---- what this board is set to
   //
@@ -4727,6 +4742,8 @@
     el('div', { class: 'act-head' }, catTitle,
       el('button', { class: 'iconbtn', html: ICON.close, title: 'Close (Esc)', onclick: () => toggleCatalogue(false) })),
     el('label', { class: 'cat-search' }, el('span', { html: ICON.search }), catSearch),
+    // The other way round: pieces on the board filed into the catalogue.
+    !viewOnly && el('p', { class: 'cat-tip' }, el('span', { html: ICON.file }), 'To file images or videos on the board as versions, select them and press ', el('kbd', { text: 'Shift+V' }), '.'),
     catBody);
 
   const thumbOf = (src) => (src ? el('img', { src, alt: '', loading: 'lazy', draggable: 'false' }) : el('span', { class: 'cat-nothumb', html: ICON.stack }));
@@ -4842,7 +4859,7 @@
   async function putBack(v) {
     const sure = await WB.dialog({
       title: 'Put the board back?',
-      text: `Everything on it goes back to ${whenExactly(v.at)}, for everyone. What is there now is kept as a snapshot too. Notes and versions stay as they are.`,
+      text: `Everything on it goes back to ${whenExactly(v.at)}, for everyone. What is there now is kept as a snapshot too. Comments and catalogue versions stay as they are.`,
       ok: 'Put it back',
     });
     if (!sure) return;
@@ -4964,7 +4981,13 @@
       };
       const toggle = el('input', { type: 'checkbox', role: 'switch', 'aria-label': 'Share with a link' });
       toggle.checked = !!share.token;
-      toggle.addEventListener('change', () => call(toggle.checked ? 'POST' : 'DELETE', ''));
+      // Turning a link off breaks it for everyone who has it: asked first.
+      toggle.addEventListener('change', async () => {
+        if (toggle.checked) return call('POST', '');
+        const sure = await WB.dialog({ title: 'Turn the link off?', text: 'Everyone who has it loses access at once. Turning it on again makes a new link.', ok: 'Turn off', danger: true });
+        if (sure) call('DELETE', '');
+        else toggle.checked = true;
+      });
       const expiry = share.expiresAt
         ? [['set', `On ${new Date(share.expiresAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`], ...EXPIRY]
         : EXPIRY;
@@ -4989,7 +5012,10 @@
         link && !/^https:/.test(base) && el('p', { class: 'share-note', text: 'This address only works for people on the same network as this computer. For people elsewhere, set up a public address (see DEPLOY.md).' }),
         link && share.access === 'comment' && el('p', { class: 'share-note', text: 'People with the link comment under a name they type themselves. They cannot resolve or delete anything.' }),
         el('div', { class: 'dlg-actions' },
-          link && el('button', { type: 'button', class: 'btn ghost share-reset', text: 'New link', title: 'Make a new link. The current one stops working at once.', onclick: () => call('POST', '/reset') }),
+          link && el('button', { type: 'button', class: 'btn ghost share-reset', text: 'New link', title: 'Make a new link. The current one stops working at once.', onclick: async () => {
+            const sure = await WB.dialog({ title: 'Make a new link?', text: 'The current link stops working at once, for everyone who has it.', ok: 'Make a new link', danger: true });
+            if (sure) call('POST', '/reset');
+          } }),
           el('button', { type: 'button', class: 'btn', text: 'Done', onclick: () => dlg.close() }))));
     }
     dlg.addEventListener('close', () => dlg.remove());

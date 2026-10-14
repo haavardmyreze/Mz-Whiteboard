@@ -584,6 +584,8 @@ body.home:not(.admin) .appbar .wordmark { color: var(--text); }
 .card-menu { position: absolute; top: 8px; right: 8px; width: var(--h-sm); height: var(--h-sm); border: 1px solid var(--line-strong); background: var(--surface-1); box-shadow: var(--shadow-1); opacity: 0; }
 .card-menu:hover { background: var(--surface-2); }
 .card:hover .card-menu, .card:focus-within .card-menu, .card-menu:focus-visible { opacity: 1; }
+/* Without a pointer to hover with, the menu is always there to tap. */
+@media (hover: none) { .card-menu { opacity: 1; } }
 .card.folder .card-menu { top: 50%; right: 12px; transform: translateY(-50%); border-color: transparent; background: transparent; box-shadow: none; }
 .card.folder .card-menu:hover { background: var(--hover); }
 
@@ -616,8 +618,13 @@ body.home:not(.admin) .appbar .wordmark { color: var(--text); }
 .notice.unread .notice-what { color: var(--text); }
 .notice-dot { position: absolute; top: 16px; right: 12px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 
+/* Search: a box in the bar, and on a narrow screen a button that opens the box over the bar. */
+.search-toggle { display: none; }
 @media (max-width: 760px) {
   .search { display: none; }
+  .search-toggle { display: inline-grid; }
+  body.search-open .search { position: absolute; left: 8px; right: 8px; top: 6px; z-index: 5; display: flex; max-width: none; }
+  body.search-open .search kbd { display: none; }
   .home main { padding: 12px 16px 64px; }
   #newfolder { display: none; }
 }
@@ -630,7 +637,7 @@ body.home:not(.admin) .appbar .wordmark { color: var(--text); }
   #new { width: var(--h); padding: 0; justify-content: center; }
   .home main { padding: 8px 12px 48px; }
   .board-grid, .folder-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-  .card.new { display: none; }
+  .card.new-board { display: none; }
   .card-body { padding: 10px 12px 12px; }
   .notices { position: fixed; top: 64px; left: 8px; right: 8px; width: auto; max-height: calc(100vh - 80px); }
 }
@@ -2086,7 +2093,8 @@ button.imp-row { width: 100%; border: 0; border-bottom: 1px solid var(--line); b
 button.imp-row:hover { background: var(--hover); }
 
 /* The way into a project's catalogue: a quiet line above it, and anywhere on it a drop. */
-.cat-tools { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin: 24px 0 -16px; }
+.cat-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; margin: 24px 0 -16px; }
+@media (max-width: 560px) { .cat-tools { justify-content: flex-start; margin-top: 12px; } .cat-tools .btn { flex: 1 1 auto; justify-content: center; } }
 .cat-tools .btn svg { width: 16px; height: 16px; }
 .cat-hint { color: var(--muted); font-size: 12.5px; }
 .cat-drop { position: fixed; inset: 12px; z-index: 30; display: grid; place-items: center; border: 2px dashed var(--accent); border-radius: var(--r-4); background: color-mix(in srgb, var(--accent) 10%, color-mix(in srgb, var(--bg) 70%, transparent)); color: var(--text); font-size: 16px; font-weight: 600; pointer-events: none; }
@@ -2341,7 +2349,7 @@ body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
 /* A card's cache badge, in its top right corner: there when you look for it, not before. A small
    tick once the video is on this computer, a thin ring filling while it comes; the cloud (plays from
    the server) only while the pointer is over the card. */
-.cache-badge { position: absolute; top: 6px; right: 6px; z-index: 2; display: grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; background: rgba(0, 0, 0, 0.35); color: rgba(255, 255, 255, 0.7); opacity: 0.7; pointer-events: auto; transition: opacity 0.15s var(--ease); }
+.cache-badge { position: absolute; bottom: 6px; right: 6px; z-index: 2; display: grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; background: rgba(0, 0, 0, 0.35); color: rgba(255, 255, 255, 0.7); opacity: 0.7; pointer-events: auto; transition: opacity 0.15s var(--ease); }
 .cache-badge svg { width: 9px; height: 9px; stroke-width: 2.4; }
 .cache-badge[data-state="cached"] { color: var(--ok); }
 .cache-badge[data-state="cached"] svg { stroke-width: 3; }
@@ -2349,5 +2357,29 @@ body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
 .card:hover .cache-badge, .vl-row:hover .cache-badge { opacity: 1; }
 .cache-badge[data-state="coming"] { background: conic-gradient(rgba(255, 255, 255, 0.75) var(--p, 0%), rgba(0, 0, 0, 0.35) 0); }
 .cache-badge[data-state="coming"]::after { content: ''; width: 9px; height: 9px; border-radius: 50%; background: rgba(0, 0, 0, 0.55); }
-.vl-thumb .cache-badge, [data-density="compact"] .cache-badge { top: 3px; right: 3px; width: 12px; height: 12px; }
+.vl-thumb .cache-badge, [data-density="compact"] .cache-badge { bottom: 3px; right: 3px; width: 12px; height: 12px; }
 .vl-thumb .cache-badge svg, [data-density="compact"] .cache-badge svg { width: 8px; height: 8px; }
+
+/* A link-like button in running text (Try again). */
+.linkbtn { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
+.acct-seg2 { margin-top: 8px; }
+.imp-x { flex: none; width: 26px; height: 26px; color: var(--muted); }
+.imp-x:hover { color: var(--text); }
+.toast.has-action { display: flex; align-items: center; gap: 12px; pointer-events: auto; }
+.toast-act { flex: none; padding: 2px 8px; border: 0; border-radius: var(--r-1); background: transparent; color: var(--accent); font: inherit; font-weight: 600; text-decoration: none; cursor: pointer; }
+.toast-act:hover { background: var(--hover); }
+/* A board's folders in its bar, before its name. */
+.bar-crumb.board-folder { display: inline-flex; align-items: center; text-decoration: none; }
+@media (max-width: 760px) { .bar-crumb.board-folder, .bar-crumb.board-folder + .bar-slash { display: none; } }
+/* The versions list keeps to a readable width rather than leaving a gulf between name and time. */
+.vl-run, .vl-day { max-width: 1040px; }
+.vl-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cat-tip { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 12px 8px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.cat-tip svg { width: 14px; height: 14px; }
+/* Artists and CC: a field that looks like one, quietly, until it is used. */
+.pf { border: 1px dashed transparent; border-radius: var(--r-2); padding: 2px 4px; transition: border-color 0.12s var(--ease); }
+.pf:hover { border-color: var(--line-strong); }
+.pf:focus-within { border-style: solid; border-color: var(--accent); }
+/* An empty board says how to add to it, except to someone looking through a link. */
+#hint .hint-guest, body.viewonly #hint .hint-edit { display: none; }
+body.viewonly #hint .hint-guest { display: inline; }

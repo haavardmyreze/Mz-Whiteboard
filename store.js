@@ -906,7 +906,7 @@ function openStore(dataDir) {
   return {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
-    entities, newestOfTask, entity, entityNamed, addEntity, setEntity, entitiesOf, happenings, people, entityCount, addVersion, version, versionsOf, hideVersion, editVersion, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion,
+    transaction, entities, newestOfTask, entity, entityNamed, addEntity, setEntity, entitiesOf, happenings, people, entityCount, addVersion, version, versionsOf, hideVersion, editVersion, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion,
     note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,

@@ -859,6 +859,10 @@
 
   function render() {
     const rt = route();
+    if (picking.on && (rt.kind !== 'folder' || rt.id !== picking.project || currentView().page !== 'catalogue' || currentView().entity)) {
+      const f = folderById(picking.project);
+      if (f) setPicking(f, false);
+    }
     if (rt.kind === 'folder') space = folderById(rt.id).workspace || space;
     else if (rt.kind === 'space') space = rt.space;
     if (rt.kind !== 'home') store('wb:workspace', space);
@@ -947,6 +951,7 @@
     }
   }
 
+  const ICON_CHECKS = svg('<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><path d="M5.5 7l1.3 1.3L9 6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M5.5 17l1.3 1.3L9 16"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>', 16);
   const ICON_IMPORT = svg('<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 14v5h14v-5"/>', 16);
   const ICON_PLUS = svg('<path d="M12 5v14M5 12h14"/>', 18);
 
@@ -954,9 +959,81 @@
   function catTools(project) {
     return el('div', { class: 'cat-tools' },
       el('span', { class: 'cat-hint', text: 'Drop images and videos anywhere here to add them' }),
+      el('button', { type: 'button', class: `btn pick-toggle${pickingIn(project) ? ' on' : ''}`, html: `${ICON_CHECKS}<span>Select</span>`, title: 'Select assets, sets and shots to change them together', onclick: () => setPicking(project, !pickingIn(project)) }),
       el('a', { class: 'btn', href: `#/f/${project.id}/timeline`, html: `${ICON_PLAY}<span>Timeline</span>`, title: 'Every shot in order, played through' }),
       el('button', { type: 'button', class: 'btn', html: `${ICON_PLUS}<span>Add assets, sets &amp; shots</span>`, title: 'Set up what the project has, before anything is filed of it', onclick: () => addEntities(project) }),
       el('button', { type: 'button', class: 'btn', html: `${ICON_IMPORT}<span>Import</span>`, title: 'Bring images and videos into the catalogue', onclick: () => importer(project).pick() }));
+  }
+
+  // Changing many at once: who works on them and who is cc'd (added, taken off, or set outright), and
+  // what they are. What is left alone stays as each has it.
+  async function batchEdit(project) {
+    const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`);
+    const chosen = cat.entities.filter((e) => picking.ids.has(e.id));
+    if (!chosen.length) return;
+    if (!people.length) await loadPeople();
+    const tally = (key) => {
+      const count = new Map();
+      for (const e of chosen) for (const n of e[key] || []) count.set(n, (count.get(n) || 0) + 1);
+      return count.size ? [...count].sort((a, b) => b[1] - a[1]).map(([n, k]) => (k === chosen.length ? n : `${n} (${k})`)).join(', ') : 'nobody';
+    };
+    const peopleRow = (key, label) => {
+      let names = [];
+      const how = el('select', { class: 'be-how', 'aria-label': `${label}: what to do` },
+        el('option', { value: '', text: 'Leave as they are' }), el('option', { value: 'add', text: 'Add' }), el('option', { value: 'remove', text: 'Take off' }), el('option', { value: 'set', text: 'Set to' }));
+      const field = namesField([], (list) => { names = list; }, { placeholder: key === 'cc' ? 'Someone to keep in the loop' : 'An artist' });
+      const sync = () => { field.hidden = !how.value; };
+      how.addEventListener('change', sync);
+      sync();
+      return {
+        node: el('div', { class: 'be-row' }, el('span', { class: 'be-label', text: label }),
+          el('div', { class: 'be-field' }, el('div', { class: 'be-now', text: `Now: ${tally(key)}` }), el('div', { class: 'be-ctl' }, how, field))),
+        value: () => (how.value ? { [how.value]: names } : undefined),
+      };
+    };
+    const artists = peopleRow('artists', 'Artists');
+    const cc = peopleRow('cc', 'CC');
+    const tiers = cat.preset.tiers;
+    const tierNow = [...new Set(chosen.map((e) => e.tier))];
+    const tierSel = el('select', { class: 'be-how', 'aria-label': 'What they are' },
+      el('option', { value: '', text: tierNow.length === 1 ? `Leave as ${tierNow[0]}${chosen.length > 1 ? 's' : ''}` : 'Leave as they are' }),
+      tiers.map((t) => el('option', { value: t.id, text: `Make them ${t.label.toLowerCase()}` })));
+    const error = el('p', { class: 've-error', hidden: true });
+    const save = el('button', { type: 'submit', class: 'btn primary', text: `Change ${chosen.length}` });
+    const names = chosen.map((e) => e.name);
+    const dlg = el('dialog', { class: 'dlg be' },
+      el('form', {
+        method: 'dialog',
+        onsubmit: async (ev) => {
+          ev.preventDefault();
+          const body = { ids: chosen.map((e) => e.id), artists: artists.value(), cc: cc.value(), ...(tierSel.value && { tier: tierSel.value }) };
+          if (!body.artists && !body.cc && !body.tier) return dlg.close();
+          save.disabled = true;
+          try {
+            await api('PATCH', `/api/projects/${project.id}/entities`, body);
+            catalogues.delete(project.id);
+            dlg.close();
+            shownProject = '';
+            render();
+            undoable(`Changed ${plural(chosen.length, 'asset, set or shot').replace('asset, set or shots', 'assets, sets and shots')}`, null);
+          } catch (err) {
+            error.textContent = err.message;
+            error.hidden = false;
+            save.disabled = false;
+          }
+        },
+      },
+      el('h2', { text: `Edit ${chosen.length === 1 ? names[0] : `${chosen.length} ${tierNow.length === 1 ? (tiers.find((t) => t.id === tierNow[0]) || { label: 'assets, sets and shots' }).label.toLowerCase() : 'assets, sets and shots'}`}` }),
+      el('p', { class: 'be-which', text: names.length > 8 ? `${names.slice(0, 8).join(', ')} and ${names.length - 8} more` : names.join(', ') }),
+      artists.node, cc.node,
+      el('div', { class: 'be-row' }, el('span', { class: 'be-label', text: 'What they are' }), el('div', { class: 'be-field' }, el('div', { class: 'be-ctl' }, tierSel))),
+      error,
+      el('div', { class: 'dlg-actions' },
+        el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }),
+        save)));
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.append(dlg);
+    dlg.showModal();
   }
 
   // Setting a project up with what it has from the start: names, one a line, each an asset, a set or a
@@ -1094,6 +1171,56 @@
 
   // An asset, set or shot's card: its picture plays the newest version at once (scrubbing through it
   // under the pointer); its name goes to its page.
+  // Picking many assets, sets and shots in the catalogue, to change them together (batchEdit). A click
+  // picks one, Shift and a click every one between it and the last, and the bar at the foot says how
+  // many and what can be done with them.
+  const picking = { project: null, on: false, ids: new Set(), last: null, order: [] };
+  const pickingIn = (project) => picking.on && picking.project === project.id;
+  function pickTile(id, range) {
+    if (range && picking.last && picking.order.includes(picking.last)) {
+      const [a, b] = [picking.order.indexOf(picking.last), picking.order.indexOf(id)].sort((x, y) => x - y);
+      for (const x of picking.order.slice(a, b + 1)) picking.ids.add(x);
+    } else if (picking.ids.has(id)) picking.ids.delete(id);
+    else picking.ids.add(id);
+    picking.last = id;
+    paintPicked();
+  }
+  function paintPicked() {
+    for (const node of document.querySelectorAll('.card.ent[data-id]')) node.classList.toggle('picked', picking.ids.has(node.dataset.id));
+    const bar = $('pickbar');
+    if (!bar) return;
+    const n = picking.ids.size;
+    bar.querySelector('.pick-count').textContent = n ? `${n} selected` : 'Select assets, sets and shots';
+    bar.querySelector('.pick-edit').disabled = !n;
+    bar.querySelector('.pick-clear').hidden = !n;
+  }
+  function setPicking(project, on) {
+    picking.on = on;
+    picking.project = project.id;
+    picking.ids.clear();
+    picking.last = null;
+    $('pickbar')?.remove();
+    if (on) {
+      const bar = el('div', { id: 'pickbar', class: 'pick-bar', role: 'toolbar', 'aria-label': 'Selected' },
+        el('span', { class: 'pick-count' }),
+        el('button', { type: 'button', class: 'btn small ghost', text: 'Select all', onclick: () => { for (const id of picking.order) picking.ids.add(id); paintPicked(); } }),
+        el('button', { type: 'button', class: 'btn small ghost pick-clear', text: 'Clear', onclick: () => { picking.ids.clear(); paintPicked(); } }),
+        el('span', { class: 'pick-gap' }),
+        el('button', { type: 'button', class: 'btn small', text: 'Done', title: 'Stop selecting (Esc)', onclick: () => setPicking(project, false) }),
+        el('button', { type: 'button', class: 'btn small primary pick-edit', text: 'Edit…', onclick: () => batchEdit(project) }));
+      document.body.append(bar);
+    }
+    document.body.classList.toggle('picking', on);
+    for (const b of document.querySelectorAll('.pick-toggle')) b.classList.toggle('on', on);
+    paintPicked();
+  }
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && picking.on && !document.querySelector('dialog[open], .menu') && !(document.querySelector('.viewer') && !document.querySelector('.viewer').hidden)) {
+      const f = folderById(picking.project);
+      if (f) setPicking(f, false);
+    }
+  });
+
   function entityTile(project, e) {
     const newest = e.newest || null;
     const thumbs = el('div', { class: `card-thumbs n${e.thumb ? 1 : 0}`, ...(newest && { title: 'Play the latest' }) },
@@ -1104,10 +1231,19 @@
       thumbs.addEventListener('click', (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        lookAt(e.id, newest.id);
+        if (pickingIn(project)) pickTile(e.id, ev.shiftKey);
+        else lookAt(e.id, newest.id);
       });
     }
-    return el('a', { class: 'card ent', href: `#/f/${project.id}/catalogue/${e.id}` },
+    return el('a', {
+      class: `card ent${picking.ids.has(e.id) && pickingIn(project) ? ' picked' : ''}`, href: `#/f/${project.id}/catalogue/${e.id}`, 'data-id': e.id,
+      onclick: (ev) => {
+        if (!pickingIn(project)) return;
+        ev.preventDefault();
+        pickTile(e.id, ev.shiftKey);
+      },
+    },
+      el('span', { class: 'pick-box', 'aria-hidden': 'true' }),
       thumbs,
       el('div', { class: 'card-body' },
         el('div', { class: 'card-name', text: e.name }),
@@ -1122,10 +1258,12 @@
       && (!view.tier || e.tier === view.tier) && (!view.seq || (e.tier === 'shot' && N.seqOf(e.name) === view.seq)));
     const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
     const out = [];
+    picking.order = [];
     for (const tier of cat.preset.tiers) {
       const of = list.filter((e) => e.tier === tier.id);
       if (!of.length) continue;
       out.push(label(tier.label, of.length));
+      picking.order.push(...of.map((e) => e.id));
       if (tier.id !== 'shot') {
         out.push(el('div', { class: 'board-grid ent-grid' }, of.map((e) => entityTile(project, e))));
         continue;

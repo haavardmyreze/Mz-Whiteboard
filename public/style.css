@@ -2197,3 +2197,35 @@ button.imp-row:hover { background: var(--hover); }
 .v-pick:hover { background-color: var(--hover); }
 .v-pick option { background: var(--surface-1); color: var(--text); }
 .v-extras { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Picking assets, sets and shots to change together, and the bar that says how many. */
+.pick-toggle.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.pick-box { display: none; }
+body.picking .card.ent .pick-box { position: absolute; z-index: 2; top: 8px; left: 8px; display: grid; place-items: center; width: 20px; height: 20px; border: 1.5px solid rgba(255, 255, 255, 0.85); border-radius: 5px; background: rgba(0, 0, 0, 0.45); }
+body.picking .card.ent { cursor: pointer; }
+body.picking .card.ent .play-latest { display: none; }
+body.picking .card.ent.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+body.picking .card.ent.picked .pick-box { border-color: var(--accent); background: var(--accent); }
+body.picking .card.ent.picked .pick-box::after { content: ""; width: 9px; height: 5px; margin-top: -2px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg); }
+body.picking .card.ent:hover { transform: none; }
+.pick-bar { position: fixed; z-index: 40; left: 50%; bottom: 20px; display: flex; align-items: center; gap: 6px; width: min(640px, calc(100vw - 32px)); padding: 8px 8px 8px 16px; border: 1px solid var(--line-strong); border-radius: var(--r-4); background: var(--surface-1); box-shadow: var(--shadow-pop); transform: translateX(-50%); animation: rise 0.18s var(--ease); }
+.pick-count { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.pick-gap { flex: 1; }
+.pick-bar .btn[hidden] { display: none; }
+body.picking main { padding-bottom: 120px; }
+[data-density="compact"] body.picking .card.ent .pick-box { top: 50%; left: 6px; margin-top: -10px; }
+/* The batch edit dialog. */
+.dlg.be { width: min(560px, calc(100vw - 32px)); }
+.dlg .be-which { margin: 0 0 8px; color: var(--muted); font-size: 12.5px; }
+.be-row { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: start; padding: 12px 0; border-top: 1px solid var(--line); }
+.be-label { padding-top: 6px; color: var(--text-2); font-size: 12.5px; font-weight: 600; }
+.be-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.be-now { color: var(--muted); font-size: 12px; }
+.be-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.be-how { height: 32px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; }
+.be-ctl .pf { flex: 1; min-width: 200px; border-color: var(--line-strong); background: var(--surface-2); }
+.be-ctl .pf[hidden] { display: none; }
+/* In a dialog the box to add a name sits in its field, beside the names, not as a block of its own. */
+.dlg .pf-in { display: inline-block; flex: 1; width: auto; min-width: 120px; height: 26px; margin: 0; padding: 0 6px; border: 0; background: transparent; box-shadow: none; }
+.dlg .pf-in:focus { border: 0; box-shadow: none; }
+.be-ctl .pf { min-height: 34px; }

@@ -911,6 +911,31 @@ async function handleCatalogue(req, res, parts) {
         }),
       });
     }
+    // PATCH { ids, tier, artists: { add, remove, set }, cc: { add, remove, set } }: many at once. What is not
+    // said of them is left as each has it; all or none are changed.
+    if (parts.length === 4 && parts[3] === 'entities' && req.method === 'PATCH') {
+      const body = await readJson(req, 1024 * 1024);
+      const ids = Array.isArray(body.ids) ? [...new Set(body.ids)].slice(0, 2000) : [];
+      const list = ids.map((id) => store.entity(id));
+      if (!list.length || list.some((e) => !e || e.projectId !== project.id)) return sendJson(res, 400, { error: 'Pick assets, sets or shots of this project' });
+      if (body.tier !== undefined && !naming.TIERS.includes(body.tier)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
+      const people = (v) => [...new Set((Array.isArray(v) ? v : []).slice(0, 50).map((n) => cleanName(n, null)).filter(Boolean))];
+      const change = (now, how) => {
+        if (!how || typeof how !== 'object') return now;
+        if (Array.isArray(how.set)) return people(how.set);
+        const drop = people(how.remove).map((n) => n.toLowerCase());
+        const kept = now.filter((n) => !drop.includes(n.toLowerCase()));
+        for (const n of people(how.add)) if (!kept.some((k) => k.toLowerCase() === n.toLowerCase())) kept.push(n);
+        return kept;
+      };
+      const done = store.transaction(() => list.map((e) => store.setEntity(e.id, {
+        ...(body.tier !== undefined && { tier: body.tier }),
+        artists: change(e.artists, body.artists),
+        cc: change(e.cc, body.cc),
+      }).entity));
+      for (const e of done) retellEntity(e.id);
+      return sendJson(res, 200, { entities: done });
+    }
     // { name, tier } makes one; { names: [...], tier } sets up many at once, before anything is filed of
     // them. A name the project has already is left as it is. Without a tier, the name's shape says.
     if (parts.length === 4 && parts[3] === 'entities' && req.method === 'POST') {

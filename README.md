@@ -128,6 +128,11 @@ private networks, otherwise only the host machine can connect.
 - **Artists and CC.** An asset, set or shot's page names its artists and who else is cc'd, picked from
   everyone the app knows (who signed in, filed, wrote a note or was named before) or typed. Its card
   shows its artists.
+- **Changing many at once.** Select, above the catalogue, picks assets, sets and shots with a click
+  (Shift and a click for every one between); the bar at the foot has Select all, Clear and Edit. Edit
+  changes them together: artists and people cc'd added, taken off or set outright, and what they are
+  (assets, sets or shots), showing who each field has now. What is left alone stays as each has it, and
+  all of them change or none do. Esc, or Done, stops selecting.
 - **For you.** Home opens on what is relevant to you: versions filed and notes written by others, in
   the last two weeks, on the assets, sets and shots you are an artist on or cc'd on (click one to open
   it in the player), and those assets, sets and shots themselves. Signed in, you are who you signed in
@@ -197,7 +202,8 @@ A project's catalogue has its own: `GET /api/projects/<folder>` (its assets, set
 versions (each file may say its own `entity`, `task` and `number`; the catalogue's `tops` says the
 highest number each task of each entity has reached). `POST /api/projects/<folder>/entities` takes
 `{ "names": [...], "tier" }` to set many up at once; `PATCH /api/entities/<id>` takes `name`, `tier`,
-`artists` and `cc`. `GET /api/people` lists the names the app knows, and `GET /api/feed?name=` is
+`artists` and `cc`; `PATCH /api/projects/<folder>/entities` takes `{ "ids": [...], "tier", "artists": { "add" |
+"remove" | "set": [...] }, "cc": { ... } }` to change many at once. `GET /api/people` lists the names the app knows, and `GET /api/feed?name=` is
 Home's For you. `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest
 version.
 

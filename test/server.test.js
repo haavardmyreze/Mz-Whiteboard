@@ -1845,3 +1845,33 @@ test('a file brought in can ask for its version number, and the catalogue says w
   const e = (await call('GET', `/api/projects/${project.id}`)).body.entities[0];
   assert.deepEqual(e.tops, { anim: 8, '': 3 });
 });
+
+test('many assets, sets and shots are edited at once: artists and cc added, taken off or set, and what they are', async (t) => {
+  const s = start(4844);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const other = (await call('POST', '/api/folders', { name: 'Lima' })).body;
+  await call('PATCH', `/api/folders/${other.id}`, { project: true });
+  const made = (await call('POST', `/api/projects/${project.id}/entities`, { names: ['kilo-0010', 'kilo-0020', 'kilo-0030'] })).body.made;
+  const [a, b, c] = made.map((e) => e.id);
+  await call('PATCH', `/api/entities/${a}`, { artists: ['Erik'], cc: ['Anna'] });
+  const url = `/api/projects/${project.id}/entities`;
+  // added to each, never twice; the rest left as each had it
+  let res = await call('PATCH', url, { ids: [a, b], artists: { add: ['Ben', 'erik'] } });
+  assert.deepEqual(res.body.entities.map((e) => [e.name, e.artists, e.cc]), [['kilo-0010', ['Erik', 'Ben'], ['Anna']], ['kilo-0020', ['Ben', 'erik'], []]]);
+  // taken off, whatever the case; set outright; and the tier
+  res = await call('PATCH', url, { ids: [a, b, c], artists: { remove: ['ERIK'] }, cc: { set: ['Dina'] }, tier: 'asset' });
+  assert.deepEqual(res.body.entities.map((e) => [e.artists, e.cc, e.tier]), [[['Ben'], ['Dina'], 'asset'], [['Ben'], ['Dina'], 'asset'], [[], ['Dina'], 'asset']]);
+  // something of another project, or a tier that is none, changes nothing at all
+  const lima = (await call('POST', `/api/projects/${other.id}/entities`, { names: ['lima-0010'] })).body.made[0];
+  assert.equal((await call('PATCH', url, { ids: [a, lima.id], tier: 'shot' })).status, 400);
+  assert.equal((await call('PATCH', url, { ids: [a], tier: 'planet' })).status, 400);
+  assert.equal((await call('GET', `/api/projects/${project.id}`)).body.entities.find((e) => e.id === a).tier, 'asset');
+});

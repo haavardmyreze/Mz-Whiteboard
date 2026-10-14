@@ -1014,7 +1014,8 @@
     if (!name) return;
     try {
       const board = await api('POST', '/api/boards', { name, folderId: project.id, workspace: project.workspace, by: me.name });
-      await api('POST', `/api/projects/${project.id}/place`, { board: board.id, versions: ids, by: me.name });
+      // A new board starts laid out as the edit is: a column for each sequence, its shots going down.
+      await api('POST', `/api/projects/${project.id}/place`, { board: board.id, versions: ids, layout: 'sequences', by: me.name });
       location.href = `/b/${board.id}`;
     } catch (err) {
       fail(err);

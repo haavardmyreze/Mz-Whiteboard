@@ -350,8 +350,10 @@ filed in it.
   newest first: by day, and within a day by who filed a run of them, each with its still (which scrubs
   under the pointer and opens in the player), what it is, and the boards it is on. Click to pick, Shift
   and a click for a run, or a day's or a run's box for all of it; then "Add to board" puts them on one of
-  the project's boards, below what is there, or "New board" makes one in the project with them on it.
-  Either way they are those versions, with their notes.
+  the project's boards, in rows below what is there, or "New board" makes one in the project with them
+  on it, laid out as the edit is: a column for each sequence, left to right, its shots going down from
+  first to last (assets and sets in columns after them). Either way they are those versions, with their
+  notes.
 - **Changing many at once.** Select, above the catalogue, picks assets, sets and shots with a click
   (Shift and a click for every one between), or drag on empty space to draw a box over them, as in a
   file manager (with Shift, Ctrl or Cmd it adds to what is picked; the Versions list and an asset's
@@ -429,8 +431,8 @@ highest number each task of each entity has reached). `POST /api/projects/<folde
 lists the names the app knows, and `GET /api/feed?name=` is Home's Updates and My work.
 `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest version,
 `GET /api/projects/<folder>/versions?before=` the project's versions newest first, and
-`POST /api/projects/<folder>/place` takes `{ "board", "versions": [...] }` to put versions on one of the
-project's boards.
+`POST /api/projects/<folder>/place` takes `{ "board", "versions": [...], "layout" }` to put versions on
+one of the project's boards (`"layout": "sequences"` for a column per sequence).
 
 ## Settings
 

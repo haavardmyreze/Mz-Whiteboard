@@ -1927,6 +1927,17 @@ test('a project lists its versions newest first, and puts chosen ones on one of 
   // side by side, in a row starting at the left of what is there, below it
   assert.deepEqual(added.map((it) => [it.x, it.y]), [[100, 410], [874, 410]]);
   assert.deepEqual((await call('GET', `/api/projects/${project.id}/versions`)).body.versions[0].boards.map((x) => x.name), ['Dailies']);
+  // laid out by sequence: a column each, shots going down in order, assets after
+  const fresh = (await call('POST', '/api/boards', { name: 'Review', folderId: project.id })).body;
+  const d = await file('abc-0020', 'anim', 'Ben');
+  const e = await file('abc-0010', 'anim', 'Ben');
+  const robot = await file('char-robot', 'model', 'Ben');
+  const watch = await open(`board=${fresh.id}`, 'Ben');
+  t.after(() => watch.ws.close());
+  await call('POST', `/api/projects/${project.id}/place`, { board: fresh.id, versions: [robot.id, d.id, c.id, e.id], layout: 'sequences' });
+  await pause(200);
+  const laid = watch.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).filter((o) => o.t === 'add').map((o) => o.item);
+  assert.deepEqual(laid.map((it) => [it.ver, it.x, it.y]), [[e.id, 0, 0], [d.id, 0, 446], [c.id, 870, 0], [robot.id, 1740, 0]]);
   // not a board of another project, nor versions of nothing
   assert.equal((await call('POST', `/api/projects/${project.id}/place`, { board: loose.id, versions: [a.id] })).status, 404);
   assert.equal((await call('POST', `/api/projects/${project.id}/place`, { board: board.id, versions: ['nothing1'] })).status, 400);

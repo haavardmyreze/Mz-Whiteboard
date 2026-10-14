@@ -912,8 +912,10 @@ async function handleCatalogue(req, res, parts) {
         more: list.length === 300,
       });
     }
-    // POST /api/projects/:id/place { board, versions: [ids] }: puts versions on one of the project's
-    // boards, as pieces that are those versions, in rows below what is on it already.
+    // POST /api/projects/:id/place { board, versions: [ids], layout }: puts versions on one of the
+    // project's boards, as pieces that are those versions, below what is on it already: in rows, or
+    // with `layout: 'sequences'` a column for each sequence, its shots going down from first to last
+    // (assets and sets in columns of their own after them).
     if (parts.length === 4 && parts[3] === 'place' && req.method === 'POST') {
       const body = await readJson(req, 256 * 1024);
       const board = boards.get(body.board);
@@ -928,28 +930,54 @@ async function handleCatalogue(req, res, parts) {
       let z = all.reduce((m, it) => Math.max(m, it.z || 0), 0);
       const W = 750;
       const GAP = 24;
-      const cols = Math.min(6, Math.max(1, Math.ceil(Math.sqrt(list.length * 1.5))));
-      let x = 0;
-      let y = 0;
-      let tallest = 0;
-      const ops = list.map((v, i) => {
-        const look = v.look;
+      const sizeOf = (look) => {
         const h = Math.round(Math.min(1080, W * ((look.nh || 9) / (look.nw || 16))));
-        const w = Math.round(h === 1080 ? 1080 * ((look.nw || 16) / (look.nh || 9)) : W);
-        if (i && i % cols === 0) {
-          x = 0;
-          y += tallest + GAP;
-          tallest = 0;
+        return { w: Math.round(h === 1080 ? 1080 * ((look.nw || 16) / (look.nh || 9)) : W), h };
+      };
+      const piece = (v, x, y) => ({ t: 'add', item: { ...v.look, id: newId(), type: v.look.type, x: left + x, y: top + y, ...sizeOf(v.look), z: ++z, ver: v.id } });
+      const ops = [];
+      if (body.layout === 'sequences') {
+        const byName = (a, b) => a.localeCompare(b, undefined, { numeric: true });
+        const cols = new Map();
+        for (const v of list) {
+          const e = store.entity(v.entityId);
+          const key = e.tier === 'shot' ? `0:${naming.seqOf(e.name) || e.name}` : `${e.tier === 'asset' ? 1 : 2}:${e.tier === 'asset' ? 'Assets' : 'Sets'}`;
+          (cols.get(key) || cols.set(key, []).get(key)).push({ v, name: e.name });
         }
-        const item = { ...look, id: newId(), type: look.type, x: left + x, y: top + y, w, h, z: ++z, ver: v.id };
-        x += w + GAP;
-        tallest = Math.max(tallest, h);
-        return { t: 'add', item };
-      });
+        let x = 0;
+        for (const key of [...cols.keys()].sort((a, b) => a[0] - b[0] || byName(a, b))) {
+          const col = cols.get(key).sort((a, b) => byName(a.name, b.name) || byName(a.v.task || '', b.v.task || '') || a.v.number - b.v.number);
+          let y = 0;
+          let widest = 0;
+          for (const { v } of col) {
+            const op = piece(v, x, y);
+            ops.push(op);
+            y += op.item.h + GAP;
+            widest = Math.max(widest, op.item.w);
+          }
+          x += widest + 120;
+        }
+      } else {
+        const cols = Math.min(6, Math.max(1, Math.ceil(Math.sqrt(list.length * 1.5))));
+        let x = 0;
+        let y = 0;
+        let tallest = 0;
+        list.forEach((v, i) => {
+          if (i && i % cols === 0) {
+            x = 0;
+            y += tallest + GAP;
+            tallest = 0;
+          }
+          const op = piece(v, x, y);
+          ops.push(op);
+          x += op.item.w + GAP;
+          tallest = Math.max(tallest, op.item.h);
+        });
+      }
       const applied = applyOps(board, ops, null, true);
       if (applied.length) broadcast(board, { t: 'op', ops: applied, from: null });
       settle(board, applied);
-      note(board, req.user ? req.user.name : cleanName(body.by, null) || 'Somebody', 'add', ops.length);
+      note(board, req.user ? req.user.name : cleanName(body.by, null) || 'Somebody', 'add', list.length);
       return sendJson(res, 200, { board: { id: board.id, name: board.name }, placed: ops.map((o) => o.item.id) });
     }
     // GET /api/projects/:id/timeline?task=   every shot in order, by sequence, with its newest version (of

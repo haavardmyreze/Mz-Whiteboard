@@ -1283,32 +1283,41 @@
   // newest version of each, of one task or any, all sequences or one, chosen in the player's bar.
   // runOf: the project whose timeline is open (declared with the cache ring, which asks for it).
   // The card that stands in for a shot with nothing filed: its name, and that it has nothing yet.
+  // It is drawn as SVG, so it is sharp at any size the player shows it at: drawn at 1280 x 720, said to
+  // be four times that so it is never scaled up from a small picture. An image cannot reach the page's
+  // fonts, so Inter goes inside it (fetched once).
   const slates = new Map();
-  function slate(name, task) {
+  let slateFont = null;
+  const slateFontReady = () => {
+    if (!slateFont) {
+      slateFont = fetch('/fonts/inter-latin.woff2')
+        .then((r) => (r.ok ? r.blob() : null))
+        .then((b) => b && new Promise((resolve) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(fr.result);
+          fr.onerror = () => resolve(null);
+          fr.readAsDataURL(b);
+        }))
+        .catch(() => null);
+    }
+    return slateFont;
+  };
+  const SLATE = { w: 1280, h: 720, scale: 3 };
+  const xml = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
+  async function slate(name, task) {
     const key = `${name}|${task}`;
     if (slates.has(key)) return slates.get(key);
-    const c = document.createElement('canvas');
-    c.width = 1280;
-    c.height = 720;
-    const g = c.getContext('2d');
-    g.fillStyle = '#111';
-    g.fillRect(0, 0, 1280, 720);
-    g.strokeStyle = '#191919';
-    g.lineWidth = 14;
-    for (let x = -720; x < 1280; x += 40) {
-      g.beginPath();
-      g.moveTo(x, 720);
-      g.lineTo(x + 720, 0);
-      g.stroke();
-    }
-    g.textAlign = 'center';
-    g.fillStyle = '#e8e8e8';
-    g.font = '600 64px Inter, system-ui, sans-serif';
-    g.fillText(name, 640, 360);
-    g.fillStyle = '#8a8a8a';
-    g.font = '400 30px Inter, system-ui, sans-serif';
-    g.fillText(task ? `No ${task} filed yet` : 'Nothing filed yet', 640, 416);
-    const url = c.toDataURL('image/png');
+    const font = await slateFontReady();
+    const { w, h, scale } = SLATE;
+    const face = font ? `<style>@font-face{font-family:SlateInter;font-weight:100 900;src:url(${font}) format("woff2")}</style>` : '';
+    const family = `${font ? 'SlateInter, ' : ''}Inter, system-ui, -apple-system, 'Segoe UI', sans-serif`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w * scale}" height="${h * scale}" viewBox="0 0 ${w} ${h}">${face}`
+      + '<defs><pattern id="s" width="40" height="40" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="40" height="40" fill="#111"/><rect width="10" height="40" fill="#191919"/></pattern></defs>'
+      + `<rect width="${w}" height="${h}" fill="url(#s)"/>`
+      + `<text x="${w / 2}" y="360" text-anchor="middle" font-family="${xml(family)}" font-weight="600" font-size="64" fill="#e8e8e8">${xml(name)}</text>`
+      + `<text x="${w / 2}" y="416" text-anchor="middle" font-family="${xml(family)}" font-weight="400" font-size="30" fill="#8a8a8a">${xml(task ? `No ${task} filed yet` : 'Nothing filed yet')}</text>`
+      + '</svg>';
+    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
     slates.set(key, url);
     return url;
   }
@@ -1323,6 +1332,9 @@
       data = await api('GET', `/api/projects/${project.id}/timeline${task ? `?task=${encodeURIComponent(task)}` : ''}`);
       if (seq && !data.shots.some((x) => x.seq === seq)) seq = '';
       if (!data.shots.length) return [];
+      // The slates for shots with nothing filed, drawn before the run is laid out.
+      const pending = data.shots.filter((x) => !x.version && withEmpty && (!seq || x.seq === seq));
+      const slateOf = new Map(await Promise.all(pending.map(async (x) => [x.id, await slate(x.name, task)])));
       // All of it is cached, after the next few shots the player asks for first; the ring says how far.
       const videos = data.shots.filter((x) => x.version && x.version.look.type === 'video' && (!seq || x.seq === seq));
       tlScope = { label: 'this timeline', items: videos.map((x) => ({ src: x.version.look.src, name: x.version.label })) };
@@ -1332,7 +1344,7 @@
         ...x.version.look, id: x.version.id, type: x.version.look.type, label: x.version.label, name: x.name, seq: x.seq, entityId: x.id,
       } : {
         // A shot with nothing filed (of that task): a slate in its place, held like a still.
-        type: 'image', id: `empty-${x.id}`, src: slate(x.name, task), nw: 1280, nh: 720, empty: true,
+        type: 'image', id: `empty-${x.id}`, src: slateOf.get(x.id), nw: SLATE.w * SLATE.scale, nh: SLATE.h * SLATE.scale, empty: true,
         label: `${x.name} · nothing filed yet`, name: x.name, seq: x.seq, entityId: x.id,
       }));
     };

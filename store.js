@@ -130,8 +130,20 @@ CREATE TABLE IF NOT EXISTS entities (
   UNIQUE (project_id, name)
 );
 
+-- The names in each entity's artists and cc, one row each and in lower case, so that "everything this
+-- person works on or follows" is a lookup rather than a search through every entity. Kept in step with
+-- the entities' own lists whenever those change.
+CREATE TABLE IF NOT EXISTS entity_people (
+  entity_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  name_key TEXT NOT NULL,
+  PRIMARY KEY (entity_id, role, name_key)
+);
+CREATE INDEX IF NOT EXISTS entity_people_by_name ON entity_people (name_key);
+
 -- A version: one file filed under an entity, and a task if the project uses them. The number counts the
--- versions of that entity and task in the order they were filed; hip is a version number read from
+-- versions of that entity and task in the order they were filed (a version with no task has '' for
+-- it, never NULL, so that the number is unique there too); hip is a version number read from
 -- the file's name, kept only as a label. Its look is what a board needs to show the file (its address,
 -- stills, size, length), as JSON. An archived version (hidden) is kept out of the catalogue's way; a
 -- deleted one is marked, never removed, so its number is not given out again and it can be brought back.
@@ -156,6 +168,7 @@ CREATE TABLE IF NOT EXISTS versions (
   UNIQUE (entity_id, task, number)
 );
 CREATE INDEX IF NOT EXISTS versions_by_entity ON versions (entity_id, task, number);
+CREATE INDEX IF NOT EXISTS versions_by_filer ON versions (lower(created_by));
 
 -- What people say about the work. A note belongs to a version, so it is there on every board the
 -- version is on, or, while a piece of media is not filed as a version, to that piece on its board.
@@ -176,6 +189,8 @@ CREATE TABLE IF NOT EXISTS notes (
 );
 CREATE INDEX IF NOT EXISTS notes_by_version ON notes (version_id);
 CREATE INDEX IF NOT EXISTS notes_by_item ON notes (board_id, item_id);
+CREATE INDEX IF NOT EXISTS notes_by_thread ON notes (re);
+CREATE INDEX IF NOT EXISTS notes_by_time ON notes (created_at);
 
 -- Small things kept per person, such as which notifications they have read.
 CREATE TABLE IF NOT EXISTS user_state (
@@ -267,12 +282,15 @@ function derive(it) {
 
 // Comments used to be items on their board. They are notes now, kept in a table of their own, so that
 // one made about a version is there on every board the version is on. A database from before has its
-// comments moved across once, each still on what it was on.
+// comments moved across once, each still on what it was on. One that was on nothing (a pin on the board
+// itself, from long ago) is kept as a note on the board as a whole (its item is ''), which no board
+// shows but which is not thrown away. One that cannot be read at all is left where it was, and said so.
 function moveCommentsToNotes(db) {
   const rows = db.prepare("SELECT board_id, id, data, created_at, created_by, updated_at FROM items WHERE type = 'comment'").all();
   if (!rows.length) return;
   const put = db.prepare(`INSERT OR IGNORE INTO notes (id, board_id, item_id, version_id, re, data, created_at, created_by, updated_at)
     VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`);
+  const drop = db.prepare('DELETE FROM items WHERE board_id = ? AND id = ?');
   db.exec('BEGIN IMMEDIATE');
   try {
     for (const r of rows) {
@@ -280,12 +298,13 @@ function moveCommentsToNotes(db) {
       try {
         c = JSON.parse(r.data);
       } catch {
+        console.error(`A comment on board ${r.board_id} (${r.id}) could not be read, so it was left as it is.`);
         continue;
       }
-      if (typeof c.on !== 'string') continue;
-      put.run(r.id, r.board_id, c.on, typeof c.re === 'string' ? c.re : null, JSON.stringify(c), r.created_at, r.created_by, r.updated_at);
+      if (!c || typeof c !== 'object') continue;
+      put.run(r.id, r.board_id, typeof c.on === 'string' ? c.on : '', typeof c.re === 'string' ? c.re : null, JSON.stringify(c), r.created_at, r.created_by, r.updated_at);
+      drop.run(r.board_id, r.id);
     }
-    db.exec("DELETE FROM items WHERE type = 'comment'");
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');
@@ -304,20 +323,28 @@ function moveDrawingsToNotes(db) {
   const readNote = db.prepare('SELECT data FROM notes WHERE id = ?');
   const putData = db.prepare('UPDATE notes SET data = ? WHERE id = ?');
   const drop = db.prepare('DELETE FROM items WHERE board_id = ? AND id = ?');
+  // One row that cannot be read stays as it is: it must not stop the server from starting.
+  const parse = (json) => {
+    try {
+      const v = JSON.parse(json);
+      return v && typeof v === 'object' ? v : null;
+    } catch {
+      return null;
+    }
+  };
   db.exec('BEGIN IMMEDIATE');
   try {
     for (const r of rows) {
-      const s = JSON.parse(r.data);
-      const note = typeof s.cid === 'string' && readNote.get(s.cid);
+      const s = parse(r.data);
+      const note = s && typeof s.cid === 'string' && readNote.get(s.cid);
       const hostRow = note && typeof s.pid === 'string' && readHost.get(r.board_id, s.pid);
-      if (!hostRow) continue;
-      const h = JSON.parse(hostRow.data);
-      if (!(h.w > 0)) continue;
+      const h = hostRow && parse(hostRow.data);
+      const data = h && parse(note.data);
+      if (!data || !(h.w > 0)) continue;
       const k = 1000 / h.w;
       const stroke = { x: r2((s.x - h.x) * k), y: r2((s.y - h.y) * k), w: r2(s.w * k), h: r2(s.h * k), pts: s.pts, size: r2(s.size * k), color: s.color || 'ink' };
       if (Array.isArray(s.ws)) stroke.ws = s.ws;
       if (s.arrow) stroke.arrow = true;
-      const data = JSON.parse(note.data);
       data.drawing = [...(Array.isArray(data.drawing) ? data.drawing : []), stroke];
       putData.run(JSON.stringify(data), s.cid);
       drop.run(r.board_id, r.id);
@@ -329,6 +356,61 @@ function moveDrawingsToNotes(db) {
   }
 }
 
+// Versions with no task used to have NULL for it, and a UNIQUE constraint never finds two NULLs the
+// same, so two of them could end up with one number. They have '' now. Where two did share a number,
+// the first filed keeps it and the others are given the next free ones.
+function tasksNotNull(db) {
+  const rows = db.prepare('SELECT id, entity_id, number FROM versions WHERE task IS NULL ORDER BY created_at, rowid').all();
+  if (!rows.length) return;
+  const used = db.prepare("SELECT number FROM versions WHERE entity_id = ? AND task = ''");
+  const top = db.prepare("SELECT coalesce(max(number), 0) AS n FROM versions WHERE entity_id = ? AND (task IS NULL OR task = '')");
+  const put = db.prepare("UPDATE versions SET task = '', number = ? WHERE id = ?");
+  const seen = new Map(); // entity -> { used, next }
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    for (const r of rows) {
+      if (!seen.has(r.entity_id)) seen.set(r.entity_id, { used: new Set(used.all(r.entity_id).map((x) => x.number)), next: top.get(r.entity_id).n + 1 });
+      const s = seen.get(r.entity_id);
+      const number = s.used.has(r.number) ? s.next++ : r.number;
+      s.used.add(number);
+      put.run(number, r.id);
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+// The names on every entity, written out into entity_people (see SCHEMA) for a database from before it.
+function fillEntityPeople(db) {
+  const put = db.prepare('INSERT OR IGNORE INTO entity_people (entity_id, role, name_key) VALUES (?, ?, ?)');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.exec('DELETE FROM entity_people');
+    for (const r of db.prepare('SELECT id, artists, cc FROM entities WHERE artists IS NOT NULL OR cc IS NOT NULL').all()) {
+      for (const [role, json] of [['artist', r.artists], ['cc', r.cc]]) {
+        let list = [];
+        try {
+          list = JSON.parse(json || '[]');
+        } catch {
+          // a list that cannot be read names nobody
+        }
+        for (const n of Array.isArray(list) ? list : []) if (typeof n === 'string' && n.trim()) put.run(r.id, role, n.trim().toLowerCase());
+      }
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+// How far a database has been brought up to date, kept in SQLite's own user_version, so that the
+// moves below are looked for once rather than on every start:
+//   1  comments and their drawings moved to notes, versions with no task given '', entity_people filled in
+const SCHEMA_STEP = 1;
+
 function openStore(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
   const file = path.join(dataDir, 'wipboard.db');
@@ -336,14 +418,16 @@ function openStore(dataDir) {
   db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;');
   const hasTable = (table) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
   const hasColumn = (table, column) => !!db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name = ?`).get(column);
+  const step = db.prepare('PRAGMA user_version').get().user_version;
   // What a board was before a round of changes used to be called a version. Versions are now what the
   // catalogue keeps, so the board's own are snapshots, and a database from before has its table renamed.
   const oldSnapshots = hasTable('versions') && hasColumn('versions', 'sig');
-  const oldComments = hasTable('items') && !!db.prepare(`SELECT 1 FROM items WHERE type = 'comment' OR (type = 'stroke' AND data LIKE '%"cid"%') LIMIT 1`).get();
+  const oldComments = step < 1 && hasTable('items') && !!db.prepare(`SELECT 1 FROM items WHERE type = 'comment' OR (type = 'stroke' AND data LIKE '%"cid"%') LIMIT 1`).get();
+  const nullTasks = step < 1 && !oldSnapshots && hasTable('versions') && !!db.prepare('SELECT 1 FROM versions WHERE task IS NULL LIMIT 1').get();
   // The database as it was is copied aside first, whole, in case anything about the move is not as it should be.
-  if (oldSnapshots || oldComments) {
+  if (oldSnapshots || oldComments || nullTasks) {
     fs.mkdirSync(path.join(dataDir, 'backups'), { recursive: true });
-    const copy = path.join(dataDir, 'backups', `wipboard-before-catalogue-${Date.now()}.db`);
+    const copy = path.join(dataDir, 'backups', `wipboard-before-${oldSnapshots || oldComments ? 'catalogue' : 'upgrade'}-${Date.now()}.db`);
     db.prepare('VACUUM INTO ?').run(copy);
   }
   if (oldSnapshots) db.exec('ALTER TABLE versions RENAME TO snapshots');
@@ -360,11 +444,37 @@ function openStore(dataDir) {
   if (!hasColumn('entities', 'artists')) db.exec('ALTER TABLE entities ADD COLUMN artists TEXT');
   if (!hasColumn('entities', 'cc')) db.exec('ALTER TABLE entities ADD COLUMN cc TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS items_by_version ON items (version_id)');
-  moveCommentsToNotes(db);
-  moveDrawingsToNotes(db);
+  if (step < 1) {
+    if (oldComments) {
+      moveCommentsToNotes(db);
+      moveDrawingsToNotes(db);
+    }
+    tasksNotNull(db);
+    fillEntityPeople(db);
+  }
+  if (step < SCHEMA_STEP) db.exec(`PRAGMA user_version = ${SCHEMA_STEP}`);
+  // With no task stored as '', a number is one per entity and task. Should an old row still have NULL
+  // for its task, the index treats it as '' all the same.
+  try {
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS versions_numbered ON versions (entity_id, coalesce(task, ''), number)");
+  } catch (err) {
+    console.error(`Two versions share a number, so it could not be made sure they never do: ${err.message}`);
+  }
 
+  // One write, all or nothing. Called again from inside one (filing several versions at once, say), it
+  // is part of the outer one: whatever goes wrong anywhere undoes all of it.
+  let depth = 0;
   function transaction(fn) {
+    if (depth) {
+      depth++;
+      try {
+        return fn();
+      } finally {
+        depth--;
+      }
+    }
     db.exec('BEGIN IMMEDIATE');
+    depth = 1;
     try {
       const out = fn();
       db.exec('COMMIT');
@@ -372,6 +482,8 @@ function openStore(dataDir) {
     } catch (err) {
       db.exec('ROLLBACK');
       throw err;
+    } finally {
+      depth = 0;
     }
   }
 
@@ -471,7 +583,15 @@ function openStore(dataDir) {
   }
 
   const readItems = db.prepare('SELECT data FROM items WHERE board_id = ? ORDER BY rowid');
-  const loadItems = (boardId) => readItems.all(boardId).map((r) => JSON.parse(r.data));
+  // An item that cannot be read is left out (and said so), rather than keep the whole board from opening.
+  const loadItems = (boardId) => readItems.all(boardId).flatMap((r) => {
+    try {
+      return [JSON.parse(r.data)];
+    } catch {
+      console.error(`An item on board ${boardId} could not be read, so it is left out.`);
+      return [];
+    }
+  });
 
   // What the board list shows for boards nobody has open: how many things are on each, and its first stills.
   const readCounts = db.prepare("SELECT board_id, count(*) AS n FROM items WHERE type NOT IN ('comment', 'stroke') GROUP BY board_id");
@@ -664,40 +784,74 @@ function openStore(dataDir) {
     id: r.id, projectId: r.project_id, tier: r.tier, name: r.name, createdAt: r.created_at, createdBy: r.created_by,
     artists: names(r.artists), cc: names(r.cc),
   });
-  const readEntities = db.prepare(`
-    SELECT e.*,
-      (SELECT count(*) FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL) AS n,
-      (SELECT max(v.created_at) FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL) AS latest,
-      (SELECT v.thumb FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL AND v.thumb IS NOT NULL ORDER BY v.created_at DESC, v.number DESC LIMIT 1) AS thumb,
-      (SELECT v.id FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL ORDER BY v.created_at DESC, v.number DESC LIMIT 1) AS newest
-    FROM entities e WHERE e.project_id = ? ORDER BY e.name`);
-  // A project's entities, each with how many versions it has, when the last came, its newest still, and
-  // its newest version: enough to scrub through it, or play it, from its card.
-  const glance = (id) => {
-    const v = id && version(id);
-    if (!v) return null;
+  // No task is '' in the database (see SCHEMA) and null everywhere else.
+  const taskKey = (task) => task || '';
+
+  // Which version is the newest, wherever that is asked (an entity's card, the timeline, a board's chip
+  // saying a newer one is there, the feed): of one task, the one with the highest number; of an entity
+  // as a whole, the most recently filed of those, one per task. Archived and deleted versions are never
+  // the newest. A number can be set by hand, so within a task it is the number, not when it was filed,
+  // that says which comes after which.
+  const LIVE = 'v.hidden = 0 AND v.deleted_at IS NULL';
+  const HEAD = 'v.number = (SELECT max(w.number) FROM versions w WHERE w.entity_id = v.entity_id AND w.task = v.task AND w.hidden = 0 AND w.deleted_at IS NULL)';
+  const NEWEST_FIRST = 'v.created_at DESC, v.number DESC, v.id DESC';
+
+  // What a card shows of a version: enough to scrub through it, or play it.
+  const glanceOf = (v) => {
     const { src, poster, th, dur, fps, nw, nh } = v.look;
     return { id: v.id, task: v.task, number: v.number, kind: v.kind, at: v.createdAt, look: { type: v.look.type, src, poster, th, dur, fps, nw, nh } };
   };
+  // What the cards of some entities show, in one go rather than one entity at a time: how many versions
+  // each has, when the last came, its newest version and its still (the newest's, or else that of the
+  // last one filed that has one). `pick` is SQL that gives the ids of the entities, with its `args`.
+  function cards(pick, args) {
+    const out = new Map();
+    const of = (id) => out.get(id) || out.set(id, { versions: 0, latestAt: null, thumb: null, newest: null }).get(id);
+    for (const r of db.prepare(`SELECT v.entity_id, count(*) AS n, max(v.created_at) AS latest FROM versions v
+      WHERE ${LIVE} AND v.entity_id IN (${pick}) GROUP BY v.entity_id`).all(...args)) {
+      Object.assign(of(r.entity_id), { versions: r.n, latestAt: r.latest });
+    }
+    for (const r of db.prepare(`SELECT * FROM (SELECT v.*, row_number() OVER (PARTITION BY v.entity_id ORDER BY ${NEWEST_FIRST}) AS place
+      FROM versions v WHERE ${LIVE} AND ${HEAD} AND v.entity_id IN (${pick})) WHERE place = 1`).all(...args)) {
+      const c = of(r.entity_id);
+      c.newest = glanceOf(versionOf(r));
+      c.thumb = r.thumb;
+    }
+    for (const r of db.prepare(`SELECT entity_id, thumb FROM (SELECT v.entity_id, v.thumb, row_number() OVER (PARTITION BY v.entity_id ORDER BY ${NEWEST_FIRST}) AS place
+      FROM versions v WHERE ${LIVE} AND v.thumb IS NOT NULL AND v.entity_id IN (${pick})) WHERE place = 1`).all(...args)) {
+      const c = of(r.entity_id);
+      if (!c.thumb) c.thumb = r.thumb;
+    }
+    return out;
+  }
+  const noCard = { versions: 0, latestAt: null, thumb: null, newest: null };
+  // The cards of some entities, by id (the feed's).
+  const entityCards = (ids) => (ids.length ? cards(ids.map(() => '?').join(', '), ids) : new Map());
+
   // The highest number each task of each entity has reached (deleted versions too: their numbers are
   // not given out again), so the next one can be said ahead: { task (or '' for none): number }.
   const readTops = db.prepare('SELECT v.entity_id, v.task, max(v.number) AS top FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ? GROUP BY v.entity_id, v.task');
+  const readEntities = db.prepare('SELECT * FROM entities WHERE project_id = ? ORDER BY name');
+  // A project's entities, each as its card shows it (see cards above), and how far each task has counted.
   const entities = (projectId) => {
     const tops = new Map();
-    for (const t of readTops.all(projectId)) (tops.get(t.entity_id) || tops.set(t.entity_id, {}).get(t.entity_id))[t.task ?? ''] = t.top;
-    return readEntities.all(projectId).map((r) => ({ ...entityOf(r), versions: r.n, latestAt: r.latest || null, thumb: r.thumb || null, newest: glance(r.newest), tops: tops.get(r.id) || {} }));
+    for (const t of readTops.all(projectId)) (tops.get(t.entity_id) || tops.set(t.entity_id, {}).get(t.entity_id))[taskKey(t.task)] = t.top;
+    const shown = cards('SELECT id FROM entities WHERE project_id = ?', [projectId]);
+    return readEntities.all(projectId).map((r) => ({ ...entityOf(r), ...(shown.get(r.id) || noCard), tops: tops.get(r.id) || {} }));
   };
-  // A project's versions, newest filed first (archived and deleted ones left out), each with its entity.
+  // A project's versions, newest filed first (archived and deleted ones left out), each with its entity,
+  // a page at a time. `after` is where the page before ended: the [created_at, number, id] of its last.
   const readProjectVersions = db.prepare(`SELECT v.*, e.name AS entity_name, e.tier AS entity_tier FROM versions v JOIN entities e ON e.id = v.entity_id
-    WHERE e.project_id = ? AND v.deleted_at IS NULL AND v.hidden = 0 AND v.created_at < ? ORDER BY v.created_at DESC, v.number DESC LIMIT ?`);
-  const projectVersions = (projectId, { before = Number.MAX_SAFE_INTEGER, limit = 300 } = {}) =>
-    readProjectVersions.all(projectId, before, limit).map((r) => ({ ...versionOf(r), entityName: r.entity_name, entityTier: r.entity_tier }));
-  // An entity's newest version (of any task), as its card shows it.
-  const readNewestAny = db.prepare('SELECT id FROM versions WHERE entity_id = ? AND hidden = 0 AND deleted_at IS NULL ORDER BY created_at DESC, number DESC LIMIT 1');
-  const newestGlance = (entityId) => glance((readNewestAny.get(entityId) || {}).id);
-  // The newest version of each entity, of one task or of any; for a project's timeline.
-  const readNewestOfTask = db.prepare('SELECT id FROM versions WHERE entity_id = ? AND task IS ? AND hidden = 0 AND deleted_at IS NULL ORDER BY number DESC LIMIT 1');
-  const newestOfTask = (entityId, task) => glance((readNewestOfTask.get(entityId, task) || {}).id);
+    WHERE e.project_id = ? AND v.deleted_at IS NULL AND v.hidden = 0 AND (v.created_at, v.number, v.id) < (?, ?, ?)
+    ORDER BY v.created_at DESC, v.number DESC, v.id DESC LIMIT ?`);
+  const projectVersions = (projectId, { after = [Number.MAX_SAFE_INTEGER, 0, ''], limit = 300 } = {}) =>
+    readProjectVersions.all(projectId, after[0], after[1], after[2], limit).map((r) => ({ ...versionOf(r), entityName: r.entity_name, entityTier: r.entity_tier }));
+  // The newest version of an entity and task, as a card shows it; for a project's timeline.
+  const readNewestOfTask = db.prepare(`SELECT * FROM versions v WHERE v.entity_id = ? AND v.task = ? AND ${LIVE} ORDER BY v.number DESC LIMIT 1`);
+  const newestOfTask = (entityId, task) => {
+    const r = readNewestOfTask.get(entityId, taskKey(task));
+    return r ? glanceOf(versionOf(r)) : null;
+  };
   const readEntity = db.prepare('SELECT * FROM entities WHERE id = ?');
   const entity = (id) => {
     const r = readEntity.get(id);
@@ -714,6 +868,8 @@ function openStore(dataDir) {
     putEntity.run(id, projectId, tier, name, Date.now(), by);
     return entityNamed(projectId, name);
   }
+  const dropPeople = db.prepare('DELETE FROM entity_people WHERE entity_id = ?');
+  const putPerson = db.prepare('INSERT OR IGNORE INTO entity_people (entity_id, role, name_key) VALUES (?, ?, ?)');
   // Renames it, moves it to another tier, or says who works on it and who follows it.
   const putEntityFields = db.prepare('UPDATE entities SET name = ?, tier = ?, artists = ?, cc = ? WHERE id = ?');
   function setEntity(id, { name, tier, artists, cc }) {
@@ -724,33 +880,35 @@ function openStore(dataDir) {
       const have = entityNamed(e.projectId, to.name);
       if (have) return { ok: false, taken: have };
     }
-    putEntityFields.run(to.name, to.tier, JSON.stringify(to.artists), JSON.stringify(to.cc), id);
+    transaction(() => {
+      putEntityFields.run(to.name, to.tier, JSON.stringify(to.artists), JSON.stringify(to.cc), id);
+      dropPeople.run(id);
+      for (const [role, list] of [['artist', to.artists], ['cc', to.cc]]) for (const n of list) if (n.trim()) putPerson.run(id, role, n.trim().toLowerCase());
+    });
     return { ok: true, entity: entity(id) };
   }
-  // Every entity with this person among its artists or cc, in any project (the caller sees which it may show).
-  const readFollowed = db.prepare("SELECT * FROM entities WHERE artists LIKE ? OR cc LIKE ?");
+  // Every entity with this person among its artists or cc, in any project (the caller sees which it may
+  // show). Named as both, they are its artist.
+  const readFollowed = db.prepare(`SELECT e.*, min(CASE p.role WHEN 'artist' THEN 0 ELSE 1 END) AS cc_only
+    FROM entity_people p JOIN entities e ON e.id = p.entity_id WHERE p.name_key = ? GROUP BY e.id`);
   function entitiesOf(name) {
     const key = String(name || '').trim().toLowerCase();
     if (!key) return [];
-    const like = `%${key.replace(/[%_\\]/g, '')}%`;
-    return readFollowed.all(like, like).map(entityOf).map((e) => ({
-      ...e,
-      role: e.artists.some((a) => a.toLowerCase() === key) ? 'artist' : e.cc.some((a) => a.toLowerCase() === key) ? 'cc' : null,
-    })).filter((e) => e.role);
+    return readFollowed.all(key).map((r) => ({ ...entityOf(r), role: r.cc_only ? 'cc' : 'artist' }));
   }
   // The entities this person has filed versions of (in any project): their work too, named or not.
-  const readFiledBy = db.prepare('SELECT DISTINCT entity_id FROM versions WHERE lower(created_by) = ? AND deleted_at IS NULL');
-  const entitiesFiledBy = (name) => readFiledBy.all(String(name || '').trim().toLowerCase()).map((r) => entity(r.entity_id)).filter(Boolean);
+  const readFiledBy = db.prepare('SELECT DISTINCT e.* FROM versions v JOIN entities e ON e.id = v.entity_id WHERE lower(v.created_by) = ? AND v.deleted_at IS NULL');
+  const entitiesFiledBy = (name) => readFiledBy.all(String(name || '').trim().toLowerCase()).map(entityOf);
   // What happened lately to some entities: versions filed and notes written, newest first.
   function happenings(entityIds, since, limit = 80) {
     if (!entityIds.length) return { versions: [], notes: [] };
     const ids = entityIds.map(() => '?').join(', ');
     const versions = db.prepare(`SELECT * FROM versions WHERE entity_id IN (${ids}) AND deleted_at IS NULL AND created_at >= ? ORDER BY created_at DESC LIMIT ?`)
       .all(...entityIds, since, limit).map(versionOf);
-    const notes = db.prepare(`SELECT n.*, v.entity_id AS entity_id, b.name AS board_name FROM notes n JOIN versions v ON v.id = n.version_id
+    const notes = db.prepare(`SELECT n.*, v.entity_id AS entity_id, b.name AS board_name, b.workspace AS board_workspace FROM notes n JOIN versions v ON v.id = n.version_id
       LEFT JOIN boards b ON b.id = n.board_id
       WHERE v.entity_id IN (${ids}) AND v.deleted_at IS NULL AND n.deleted_at IS NULL AND n.created_at >= ? ORDER BY n.created_at DESC LIMIT ?`)
-      .all(...entityIds, since, limit).map((row) => ({ ...noteOf(row), entityId: row.entity_id, boardName: row.board_name }));
+      .all(...entityIds, since, limit).map((row) => ({ ...noteOf(row), entityId: row.entity_id, boardName: row.board_name, boardWorkspace: row.board_workspace }));
     return { versions, notes };
   }
   // Everyone the app knows by name: who signed in, who filed or wrote something, who is named on an entity.
@@ -765,16 +923,22 @@ function openStore(dataDir) {
   const entityCount = (projectId) => countEntities.get(projectId).n;
 
   const versionOf = (r) => ({
-    id: r.id, entityId: r.entity_id, task: r.task, number: r.number, descriptor: r.descriptor, artist: r.artist, hip: r.hip,
+    id: r.id, entityId: r.entity_id, task: r.task || null, number: r.number, descriptor: r.descriptor, artist: r.artist, hip: r.hip,
     media: r.media, thumb: r.thumb, kind: r.kind, originalName: r.original_name, look: JSON.parse(r.look), boardId: r.board_id,
     createdAt: r.created_at, createdBy: r.created_by, hidden: !!r.hidden, deletedAt: r.deleted_at || null,
   });
-  const nextNumber = db.prepare('SELECT coalesce(max(number), 0) + 1 AS n FROM versions WHERE entity_id = ? AND task IS ?');
+  const nextNumber = db.prepare('SELECT coalesce(max(number), 0) + 1 AS n FROM versions WHERE entity_id = ? AND task = ?');
   const putVersion = db.prepare(`INSERT INTO versions (id, entity_id, task, number, descriptor, artist, hip, media, thumb, kind, original_name, look, board_id, created_at, created_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const readVersion = db.prepare('SELECT * FROM versions WHERE id = ?');
   const version = (id) => {
     const r = readVersion.get(id);
+    return r ? versionOf(r) : null;
+  };
+  // Who has a number: a deleted version keeps its own, so that bringing it back finds it free.
+  const readHolder = db.prepare('SELECT * FROM versions WHERE entity_id = ? AND task = ? AND number = ?');
+  const holder = (entityId, task, number) => {
+    const r = readHolder.get(entityId, taskKey(task), number);
     return r ? versionOf(r) : null;
   };
   // Files a piece of media as the next version of an entity (and task). The number is counted here:
@@ -784,11 +948,11 @@ function openStore(dataDir) {
   function addVersion({ id, entityId, task = null, number: asked = null, descriptor = null, artist = null, hip = null, media = null, thumb = null, kind, originalName = null, look, boardId = null, by = null, at = Date.now() }) {
     return transaction(() => {
       if (asked != null) {
-        const holder = readHolder.get(entityId, task, asked);
-        if (holder) throw Object.assign(new Error('That number is taken'), { taken: versionOf(holder) });
+        const taken = holder(entityId, task, asked);
+        if (taken) throw Object.assign(new Error('That number is taken'), { taken });
       }
-      const number = asked ?? nextNumber.get(entityId, task).n;
-      putVersion.run(id, entityId, task, number, descriptor, artist, hip, media, thumb, kind, originalName, JSON.stringify(look), boardId, at, by);
+      const number = asked ?? nextNumber.get(entityId, taskKey(task)).n;
+      putVersion.run(id, entityId, taskKey(task), number, descriptor, artist, hip, media, thumb, kind, originalName, JSON.stringify(look), boardId, at, by);
       return version(id);
     });
   }
@@ -796,38 +960,49 @@ function openStore(dataDir) {
   const versionsOf = (entityId) => readVersionsOf.all(entityId).map(versionOf);
   const putHidden = db.prepare('UPDATE versions SET hidden = ? WHERE id = ?');
   const hideVersion = (id, hidden) => putHidden.run(hidden ? 1 : 0, id).changes > 0;
-  // Who has a number: a deleted version keeps its own, so that bringing it back finds it free.
-  const readHolder = db.prepare('SELECT * FROM versions WHERE entity_id = ? AND task IS ? AND number = ?');
   const putPlace = db.prepare('UPDATE versions SET entity_id = ?, task = ?, number = ?, descriptor = ?, artist = ? WHERE id = ?');
-  // Changes what a version is filed as. Moved to another entity or task without a number, it is the next
-  // of those; a number some other version has is refused, with that version.
+  // Where a version would be filed after an edit: moved to another entity or task without a number, it is
+  // the next of those; and whichever other version has that number already, if one does.
+  function placeFor(v, { entityId, task, number }) {
+    const to = { entityId: entityId ?? v.entityId, task: task !== undefined ? task : v.task };
+    const moved = to.entityId !== v.entityId || taskKey(to.task) !== taskKey(v.task);
+    to.number = number ?? (moved ? nextNumber.get(to.entityId, taskKey(to.task)).n : v.number);
+    const taken = holder(to.entityId, to.task, to.number);
+    return { ...to, taken: taken && taken.id !== v.id ? taken : null };
+  }
+  // Changes what a version is filed as (see placeFor); a number some other version has is refused, with that version.
   function editVersion(id, { entityId, task, number, descriptor, artist }) {
     return transaction(() => {
       const v = version(id);
       if (!v) return { ok: false };
-      const to = { entityId: entityId ?? v.entityId, task: task !== undefined ? task : v.task, descriptor: descriptor !== undefined ? descriptor : v.descriptor, artist: artist !== undefined ? artist : v.artist };
-      const moved = to.entityId !== v.entityId || to.task !== v.task;
-      to.number = number ?? (moved ? nextNumber.get(to.entityId, to.task).n : v.number);
-      const holder = readHolder.get(to.entityId, to.task, to.number);
-      if (holder && holder.id !== id) return { ok: false, taken: versionOf(holder) };
-      putPlace.run(to.entityId, to.task, to.number, to.descriptor, to.artist, id);
+      const to = placeFor(v, { entityId, task, number });
+      if (to.taken) return { ok: false, taken: to.taken };
+      putPlace.run(to.entityId, taskKey(to.task), to.number, descriptor !== undefined ? descriptor : v.descriptor, artist !== undefined ? artist : v.artist, id);
       return { ok: true, version: version(id) };
     });
   }
   const putGone = db.prepare('UPDATE versions SET deleted_at = ? WHERE id = ?');
   const deleteVersion = (id) => putGone.run(Date.now(), id).changes > 0;
   const restoreVersion = (id) => putGone.run(null, id).changes > 0;
-  const readNewest = db.prepare('SELECT id, number FROM versions WHERE entity_id = ? AND task IS ? AND hidden = 0 AND deleted_at IS NULL ORDER BY number DESC LIMIT 1');
-  // The newest version of an entity and task that is not hidden: what a board points out is there.
-  const newestVersion = (entityId, task) => readNewest.get(entityId, task ?? null) || null;
-  const readTasks = db.prepare('SELECT DISTINCT v.task FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ? AND v.task IS NOT NULL ORDER BY v.task');
+  const readNewest = db.prepare(`SELECT v.id, v.number FROM versions v WHERE v.entity_id = ? AND v.task = ? AND ${LIVE} ORDER BY v.number DESC LIMIT 1`);
+  // The newest version of an entity and task (see above): what a board points out is there.
+  const newestVersion = (entityId, task) => readNewest.get(entityId, taskKey(task)) || null;
+  const readTasks = db.prepare("SELECT DISTINCT v.task FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ? AND v.task <> '' ORDER BY v.task");
   const projectTasks = (projectId) => readTasks.all(projectId).map((r) => r.task);
   const readArtists = db.prepare('SELECT DISTINCT v.artist FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ? AND v.artist IS NOT NULL ORDER BY v.artist');
   const projectArtists = (projectId) => readArtists.all(projectId).map((r) => r.artist);
-  // The boards a version is on, as last written.
-  const readPlacements = db.prepare(`SELECT DISTINCT b.id, b.name, b.workspace FROM items i JOIN boards b ON b.id = i.board_id
-    WHERE i.version_id = ? AND b.deleted_at IS NULL ORDER BY b.updated_at DESC`);
-  const boardsWithVersion = (versionId) => readPlacements.all(versionId);
+  // The boards each of some versions is on, as last written (boards deleted are not counted), most
+  // recently changed first: { version id: [{ id, name, workspace }] }.
+  function boardsWithVersions(versionIds) {
+    const ids = [...new Set(versionIds)];
+    const out = new Map(ids.map((id) => [id, []]));
+    if (!ids.length) return out;
+    const rows = db.prepare(`SELECT DISTINCT i.version_id, b.id, b.name, b.workspace, b.updated_at FROM items i JOIN boards b ON b.id = i.board_id
+      WHERE i.version_id IN (${ids.map(() => '?').join(', ')}) AND b.deleted_at IS NULL ORDER BY b.updated_at DESC, b.id`).all(...ids);
+    for (const r of rows) out.get(r.version_id).push({ id: r.id, name: r.name, workspace: r.workspace });
+    return out;
+  }
+  const boardsWithVersion = (versionId) => boardsWithVersions([versionId]).get(versionId);
 
   // ---------------------------------------------------------------- notes
 
@@ -849,8 +1024,30 @@ function openStore(dataDir) {
   const putNoteData = db.prepare('UPDATE notes SET data = ?, updated_at = ? WHERE id = ?');
   const setNote = (id, data) => putNoteData.run(JSON.stringify(data), Date.now(), id).changes > 0;
   const putNoteGone = db.prepare('UPDATE notes SET deleted_at = ? WHERE id = ?');
-  const deleteNote = (id) => putNoteGone.run(Date.now(), id).changes > 0;
-  const restoreNote = (id) => putNoteGone.run(null, id).changes > 0;
+  const putRepliesGone = db.prepare('UPDATE notes SET deleted_at = ? WHERE re = ? AND deleted_at IS NULL');
+  const putRepliesBack = db.prepare('UPDATE notes SET deleted_at = NULL WHERE re = ? AND deleted_at = ?');
+  // Deleting the note a thread starts with deletes the thread: its replies go with it, marked at the
+  // same moment, so that bringing the first note back brings back those replies too (and not ones
+  // deleted on their own before). Says whether anything was deleted.
+  function deleteNote(id) {
+    const n = note(id);
+    if (!n || n.deletedAt) return false;
+    const now = Date.now();
+    transaction(() => {
+      putNoteGone.run(now, id);
+      if (!n.re) putRepliesGone.run(now, id);
+    });
+    return true;
+  }
+  function restoreNote(id) {
+    const n = note(id);
+    if (!n || !n.deletedAt) return false;
+    transaction(() => {
+      putNoteGone.run(null, id);
+      if (!n.re) putRepliesBack.run(id, n.deletedAt);
+    });
+    return true;
+  }
   // A piece filed as a version takes the notes made on it with it: from then on they are the version's.
   const putNotesFiled = db.prepare('UPDATE notes SET version_id = ? WHERE board_id = ? AND item_id = ? AND version_id IS NULL');
   const fileNotes = (boardId, itemId, versionId) => putNotesFiled.run(versionId, boardId, itemId).changes;
@@ -862,29 +1059,38 @@ function openStore(dataDir) {
     if (ids.length) rows.push(...db.prepare(`SELECT * FROM notes WHERE version_id IN (${ids.map(() => '?').join(', ')}) AND deleted_at IS NULL`).all(...ids));
     return rows.sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1)).map(noteOf);
   }
-  // The notes on some versions, with the name of the board each was made on.
+  // The notes on some versions, with the name and workspace of the board each was made on.
   function notesOfVersions(versionIds) {
     if (!versionIds.length) return [];
-    return db.prepare(`SELECT n.*, b.name AS board_name FROM notes n LEFT JOIN boards b ON b.id = n.board_id
+    return db.prepare(`SELECT n.*, b.name AS board_name, b.workspace AS board_workspace FROM notes n LEFT JOIN boards b ON b.id = n.board_id
       WHERE n.deleted_at IS NULL AND n.version_id IN (${versionIds.map(() => '?').join(', ')}) ORDER BY n.created_at`).all(...versionIds)
-      .map((r) => ({ ...noteOf(r), boardName: r.board_name }));
+      .map((r) => ({ ...noteOf(r), boardName: r.board_name, boardWorkspace: r.board_workspace }));
   }
 
   // ---------------------------------------------------------------- notifications
 
-  // Every note made on the boards in these workspaces whose thread has had one since `since`, with what
-  // each was made on and who added that, and who made the board. Older notes in those threads come
-  // too: a new reply needs the thread it is in.
+  // Every note whose thread has had one since `since`, made on a board in these workspaces or, in the
+  // catalogue (on no board), on a version of a project in them; with what each was made on and who
+  // added that (for a note in the catalogue, who filed the version), who made the board, and the
+  // version, entity and project when it is about one. Older notes in those threads come too: a new
+  // reply needs the thread it is in.
   function commentsForNotices(spaces, since) {
     const list = spaces.map(() => '?').join(', ');
     return db.prepare(`
-      SELECT n.data, n.id, n.re, n.created_at, b.id AS board_id, b.name AS board_name, b.created_by AS board_by,
-        h.created_by AS host_by, h.type AS host_type, h.label AS host_label
-      FROM notes n JOIN boards b ON b.id = n.board_id
+      SELECT n.data, n.id, n.re, n.created_at, n.board_id, b.name AS board_name, b.created_by AS board_by,
+        coalesce(h.created_by, CASE WHEN n.board_id = '' THEN v.created_by END) AS host_by, h.type AS host_type, h.label AS host_label,
+        v.id AS version_id, v.task AS version_task, v.number AS version_number, e.id AS entity_id, e.name AS entity_name, e.project_id
+      FROM notes n
+      LEFT JOIN boards b ON b.id = n.board_id
       LEFT JOIN items h ON h.board_id = n.board_id AND h.id = n.item_id
-      WHERE n.deleted_at IS NULL AND b.deleted_at IS NULL AND b.workspace IN (${list})
-        AND coalesce(n.re, n.id) IN (SELECT coalesce(re, id) FROM notes WHERE deleted_at IS NULL AND created_at > ?)`).all(...spaces, since)
-      .map((r) => ({ ...r, comment: { ...JSON.parse(r.data), id: r.id, ...(r.re && { re: r.re }) } }));
+      LEFT JOIN versions v ON v.id = n.version_id
+      LEFT JOIN entities e ON e.id = v.entity_id
+      LEFT JOIN folders f ON f.id = e.project_id
+      WHERE n.deleted_at IS NULL
+        AND ((b.id IS NOT NULL AND b.deleted_at IS NULL AND b.workspace IN (${list}))
+          OR (n.board_id = '' AND v.deleted_at IS NULL AND f.workspace IN (${list})))
+        AND coalesce(n.re, n.id) IN (SELECT coalesce(re, id) FROM notes WHERE deleted_at IS NULL AND created_at > ?)`).all(...spaces, ...spaces, since)
+      .map((r) => ({ ...r, version_task: r.version_task || null, comment: { ...JSON.parse(r.data), id: r.id, ...(r.re && { re: r.re }) } }));
   }
 
   const readState = db.prepare('SELECT value FROM user_state WHERE user = ? AND key = ?');
@@ -917,7 +1123,8 @@ function openStore(dataDir) {
   return {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
-    transaction, entities, newestOfTask, newestGlance, projectVersions, entity, entityNamed, addEntity, setEntity, entitiesOf, entitiesFiledBy, happenings, people, entityCount, addVersion, version, versionsOf, hideVersion, editVersion, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion,
+    transaction, entities, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, entitiesOf, entitiesFiledBy, happenings, people, entityCount,
+    addVersion, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
     note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,

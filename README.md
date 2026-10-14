@@ -325,7 +325,10 @@ filed in it.
   one), like an editor's timeline but only for looking. The monitor above plays the whole run through,
   the playhead drags, the arrows step from shot to shot, Space plays and pauses, Ctrl and the wheel
   zoom, and a double-click opens a clip in the player. Images hold for three seconds; shots with
-  nothing filed show as a slate, or can be left out.
+  nothing filed show as a slate, or can be left out. It takes the whole window beside the sidebar
+  (F, or the button at the end of its bar, for full screen), and shows all sequences or one: pick it
+  above the track, or click a sequence's name on the track (again for all). The choice is remembered
+  per project.
 - **Setting a project up.** "Add assets, sets & shots" above the catalogue takes names, typed or pasted
   one a line, each an asset, a set or a shot by its shape (or all of one kind, as chosen), and a run of
   shots from a sequence and its numbers (kilo, 10 to 200 by 10). They are in the catalogue and the

@@ -783,6 +783,8 @@
   function render() {
     const rt = route();
     const onTimeline = rt.kind === 'folder' && folderById(rt.id) && folderById(rt.id).project && currentView().page === 'timeline';
+    // The timeline takes the whole width beside the sidebar, and the height under the bar.
+    document.body.classList.toggle('tl-mode', !!onTimeline);
     if (timeline && (!onTimeline || timelineOf !== rt.id)) {
       timeline.destroy();
       timeline = null;
@@ -845,6 +847,7 @@
       $('content').replaceChildren();
       timelineOf = project.id;
       timeline = WBTimeline.mount($('content'), {
+        key: project.id,
         load: (task) => api('GET', `/api/projects/${project.id}/timeline${task ? `?task=${encodeURIComponent(task)}` : ''}`),
         open: (entityId, versionId) => lookAt(entityId, versionId),
       });

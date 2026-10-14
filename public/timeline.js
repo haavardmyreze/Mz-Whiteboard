@@ -28,7 +28,7 @@ window.WBTimeline = (() => {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   };
 
-  function mount(box, { load, open }) {
+  function mount(box, { key = '', load, open }) {
     let shots = [];
     let clips = [];        // { shot, start, dur, kind: 'video' | 'image' | 'empty', src, poster }
     let total = 0;
@@ -36,6 +36,7 @@ window.WBTimeline = (() => {
     let playing = false;
     let task = store('wb:tl:task') || '';
     let showEmpty = store('wb:tl:empty') !== false;
+    let seq = store(`wb:tl:seq:${key}`) || '';   // one sequence, or '' for all of them
     let zoom = 1;          // 1 fits the whole run to the width
     let muted = store('wb:tl:muted') === true;
     let raf = 0;
@@ -58,6 +59,18 @@ window.WBTimeline = (() => {
       store('wb:tl:task', task);
       refresh();
     });
+    const seqSel = el('select', { 'aria-label': 'Which sequence' });
+    seqSel.addEventListener('change', () => pickSeq(seqSel.value));
+    function pickSeq(next) {
+      seq = next;
+      seqSel.value = seq;
+      store(`wb:tl:seq:${key}`, seq);
+      t = 0;
+      zoom = 1;
+      zoomIn.value = '1';
+      layout();
+      track.scrollLeft = 0;
+    }
     const emptyBox = el('input', { type: 'checkbox', checked: showEmpty });
     emptyBox.addEventListener('change', () => {
       showEmpty = emptyBox.checked;
@@ -74,16 +87,23 @@ window.WBTimeline = (() => {
       paintTrack();
       follow(keep, true);
     });
+    const ICON_FULL = icon('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>');
+    const fullBtn = el('button', { type: 'button', class: 'iconbtn', html: ICON_FULL, title: 'Full screen (F)', onclick: () => toggleFull() });
+    const toggleFull = () => {
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      else view.requestFullscreen?.().catch(() => {});
+    };
     const bar = el('div', { class: 'tl-bar' },
       el('button', { type: 'button', class: 'iconbtn', title: 'Previous shot (←)', html: ICON.prev, onclick: () => stepShot(-1) }),
       playBtn,
       el('button', { type: 'button', class: 'iconbtn', title: 'Next shot (→)', html: ICON.next, onclick: () => stepShot(1) }),
       time,
       el('span', { class: 'tl-gap' }),
+      el('label', { class: 'tl-opt' }, el('span', { text: 'Sequence' }), seqSel),
       el('label', { class: 'tl-opt' }, el('span', { text: 'Latest of' }), taskSel),
       el('label', { class: 'tl-opt' }, emptyBox, el('span', { text: 'Shots with nothing filed' })),
       el('label', { class: 'tl-opt' }, el('span', { text: 'Zoom' }), zoomIn),
-      soundBtn);
+      soundBtn, fullBtn);
 
     // ---- the track: sequences above, shots below, and the playhead over both
     const seqRow = el('div', { class: 'tl-seqs' });
@@ -92,7 +112,10 @@ window.WBTimeline = (() => {
     const lane = el('div', { class: 'tl-lane' }, seqRow, clipRow, head);
     const track = el('div', { class: 'tl-track-wrap' }, lane);
     const note = el('p', { class: 'home-empty', hidden: true });
-    box.replaceChildren(el('div', { class: 'tl-view' }, monitor, bar, track, note));
+    const view = el('div', { class: 'tl-view' }, monitor, bar, track, note);
+    box.replaceChildren(view);
+    // Full screen, or back, and the track fits the width it now has.
+    document.addEventListener('fullscreenchange', () => { if (!gone) paintTrack(); });
 
     const pxPerSec = () => (track.clientWidth - 2) / Math.max(total, 1) * zoom;
     const clipAt = (at) => {
@@ -106,6 +129,7 @@ window.WBTimeline = (() => {
       for (const shot of shots) {
         const v = shot.version;
         if (!v && !showEmpty) continue;
+        if (seq && (shot.seq || '') !== seq) continue;
         const kind = !v ? 'empty' : v.look.type === 'video' ? 'video' : 'image';
         const dur = kind === 'empty' ? EMPTY : kind === 'image' ? STILL : v.look.dur > 0 ? v.look.dur : GUESS;
         clips.push({ shot, start: at, dur, kind, src: v && v.look.src, poster: v && (v.look.poster || v.look.th) });
@@ -151,7 +175,8 @@ window.WBTimeline = (() => {
         if (last && last.seq === seq) last.end = c.start + c.dur;
         else bands.push({ seq, start: c.start, end: c.start + c.dur });
       }
-      seqRow.replaceChildren(...bands.map((b) => el('div', { class: 'tl-seq', style: { left: `${b.start * px}px`, width: `${(b.end - b.start) * px}px` }, title: b.seq }, el('span', { text: b.seq }))));
+      seqRow.replaceChildren(...bands.map((b) => el('div', { class: 'tl-seq', style: { left: `${b.start * px}px`, width: `${(b.end - b.start) * px}px` }, title: seq ? `${b.seq}. Show every sequence with All` : `Show only ${b.seq}` },
+        el('button', { type: 'button', text: b.seq, onpointerdown: (e) => e.stopPropagation(), onclick: () => pickSeq(seq ? '' : b.seq) }))));
       clipRow.replaceChildren(...clips.map((c, i) => {
         const node = el('div', {
           class: `tl-clip ${c.kind}`, style: { left: `${c.start * px}px`, width: `${c.dur * px}px` },
@@ -340,6 +365,7 @@ window.WBTimeline = (() => {
       else if (e.key === 'ArrowLeft') stepShot(-1);
       else if (e.key === 'Home') seekTo(0);
       else if (e.key === 'm') setMuted(!muted);
+      else if (e.key === 'f') toggleFull();
       else return;
       e.preventDefault();
     };
@@ -361,6 +387,10 @@ window.WBTimeline = (() => {
       if (task && !data.tasks.includes(task)) task = '';
       taskSel.value = task;
       shots = data.shots;
+      const seqs = [...new Set(shots.map((x) => x.seq).filter(Boolean))];
+      seqSel.replaceChildren(el('option', { value: '', text: 'All' }), ...seqs.map((x) => el('option', { value: x, text: x })));
+      if (seq && !seqs.includes(seq)) seq = '';
+      seqSel.value = seq;
       layout();
     }
     refresh();

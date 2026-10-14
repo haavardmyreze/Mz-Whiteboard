@@ -2156,8 +2156,12 @@ button.imp-row:hover { background: var(--hover); }
 .ent-top .ent-people { margin: 0; }
 
 /* A project's timeline (timeline.js): the monitor, its bar, and the track of shots under it. */
-.tl-view { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
-.tl-monitor { position: relative; width: 100%; max-height: 56vh; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--r-3); background: #000; }
+/* It takes the window: the width beside the sidebar, and the height under the bar, the monitor taking
+   whatever the bar and the track leave. */
+body.home.tl-mode main { max-width: none; padding: 8px 20px 16px; }
+.tl-view { display: flex; flex-direction: column; gap: 10px; height: calc(100vh - var(--bar) - 64px); min-height: 420px; margin-top: 8px; }
+.tl-view:fullscreen { height: 100vh; padding: 16px; background: var(--bg, #000); }
+.tl-monitor { position: relative; flex: 1; min-height: 200px; width: 100%; overflow: hidden; border-radius: var(--r-3); background: #000; }
 .tl-mon-media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .tl-mon-media[hidden], .tl-slate[hidden] { display: none; }
 .tl-slate { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: repeating-linear-gradient(135deg, #111 0 14px, #161616 14px 28px); color: #ddd; }
@@ -2172,19 +2176,26 @@ button.imp-row:hover { background: var(--hover); }
 .tl-opt { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; }
 .tl-opt select { height: 28px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 12.5px; }
 .tl-opt input[type="range"] { width: 110px; }
+.tl-bar, .tl-track-wrap { flex: none; }
 .tl-track-wrap { overflow-x: auto; overflow-y: hidden; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); }
-.tl-lane { position: relative; height: 104px; cursor: text; user-select: none; touch-action: none; }
+.tl-lane { position: relative; height: 150px; cursor: text; user-select: none; touch-action: none; }
 .tl-seqs { position: absolute; left: 0; right: 0; top: 0; height: 24px; }
-.tl-seq { position: absolute; top: 4px; height: 18px; overflow: hidden; border-left: 1px solid var(--line-strong); color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; }
-.tl-seq span { position: sticky; left: 0; padding: 0 6px; white-space: nowrap; }
-.tl-clips { position: absolute; left: 0; right: 0; top: 28px; height: 68px; }
+.tl-seq { position: absolute; top: 3px; height: 20px; overflow: hidden; border-left: 1px solid var(--line-strong); }
+.tl-seq button { position: sticky; left: 0; height: 20px; padding: 0 6px; border: 0; border-radius: var(--r-1); background: transparent; color: var(--muted); font: inherit; font-size: 11px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; cursor: pointer; }
+.tl-seq button:hover { background: var(--hover); color: var(--text); }
+.tl-clips { position: absolute; left: 0; right: 0; top: 28px; height: 112px; }
 .tl-clip { position: absolute; top: 0; bottom: 0; overflow: hidden; border: 1px solid rgba(0, 0, 0, 0.6); border-radius: 4px; background: var(--surface-3); box-sizing: border-box; }
 .tl-clip-pic { position: absolute; inset: 0; background-size: auto 100%; background-repeat: repeat-x; opacity: 0.85; }
 .tl-clip.empty { background: repeating-linear-gradient(135deg, var(--surface-2) 0 6px, var(--surface-1) 6px 12px); }
 .tl-clip.at { outline: 2px solid var(--accent); outline-offset: -2px; }
-.tl-clip-name, .tl-clip-ver { position: absolute; left: 4px; max-width: calc(100% - 8px); overflow: hidden; padding: 0 4px; border-radius: 3px; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 10.5px; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.tl-clip-name, .tl-clip-ver { position: absolute; left: 4px; max-width: calc(100% - 8px); overflow: hidden; padding: 0 5px; border-radius: 3px; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 11.5px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
 .tl-clip-name { top: 4px; font-weight: 600; }
 .tl-clip-ver { bottom: 4px; color: #ccc; }
 .tl-clip.empty .tl-clip-name { background: transparent; color: var(--muted); }
 .tl-playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #ff5a4f; pointer-events: none; }
 .tl-playhead::before { content: ""; position: absolute; top: 0; left: -5px; border: 6px solid transparent; border-top-color: #ff5a4f; }
+@media (max-width: 760px) {
+  body.home.tl-mode main { padding: 8px 8px 12px; }
+  .tl-lane { height: 120px; }
+  .tl-clips { height: 84px; }
+}

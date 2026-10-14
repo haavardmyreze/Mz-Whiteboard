@@ -192,7 +192,9 @@ private networks, otherwise only the host machine can connect.
   board; Shift+C there still lists every thread on the board, and picking one opens what it is about. Who wrote a comment comes from the sign-in, not from the
   browser. Comments are kept apart from the board, as notes: taking a piece off the board takes its
   comments out of sight, and undo brings them back, still in their author's name whoever pressed undo.
-  Only deleting a thread deletes it. On a piece filed as a version (see Projects, below) the comments
+  Only deleting a thread deletes it, and only whoever wrote a comment deletes it (a comment somebody
+  holding a link wrote can be deleted by anyone on the board). Deleting the first comment of a thread
+  deletes its replies with it, and undo brings them all back. On a piece filed as a version (see Projects, below) the comments
   belong to the version, so they are there on every board the version is on. Which board a comment was
   made on is kept with it, but not shown: what it is about is the version.
 - **Drawings go with comments.** To point at something, turn on the comment's pen and circle it. A
@@ -269,9 +271,26 @@ On a board, **Share** turns on a link that needs no sign-in, and sets what its h
 look, also read the team's comments, or also comment (under a name they type, without resolving or
 deleting anything). A link can end after a day, a week or a month, can be replaced by a new one
 that stops the old one at once, and can be turned off. Changing any of it applies to whoever is
-watching straight away. The settings,
+watching straight away. Somebody holding a link can load only the files that board shows (never the
+files its videos were made from). The settings,
 and how to reach the server from outside the building, are in [DEPLOY.md](DEPLOY.md); copy
 `.env.example` to `.env` to set them.
+
+### Requests from other sites
+
+A page on another site can make a visitor's browser send requests to this server, and can even point
+a name of its own at it. Two things keep that out:
+
+- **The server answers only to its own addresses.** A request (or a live connection) has to be for an
+  IP address, `localhost`, this machine's name, the address in `PUBLIC_URL`, a quick Cloudflare tunnel
+  (`*.trycloudflare.com`), or a name in `ALLOWED_HOSTS` (comma separated; `*.example.com` allows
+  everything under it). Anything else is answered `421`. Reaching it by another name (a DNS alias, a
+  fixed tunnel without `PUBLIC_URL`) needs that name in `ALLOWED_HOSTS`. Behind IAP this is not asked:
+  nothing gets through without Google's token.
+- **Every change carries `X-WB: 1`.** Any request to `/api/...` other than `GET` or `HEAD`, and
+  `POST /__shutdown`, without that header is refused with `403`. A page on another site cannot add a
+  header without asking the server first, and this server never agrees. Scripts that call the API
+  send it too (`curl -H 'X-WB: 1' ...`).
 
 ## Hosting it
 
@@ -286,7 +305,9 @@ The board list is organised in folders. Drag a board or folder onto a folder (a 
 sidebar, or a name in the path above the list) to move it, or onto the other workspace's name in the
 sidebar to move it there; the `...` menu on each card has Rename,
 "Move to..." and Delete. Deleting a folder only removes the folder: its boards and
-subfolders move up one level.
+subfolders move up one level. What is shared stays shared: a project, a folder with boards or folders
+in it, or a board somebody else made, is moved from Myreze to a personal workspace only by an admin.
+Whoever has a board or a catalogue page open that they can no longer see after a move is shown the door.
 
 ## Projects: versions and the catalogue
 
@@ -458,9 +479,31 @@ lists the names the app knows, and `GET /api/feed?name=` is Home's Updates and M
 its newest version, for the cache to fetch ahead).
 `GET /api/projects/<folder>/activity` what happened in the project in the last two weeks (versions
 filed and comments, newest first), `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest version,
-`GET /api/projects/<folder>/versions?before=` the project's versions newest first, and
+`GET /api/projects/<folder>/versions?before=` the project's versions newest first, 300 a page (when
+`more` is true, its `next` is what to give as `before` for the following page; a time in milliseconds
+still works too), and
 `POST /api/projects/<folder>/place` takes `{ "board", "versions": [...], "layout" }` to put versions on
-one of the project's boards (`"layout": "sequences"` for a column per sequence).
+one of the project's boards (`"layout": "sequences"` for a column per sequence). Filing several files
+files all of them or, if any one is refused, none; so does a `PATCH` of a version.
+
+The newest version of an asset, set or shot and task is the one with the highest number (numbers can
+be set by hand); the newest of an asset, set or shot as a whole is the latest filed of those, one per
+task. Archived and deleted versions are never the newest. Cards, the timeline, a board's "newer" chip
+and the feed all mean this.
+
+`GET /api/notifications` lists comments written in the catalogue too: those have `board: null`, and
+any comment about a version has its `versionId`, `entityId` and `projectId` (open it at
+`#/f/<projectId>/catalogue/<entityId>`). The name of a board somebody cannot see is never given out
+(`null` in its place), in notes, the feed, versions or the catalogue.
+
+A board's live connection (`/ws?board=<id>`): the page says `{ t: 'hello', name, color, cid }`, where
+`cid` is made afresh for each page load (at most 40 characters) and kept across its reconnections, and
+numbers each round of changes it sends, `{ t: 'op', ops, seq }`, counting up from 1. A round already
+applied (sent again after a dropped connection) is not applied twice. Each round is answered
+`{ t: 'ack', seq }`; where the server made something else of what was sent (a comment stamped with
+its author, a version the board may not show, a deletion refused), the server's own version comes
+just before the ack, to the sender alone, as `{ t: 'op', ops, fix: true }`. When a board is put back to
+a snapshot, everybody on it is sent `init` again with `restored: true`.
 
 ## Settings
 
@@ -473,6 +516,8 @@ Environment variables, or lines in a `.env` file next to `server.js`. All option
 | `WIPBOARD_DATA`          | `./data` | Where boards and uploads are stored      |
 | `WIPBOARD_MAX_UPLOAD_MB` | `1024`   | Largest accepted file. A video's original above this is not kept, only its review copy |
 | `AUTH_MODE`              | `none`   | Who gets in, see above. Its own settings are listed in [DEPLOY.md](DEPLOY.md) |
+| `ALLOWED_HOSTS`          |          | Other names the server may be reached by (see "Requests from other sites") |
+| `TRUST_PROXY`            |          | Set when a proxy is in front: `cloudflare` (a Cloudflare tunnel; believes `CF-Connecting-IP`) or `1` (believes the last address in `X-Forwarded-For`). Without it the connection's own address is who is counted for wrong passwords and uploads |
 
 ## Good to know
 
@@ -488,7 +533,11 @@ Environment variables, or lines in a `.env` file next to `server.js`. All option
 - Two people editing the same property of the same item at the same moment: the last
   write to reach the server wins, and everyone converges on it.
 - Uploaded files are never deleted automatically, even when the item is removed from a
-  board (undo and other boards may still reference them).
+  board (undo and other boards may still reference them). A file whose upload was never finished is
+  swept up an hour after its last piece came; each person (or address) has at most 20 files on their
+  way in at once. A piece of a file has five minutes to arrive.
+- A board's pieces show files uploaded here, pictures written into them, or (an image added by its
+  address) a picture on another site; their stills and previews are always made here.
 
 ## Layout
 

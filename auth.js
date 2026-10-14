@@ -117,7 +117,23 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const SESSION_COOKIE = 'wb_session';
 const STATE_COOKIE = 'wb_oauth';
 const SESSION_DAYS = 14;
+// The addresses a connection from this machine itself comes from. server.js uses the same list.
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+const isLoopback = (addr) => LOOPBACK.has(String(addr || ''));
+
+// Where a request really comes from. A proxy in front of the server (a tunnel, a load balancer) says
+// who it is passing along, but so could anybody else connecting, so those headers are only believed
+// when the server is told a proxy is there: TRUST_PROXY=cloudflare believes Cloudflare's
+// CF-Connecting-IP, and TRUST_PROXY=1 the address the proxy added last to X-Forwarded-For (anything
+// before it is whatever the visitor sent). Otherwise it is the connection's own address.
+function clientAddress(req, trustProxy) {
+  const addr = String((req.socket && req.socket.remoteAddress) || '');
+  const trust = String(trustProxy || '').trim().toLowerCase();
+  if (!trust || trust === '0' || trust === 'false' || trust === 'no') return addr;
+  if (trust === 'cloudflare') return String(req.headers['cf-connecting-ip'] || '').trim() || addr;
+  const chain = String(req.headers['x-forwarded-for'] || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return chain.at(-1) || addr;
+}
 
 function parseCookies(header) {
   const out = {};
@@ -296,26 +312,28 @@ function createPasswordAuth(options) {
     `${SESSION_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${isHttps(req) ? '; Secure' : ''}`;
 
   // Guessing is slowed: a few wrong tries from one address, then a wait.
-  const misses = new Map();
+  const misses = new Map(); // address -> { n, t }, the address missed last at the end
   const WINDOW = 10 * 60;
   const MAX_MISSES = 8;
-  // A tunnel or proxy on this machine says who it is passing along, and is believed. Anyone connecting
-  // directly could write those headers themselves, so for them it is the connection's own address.
-  const who = (req) => {
-    const addr = String(req.socket.remoteAddress || '');
-    if (!LOOPBACK.has(addr)) return addr;
-    return String(req.headers['cf-connecting-ip'] || String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || addr);
-  };
+  const KEPT = 5000;
+  // Who is guessing: see clientAddress above for when a proxy's word is taken.
+  const who = (req) => clientAddress(req, options.trustProxy);
   const fresh = (m) => m && now() - m.t <= WINDOW;
   const blocked = (ip) => {
     const m = misses.get(ip);
     if (m && !fresh(m)) misses.delete(ip);
     return (misses.get(ip)?.n || 0) >= MAX_MISSES;
   };
+  // A flood of addresses makes room by forgetting the ones that missed longest ago, never all at once:
+  // emptying the list would let whoever is guessing start over.
   const miss = (ip) => {
     const m = misses.get(ip);
+    misses.delete(ip);
     misses.set(ip, fresh(m) ? { n: m.n + 1, t: m.t } : { n: 1, t: now() });
-    if (misses.size > 5000) misses.clear();
+    for (const key of misses.keys()) {
+      if (misses.size <= KEPT) break;
+      misses.delete(key);
+    }
   };
 
   async function authenticate(req) {
@@ -393,4 +411,4 @@ function createPasswordAuth(options) {
   return { mode: 'password', interactive: true, authenticate, handle, publicUrl: publicUrl || null, sessionCookie };
 }
 
-module.exports = { createAuth, nameFromEmail, colorFor, parseCookies, safeNext };
+module.exports = { createAuth, nameFromEmail, colorFor, parseCookies, safeNext, isLoopback, clientAddress };

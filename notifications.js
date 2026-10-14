@@ -8,6 +8,9 @@
 //   is on your board    it is on a board you made
 // in that order: each comment is told about once, for the first of these that fits. People are matched
 // by name, which behind a sign-in is the name it gives and otherwise the name each person typed.
+// Notes written in a project's catalogue count the same way; there "your work" is a version you filed.
+
+const naming = require('./public/naming');
 
 const DAYS = 30;
 const LIMIT = 100;
@@ -57,11 +60,16 @@ function noticesFor(store, who, spaces, now = Date.now()) {
     else if (isMe(r.host_by)) kind = 'work';
     else if (isMe(r.board_by)) kind = 'board';
     if (!kind) continue;
+    // A note about a version says which, and its entity and project, so it can be opened in the
+    // catalogue (#/f/<projectId>/catalogue/<entityId>). One written in the catalogue was made on no board.
+    const version = r.version_id ? { versionId: r.version_id, entityId: r.entity_id, projectId: r.project_id } : {};
+    const named = r.version_id ? naming.label(r.entity_name, r.version_task, r.version_number) : 'a version';
     items.push({
       id: c.id,
       kind,
-      board: { id: r.board_id, name: r.board_name },
-      on: r.host_label || (r.host_type === 'video' ? 'a video' : 'an image'),
+      board: r.board_id ? { id: r.board_id, name: r.board_name } : null,
+      ...version,
+      on: r.host_label || (!r.board_id ? named : r.host_type === 'video' ? 'a video' : 'an image'),
       author: c.name,
       color: c.color,
       guest: !!c.guest,

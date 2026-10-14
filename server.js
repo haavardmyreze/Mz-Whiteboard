@@ -6,9 +6,10 @@ const fsp = fs.promises;
 const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
+const net = require('net');
 const zlib = require('zlib');
 const { WebSocketServer } = require('ws');
-const { createAuth, parseCookies } = require('./auth');
+const { createAuth, parseCookies, isLoopback, clientAddress } = require('./auth');
 const { openStore } = require('./store');
 const { noticesFor, markRead } = require('./notifications');
 const { createAdmin } = require('./admin');
@@ -34,6 +35,11 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const MAX_UPLOAD = (Number(process.env.WIPBOARD_MAX_UPLOAD_MB) || 1024) * 1024 * 1024;
 // Uploads arrive in pieces, so a single request never needs to be large (hosting front ends cap it).
 const MAX_PART = 64 * 1024 * 1024;
+// Files somebody has started sending and not finished, at most, and how much of them may be waiting at
+// once, per person (or, without sign-in, per address); a piece nobody has added to for an hour is swept up.
+const MAX_UNFINISHED = 20;
+const MAX_UNFINISHED_BYTES = Math.max(2 * MAX_UPLOAD, 4 * 1024 ** 3);
+const STALE_UPLOAD = 3600e3;
 
 // Signed sessions need a secret that survives restarts: taken from SESSION_SECRET, else made once and kept.
 function sessionSecret() {
@@ -63,6 +69,7 @@ try {
     publicUrl: process.env.PUBLIC_URL,
     password: process.env.SITE_PASSWORD,
     sessionSecret: ['google', 'password'].includes(process.env.AUTH_MODE) ? sessionSecret() : null,
+    trustProxy: process.env.TRUST_PROXY,
   });
 } catch (err) {
   console.error(err.message);
@@ -157,6 +164,9 @@ function boardRecord(saved, items = null) {
     creators: new Map(),
     saveTimer: null,
     dirty: false,
+    // The last round of changes taken from each page (by its `cid`), so one sent again after a dropped
+    // connection is not applied twice. Kept in memory only, for the pages most recently heard from.
+    seqs: new Map(),
   };
 }
 
@@ -170,11 +180,22 @@ function loadBoards() {
   }
 }
 
-// A board's items, read in when somebody opens it.
+// A board's items, read in when somebody opens it. A board brought back after being deleted may hold
+// versions deleted since, or of a project it can no longer see: those pieces come back as plain media.
 function openItems(board) {
   board.lastUsed = Date.now();
   if (board.items) return board;
   board.items = new Map(store.loadItems(board.id).map((it) => [it.id, it]));
+  let mended = false;
+  for (const it of board.items.values()) {
+    if (it.type === 'comment' || it.ver === undefined) continue;
+    checkVer(it, board);
+    if (it.ver === undefined) {
+      board.changed.add(it.id);
+      mended = true;
+    }
+  }
+  if (mended) scheduleSave(board, false);
   syncNotes(board);
   return board;
 }
@@ -346,14 +367,22 @@ function noteData(c) {
 function noteItem(board, n, host) {
   const c = { ...noteData(n.data), id: n.id, type: 'comment', on: host };
   if (n.re) c.re = n.re;
-  // Made on another board: which one, so the thread can say so.
+  // Made on another board: which one, so the thread can say so. Its name only when everybody who can
+  // see this board can see that one too (null otherwise): a personal board's name stays its owner's.
   if (n.boardId !== board.id) {
     c.ob = n.boardId;
+    const other = boards.get(n.boardId);
     // Made in the catalogue, on no board at all.
-    c.obn = n.boardId === '' ? 'the catalogue' : boards.get(n.boardId)?.name || 'another board';
+    c.obn = n.boardId === '' ? 'the catalogue' : other && (other.workspace === 'myreze' || other.workspace === board.workspace) ? other.name : null;
   }
   return c;
 }
+
+// A board's name for somebody to be shown, when they can see that board; null otherwise.
+const boardNameFor = (user, id, name, workspace) => {
+  const live = boards.get(id);
+  return (live ? canSee(user, live.workspace) && live.name : workspace && canSee(user, workspace) && name) || null;
+};
 
 // The comment items a board should hold now: the notes on its media that is not filed, on the piece
 // they were made on, and the notes on the versions it holds, on the piece showing that version (the one
@@ -510,12 +539,60 @@ const liveVersion = (id) => {
   return v && !v.deletedAt ? v : null;
 };
 
-// A piece may show a catalogue version (`ver`) only if there is such a version. A snapshot or an undo
-// that brings back a piece of a version since deleted brings it back as plain media.
-function checkVer(it) {
+// A piece may show a catalogue version (`ver`) only if there is such a version, of a project the board's
+// own people can see: a board in the shared workspace never shows a version from a project in somebody's
+// personal one. A snapshot or an undo that brings back a piece of a version since deleted brings it back
+// as plain media.
+function checkVer(it, board) {
   if (it.ver === undefined || it.ver === null) return;
-  if (!liveVersion(it.ver)) delete it.ver;
+  const v = liveVersion(it.ver);
+  const e = v && store.entity(v.entityId);
+  const project = e && folders.get(e.projectId);
+  if (!project || !(project.workspace === 'myreze' || project.workspace === board.workspace)) delete it.ver;
 }
+
+// Where a piece's files may be. Its file (`src`) is uploaded here, a picture written into the item
+// itself, or, for an image added by its address (pasted or dropped from another site), that address.
+// Its stills and preview (`th`, `poster`, `prev`) are made here, so uploaded or written in; the file a
+// video was made from (`orig`) is always uploaded; its timeline strip (`wf`) is the colours and loudness
+// packed small, as a version keeps it (see cleanLook). Anything else in those fields is dropped.
+const UPLOADED = /^\/uploads\/[\w-]+\.[a-z0-9]+$/i;
+const DATA_IMAGE = /^data:image\/[\w.+-]+[;,]/i;
+const WEB_ADDRESS = /^https?:\/\/[^\s"'<>\\]+$/i;
+const MAX_INLINE = 4 * 1024 * 1024;
+const inline = (v) => DATA_IMAGE.test(v) && v.length <= MAX_INLINE;
+const MEDIA_FIELDS = {
+  src: (v, type) => UPLOADED.test(v) || inline(v) || (type === 'image' && WEB_ADDRESS.test(v) && v.length <= 2000),
+  th: (v) => UPLOADED.test(v) || inline(v),
+  poster: (v) => UPLOADED.test(v) || inline(v),
+  prev: (v) => UPLOADED.test(v) || inline(v),
+  orig: (v) => UPLOADED.test(v),
+};
+const cleanStrip = (v) => (v && typeof v === 'object' && typeof v.c === 'string' && v.c.length < 100000 && (v.p === undefined || (typeof v.p === 'string' && v.p.length < 100000)) ? { c: v.c, ...(v.p !== undefined && { p: v.p }) } : null);
+// Checks those fields of an item, or of a patch to one (where null clears a field), in place.
+function cleanMedia(fields, type) {
+  for (const [key, ok] of Object.entries(MEDIA_FIELDS)) {
+    if (!(key in fields) || fields[key] === null) continue;
+    if (typeof fields[key] !== 'string' || !ok(fields[key], type)) delete fields[key];
+  }
+  if ('wf' in fields && fields.wf !== null) {
+    const wf = cleanStrip(fields.wf);
+    if (wf) fields.wf = wf;
+    else delete fields.wf;
+  }
+}
+
+// A note this board shows, so that an undo on it may bring it back: one made on the board on a piece
+// that is not filed, or one on a version a piece on the board shows.
+function shownOn(board, n) {
+  if (n.versionId) return [...board.items.values()].some((it) => it.type !== 'comment' && it.ver === n.versionId);
+  return n.boardId === board.id;
+}
+
+// Who may delete a note: whoever wrote it (known, as for editing, by the name the connection goes by),
+// and, for a note somebody holding a link wrote, anybody on the board, who look after what is said on
+// it. Never somebody holding a link. Deleting the note a thread starts with deletes its replies too.
+const mayDelete = (n, peer) => !peer || (!peer.viewer && (peer.name === n.data.name || n.data.guest === true));
 
 // `touch` is false for housekeeping a browser does by itself, which must not make the board look edited.
 // What the notes then come to on this board and on others is settled by settle() below, after the ops
@@ -536,8 +613,10 @@ function applyOps(board, ops, peer, touch = true) {
         if (board.items.has(it.id)) continue;
         const known = store.note(it.id);
         if (known) {
-          // Undo bringing back a note that was deleted: as its author wrote it, wherever it belongs.
-          if (known.deletedAt) store.restoreNote(it.id);
+          // Undo bringing back a note that was deleted: as its author wrote it, wherever it belongs. Only
+          // by the board's own people (or the server), and only a note this board shows; the first note
+          // of a thread brings back the replies deleted with it.
+          if (known.deletedAt && (!peer || !peer.viewer) && shownOn(board, known)) store.restoreNote(it.id);
           if (known.versionId) applied.notes.add(known.versionId);
           applied.resync = true;
           continue;
@@ -552,8 +631,9 @@ function applyOps(board, ops, peer, touch = true) {
         applied.push({ t: 'add', item: it });
         continue;
       }
+      cleanMedia(it, it.type);
       if (it.type === 'stroke' || it.type === 'frame' || it.type === 'note' || it.type === 'text' || it.type === 'block') delete it.ver;
-      else checkVer(it);
+      else checkVer(it, board);
       if (typeof it.ver === 'string') applied.versions.add(it.ver);
       board.items.set(it.id, it);
       board.changed.add(it.id);
@@ -577,8 +657,9 @@ function applyOps(board, ops, peer, touch = true) {
           if (key === 'id' || key === 'type' || key === '__proto__') continue;
           patch[key] = op.patch[key];
         }
+        cleanMedia(patch, it.type);
         if ('ver' in patch) {
-          checkVer(patch);
+          checkVer(patch, board);
           if (!('ver' in patch)) patch.ver = null;
           applied.resync = true;
           if (typeof patch.ver === 'string') applied.versions.add(patch.ver);
@@ -621,16 +702,70 @@ function applyOps(board, ops, peer, touch = true) {
     }
   }
   // A comment taken off together with what it was on only goes out of sight with it. Taken off on its
-  // own, from a piece still here, somebody deleted it.
+  // own, from a piece still here, somebody deleted it: if they may (see mayDelete), it is deleted, and
+  // otherwise it stays (the sender is told, see fixesFor). Threads go first, so that their replies,
+  // deleted with them, are not then refused one by one.
+  const kept = new Set();
+  removedComments.sort((a, b) => (a.re ? 1 : 0) - (b.re ? 1 : 0));
   for (const c of removedComments) {
     applied.resync = true;
     const n = store.note(c.id);
     if (!n) continue;
     if (n.versionId) applied.notes.add(n.versionId);
-    if (board.items.has(c.on)) store.deleteNote(c.id);
+    if (!board.items.has(c.on) || n.deletedAt) continue;
+    if (mayDelete(n, peer)) {
+      store.deleteNote(c.id);
+    } else {
+      board.items.set(c.id, c);
+      kept.add(c.id);
+    }
+  }
+  if (kept.size) {
+    for (const op of applied) if (op.t === 'del') op.ids = op.ids.filter((id) => !kept.has(id));
+    for (let i = applied.length - 1; i >= 0; i--) if (applied[i].t === 'del' && !applied[i].ids.length) applied.splice(i, 1);
   }
   if (applied.length) scheduleSave(board, touch);
   return applied;
+}
+
+// What the server made of the ops somebody sent, where that is not what they sent: the server's own
+// version of each (an item as it is now, a patch with what those fields now hold, an item put back that
+// they took off, a `del` for one that is not there), for the sender alone, so that their board is the
+// same as everybody else's. `sent` is a copy of the ops taken before they were applied.
+function fixesFor(board, sent) {
+  const fix = [];
+  if (!Array.isArray(sent)) return fix;
+  const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  for (const op of sent) {
+    if (!op || typeof op !== 'object') continue;
+    if (op.t === 'add' && op.item && typeof op.item === 'object' && typeof op.item.id === 'string') {
+      const now = board.items.get(op.item.id);
+      if (!now) fix.push({ t: 'del', ids: [op.item.id] });
+      else if (!same(now, op.item)) fix.push({ t: 'add', item: now });
+    } else if (op.t === 'set' && typeof op.id === 'string' && op.patch && typeof op.patch === 'object') {
+      const now = board.items.get(op.id);
+      if (!now) {
+        fix.push({ t: 'del', ids: [op.id] });
+        continue;
+      }
+      const patch = {};
+      let differs = false;
+      for (const key of Object.keys(op.patch)) {
+        if (key === '__proto__') continue;
+        patch[key] = now[key] ?? null;
+        if (!same(now[key], op.patch[key])) differs = true;
+      }
+      if (differs) fix.push({ t: 'set', id: op.id, patch });
+    } else if (op.t === 'del' && Array.isArray(op.ids)) {
+      for (const id of op.ids) if (typeof id === 'string' && board.items.has(id)) fix.push({ t: 'add', item: board.items.get(id) });
+    } else if (op.t === 'meta' && op.patch && typeof op.patch === 'object') {
+      const patch = {};
+      if ('name' in op.patch && op.patch.name !== board.name) patch.name = board.name;
+      if ('settings' in op.patch && !same(op.patch.settings, board.settings || {})) patch.settings = board.settings || {};
+      if (Object.keys(patch).length) fix.push({ t: 'meta', patch });
+    }
+  }
+  return fix;
 }
 
 // After ops have gone out: the board's notes as they now come out, here and on the other boards that
@@ -707,6 +842,14 @@ function moveFolderToSpace(folder, key) {
     scheduleSave(board, false);
     dropStrangers(board);
   }
+  dropRoomStrangers();
+}
+
+// Whether a folder or anything below it holds something: a board or another folder.
+function holdsAnything(folder) {
+  for (const f of folders.values()) if (f.id !== folder.id && isWithin(f.id, folder.id)) return true;
+  for (const b of boards.values()) if (b.folderId && isWithin(b.folderId, folder.id)) return true;
+  return false;
 }
 
 // ---------------------------------------------------------------- the catalogue of a project
@@ -758,10 +901,12 @@ function versionInfo(ref) {
   };
 }
 
-function publicVersion(v) {
+// A version as the catalogue shows it to `user`: the board it was filed from is named only if they can see it.
+function publicVersion(v, user) {
+  const from = v.boardId && boards.get(v.boardId);
   return {
     ...versionInfo(v), look: v.look, originalName: v.originalName, createdAt: v.createdAt, createdBy: v.createdBy,
-    board: v.boardId && boards.has(v.boardId) ? { id: v.boardId, name: boards.get(v.boardId).name } : null,
+    board: from ? { id: v.boardId, name: canSee(user, from.workspace) ? from.name : null } : null,
   };
 }
 
@@ -772,20 +917,23 @@ function boardVersions(board) {
   return [...ids].map(versionInfo).filter(Boolean);
 }
 
-// An entity has a new version, or one hidden or shown again: the boards that show any of its versions
-// are told what they are now called, and whether a newer one is there.
-function retellEntity(entityId) {
+// Some entities have a new version, or one hidden or shown again: the boards that show any of their
+// versions are told what they are now called, and whether a newer one is there, in one message each.
+function retellEntities(entityIds) {
+  if (!entityIds.size) return;
   for (const board of boards.values()) {
     if (!board.items || !board.peers.size) continue;
-    const list = boardVersions(board).filter((v) => v.entityId === entityId);
+    const list = boardVersions(board).filter((v) => entityIds.has(v.entityId));
     if (list.length) broadcast(board, { t: 'versions', list });
   }
 }
+const retellEntity = (entityId) => retellEntities(new Set([entityId]));
 
 const presetOf = (project) => naming.preset(project.settings && project.settings.naming);
 
-// The entity a file is to go under: one the project has, by its id, or one to make, by its name.
-function resolveEntity(project, spec, by) {
+// The entity a file is to go under, without making anything yet: one the project has, by its id or its
+// name, or one to make, by its name ({ name, tier, make: true }).
+function entityFor(project, spec) {
   if (typeof spec === 'string') {
     const e = store.entity(spec);
     if (!e || e.projectId !== project.id) throw refusal(400, 'That entity is not in this project');
@@ -798,20 +946,32 @@ function resolveEntity(project, spec, by) {
   if (have) return have;
   const presetId = project.settings && project.settings.naming;
   const tier = naming.TIERS.includes(spec.tier) ? spec.tier : naming.tierOf(name, presetId) || 'asset';
-  return store.addEntity({ id: newId(), projectId: project.id, tier, name, by });
+  return { name, tier, make: true };
 }
+// That entity, made now if it is to be (or the one of that name, should it have been made meanwhile).
+const madeEntity = (project, e, by) => (e.make ? store.addEntity({ id: newId(), projectId: project.id, tier: e.tier, name: e.name, by }) : e);
+const resolveEntity = (project, spec, by) => madeEntity(project, entityFor(project, spec), by);
 
 const tokenOrNull = (v) => (typeof v === 'string' && naming.tokenize(v) ? naming.tokenize(v) : null);
 
+// Why a number cannot be had: the version that has it.
+function takenMessage(t) {
+  const name = naming.label(store.entity(t.entityId).name, t.task, t.number);
+  return t.deletedAt ? `${name} was given to a version since deleted, so it can't be used again` : `There is a ${name} already`;
+}
+const validNumber = (n) => Number.isSafeInteger(n) && n >= 1 && n <= 99999;
+
 // Files pieces of media as versions. Each file is a piece on a board ({ board, item }) or a file
 // brought into the catalogue ({ look }); what each says about itself (entity, task, descriptor,
-// artist) goes before what is said for them all. What its name says fills in the rest.
-async function fileVersions(req, project, body) {
-  const by = req.user ? req.user.name : cleanName(body.by, null);
+// artist, number) goes before what is said for them all. What its name says fills in the rest.
+// Everything is checked first, and then all of it is filed in one write, so a mistake files nothing;
+// only then are the boards told.
+function fileVersions(req, project, body) {
+  const by = actor(req, body);
   const files = Array.isArray(body.files) ? body.files.slice(0, 500) : [];
   if (!files.length) throw refusal(400, 'Nothing to file');
   const presetId = project.settings && project.settings.naming;
-  // Everything is checked before anything is filed, so a mistake files nothing.
+  const pieces = new Set();
   const plan = files.map((f) => {
     if (!f || typeof f !== 'object') throw refusal(400, 'Each file is a piece on a board or an uploaded file');
     let board = null;
@@ -825,6 +985,8 @@ async function fileVersions(req, project, body) {
       item = board.items.get(f.item);
       if (!item || (item.type !== 'image' && item.type !== 'video')) throw refusal(400, 'Only images and videos are filed as versions');
       if (liveVersion(item.ver)) throw refusal(409, `“${item.name || 'That piece'}” is ${versionInfo(item.ver).label} already`);
+      if (pieces.has(`${board.id}/${item.id}`)) throw refusal(400, `“${item.name || 'That piece'}” is in the list twice`);
+      pieces.add(`${board.id}/${item.id}`);
       look = cleanLook(item);
       if (!look) throw refusal(400, `“${item.name || 'That piece'}” has not finished uploading`);
     } else {
@@ -832,49 +994,96 @@ async function fileVersions(req, project, body) {
       if (!look) throw refusal(400, 'That file is not on the server');
     }
     const parsed = naming.parse(look.name || '', presetId);
-    return { f, board, item, look, parsed };
-  });
-  const out = [];
-  const entitiesTouched = new Set();
-  for (const p of plan) {
-    const pick = (key) => (p.f[key] !== undefined ? p.f[key] : body[key]);
-    const entity = resolveEntity(project, pick('entity') ?? (p.parsed.entity && { name: p.parsed.entity, tier: p.parsed.tier }), by);
-    const task = pick('task') !== undefined ? tokenOrNull(pick('task')) : p.parsed.task;
-    const descriptor = pick('descriptor') !== undefined ? tokenOrNull(pick('descriptor')) : p.parsed.descriptor;
-    const artist = pick('artist') !== undefined ? tokenOrNull(pick('artist')) : p.parsed.artist;
-    const media = uploadName(p.look.src);
-    const thumb = p.look.th || (p.look.type === 'image' ? p.look.prev || p.look.src : p.look.poster) || null;
+    const pick = (key) => (f[key] !== undefined ? f[key] : body[key]);
     // A number may be asked for (one a file says on its own); otherwise it is the next.
-    const asked = p.f.number ?? null;
-    if (asked != null && !(Number.isSafeInteger(asked) && asked >= 1 && asked <= 99999)) throw refusal(400, 'A version number is a whole number from 1');
+    const asked = f.number ?? null;
+    if (asked != null && !validNumber(asked)) throw refusal(400, 'A version number is a whole number from 1');
+    return {
+      board, item, look, asked,
+      entity: entityFor(project, pick('entity') ?? (parsed.entity && { name: parsed.entity, tier: parsed.tier })),
+      task: pick('task') !== undefined ? tokenOrNull(pick('task')) : parsed.task,
+      descriptor: pick('descriptor') !== undefined ? tokenOrNull(pick('descriptor')) : parsed.descriptor,
+      artist: pick('artist') !== undefined ? tokenOrNull(pick('artist')) : parsed.artist,
+    };
+  });
+  // A number asked for that another version has, or that two of these ask for, is refused now too.
+  const asking = new Set();
+  for (const p of plan) {
+    if (p.asked == null) continue;
+    const taken = !p.entity.make && store.numberHolder(p.entity.id, p.task, p.asked);
+    if (taken) throw refusal(409, takenMessage(taken));
+    const key = `${p.entity.make ? `+${p.entity.name}` : p.entity.id}|${p.task || ''}|${p.asked}`;
+    if (asking.has(key)) throw refusal(409, `${naming.label(p.entity.name, p.task, p.asked)} is asked for twice`);
+    asking.add(key);
+  }
+  const filed = store.transaction(() => plan.map((p) => {
+    const entity = madeEntity(project, p.entity, by);
     let v;
     try {
       v = store.addVersion({
-        id: newId(), entityId: entity.id, task, number: asked, descriptor, artist,
-        media, thumb, kind: p.look.type, originalName: p.look.name || null, look: p.look, boardId: p.board ? p.board.id : null, by,
+        id: newId(), entityId: entity.id, task: p.task, number: p.asked, descriptor: p.descriptor, artist: p.artist,
+        media: uploadName(p.look.src), thumb: p.look.th || (p.look.type === 'image' ? p.look.prev || p.look.src : p.look.poster) || null,
+        kind: p.look.type, originalName: p.look.name || null, look: p.look, boardId: p.board ? p.board.id : null, by,
       });
     } catch (err) {
-      if (!err.taken) throw err;
-      const name = naming.label(entity.name, task, asked);
-      throw refusal(409, err.taken.deletedAt ? `${name} was given to a version since deleted, so it can't be used again` : `There is a ${name} already`);
+      // One filed before it in this lot took the number: none of them is filed.
+      throw err.taken ? refusal(409, takenMessage(err.taken)) : err;
     }
-    entitiesTouched.add(entity.id);
-    if (p.board) {
-      // What was said about the piece goes with it: from now on it is said about the version.
-      store.fileNotes(p.board.id, p.item.id, v.id);
-      const applied = applyOps(p.board, [{ t: 'set', id: p.item.id, patch: { ver: v.id } }], null, false);
-      if (applied.length) broadcast(p.board, { t: 'op', ops: applied, from: null });
-      settle(p.board, applied);
-      note(p.board, by || 'Somebody', 'file');
-    }
-    out.push(publicVersion(v));
+    // What was said about the piece goes with it: from now on it is said about the version.
+    if (p.board) store.fileNotes(p.board.id, p.item.id, v.id);
+    return { p, v };
+  }));
+  for (const { p, v } of filed) {
+    if (!p.board) continue;
+    const applied = applyOps(p.board, [{ t: 'set', id: p.item.id, patch: { ver: v.id } }], null, false);
+    if (applied.length) broadcast(p.board, { t: 'op', ops: applied, from: null });
+    settle(p.board, applied);
+    note(p.board, by || 'Somebody', 'file');
   }
-  for (const id of entitiesTouched) retellEntity(id);
-  return out;
+  retellEntities(new Set(filed.map(({ v }) => v.entityId)));
+  return filed.map(({ v }) => publicVersion(v, req.user));
+}
+
+// Who did something: the person signed in, or the name the page gives, without sign-in.
+const actor = (req, body, fallback = null) => (req.user ? req.user.name : cleanName(body && body.by, fallback));
+
+// Names of people, as they are given for an entity's artists and cc: each once, at most fifty.
+const cleanPeople = (list) => [...new Set((Array.isArray(list) ? list : []).slice(0, 50).map((n) => cleanName(n, null)).filter(Boolean))];
+
+// The label of a version, looked up once however many times it is asked for.
+function versionLabels() {
+  const known = new Map();
+  return (id) => {
+    if (!known.has(id)) known.set(id, versionInfo(id)?.label);
+    return known.get(id);
+  };
+}
+// A line of a project's Activity, or of the feed: a version filed, or a note written.
+const versionLine = (v, entity, label) => ({ kind: 'version', at: v.createdAt, by: v.createdBy, entity, version: { id: v.id, label: label(v.id), thumb: v.thumb, kind: v.kind } });
+const noteLine = (n, entity, label) => ({
+  kind: 'note', at: n.createdAt, by: n.data.name || n.createdBy, color: n.data.color, entity,
+  version: { id: n.versionId, label: label(n.versionId) }, note: { id: n.id, text: String(n.data.text || '').slice(0, 300), reply: !!n.re },
+});
+
+// A page of a project's Versions: where the one before ended (`next` in its answer), or, as before,
+// a time (only versions filed before it). Undefined for something that is neither.
+const VERSIONS_PAGE = 300;
+const pageCursor = (v) => Buffer.from(JSON.stringify([v.createdAt, v.number, v.id])).toString('base64url');
+function pageAfter(before) {
+  if (!before) return [Number.MAX_SAFE_INTEGER, 0, ''];
+  if (/^\d+$/.test(before)) return [Number(before), 0, ''];
+  try {
+    const at = JSON.parse(Buffer.from(before, 'base64url').toString('utf8'));
+    if (Array.isArray(at) && at.length === 3 && Number.isSafeInteger(at[0]) && Number.isSafeInteger(at[1]) && typeof at[2] === 'string') return at;
+  } catch {
+    // not a page of this list
+  }
+  return undefined;
 }
 
 async function handleCatalogue(req, res, parts) {
   const projectFor = (id) => (visibleFolder(req.user, id) && folders.get(id).project ? folders.get(id) : null);
+  const boardsSeen = (list) => list.filter((b) => canSee(req.user, b.workspace)).map((b) => ({ id: b.id, name: b.name }));
   // GET /api/projects/:id                  the project and its entities
   // POST /api/projects/:id/entities        { name, tier }
   // POST /api/projects/:id/versions        { files, entity, task, descriptor, artist }
@@ -882,7 +1091,6 @@ async function handleCatalogue(req, res, parts) {
     const project = projectFor(parts[2]);
     if (!project) return sendJson(res, 404, { error: 'Project not found' });
     if (parts.length === 3 && req.method === 'GET') {
-      flushAll();
       const preset = presetOf(project);
       return sendJson(res, 200, {
         project: publicFolder(project),
@@ -894,22 +1102,26 @@ async function handleCatalogue(req, res, parts) {
       });
     }
     // GET /api/projects/:id/versions?before=   its versions, newest filed first, a page at a time: the
-    // project's Versions list.
+    // project's Versions list. `next`, when there are more, is what to give as `before` for the next page.
     if (parts.length === 4 && parts[3] === 'versions' && req.method === 'GET') {
+      const after = pageAfter(new URL(req.url, 'http://x').searchParams.get('before'));
+      if (!after) return sendJson(res, 400, { error: 'That is not a page of this list' });
+      // Which boards each is on is read from the database, so what is waiting to be written goes first.
       flushAll();
-      const before = Number(new URL(req.url, 'http://x').searchParams.get('before')) || undefined;
-      const list = store.projectVersions(project.id, { before, limit: 300 });
+      const list = store.projectVersions(project.id, { after, limit: VERSIONS_PAGE });
+      const on = store.boardsWithVersions(list.map((v) => v.id));
+      const more = list.length === VERSIONS_PAGE;
       return sendJson(res, 200, {
         versions: list.map((v) => {
           const { src, poster, th, dur, fps, nw, nh, type } = v.look;
           return {
             id: v.id, entityId: v.entityId, entity: v.entityName, tier: v.entityTier, task: v.task, number: v.number,
             label: naming.label(v.entityName, v.task, v.number), kind: v.kind, thumb: v.thumb, look: { type, src, poster, th, dur, fps, nw, nh },
-            artist: v.artist, createdAt: v.createdAt, createdBy: v.createdBy,
-            boards: store.boardsWithVersion(v.id).filter((b) => canSee(req.user, b.workspace)).map((b) => ({ id: b.id, name: b.name })),
+            artist: v.artist, createdAt: v.createdAt, createdBy: v.createdBy, boards: boardsSeen(on.get(v.id)),
           };
         }),
-        more: list.length === 300,
+        more,
+        next: more ? pageCursor(list.at(-1)) : null,
       });
     }
     // POST /api/projects/:id/place { board, versions: [ids], layout }: puts versions on one of the
@@ -924,10 +1136,19 @@ async function handleCatalogue(req, res, parts) {
       const list = ids.map((id) => liveVersion(id)).filter((v) => v && store.entity(v.entityId).projectId === project.id);
       if (!list.length) return sendJson(res, 400, { error: 'Pick versions of this project' });
       openItems(board);
-      const all = [...board.items.values()].filter((it) => Number.isFinite(it.x) && Number.isFinite(it.y));
-      const left = all.length ? Math.min(...all.map((it) => it.x)) : 0;
-      const top = all.length ? Math.max(...all.map((it) => it.y + (it.h || 0))) + 160 : 0;
-      let z = all.reduce((m, it) => Math.max(m, it.z || 0), 0);
+      // Where what is on the board ends: its left edge, its bottom, its topmost layer. A loop, not a
+      // spread into Math.min, which a board of many thousands of pieces would overflow.
+      let left = Infinity;
+      let bottom = -Infinity;
+      let z = 0;
+      for (const it of board.items.values()) {
+        z = Math.max(z, it.z || 0);
+        if (!Number.isFinite(it.x) || !Number.isFinite(it.y)) continue;
+        left = Math.min(left, it.x);
+        bottom = Math.max(bottom, it.y + (it.h || 0));
+      }
+      if (left === Infinity) left = 0;
+      const top = bottom === -Infinity ? 0 : bottom + 160;
       const W = 750;
       const GAP = 24;
       const sizeOf = (look) => {
@@ -977,30 +1198,28 @@ async function handleCatalogue(req, res, parts) {
       const applied = applyOps(board, ops, null, true);
       if (applied.length) broadcast(board, { t: 'op', ops: applied, from: null });
       settle(board, applied);
-      note(board, req.user ? req.user.name : cleanName(body.by, null) || 'Somebody', 'add', list.length);
+      note(board, actor(req, body, 'Somebody'), 'add', list.length);
       return sendJson(res, 200, { board: { id: board.id, name: board.name }, placed: ops.map((o) => o.item.id) });
     }
     // GET /api/projects/:id/activity   what happened in the project in the last two weeks, newest first:
     // versions filed and comments written, on any of its assets, sets and shots (the project's home shows it).
     if (parts.length === 4 && parts[3] === 'activity' && req.method === 'GET') {
-      flushAll();
       const byId = new Map(store.entities(project.id).map((e) => [e.id, e]));
       const { versions, notes } = store.happenings([...byId.keys()], Date.now() - 14 * 24 * 3600 * 1000, 60);
-      const about = (e) => ({ id: e.id, name: e.name, tier: e.tier, projectId: project.id, project: project.name });
-      const label = (id) => versionInfo(id)?.label;
+      const about = (id) => {
+        const e = byId.get(id);
+        return { id: e.id, name: e.name, tier: e.tier, projectId: project.id, project: project.name };
+      };
+      const label = versionLabels();
       const items = [
-        ...versions.map((v) => ({ kind: 'version', at: v.createdAt, by: v.createdBy, entity: about(byId.get(v.entityId)), version: { id: v.id, label: label(v.id), thumb: v.thumb, kind: v.kind } })),
-        ...notes.map((n) => ({
-          kind: 'note', at: n.createdAt, by: n.data.name || n.createdBy, color: n.data.color, entity: about(byId.get(n.entityId)),
-          version: { id: n.versionId, label: label(n.versionId) }, note: { id: n.id, text: String(n.data.text || '').slice(0, 300), reply: !!n.re },
-        })),
+        ...versions.map((v) => versionLine(v, about(v.entityId), label)),
+        ...notes.map((n) => noteLine(n, about(n.entityId), label)),
       ].sort((a, b) => b.at - a.at).slice(0, 60);
       return sendJson(res, 200, { items });
     }
     // GET /api/projects/:id/timeline?task=   every shot in order, by sequence, with its newest version (of
     // that task, or of any), what the timeline view lays out and plays through.
     if (parts.length === 4 && parts[3] === 'timeline' && req.method === 'GET') {
-      flushAll();
       const task = new URL(req.url, 'http://x').searchParams.get('task');
       const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
       const shots = store.entities(project.id).filter((e) => e.tier === 'shot').sort(byName);
@@ -1023,13 +1242,12 @@ async function handleCatalogue(req, res, parts) {
       const list = ids.map((id) => store.entity(id));
       if (!list.length || list.some((e) => !e || e.projectId !== project.id)) return sendJson(res, 400, { error: 'Pick assets, sets or shots of this project' });
       if (body.tier !== undefined && !naming.TIERS.includes(body.tier)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
-      const people = (v) => [...new Set((Array.isArray(v) ? v : []).slice(0, 50).map((n) => cleanName(n, null)).filter(Boolean))];
       const change = (now, how) => {
         if (!how || typeof how !== 'object') return now;
-        if (Array.isArray(how.set)) return people(how.set);
-        const drop = people(how.remove).map((n) => n.toLowerCase());
+        if (Array.isArray(how.set)) return cleanPeople(how.set);
+        const drop = cleanPeople(how.remove).map((n) => n.toLowerCase());
         const kept = now.filter((n) => !drop.includes(n.toLowerCase()));
-        for (const n of people(how.add)) if (!kept.some((k) => k.toLowerCase() === n.toLowerCase())) kept.push(n);
+        for (const n of cleanPeople(how.add)) if (!kept.some((k) => k.toLowerCase() === n.toLowerCase())) kept.push(n);
         return kept;
       };
       const done = store.transaction(() => list.map((e) => store.setEntity(e.id, {
@@ -1037,24 +1255,24 @@ async function handleCatalogue(req, res, parts) {
         artists: change(e.artists, body.artists),
         cc: change(e.cc, body.cc),
       }).entity));
-      for (const e of done) retellEntity(e.id);
+      retellEntities(new Set(done.map((e) => e.id)));
       return sendJson(res, 200, { entities: done });
     }
     // { name, tier } makes one; { names: [...], tier } sets up many at once, before anything is filed of
     // them. A name the project has already is left as it is. Without a tier, the name's shape says.
     if (parts.length === 4 && parts[3] === 'entities' && req.method === 'POST') {
       const body = await readJson(req, 1024 * 1024);
-      const by = req.user ? req.user.name : cleanName(body.by, null);
+      const by = actor(req, body);
       if (!Array.isArray(body.names)) return sendJson(res, 201, resolveEntity(project, { name: body.name, tier: body.tier }, by));
       const wanted = [...new Set(body.names.slice(0, 2000).map((n) => naming.tokenize(n)).filter(Boolean))];
       if (!wanted.length) return sendJson(res, 400, { error: 'No names to add' });
       const had = wanted.filter((n) => store.entityNamed(project.id, n));
-      const made = wanted.filter((n) => !had.includes(n)).map((n) => resolveEntity(project, { name: n, tier: body.tier }, by));
+      const made = store.transaction(() => wanted.filter((n) => !had.includes(n)).map((n) => resolveEntity(project, { name: n, tier: body.tier }, by)));
       return sendJson(res, 201, { made, had });
     }
     if (parts.length === 4 && parts[3] === 'versions' && req.method === 'POST') {
       const body = await readJson(req, 4 * 1024 * 1024);
-      return sendJson(res, 201, { versions: await fileVersions(req, project, body) });
+      return sendJson(res, 201, { versions: fileVersions(req, project, body) });
     }
     return sendJson(res, 404, { error: 'Not found' });
   }
@@ -1073,9 +1291,8 @@ async function handleCatalogue(req, res, parts) {
       if (!naming.TIERS.includes(body.tier)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
       edit.tier = body.tier;
     }
-    const people = (list) => [...new Set((Array.isArray(list) ? list : []).slice(0, 50).map((n) => cleanName(n, null)).filter(Boolean))];
-    if (body.artists !== undefined) edit.artists = people(body.artists);
-    if (body.cc !== undefined) edit.cc = people(body.cc);
+    if (body.artists !== undefined) edit.artists = cleanPeople(body.artists);
+    if (body.cc !== undefined) edit.cc = cleanPeople(body.cc);
     const done = store.setEntity(entity.id, edit);
     if (!done.ok) return sendJson(res, 409, { error: `There is a ${done.taken.name} in this project already` });
     retellEntity(entity.id);
@@ -1086,20 +1303,21 @@ async function handleCatalogue(req, res, parts) {
     const entity = store.entity(parts[2]);
     const project = entity && projectFor(entity.projectId);
     if (!project) return sendJson(res, 404, { error: 'Not found' });
+    // Which boards each version is on is read from the database, so what is waiting to be written goes first.
     flushAll();
     const versions = store.versionsOf(entity.id);
+    const on = store.boardsWithVersions(versions.map((v) => v.id));
     const notes = store.notesOfVersions(versions.map((v) => v.id)).map((n) => ({
-      id: n.id, versionId: n.versionId, re: n.re, board: { id: n.boardId, name: n.boardName }, ...noteData(n.data),
+      id: n.id, versionId: n.versionId, re: n.re, board: { id: n.boardId, name: boardNameFor(req.user, n.boardId, n.boardName, n.boardWorkspace) }, ...noteData(n.data),
     }));
     return sendJson(res, 200, {
       entity, project: publicFolder(project),
-      versions: versions.map((v) => ({ ...publicVersion(v), boards: store.boardsWithVersion(v.id).filter((b) => canSee(req.user, b.workspace)).map((b) => ({ id: b.id, name: b.name })) })),
+      versions: versions.map((v) => ({ ...publicVersion(v, req.user), boards: boardsSeen(on.get(v.id)) })),
       notes,
     });
   }
   // GET /api/people: every name the app knows, for picking artists and people to keep in the loop.
   if (parts[1] === 'people' && parts.length === 2 && req.method === 'GET') {
-    flushAll();
     return sendJson(res, 200, { people: store.people() });
   }
   // GET /api/feed?name=: what is relevant to the person asking (signed in, or by the name given).
@@ -1111,7 +1329,6 @@ async function handleCatalogue(req, res, parts) {
     const url = new URL(req.url, 'http://x');
     const name = req.user ? req.user.name : cleanName(url.searchParams.get('name'), null);
     if (!name) return sendJson(res, 200, { work: [], items: [] });
-    flushAll();
     const byId = new Map();
     for (const e of store.entitiesOf(name)) byId.set(e.id, e);
     for (const e of store.entitiesFiledBy(name)) if (!byId.has(e.id)) byId.set(e.id, { ...e, role: 'filed' });
@@ -1122,26 +1339,23 @@ async function handleCatalogue(req, res, parts) {
     const { versions, notes } = store.happenings(mine.map((e) => e.id), since, 150);
     const me = name.toLowerCase();
     const about = (e) => ({ id: e.id, name: e.name, tier: e.tier, projectId: e.projectId, project: folders.get(e.projectId).name, role: e.role });
-    const labelOf = new Map();
-    const label = (versionId) => {
-      if (!labelOf.has(versionId)) labelOf.set(versionId, versionInfo(versionId));
-      return labelOf.get(versionId);
-    };
+    const label = versionLabels();
     const items = [
-      ...versions.filter((v) => (v.createdBy || '').toLowerCase() !== me).map((v) => ({
-        kind: 'version', at: v.createdAt, by: v.createdBy, entity: about(byId.get(v.entityId)), version: { id: v.id, label: label(v.id)?.label, thumb: v.thumb, kind: v.kind },
-      })),
-      ...notes.filter((n) => isWork(byId.get(n.entityId))).map((n) => ({
-        kind: 'note', at: n.createdAt, by: n.data.name || n.createdBy, mine: (n.data.name || n.createdBy || '').toLowerCase() === me, color: n.data.color, entity: about(byId.get(n.entityId)),
-        version: { id: n.versionId, label: label(n.versionId)?.label }, note: { id: n.id, text: String(n.data.text || '').slice(0, 300), reply: !!n.re, done: !!n.data.done, board: n.boardId ? { id: n.boardId, name: n.boardName } : null },
-      })),
+      ...versions.filter((v) => (v.createdBy || '').toLowerCase() !== me).map((v) => versionLine(v, about(byId.get(v.entityId)), label)),
+      ...notes.filter((n) => isWork(byId.get(n.entityId))).map((n) => {
+        const line = noteLine(n, about(byId.get(n.entityId)), label);
+        line.mine = (n.data.name || n.createdBy || '').toLowerCase() === me;
+        line.note.done = !!n.data.done;
+        line.note.board = n.boardId ? { id: n.boardId, name: boardNameFor(req.user, n.boardId, n.boardName, n.boardWorkspace) } : null;
+        return line;
+      }),
     ].sort((a, b) => b.at - a.at).slice(0, 80);
+    const shown = store.entityCards(mine.map((e) => e.id));
     const card = (e) => {
-      const list = store.versionsOf(e.id).filter((v) => !v.hidden);
-      const newest = list[0] || null;
+      const c = shown.get(e.id) || { versions: 0, latestAt: null, thumb: null, newest: null };
       return {
-        ...about(e), versions: list.length, latestAt: newest ? newest.createdAt : null, thumb: (list.find((v) => v.thumb) || {}).thumb || null,
-        newest: newest && { ...store.newestGlance(e.id), label: label(newest.id)?.label }, artists: e.artists, cc: e.cc,
+        ...about(e), versions: c.versions, latestAt: c.latestAt, thumb: c.thumb,
+        newest: c.newest && { ...c.newest, label: naming.label(e.name, c.newest.task, c.newest.number) }, artists: e.artists, cc: e.cc,
       };
     };
     const byLatest = (a, b) => (b.latestAt || 0) - (a.latestAt || 0) || a.name.localeCompare(b.name, undefined, { numeric: true });
@@ -1160,8 +1374,9 @@ async function handleCatalogue(req, res, parts) {
     const entity = v && store.entity(v.entityId);
     const project = entity && projectFor(entity.projectId);
     if (!project) return sendJson(res, 404, { error: 'Not found' });
-    if (v.deletedAt && !(req.method === 'PATCH')) return sendJson(res, 404, { error: 'That version was deleted' });
-    if (req.method === 'GET') return sendJson(res, 200, publicVersion(v));
+    if (!['GET', 'HEAD', 'PATCH', 'DELETE'].includes(req.method)) return sendJson(res, 405, { error: 'Method not allowed' });
+    if (v.deletedAt && req.method !== 'PATCH') return sendJson(res, 404, { error: 'That version was deleted' });
+    if (req.method === 'GET' || req.method === 'HEAD') return sendJson(res, 200, publicVersion(v, req.user));
     if (req.method === 'DELETE') {
       flushAll();
       const on = store.boardsWithVersion(v.id);
@@ -1175,42 +1390,39 @@ async function handleCatalogue(req, res, parts) {
       tellRoom(entity.id);
       return sendJson(res, 200, { ok: true });
     }
-    if (req.method === 'PATCH') {
-      const body = await readJson(req);
-      if (v.deletedAt) {
-        if (body.deleted !== false) return sendJson(res, 404, { error: 'That version was deleted' });
-        store.restoreVersion(v.id);
-      }
+    const body = await readJson(req);
+    if (v.deletedAt && body.deleted !== false) return sendJson(res, 404, { error: 'That version was deleted' });
+    // Everything asked for is checked before anything is changed, and then it is all changed in one write.
+    const edit = {};
+    const target = body.entity !== undefined ? entityFor(project, body.entity) : null;
+    if (body.task !== undefined) edit.task = tokenOrNull(body.task);
+    if (body.descriptor !== undefined) edit.descriptor = tokenOrNull(body.descriptor);
+    if (body.artist !== undefined) edit.artist = tokenOrNull(body.artist);
+    if (body.number !== undefined && body.number !== null) {
+      const n = Number(body.number);
+      if (!validNumber(n)) return sendJson(res, 400, { error: 'A version number is a whole number from 1' });
+      edit.number = n;
+    }
+    // An entity still to be made has no numbers taken; anywhere else the number may be.
+    if (!(target && target.make)) {
+      const to = store.placeFor(v, { entityId: target ? target.id : undefined, task: edit.task, number: edit.number });
+      if (to.taken) return sendJson(res, 409, { error: takenMessage(to.taken) });
+    }
+    const now = store.transaction(() => {
+      if (v.deletedAt) store.restoreVersion(v.id);
       if ('hidden' in body) store.hideVersion(v.id, !!body.hidden);
-      const edit = {};
-      if (body.entity !== undefined) {
-        const by = req.user ? req.user.name : cleanName(body.by, null);
-        edit.entityId = resolveEntity(project, body.entity, by).id;
-      }
-      if (body.task !== undefined) edit.task = tokenOrNull(body.task);
-      if (body.descriptor !== undefined) edit.descriptor = tokenOrNull(body.descriptor);
-      if (body.artist !== undefined) edit.artist = tokenOrNull(body.artist);
-      if (body.number !== undefined && body.number !== null) {
-        const n = Number(body.number);
-        if (!Number.isSafeInteger(n) || n < 1 || n > 99999) return sendJson(res, 400, { error: 'A version number is a whole number from 1' });
-        edit.number = n;
-      }
+      if (target) edit.entityId = madeEntity(project, target, actor(req, body)).id;
       if (Object.keys(edit).length) {
         const done = store.editVersion(v.id, edit);
-        if (!done.ok) {
-          const t = done.taken;
-          const name = naming.label(store.entity(t.entityId).name, t.task, t.number);
-          return sendJson(res, 409, { error: t.deletedAt ? `${name} was given to a version since deleted, so it can't be used again` : `There is a ${name} already` });
-        }
+        if (!done.ok) throw refusal(409, takenMessage(done.taken));
       }
-      // The boards showing it, and the catalogue rooms it was and is in, are told what it is now called.
-      const now = store.version(v.id);
-      for (const id of new Set([entity.id, now.entityId])) {
-        retellEntity(id);
-        tellRoom(id);
-      }
-      return sendJson(res, 200, publicVersion(now));
-    }
+      return store.version(v.id);
+    });
+    // The boards showing it, and the catalogue rooms it was and is in, are told what it is now called.
+    const told = new Set([entity.id, now.entityId]);
+    retellEntities(told);
+    for (const id of told) tellRoom(id);
+    return sendJson(res, 200, publicVersion(now, req.user));
   }
   return sendJson(res, 404, { error: 'Not found' });
 }
@@ -1271,6 +1483,28 @@ function readJson(req, limit = 64 * 1024) {
   });
 }
 
+// The part of something `size` bytes long a request asks for with its Range header: the whole of it
+// (200) when it asks for no part, or `honour` is false; the part (206); or null for a part that is not
+// there, to be answered with refuseRange.
+function byteRange(req, size, honour = true) {
+  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+  if (!honour || !range || !(range[1] || range[2])) return { start: 0, end: size - 1, status: 200 };
+  let start;
+  let end = size - 1;
+  if (range[1] === '') {
+    start = Math.max(0, size - Number(range[2]));
+  } else {
+    start = Number(range[1]);
+    if (range[2] !== '') end = Math.min(end, Number(range[2]));
+  }
+  if (start > end || start >= size) return null;
+  return { start, end, status: 206 };
+}
+function refuseRange(res, size) {
+  res.writeHead(416, { 'Content-Range': `bytes */${size}` });
+  res.end();
+}
+
 function sendFile(req, res, file, headers = {}) {
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) return sendJson(res, 404, { error: 'Not found' });
@@ -1286,25 +1520,11 @@ function sendFile(req, res, file, headers = {}) {
       ETag: etag,
       ...headers,
     };
-    let start = 0;
-    let end = st.size - 1;
-    let status = 200;
     // Range support is what lets browsers scrub through video.
-    const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
-    if (range && (range[1] || range[2])) {
-      if (range[1] === '') {
-        start = Math.max(0, st.size - Number(range[2]));
-      } else {
-        start = Number(range[1]);
-        if (range[2] !== '') end = Math.min(end, Number(range[2]));
-      }
-      if (start > end || start >= st.size) {
-        res.writeHead(416, { 'Content-Range': `bytes */${st.size}` });
-        return res.end();
-      }
-      status = 206;
-      head['Content-Range'] = `bytes ${start}-${end}/${st.size}`;
-    }
+    const range = byteRange(req, st.size);
+    if (!range) return refuseRange(res, st.size);
+    const { start, end, status } = range;
+    if (status === 206) head['Content-Range'] = `bytes ${start}-${end}/${st.size}`;
     head['Content-Length'] = st.size === 0 ? 0 : end - start + 1;
     res.writeHead(status, head);
     if (req.method === 'HEAD' || st.size === 0) return res.end();
@@ -1318,6 +1538,8 @@ function sendFile(req, res, file, headers = {}) {
 // Each piece is stored on its own and joined when the last one lands. Plain uploads (no uid) are a
 // single piece. Separate small files, rather than appending, also suit object-storage mounts.
 const PARTS_PREFIX = '.parts-';
+// Uploads begun and not yet finished: uid -> { owner, bytes, pieces (offset -> size), at }.
+const unfinished = new Map();
 
 function handleUpload(req, res, url) {
   const refuse = (status, error) => {
@@ -1332,6 +1554,20 @@ function handleUpload(req, res, url) {
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > MAX_UPLOAD) return refuse(400, 'Bad offset');
   const done = url.searchParams.get('done') !== '0';
   if (Number(req.headers['content-length']) > MAX_PART) return refuse(413, 'Piece too large');
+
+  // Nobody may fill the disk with files they never finish sending (see MAX_UNFINISHED).
+  const owner = req.user ? `u:${req.user.id}` : `a:${clientAddress(req, process.env.TRUST_PROXY)}`;
+  let job = unfinished.get(uid);
+  if (job && job.owner !== owner) return refuse(409, 'That upload is somebody else’s');
+  const theirs = [...unfinished.values()].filter((j) => j.owner === owner && j !== job);
+  if (!job && theirs.length >= MAX_UNFINISHED) return refuse(429, 'Too many files are on their way in at once. Wait for some to finish.');
+  // What they have waiting besides this piece (a piece sent again replaces the one before).
+  const waiting = theirs.reduce((n, j) => n + j.bytes, 0) + (job ? job.bytes - (job.pieces.get(offset) || 0) : 0);
+  if (waiting + (Number(req.headers['content-length']) || 0) > MAX_UNFINISHED_BYTES) return refuse(413, 'Too much is on its way in at once. Wait for some of it to finish.');
+  if (!job) {
+    job = { owner, bytes: 0, pieces: new Map(), at: Date.now() };
+    unfinished.set(uid, job);
+  }
 
   const partsDir = path.join(UPLOAD_DIR, PARTS_PREFIX + uid);
   fs.mkdirSync(partsDir, { recursive: true });
@@ -1353,6 +1589,7 @@ function handleUpload(req, res, url) {
   req.on('data', (chunk) => {
     size += chunk.length;
     if (size > MAX_PART) fail(413, 'Piece too large');
+    else if (waiting + size > MAX_UNFINISHED_BYTES) fail(413, 'Too much is on its way in at once. Wait for some of it to finish.');
   });
   req.on('error', () => fail(400, 'Upload interrupted'));
   req.on('close', () => {
@@ -1361,11 +1598,17 @@ function handleUpload(req, res, url) {
   out.on('error', (err) => fail(500, err.message));
   out.on('finish', async () => {
     if (failed) return;
+    job.bytes += size - (job.pieces.get(offset) || 0);
+    job.pieces.set(offset, size);
+    job.at = Date.now();
     try {
       if (!done) return sendJson(res, 200, { ok: true, received: offset + size });
       sendJson(res, 200, await assembleUpload(partsDir, ext, req.user));
     } catch (err) {
       sendJson(res, err.status || 500, { error: err.message });
+    } finally {
+      // Finished, or failed for good: either way it no longer waits.
+      if (done) unfinished.delete(uid);
     }
   });
   req.pipe(out);
@@ -1436,9 +1679,11 @@ async function assembleUpload(partsDir, ext, user) {
   }
 }
 
-// Abandoned uploads (a closed tab, a dropped connection) leave pieces behind; sweep them up.
+// Abandoned uploads (a closed tab, a dropped connection) leave pieces behind; sweep them up, an hour
+// after the last piece of them came.
 function cleanStaleUploads() {
-  const cutoff = Date.now() - 6 * 3600e3;
+  const cutoff = Date.now() - STALE_UPLOAD;
+  for (const [uid, job] of unfinished) if (job.at < cutoff) unfinished.delete(uid);
   for (const name of fs.readdirSync(UPLOAD_DIR)) {
     if (!name.startsWith(PARTS_PREFIX) && !name.startsWith('.upload-')) continue;
     const file = path.join(UPLOAD_DIR, name);
@@ -1494,6 +1739,15 @@ function dropStrangers(board) {
   for (const peer of [...board.peers.values()]) if (!peer.viewer && !visible(peer.user, board)) peer.ws.close(4003, 'Board moved');
 }
 
+// The same for the catalogue's rooms (see joinRoom): after a project changes workspace, whoever has one
+// of its assets, sets or shots open but may no longer see the project is shown the door.
+function dropRoomStrangers() {
+  for (const [entityId, peers] of rooms) {
+    const e = store.entity(entityId);
+    for (const peer of [...peers]) if (!e || !visibleFolder(peer.user, e.projectId)) peer.ws.close(4003, 'Project moved');
+  }
+}
+
 // ---------------------------------------------------------------- a board's files, as they were uploaded
 //
 // What goes on a board for a video is a review copy made in the browser. The file it was made from is
@@ -1539,25 +1793,11 @@ async function sendBoardZip(req, res, board) {
     'Accept-Ranges': 'bytes',
     ETag: etag,
   };
-  let start = 0;
-  let end = plan.size - 1;
-  let status = 200;
-  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
-  const same = !req.headers['if-range'] || req.headers['if-range'] === etag;
-  if (range && (range[1] || range[2]) && same) {
-    if (range[1] === '') {
-      start = Math.max(0, plan.size - Number(range[2]));
-    } else {
-      start = Number(range[1]);
-      if (range[2] !== '') end = Math.min(end, Number(range[2]));
-    }
-    if (start > end || start >= plan.size) {
-      res.writeHead(416, { 'Content-Range': `bytes */${plan.size}` });
-      return res.end();
-    }
-    status = 206;
-    head['Content-Range'] = `bytes ${start}-${end}/${plan.size}`;
-  }
+  // Only a part of the same archive as before is sent on; a different one is sent whole.
+  const range = byteRange(req, plan.size, !req.headers['if-range'] || req.headers['if-range'] === etag);
+  if (!range) return refuseRange(res, plan.size);
+  const { start, end, status } = range;
+  if (status === 206) head['Content-Range'] = `bytes ${start}-${end}/${plan.size}`;
   head['Content-Length'] = end - start + 1;
   res.writeHead(status, head);
   if (req.method === 'HEAD') return res.end();
@@ -1585,8 +1825,20 @@ function withoutOriginal(it) {
 
 const VIEW_COOKIE = 'wb_view';
 const secureCookie = (req) => ((auth.publicUrl && auth.publicUrl.startsWith('https://')) || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '');
-// Someone who opened a live read-only link may load the files on that board without being signed in.
-const viewingShare = (req) => !!sharedBoard(parseCookies(req.headers.cookie)[VIEW_COOKIE]);
+// Someone who opened a live read-only link may load the files that board shows without being signed
+// in: what its pieces show (the file, its stills, its preview) and the stills of the versions they
+// are, never the files the videos were made from (`orig`), which the link does not show either.
+function sharedFile(req, name) {
+  const board = sharedBoard(parseCookies(req.headers.cookie)[VIEW_COOKIE]);
+  if (!board) return false;
+  openItems(board);
+  for (const it of board.items.values()) {
+    if (it.type === 'comment') continue;
+    for (const key of ['src', 'th', 'poster', 'prev']) if (uploadName(it[key]) === name) return true;
+    if (it.wf && typeof it.wf === 'object' && Object.values(it.wf).some((v) => uploadName(v) === name)) return true;
+  }
+  return boardVersions(board).some((v) => uploadName(v.thumb) === name);
+}
 
 // Where a read-only link can be opened from: the public address when there is one, otherwise this
 // machine's network addresses, never "localhost", which only means "this computer" to whoever opens it.
@@ -1617,7 +1869,7 @@ async function handleApi(req, res, url) {
     if (parts.length === 2 && req.method === 'POST') {
       const body = await readJson(req);
       const parentId = body.parentId || null;
-      if (parentId && !visibleFolder(req.user, parentId)) return sendJson(res, 400, { error: 'Parent folder not found' });
+      if (parentId && !visibleFolder(req.user, parentId)) return sendJson(res, 404, { error: 'Parent folder not found' });
       // A folder belongs to the workspace of the folder it is made in.
       const workspace = parentId ? folders.get(parentId).workspace : spaceKey(body.workspace, req.user);
       const folder = { id: newId(), name: cleanName(body.name, 'New folder'), parentId, workspace, createdAt: Date.now() };
@@ -1630,9 +1882,15 @@ async function handleApi(req, res, url) {
       if (req.method === 'PATCH') {
         const body = await readJson(req);
         if (body.workspace === 'personal' && !req.user) return sendJson(res, 400, { error: 'Personal workspaces need sign-in' });
+        // What is shared stays shared: a project, or a folder with anything in it, is not taken from the
+        // shared workspace into somebody's own, where nobody else could see it, except by an admin.
+        if ('workspace' in body && folder.workspace === 'myreze' && spaceKey(body.workspace, req.user) !== 'myreze'
+          && (folder.project || holdsAnything(folder)) && !admin.isAdmin(req.user)) {
+          return sendJson(res, 403, { error: `“${folder.name}” is shared with everyone, and ${folder.project ? 'it is a project' : 'it holds boards or folders'}, so only an admin can move it to a personal workspace` });
+        }
         if ('parentId' in body) {
           const parentId = body.parentId || null;
-          if (parentId && !visibleFolder(req.user, parentId)) return sendJson(res, 400, { error: 'Folder not found' });
+          if (parentId && !visibleFolder(req.user, parentId)) return sendJson(res, 404, { error: 'Folder not found' });
           if (parentId && folders.get(parentId).workspace !== folder.workspace) return sendJson(res, 400, { error: 'Move it to the other workspace first' });
           if (parentId && isWithin(parentId, folder.id)) return sendJson(res, 400, { error: 'A folder cannot be moved into itself' });
           if (parentId && projectOf(parentId) && holdsProject(folder)) return sendJson(res, 400, { error: 'A project cannot go inside another project' });
@@ -1680,10 +1938,10 @@ async function handleApi(req, res, url) {
   }
   if (parts[1] === 'boards' && parts.length === 2 && req.method === 'POST') {
     const body = await readJson(req);
-    const folderId = visibleFolder(req.user, body.folderId) ? body.folderId : null;
+    if (body.folderId && !visibleFolder(req.user, body.folderId)) return sendJson(res, 404, { error: 'Folder not found' });
+    const folderId = body.folderId || null;
     const workspace = folderId ? folders.get(folderId).workspace : spaceKey(body.workspace, req.user);
-    const by = req.user ? req.user.name : typeof body.by === 'string' ? cleanName(body.by, null) : null;
-    return sendJson(res, 201, boardMeta(createBoard(body.name, folderId, workspace, by)));
+    return sendJson(res, 201, boardMeta(createBoard(body.name, folderId, workspace, actor(req, body))));
   }
   // A board's link: anyone holding it can watch without signing in and, as the board's people decide,
   // read the comments or comment too. Never more: nobody holding it can change the board.
@@ -1733,13 +1991,13 @@ async function handleApi(req, res, url) {
     const board = boards.get(parts[2]);
     if (!visible(req.user, board)) return sendJson(res, 404, { error: 'Board not found' });
     const body = await readJson(req);
-    const who = req.user ? req.user.name : cleanName(body.by, 'Somebody');
+    const who = actor(req, body, 'Somebody');
     const was = store.snapshot(board.id, Number(parts[4]));
     if (!was) return sendJson(res, 404, { error: 'That snapshot is not kept any more' });
     openItems(board);
     keepSnapshot(board, who, true);
     const next = new Map(was.map((it) => [it.id, it]));
-    for (const it of next.values()) checkVer(it);
+    for (const it of next.values()) checkVer(it, board);
     for (const [id, it] of board.items) if (it.type !== 'comment' && !next.has(id)) board.removed.add(id);
     for (const id of next.keys()) {
       board.changed.add(id);
@@ -1749,8 +2007,9 @@ async function handleApi(req, res, url) {
     syncNotes(board);
     scheduleSave(board);
     note(board, who, 'restore');
-    // Everybody on the board is given it afresh, as when they opened it.
-    for (const peer of board.peers.values()) sendInit(board, peer);
+    // Everybody on the board is given it afresh, as when they opened it, marked as put back: what they
+    // could undo was done to the board as it was before.
+    for (const peer of board.peers.values()) sendInit(board, peer, true);
     return sendJson(res, 200, { ok: true });
   }
   // Every image and video on a board, as it was uploaded, in one zip. HEAD says whether there is one
@@ -1766,19 +2025,27 @@ async function handleApi(req, res, url) {
     if (req.method === 'GET') return sendJson(res, 200, boardMeta(board));
     if (req.method === 'PATCH') {
       const body = await readJson(req);
+      // Checked first, so a move refused changes nothing.
+      const key = 'workspace' in body ? spaceKey(body.workspace, req.user) : board.workspace;
       if ('workspace' in body) {
-        const key = spaceKey(body.workspace, req.user);
         if (body.workspace === 'personal' && !req.user) return sendJson(res, 400, { error: 'Personal workspaces need sign-in' });
-        if (key !== board.workspace) {
-          board.workspace = key;
-          board.folderId = null;
-          scheduleSave(board, false);
-          dropStrangers(board);
+        // A shared board somebody else made stays shared, unless an admin moves it (see the folders above).
+        if (board.workspace === 'myreze' && key !== 'myreze' && board.createdBy !== req.user.name && !admin.isAdmin(req.user)) {
+          return sendJson(res, 403, { error: `“${board.name}” is shared with everyone and somebody else made it, so only an admin can move it to a personal workspace` });
         }
       }
+      if ('folderId' in body && body.folderId) {
+        if (!visibleFolder(req.user, body.folderId)) return sendJson(res, 404, { error: 'Folder not found' });
+        if (folders.get(body.folderId).workspace !== key) return sendJson(res, 400, { error: 'Move it to the other workspace first' });
+      }
+      if (key !== board.workspace) {
+        board.workspace = key;
+        board.folderId = null;
+        scheduleSave(board, false);
+        dropStrangers(board);
+        dropRoomStrangers();
+      }
       if ('folderId' in body) {
-        if (body.folderId && !visibleFolder(req.user, body.folderId)) return sendJson(res, 400, { error: 'Folder not found' });
-        if (body.folderId && folders.get(body.folderId).workspace !== board.workspace) return sendJson(res, 400, { error: 'Move it to the other workspace first' });
         board.folderId = body.folderId || null;
         scheduleSave(board, false);
       }
@@ -1791,9 +2058,15 @@ async function handleApi(req, res, url) {
     if (req.method === 'DELETE') {
       // Soft delete: whatever is unsaved is written first, then the board is only marked deleted, so a
       // mis-click is recoverable (scripts/restore-board.js).
+      // Should that write fail, the board is not deleted, and its saving carries on as before.
       clearTimeout(board.saveTimer);
       board.saveTimer = null;
-      writeBoard(board);
+      try {
+        writeBoard(board);
+      } catch (err) {
+        scheduleSave(board, false, SAVE_RETRY);
+        throw err;
+      }
       store.deleteBoard(board.id);
       boards.delete(board.id);
       if (board.shareToken) shares.delete(board.shareToken);
@@ -1854,6 +2127,11 @@ async function handleRequest(req, res) {
     res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
     return res.end('ok');
   }
+  if (!knownHost(req)) return sendJson(res, 421, { error: `This server does not answer to the address ${String(req.headers.host || '(none)').slice(0, 100)}. Add it to ALLOWED_HOSTS if it should.` });
+  // Changes come only from our own pages (see CHANGES_HEADER).
+  if (req.method !== 'GET' && req.method !== 'HEAD' && (pathname.startsWith('/api/') || pathname === '/__shutdown') && req.headers[CHANGES_HEADER] !== '1') {
+    return sendJson(res, 403, { error: `Changes need the header ${CHANGES_HEADER}: 1` });
+  }
   // Used by stop.bat: only accepted from this machine, so nobody on the network can stop it.
   if (pathname === '/__shutdown' && req.method === 'POST') {
     if (!fromThisMachine(req)) return sendJson(res, 403, { error: 'Local only' });
@@ -1884,7 +2162,7 @@ async function handleRequest(req, res) {
   const guarded = auth.mode === 'iap' || isPage || pathname.startsWith('/api/') || pathname.startsWith('/uploads/');
   if (guarded) {
     const who = await auth.authenticate(req);
-    if (who.status && !(pathname.startsWith('/uploads/') && viewingShare(req))) {
+    if (who.status && !(pathname.startsWith('/uploads/') && sharedFile(req, path.basename(pathname)))) {
       if (auth.interactive && isPage) {
         res.writeHead(302, { Location: who.status === 403 ? '/auth/login?error=not-allowed' : `/auth/login?next=${encodeURIComponent(url.pathname + url.search)}`, 'Cache-Control': 'no-store' });
         return res.end();
@@ -1907,7 +2185,9 @@ async function handleRequest(req, res) {
     const name = path.basename(pathname);
     if (name.startsWith('.')) return sendJson(res, 404, { error: 'Not found' });
     return sendFile(req, res, path.join(UPLOAD_DIR, name), {
-      'Cache-Control': 'public, max-age=31536000, immutable',
+      // Named by what is in them, so they never change; but only for this browser, never a shared cache,
+      // as who may have them depends on who is asking.
+      'Cache-Control': 'private, max-age=31536000, immutable',
       // Uploaded SVGs must never run script when opened directly.
       'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
       'X-Content-Type-Options': 'nosniff',
@@ -1941,10 +2221,12 @@ const server = http.createServer((req, res) => {
   });
 });
 
-// Behind a load balancer, keep connections open longer than the balancer does, and let big uploads take their time.
+// Behind a load balancer, keep connections open longer than the balancer does. A request has five
+// minutes to arrive whole: uploads come in pieces of a few megabytes each (see handleUpload), so that is
+// plenty for one piece, and a connection that trickles in for ever is let go.
 server.keepAliveTimeout = 65000;
 server.headersTimeout = 66000;
-server.requestTimeout = 0;
+server.requestTimeout = 5 * 60 * 1000;
 
 // ---------------------------------------------------------------- realtime
 
@@ -1954,7 +2236,35 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 }
 function fromThisMachine(req) {
   // A tunnel or proxy on this machine also arrives from loopback, but it adds forwarding headers.
   const proxied = req.headers['x-forwarded-for'] || req.headers['cf-connecting-ip'] || req.headers['x-real-ip'];
-  return !proxied && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress || '');
+  return !proxied && isLoopback(req.socket.remoteAddress);
+}
+
+// ---- requests from other sites
+//
+// A page on another site can make a visitor's browser send requests here, and can even make its own
+// name point at this server (DNS rebinding), which would make it look like one of our pages. Two things
+// keep it out:
+//
+// The address a request is for (its Host) has to be one this server goes by: an IP address, localhost,
+// this machine's own name, the address in PUBLIC_URL, a quick Cloudflare tunnel's (*.trycloudflare.com,
+// whose names nobody else can point anywhere), or one listed in ALLOWED_HOSTS (comma separated; a name
+// starting with "." or "*." allows everything under it). Behind Google's IAP no request reaches the
+// server without Google's token, so there it is not asked.
+//
+// And every change (anything but GET and HEAD to /api/, and /__shutdown) carries the header X-WB: 1,
+// which a page on another site cannot add without asking first, and this server never says yes.
+const CHANGES_HEADER = 'x-wb';
+const hostList = (value) => String(value || '').split(',').map((s) => s.trim().toLowerCase().replace(/^\*\./, '.')).filter(Boolean);
+const OUR_HOSTS = new Set(['localhost', os.hostname().toLowerCase(), os.hostname().toLowerCase().split('.')[0], `${os.hostname().toLowerCase().split('.')[0]}.local`]);
+if (auth.publicUrl) OUR_HOSTS.add(new URL(auth.publicUrl).hostname.toLowerCase());
+const HOSTS_ALLOWED = ['.trycloudflare.com', ...hostList(process.env.ALLOWED_HOSTS)];
+function knownHost(req) {
+  if (auth.mode === 'iap') return true;
+  const raw = String(req.headers.host || '').trim().toLowerCase();
+  const host = (raw.startsWith('[') ? raw.slice(1, raw.indexOf(']')) : raw.replace(/:\d*$/, '')).replace(/\.$/, '');
+  if (!host) return false;
+  if (net.isIP(host) || OUR_HOSTS.has(host) || host.endsWith('.localhost')) return true;
+  return HOSTS_ALLOWED.some((h) => (h.startsWith('.') ? host.endsWith(h) : host === h));
 }
 
 // Browsers say which page is opening a connection. It has to be one of ours: a page on another site
@@ -1975,6 +2285,10 @@ server.on('upgrade', async (req, socket, head) => {
   try {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname !== '/ws') return socket.destroy();
+    if (!knownHost(req)) {
+      socket.write('HTTP/1.1 421 Misdirected Request\r\nConnection: close\r\n\r\n');
+      return socket.destroy();
+    }
     const shared = url.searchParams.get('share');
     if (shared) {
       const viewed = sharedBoard(shared);
@@ -2030,19 +2344,49 @@ function broadcast(board, msg, except) {
       continue;
     }
     if (viewerData === undefined) {
-      const ops = msg.ops.filter((op) => !hiddenFromViewers(board, op))
-        .map((op) => (op.t === 'add' ? { ...op, item: withoutOriginal(op.item) } : op.t === 'set' ? { ...op, patch: withoutOriginal(op.patch) } : op))
-        .filter((op) => op.t !== 'set' || Object.keys(op.patch).length);
+      const ops = forViewers(board, msg.ops);
       viewerData = ops.length ? JSON.stringify({ ...msg, ops }) : null;
     }
     if (viewerData) peer.ws.send(viewerData);
   }
 }
 
+// Ops as somebody holding a link may see them: no notes the link does not show, nothing of originals.
+const forViewers = (board, ops) => ops.filter((op) => !hiddenFromViewers(board, op))
+  .map((op) => (op.t === 'add' ? { ...op, item: withoutOriginal(op.item) } : op.t === 'set' ? { ...op, patch: withoutOriginal(op.patch) } : op))
+  .filter((op) => op.t !== 'set' || Object.keys(op.patch).length);
+
+// What a pointer says, as the pages send it: where it is (c), the laser held (l), and for the board's
+// own people also their view (v), what they have selected (s), the piece open (f) and the thread read
+// in it (t), a video playing there (m) and files on their way in (u). Anything else, or not of its
+// shape, is left out, so nobody can hand everybody else whatever they like.
+function cleanPresence(p, viewer) {
+  const out = {};
+  const id = (v) => typeof v === 'string' && v.length <= 40;
+  const numbers = (v, n) => Array.isArray(v) && v.length === n && v.every(Number.isFinite);
+  if ('c' in p && (p.c === null || numbers(p.c, 2))) out.c = p.c;
+  if ('l' in p) out.l = p.l ? 1 : 0;
+  if (viewer) return out;
+  if ('v' in p && (p.v === null || numbers(p.v, 4))) out.v = p.v;
+  if ('s' in p && Array.isArray(p.s)) out.s = p.s.filter(id).slice(0, 5000);
+  if ('f' in p && (p.f === null || id(p.f))) out.f = p.f;
+  if ('t' in p && (p.t === null || id(p.t))) out.t = p.t;
+  if ('m' in p && (p.m === null || (Array.isArray(p.m) && id(p.m[0]) && Number.isFinite(p.m[1])))) out.m = p.m && [p.m[0], p.m[1], p.m[2] ? 1 : 0];
+  if ('u' in p && Array.isArray(p.u)) {
+    out.u = p.u.slice(0, 50).filter((u) => u && id(u.i))
+      .map((u) => ({ i: u.i, k: Number.isFinite(u.k) ? u.k : 0, ...(typeof u.ph === 'string' && { ph: u.ph.slice(0, 20) }) }));
+  }
+  return out;
+}
+
+// Rounds of changes remembered per board (see `seqs` in boardRecord): the pages heard from most recently.
+const SEQS_KEPT = 500;
+
 const VIEWER_COLORS = ['#8bb6e8', '#74c2b9', '#aa9ce6', '#e4c978', '#e090b8', '#82c79b'];
 
-// The board as somebody is given it when they join, and again if it is put back to an older snapshot.
-function sendInit(board, peer) {
+// The board as somebody is given it when they join, and again if it is put back to an older snapshot
+// (`restored`, which tells their page that what it could undo no longer applies).
+function sendInit(board, peer, restored = false) {
   const access = board.shareAccess;
   const project = boardProject(board);
   send(peer.ws, peer.viewer ? {
@@ -2053,6 +2397,7 @@ function sendInit(board, peer) {
     items: [...board.items.values()].filter((it) => !hiddenNote(board, it)).map(withoutOriginal),
     versions: boardVersions(board),
     peers: [...board.peers.values()].filter((p) => p !== peer).map(publicPeer),
+    ...(restored && { restored: true }),
   } : {
     t: 'init',
     you: peer.id,
@@ -2061,6 +2406,7 @@ function sendInit(board, peer) {
     items: [...board.items.values()],
     versions: boardVersions(board),
     peers: [...board.peers.values()].filter((p) => p !== peer).map(publicPeer),
+    ...(restored && { restored: true }),
   });
 }
 
@@ -2084,6 +2430,9 @@ function onConnect(ws, board, user, viewToken = null) {
       if (!viewer && !visible(user, board)) return ws.close(4003, 'Board moved');
       openItems(board);
       peer.joined = true;
+      // Which page this is (made afresh each time a page loads, the same across its reconnections), so
+      // that a round of changes it sends again after a dropped connection is known (see `seq` below).
+      if (typeof msg.cid === 'string' && msg.cid && msg.cid.length <= 40) peer.cid = msg.cid;
       if (viewer) {
         // Someone holding a read-only link: seen only as a pointer. They cannot change anything.
         board.viewerSeq += 1;
@@ -2115,27 +2464,46 @@ function onConnect(ws, board, user, viewToken = null) {
     if (peer.viewer && msg.t !== 'laser' && msg.t !== 'p' && !(msg.t === 'op' && board.shareAccess === 'comment')) return;
 
     if (msg.t === 'op') {
+      // Each round of changes a page sends is numbered (`seq`, counting up for its `cid`). One already
+      // applied, sent again because the connection dropped before its ack came, is acked and not applied twice.
+      const seq = Number.isSafeInteger(msg.seq) && msg.seq > 0 ? msg.seq : null;
+      const ack = seq === null ? { t: 'ack' } : { t: 'ack', seq };
+      if (peer.cid && seq !== null) {
+        if (seq <= (board.seqs.get(peer.cid) || 0)) return send(ws, ack);
+        board.seqs.delete(peer.cid);
+        board.seqs.set(peer.cid, seq);
+        for (const cid of board.seqs.keys()) {
+          if (board.seqs.size <= SEQS_KEPT) break;
+          board.seqs.delete(cid);
+        }
+      }
       // Housekeeping a browser does on opening a board is not somebody changing it.
       const counts = peer.viewer || msg.quiet !== true;
       if (counts) keepSnapshot(board, peer.name);
+      const sent = Array.isArray(msg.ops) ? structuredClone(msg.ops) : [];
       const applied = applyOps(board, peer.viewer ? guestOps(board, msg.ops) : msg.ops, peer, counts);
       if (counts && applied.length) {
         const comments = applied.every((op) => (op.t === 'add' ? op.item.type === 'comment' : op.t === 'set' && board.items.get(op.id)?.type === 'comment'));
         note(board, peer.name, comments ? 'comment' : 'edit', applied.length);
       }
-      // Always ack, even when nothing applied, so the sender's outbox stays in step.
-      send(ws, { t: 'ack' });
+      // What the board shows of its notes is worked out now (a note brought back by undo is only there
+      // after this), and goes out once the ops themselves have.
+      const synced = applied.resync ? syncNotes(board) : [];
+      applied.resync = false;
+      // Where the server made something else of what was sent (a comment stamped with its author, a
+      // version it may not show, a change refused), the sender is given the server's version first...
+      const fix = fixesFor(board, sent);
+      const told = peer.viewer ? forViewers(board, fix) : fix;
+      if (told.length) send(ws, { t: 'op', ops: told, fix: true });
+      // ...then the ack, always, even when nothing applied, so the sender's outbox stays in step.
+      send(ws, ack);
       if (applied.length) broadcast(board, { t: 'op', ops: applied, from: peer.id }, peer);
+      if (synced.length) broadcast(board, { t: 'op', ops: synced, from: null, sync: true });
       settle(board, applied);
     } else if (msg.t === 'p') {
-      if (!msg.p || typeof msg.p !== 'object') return;
-      const p = peer.viewer ? { c: msg.p.c, l: msg.p.l } : msg.p;
-      if (peer.viewer) {
-        if (!Array.isArray(p.c) || !p.c.every(Number.isFinite)) delete p.c;
-        if (p.l !== undefined) p.l = p.l ? 1 : 0;
-        for (const k of Object.keys(p)) if (p[k] === undefined) delete p[k];
-        if (!Object.keys(p).length) return;
-      }
+      if (!msg.p || typeof msg.p !== 'object' || Array.isArray(msg.p)) return;
+      const p = cleanPresence(msg.p, peer.viewer);
+      if (!Object.keys(p).length) return;
       Object.assign(peer.p, p);
       broadcast(board, { t: 'p', id: peer.id, p }, peer);
     } else if (msg.t === 'laser') {
@@ -2145,6 +2513,7 @@ function onConnect(ws, board, user, viewToken = null) {
       const on = typeof msg.on === 'string' && ID_RE.test(msg.on) ? msg.on : undefined;
       if (pts.length >= 2) broadcast(board, { t: 'laser', id: peer.id, pts: pts.slice(0, pts.length - (pts.length % 2)), ...(on && { on }) }, peer);
     } else if (msg.t === 'media') {
+      if (typeof msg.id !== 'string' || !ID_RE.test(msg.id)) return;
       broadcast(board, { t: 'media', from: peer.id, id: msg.id, playing: !!msg.playing, time: Number(msg.time) || 0 }, peer);
     }
   };
@@ -2186,19 +2555,20 @@ setInterval(() => {
 
 const rooms = new Map(); // entity id -> Set of { ws, name, color, user }
 
-function roomNotes(entityId) {
-  const versions = store.versionsOf(entityId).map((v) => v.id);
-  return store.notesOfVersions(versions).map((n) => ({
+// The notes of an entity as somebody in its room is shown them: which board each was made on is named
+// only when they can see that board (null otherwise).
+function roomNotes(entityId, user, notes = store.notesOfVersions(store.versionsOf(entityId).map((v) => v.id))) {
+  return notes.map((n) => ({
     ...noteData(n.data), id: n.id, type: 'comment', on: n.versionId, ...(n.re && { re: n.re }),
-    ob: n.boardId, obn: n.boardId === '' ? 'the catalogue' : boards.get(n.boardId)?.name || n.boardName || 'a board',
+    ob: n.boardId, obn: n.boardId === '' ? 'the catalogue' : boardNameFor(user, n.boardId, n.boardName, n.boardWorkspace),
   }));
 }
 
 function tellRoom(entityId) {
   const peers = rooms.get(entityId);
   if (!peers || !peers.size) return;
-  const msg = { t: 'notes', notes: roomNotes(entityId) };
-  for (const peer of peers) send(peer.ws, msg);
+  const notes = store.notesOfVersions(store.versionsOf(entityId).map((v) => v.id));
+  for (const peer of peers) send(peer.ws, { t: 'notes', notes: roomNotes(entityId, peer.user, notes) });
 }
 
 // Notes on these versions have changed somewhere: the rooms of their entities are told.
@@ -2223,13 +2593,16 @@ function joinRoom(ws, entity, user) {
   const receive = (msg) => {
     if (msg.t === 'hello') {
       if (peer.joined) return;
+      // Between connecting and saying hello the project may have moved out of reach.
+      const now = store.entity(entity.id);
+      if (!now || !visibleFolder(user, now.projectId)) return ws.close(4003, 'Project moved');
       peer.joined = true;
       if (!user) {
         peer.name = String(msg.name || 'Guest').slice(0, 32);
         if (/^#[0-9a-f]{6}$/i.test(msg.color)) peer.color = msg.color;
       }
       (rooms.get(entity.id) || rooms.set(entity.id, new Set()).get(entity.id)).add(peer);
-      return send(ws, { t: 'init', notes: roomNotes(entity.id) });
+      return send(ws, { t: 'init', notes: roomNotes(entity.id, user) });
     }
     if (!peer.joined || msg.t !== 'op' || !Array.isArray(msg.ops)) return;
     const touched = new Set();
@@ -2238,7 +2611,7 @@ function joinRoom(ws, entity, user) {
       if (op.t === 'add' && op.item && ID_RE.test(op.item.id)) {
         const known = store.note(op.item.id);
         if (known) {
-          // Undo bringing a deleted note back, as its author wrote it.
+          // Undo bringing a deleted note back, as its author wrote it (with the replies deleted with it).
           if (known.deletedAt && ofEntity(known.versionId)) {
             store.restoreNote(known.id);
             touched.add(known.versionId);
@@ -2263,11 +2636,13 @@ function joinRoom(ws, entity, user) {
         store.setNote(n.id, { ...n.data, ...patch });
         touched.add(n.versionId);
       } else if (op.t === 'del' && Array.isArray(op.ids)) {
-        for (const id of op.ids) {
-          const n = typeof id === 'string' && store.note(id);
-          if (!n || n.deletedAt || !ofEntity(n.versionId)) continue;
-          store.deleteNote(n.id);
+        // As on a board (see mayDelete): a thread first, taking its replies with it. One this person may
+        // not delete stays; the room is told its notes again all the same, so their page has it back.
+        const notes = op.ids.map((id) => typeof id === 'string' && store.note(id)).filter((n) => n && ofEntity(n.versionId));
+        notes.sort((a, b) => (a.re ? 1 : 0) - (b.re ? 1 : 0));
+        for (const n of notes) {
           touched.add(n.versionId);
+          if (!store.note(n.id).deletedAt && mayDelete(n, peer)) store.deleteNote(n.id);
         }
       }
     }
@@ -2296,7 +2671,7 @@ function joinRoom(ws, entity, user) {
 loadBoards();
 loadFolders();
 cleanStaleUploads();
-setInterval(cleanStaleUploads, 3600e3).unref();
+setInterval(cleanStaleUploads, 10 * 60e3).unref();
 setInterval(unloadIdle, Math.min(60e3, IDLE_UNLOAD)).unref();
 setInterval(closeExpiredLinks, 30e3).unref();
 

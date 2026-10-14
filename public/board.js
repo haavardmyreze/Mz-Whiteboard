@@ -2582,9 +2582,8 @@
   }
 
   function keepOriginal(id, file) {
-    const max = WB.info().maxUpload;
-    if (max && file.size > max) {
-      toast(`${file.name} is ${megabytes(file.size)}, more than is kept here (${megabytes(max)}), so only its review copy is on the board.`, { ms: 10000 });
+    if (!WBFiling.originalFits(file)) {
+      toast(`${file.name} is ${megabytes(file.size)}, more than is kept here (${megabytes(WB.info().maxUpload)}), so only its review copy is on the board.`, { ms: 10000 });
       return;
     }
     originals.push({ id, file });
@@ -4629,9 +4628,8 @@
     const presetId = project.naming;
     const remembered = store(`wb:file:${project.id}`) || {};
     const known = (name) => !!name && (cat.entities.some((e) => e.name === name) || !!N.tierOf(name, presetId));
-    const tiers = N.preset(presetId).tiers;
-    const entityOptions = (typed) => N.suggest(cat.entities, typed, presetId);
-    const taskOptions = (typed) => WB.rank(cat.tasks, typed).map((t) => ({ value: t, label: t }));
+    // The fields are the catalogue importer's too (filing.js).
+    const shared = { presetId, getEntities: () => cat.entities, getTasks: () => cat.tasks, onChange: () => paint() };
 
     const dlg = el('dialog', { class: `dlg file-dlg${list.length > 1 ? ' many' : ''}` });
     const hint = el('p', { class: 'file-hint' });
@@ -4640,40 +4638,36 @@
       const parsed = N.parse(it.name || '', presetId);
       const frame = frameOf(it);
       const fromFrame = frame && known(N.tokenize(frame.title)) ? N.tokenize(frame.title) : null;
-      const ent = el('input', { type: 'text', value: parsed.entity || fromFrame || (list.length === 1 ? remembered.entity || '' : ''), placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': `What ${it.name || 'it'} is` });
-      const task = el('input', { type: 'text', value: parsed.task || (list.length === 1 && !parsed.entity ? remembered.task || '' : ''), placeholder: 'Task', spellcheck: 'false', 'aria-label': 'Task' });
-      const tier = el('select', { 'aria-label': 'What it is', title: 'A new one: what is it?' }, tiers.map((t) => el('option', { value: t.id, text: t.one })));
-      WB.combo(ent, entityOptions);
-      WB.combo(task, taskOptions);
-      const row = { it, ent, task, tier };
+      const f = WBFiling.fields({
+        ...shared,
+        label: it.name || 'it',
+        entity: parsed.entity || fromFrame || (list.length === 1 ? remembered.entity || '' : ''),
+        task: parsed.task || (list.length === 1 && !parsed.entity ? remembered.task || '' : ''),
+      });
+      const row = { it, f, ent: f.ent, task: f.task, tier: f.tier };
       row.node = el('div', { class: 'file-row' },
         el('img', { src: it.th || it.prev || (it.type === 'image' ? it.src : it.poster) || '', alt: '' }),
         el('span', { class: 'file-name', text: it.name || (it.type === 'video' ? 'Video' : 'Image'), title: it.name || '' }),
-        el('span', { class: 'file-fields' }, ent, tier, task));
-      for (const input of [ent, task]) input.addEventListener('input', paint);
+        el('span', { class: 'file-fields' }, f.ent, f.tier, f.task));
       return row;
     });
-    const nameOf = (row) => N.tokenize(row.ent.value);
+    const nameOf = (row) => row.f.name();
 
     // For several, one answer for them all, to start from.
-    const allEnt = el('input', { type: 'text', placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': 'Asset, set or shot for all' });
-    const allTask = el('input', { type: 'text', placeholder: 'Task', spellcheck: 'false', 'aria-label': 'Task for all' });
-    WB.combo(allEnt, entityOptions);
-    WB.combo(allTask, taskOptions);
-    const fill = el('div', { class: 'file-fill' }, el('span', { text: 'For all' }), allEnt, allTask,
-      el('button', { type: 'button', class: 'btn small', text: 'Fill in', onclick: () => {
+    const fill = WBFiling.forAll({
+      ...shared,
+      apply: (ent, task) => {
         for (const row of rows) {
-          if (allEnt.value.trim()) row.ent.value = allEnt.value.trim();
-          if (allTask.value.trim()) row.task.value = allTask.value.trim();
+          if (ent) row.ent.value = ent;
+          if (task) row.task.value = task;
+          row.f.sync();
         }
         paint();
-      } }));
+      },
+    });
 
     function paint() {
-      for (const row of rows) {
-        const name = nameOf(row);
-        row.tier.hidden = !name || known(name);
-      }
+      for (const row of rows) row.f.sync();
       const missing = rows.filter((row) => !nameOf(row)).length;
       ok.disabled = missing > 0;
       const made = [...new Set(rows.map(nameOf).filter((n) => n && !cat.entities.some((e) => e.name === n)))];
@@ -4692,11 +4686,7 @@
     dlg.addEventListener('close', async () => {
       dlg.remove();
       if (!confirmed) return;
-      const files = rows.map((row) => {
-        const name = nameOf(row);
-        const have = cat.entities.find((e) => e.name === name);
-        return { board: boardId, item: row.it.id, entity: have ? have.id : { name, tier: N.tierOf(name, presetId) || row.tier.value }, task: N.tokenize(row.task.value) || null };
-      });
+      const files = rows.map((row) => ({ board: boardId, item: row.it.id, entity: row.f.entity(), task: row.f.taskName() }));
       try {
         const res = await WB.api('POST', `/api/projects/${project.id}/versions`, { files, by: me.name });
         const last = rows[rows.length - 1];

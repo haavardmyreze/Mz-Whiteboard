@@ -1130,7 +1130,8 @@
       for (const r of d.runs) {
         const runIds = r.list.map((v) => v.id);
         // The time of each is on its row; the heading gives the span only when there is one.
-        const span = r.list.length > 1 ? ` · ${clock(r.list[r.list.length - 1].createdAt)} – ${clock(r.list[0].createdAt)}` : '';
+        const [from, to] = [clock(r.list[r.list.length - 1].createdAt), clock(r.list[0].createdAt)];
+        const span = r.list.length > 1 ? ` · ${from === to ? from : `${from} – ${to}`}` : '';
         out.push(el('div', { class: 'vl-run' },
           el('div', { class: 'vl-runhead' }, box(runIds, `Select what ${r.by || 'somebody'} filed then`),
             WB.avatar(r.by),
@@ -2165,9 +2166,9 @@
         save)));
     dlg.addEventListener('close', () => dlg.remove());
     document.body.append(dlg);
-    WB.combo(ent, entitySource(() => cat, presetId));
-    WB.combo(task, taskSource(() => (cat ? cat.tasks : [])));
-    WB.combo(artist, taskSource(() => (cat ? cat.artists : [])));
+    WB.combo(ent, WBFiling.entitySource(() => (cat ? cat.entities : []), presetId));
+    WB.combo(task, WBFiling.taskSource(() => (cat ? cat.tasks : [])));
+    WB.combo(artist, WBFiling.taskSource(() => (cat ? cat.artists : [])));
     dlg.showModal();
     ent.select();
   }
@@ -2350,19 +2351,12 @@
     const signal = r.ctl.signal;
     const look = await ingest(r.file, (k) => tell('up', k), isVideo ? { onPhase: (k) => tell('enc', k), onStrip: (k) => tell('strip', k), signal } : { signal });
     if (isVideo && !look.orig) {
-      const max = WB.info().maxUpload;
-      if (!max || r.file.size <= max) look.orig = (await upload(r.file, fileExt(r.file), (k) => tell('orig', k), false, signal)).url;
+      if (WBFiling.originalFits(r.file)) look.orig = (await upload(r.file, fileExt(r.file), (k) => tell('orig', k), false, signal)).url;
       else r.note = `The original is ${megabytes(r.file.size)}, more than is kept here, so only its review copy is`;
     }
     return look;
   }
 
-  // Suggestions for "which asset, set or shot": those the project has (with how many versions, and the
-  // newest still), and, for a name it has not, the way to make it.
-  function entitySource(getCat, presetId) {
-    return (typed) => N.suggest(getCat() ? getCat().entities : [], typed, presetId);
-  }
-  const taskSource = (getTasks) => (typed) => WB.rank(getTasks(), typed).map((t) => ({ value: t, label: t }));
 
   // What is being brought into a project's catalogue: a strip above it, one row a file. Each file says on
   // its own row what it is to be filed as, filled in ahead from its name (or, added on an asset, set or
@@ -2375,7 +2369,6 @@
     const rows = [];
     let cat = catalogues.get(project.id) || null;
     const catalogue = async () => cat || (cat = await api('GET', `/api/projects/${project.id}`));
-    const tiers = () => (cat ? cat.preset.tiers : N.preset(presetId).tiers);
     const tasks = () => (cat ? cat.tasks : N.preset(presetId).tasks);
     const known = (name) => cat && cat.entities.find((e) => e.name === name);
 
@@ -2391,23 +2384,18 @@
       }
       paintHead();
     } });
-    // The same answer for every file not yet filed, to start from.
-    const allEnt = el('input', { type: 'text', placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': 'Asset, set or shot for all' });
-    const allTask = el('input', { type: 'text', placeholder: 'Task', spellcheck: 'false', 'aria-label': 'Task for all' });
-    WB.combo(allEnt, entitySource(() => cat, presetId));
-    WB.combo(allTask, taskSource(tasks));
-    const fillAll = el('form', {
-      class: 'imp-fill',
-      onsubmit: (e) => {
-        e.preventDefault();
+    // The same answer for every file not yet filed, to start from (filing.js, as on a board).
+    const fillAll = WBFiling.forAll({
+      presetId, getEntities: () => (cat ? cat.entities : []), getTasks: tasks, cls: 'imp-fill',
+      apply: (ent, task) => {
         for (const r of rows) {
           if (r.status === 'filed' || r.status === 'filing') continue;
-          if (allEnt.value.trim()) r.fields.ent.value = allEnt.value.trim();
-          if (allTask.value.trim()) r.fields.task.value = allTask.value.trim();
+          if (ent) r.fields.ent.value = ent;
+          if (task) r.fields.task.value = task;
         }
         resyncAll();
       },
-    }, el('span', { text: 'For all:' }), allEnt, allTask, el('button', { type: 'submit', class: 'btn small', text: 'Fill in' }));
+    });
     const head = el('div', { class: 'imp-head' }, title, fillAll, el('span', { class: 'imp-gap' }), clearBtn, fileAll);
     const tray = el('div', { class: 'imp', hidden: true }, head, list);
     const picker = el('input', { type: 'file', multiple: true, accept: 'image/*,video/mp4,video/webm,video/quicktime', hidden: true });
@@ -2438,25 +2426,25 @@
     const canFile = (r) => (r.status === 'ready' || r.status === 'uploading' || r.status === 'queued' || (r.status === 'failed' && r.look)) && !r.fileWhenReady && !!choiceOf(r).name;
 
     function makeRow(r) {
-      const ent = el('input', { type: 'text', value: r.entity ? r.entity.name : r.parsed.entity || '', placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': `What ${r.file.name} is` });
-      const task = el('input', { type: 'text', value: r.parsed.task || '', placeholder: 'Task', spellcheck: 'false', 'aria-label': 'Task' });
+      // Which asset, set or shot, what it is if new, and the task: the fields a board files with too.
+      const f = WBFiling.fields({
+        presetId, getEntities: () => (cat ? cat.entities : []), getTasks: tasks, label: r.file.name,
+        entity: r.entity ? r.entity.name : r.parsed.entity || '', task: r.parsed.task || '', onChange: resyncAll,
+      });
+      const { ent, task, tier } = f;
       // The version it is to be: the next of that asset, set or shot and task (after any rows above going
       // to the same), unless another is typed.
       const num = el('input', { type: 'number', min: '1', step: '1', class: 'imp-num', 'aria-label': 'Version', title: 'Version: the next one, unless you say another' });
       num.addEventListener('input', () => { r.numTouched = num.value !== ''; resyncAll(); });
-      const tier = el('select', { 'aria-label': 'What it is', title: 'A new one: what is it?' }, tiers().map((t) => el('option', { value: t.id, text: t.one })));
       const go = el('button', { type: 'button', class: 'btn small', text: 'File', onclick: () => fileRow(r) });
       const status = el('span', { class: 'imp-status' });
       const bar = el('i', { class: 'imp-bar' }, el('i'));
       const thumb = el('span', { class: 'imp-thumb' });
       const said = el('button', { type: 'button', class: 'imp-filed', hidden: true, title: 'Open it, to look, comment and draw', onclick: () => r.version && lookAt(r.version.entityId, r.version.id) });
       const fields = el('span', { class: 'imp-fields' }, ent, tier, task, el('span', { class: 'imp-v' }, el('span', { text: 'v' }), num), go);
-      WB.combo(ent, entitySource(() => cat, presetId));
-      WB.combo(task, taskSource(tasks));
       const sync = () => {
         const { name } = choiceOf(r);
-        const shape = name && N.tierOf(name, presetId);
-        tier.hidden = !name || !!known(name) || !!shape;
+        f.sync();
         if (!r.numTouched && r.status !== 'filed') {
           const next = name ? nextNumber(r) : '';
           if (num.value !== String(next)) num.value = String(next);
@@ -2464,10 +2452,8 @@
         go.disabled = !canFile(r);
         paintHead();
       };
-      ent.addEventListener('input', resyncAll);
-      task.addEventListener('input', resyncAll);
       for (const input of [ent, task, num]) input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented && canFile(r)) fileRow(r); });
-      r.fields = { ent, task, num, tier, go, status, bar, thumb, said, box: fields, sync };
+      r.fields = { f, ent, task, num, tier, go, status, bar, thumb, said, box: fields, sync };
       // Taken back: whatever is under way for it stops, and the row goes.
       const drop = el('button', {
         type: 'button', class: 'iconbtn imp-x', html: icon('close', 14), title: `Take ${r.file.name} back`,
@@ -2533,9 +2519,8 @@
         r.fileWhenReady = true;
         return paintRow(r);
       }
-      const { name, task } = choiceOf(r);
-      const have = known(name);
-      const entity = have ? have.id : { name, tier: N.tierOf(name, presetId) || r.fields.tier.value };
+      const { task } = choiceOf(r);
+      const entity = r.fields.f.entity();
       const number = Number(r.fields.num.value);
       r.status = 'filing';
       paintRow(r);

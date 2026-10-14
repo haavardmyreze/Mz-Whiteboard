@@ -3,8 +3,8 @@
 // The close-up track of a run, under the whole-run track, as on the cut page of an editor: the playhead
 // stays in the middle and the shots go by under it as a strip of their frames, so a cut is seen coming
 // and a moment can be found to the frame. Dragging it moves the run under the playhead; a click goes
-// to where it was clicked; the wheel moves along it (with Ctrl or Cmd, or a pinch, it zooms), and the
-// buttons in its corner zoom too. The zoom is remembered.
+// to where it was clicked; the wheel moves along it. It is always at the same scale: a few seconds of
+// the run each side of the playhead.
 //
 // Frames are taken from the shots themselves, here in the browser, as they come into view: the nearest
 // to the playhead first, one at a time, from a copy of the video kept on this computer when there is one
@@ -12,9 +12,7 @@
 // or its still. Loaded after common.js; used by viewer.js.
 const WBCutTrack = (() => {
   const { el, clamp } = WB;
-  const ZOOM_KEY = 'wb:cut:zoom';
-  const ZOOM_MIN = 4; // px a second: about four minutes across a laptop's screen
-  const ZOOM_MAX = 800; // a frame of 24 fps is 33 px
+  const PPS = 60; // px a second: some fourteen seconds across a laptop's screen, six across a phone's
   const FRAME_W = 160; // a frame taken is this wide
   const KEEP = 500; // frames held, the least lately drawn going first
   const fromB64 = (text) => Uint8Array.from(atob(text), (ch) => ch.charCodeAt(0));
@@ -146,14 +144,11 @@ const WBCutTrack = (() => {
   // run to a moment, `onRelease()` when it lets go.
   function create({ onGrab, onSeek, onRelease }) {
     const canvas = el('canvas', { class: 'cut-canvas' });
-    const out = el('button', { type: 'button', class: 'cut-zoom', text: '−', title: 'Zoom out (Ctrl and the wheel)', 'aria-label': 'Zoom out' });
-    const inn = el('button', { type: 'button', class: 'cut-zoom', text: '+', title: 'Zoom in (Ctrl and the wheel)', 'aria-label': 'Zoom in' });
-    const node = el('div', { class: 'cut', role: 'slider', 'aria-label': 'Close-up of the run: drag to move through it' }, canvas, el('div', { class: 'cut-zooms' }, out, inn));
+    const node = el('div', { class: 'cut', role: 'slider', 'aria-label': 'Close-up of the run: drag to move through it' }, canvas);
     let clips = [];
     let total = 0;
     let t = 0;
     let marks = [];
-    let pps = clamp(Number(WB.store(ZOOM_KEY)) || 60, ZOOM_MIN, ZOOM_MAX);
     let W = 0;
     let H = 0;
     let dpr = 1;
@@ -174,18 +169,9 @@ const WBCutTrack = (() => {
     };
     const watch = new ResizeObserver(resize);
 
-    const xOf = (at) => W / 2 + (at - t) * pps;
-    const atOf = (x) => t + (x - W / 2) / pps;
+    const xOf = (at) => W / 2 + (at - t) * PPS;
+    const atOf = (x) => t + (x - W / 2) / PPS;
 
-    function zoom(k) {
-      pps = clamp(pps * k, ZOOM_MIN, ZOOM_MAX);
-      WB.store(ZOOM_KEY, Math.round(pps * 100) / 100);
-      out.disabled = pps <= ZOOM_MIN;
-      inn.disabled = pps >= ZOOM_MAX;
-      draw();
-    }
-    out.addEventListener('click', () => zoom(1 / 1.6));
-    inn.addEventListener('click', () => zoom(1.6));
 
     function draw() {
       if (!live || !W || !H) return;
@@ -221,10 +207,9 @@ const WBCutTrack = (() => {
           }
         } else {
           const aspect = p.nw && p.nh ? p.nw / p.nh : 16 / 9;
-          // Seconds a frame stands for: a power of two, so the frames taken are the same ones at
-          // nearby zooms. Its place is as wide as that is, about its picture's own shape.
-          const span = Math.max(1 / 32, 2 ** Math.round(Math.log2((tileH * aspect) / pps)));
-          const tileW = span * pps;
+          // A frame in its picture's own shape, standing for the seconds that wide a place is.
+          const tileW = tileH * aspect;
+          const span = tileW / PPS;
           const first = Math.max(0, Math.floor((from - c.start) / span));
           const last = Math.min(Math.ceil(c.dur / span), Math.ceil((to - c.start) / span));
           const still = p.type === 'video' ? null : imageOf(p.prev || p.src);
@@ -353,7 +338,7 @@ const WBCutTrack = (() => {
       const dx = e.clientX - hold.x;
       if (!hold.moved && Math.abs(dx) < 3) return;
       hold.moved = true;
-      onSeek(clamp(hold.t - dx / pps, 0, total));
+      onSeek(clamp(hold.t - dx / PPS, 0, total));
     });
     const letGo = (e) => {
       if (!hold || e.pointerId !== hold.pid) return;
@@ -369,21 +354,19 @@ const WBCutTrack = (() => {
     canvas.addEventListener('pointerup', letGo);
     canvas.addEventListener('pointercancel', letGo);
 
-    // The wheel moves along it, or with Ctrl or Cmd (and a pinch, which browsers send as that) zooms.
+    // The wheel moves along it. With Ctrl or Cmd (or a pinch) it is the browser's, as anywhere.
     let wheeling = 0;
     node.addEventListener('wheel', (e) => {
-      if (!clips.length) return;
+      if (!clips.length || e.ctrlKey || e.metaKey) return;
       e.preventDefault();
       const px = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? W : 1;
-      if (e.ctrlKey || e.metaKey) return void zoom(Math.exp(-e.deltaY * px * 0.004));
       const d = (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * px;
       if (!wheeling) onGrab();
       clearTimeout(wheeling);
       wheeling = setTimeout(() => { wheeling = 0; onRelease(); }, 250);
-      onSeek(clamp(t + d / pps, 0, total));
+      onSeek(clamp(t + d / PPS, 0, total));
     }, { passive: false });
 
-    zoom(1);
     return {
       node,
       // The shots, as viewer.js lays the run out: [{ id, start, dur, piece }].

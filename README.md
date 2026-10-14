@@ -382,8 +382,8 @@ filed in it.
   sequences or one, and the task; both are remembered. Under the whole run is a close-up of it, as on
   an editor's cut page: the playhead stays in the middle and the shots go by under it as a strip of their
   own frames, so a cut is seen coming and a moment found to the frame. Drag it to move through the run (it
-  stops while held, and plays on when let go if it was playing), click to go to a moment, use the wheel
-  to move along it, and Ctrl or Cmd with the wheel, a pinch, or its − and + to zoom (remembered). Its
+  stops while held, and plays on when let go if it was playing), click to go to a moment, or use the
+  wheel to move along it. It is always at the same scale, some fourteen seconds across a laptop. Its
   frames are taken from the shots in the browser as they come into view, nearest the playhead first;
   until one is in, its place has the colour the shot has there. The arrows step from shot to shot, Space plays
   and pauses, loop goes round to the first shot, and what is written is about the shot under the

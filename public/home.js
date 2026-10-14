@@ -776,20 +776,52 @@
     return out.filter(Boolean);
   }
 
-  // The timeline, while it is open (timeline.js); let go of when the page goes elsewhere.
-  let timeline = null;
-  let timelineOf = null;
+  // A project's timeline: its shots played through in the player, as an edit (viewer.js, openRun): the
+  // newest version of each, of one task or any, all sequences or one, chosen in the player's bar.
+  let runOf = null;
+  async function openTimeline(project) {
+    runOf = project.id;
+    const key = project.id;
+    let seq = store(`wb:tl:seq:${key}`) || '';
+    let task = store('wb:tl:task') || '';
+    let data = null;
+    const load = async () => {
+      data = await api('GET', `/api/projects/${project.id}/timeline${task ? `?task=${encodeURIComponent(task)}` : ''}`);
+      if (seq && !data.shots.some((x) => x.seq === seq)) seq = '';
+      return data.shots.filter((x) => x.version && (!seq || x.seq === seq)).map((x) => ({
+        ...x.version.look, id: x.version.id, type: x.version.look.type, label: x.version.label, name: x.name, seq: x.seq, entityId: x.id,
+      }));
+    };
+    const pick = (label, value, options, set) => {
+      const sel = el('select', { class: 'v-pick', 'aria-label': label, title: label },
+        options.map(([v, text]) => el('option', { value: v, text, ...(v === value && { selected: true }) })));
+      sel.addEventListener('change', () => set(sel.value));
+      return sel;
+    };
+    try {
+      await WBViewer.openRun(thePlayer(), {
+        load, me,
+        title: () => `${project.name} · Timeline`,
+        choices: (reload) => {
+          const seqs = [...new Set(data.shots.map((x) => x.seq).filter(Boolean))];
+          return [
+            pick('Which sequence', seq, [['', 'All sequences'], ...seqs.map((x) => [x, x])], (v) => { seq = v; store(`wb:tl:seq:${key}`, v); reload(); }),
+            pick('Latest of which task', task, [['', 'Latest of any task'], ...data.tasks.map((x) => [x, `Latest ${x}`])], (v) => { task = v; store('wb:tl:task', v); reload(); }),
+          ];
+        },
+        onClose: () => {
+          runOf = null;
+          if (currentView().page === 'timeline' && currentFolder() === project.id) location.hash = `#/f/${project.id}/catalogue`;
+        },
+      });
+    } catch (err) {
+      runOf = null;
+      $('content').replaceChildren(el('p', { class: 'home-empty', text: `${err.message}. File versions of the project's shots, and they play here in order.` }));
+    }
+  }
 
   function render() {
     const rt = route();
-    const onTimeline = rt.kind === 'folder' && folderById(rt.id) && folderById(rt.id).project && currentView().page === 'timeline';
-    // The timeline takes the whole width beside the sidebar, and the height under the bar.
-    document.body.classList.toggle('tl-mode', !!onTimeline);
-    if (timeline && (!onTimeline || timelineOf !== rt.id)) {
-      timeline.destroy();
-      timeline = null;
-      timelineOf = null;
-    }
     if (rt.kind === 'folder') space = folderById(rt.id).workspace || space;
     else if (rt.kind === 'space') space = rt.space;
     if (rt.kind !== 'home') store('wb:workspace', space);
@@ -842,15 +874,10 @@
     const fresh = shownProject !== sig;
     shownProject = sig;
     if (view.page === 'timeline') {
-      // Laid out once; the background refresh of the library leaves it playing.
-      if (timeline && timelineOf === project.id && $('content').querySelector('.tl-view')) return;
-      $('content').replaceChildren();
-      timelineOf = project.id;
-      timeline = WBTimeline.mount($('content'), {
-        key: project.id,
-        load: (task) => api('GET', `/api/projects/${project.id}/timeline${task ? `?task=${encodeURIComponent(task)}` : ''}`),
-        open: (entityId, versionId) => lookAt(entityId, versionId),
-      });
+      // The player plays it; the page behind says so. The background refresh of the library leaves it be.
+      if (runOf === project.id && thePlayer().isOpen()) return;
+      $('content').replaceChildren(el('p', { class: 'home-empty', text: 'Opening the timeline…' }));
+      openTimeline(project);
       return;
     }
     // What is being brought in shows above the catalogue, on its page and on each entity's.
@@ -1087,8 +1114,9 @@
   // A version opens in the player (viewer.js), the same one a board opens its media in: with every other
   // version of the same thing beside it, and what has been said about them, live.
   let player = null;
+  const thePlayer = () => player || (player = WBViewer.create({ me: () => me, title: () => '', media: () => [], notes: () => [], add() {}, set() {}, remove() {} }));
   async function lookAt(entityId, versionId) {
-    if (!player) player = WBViewer.create({ me: () => me, title: () => '', media: () => [], notes: () => [], add() {}, set() {}, remove() {} });
+    thePlayer();
     try {
       await WBViewer.openEntity(player, entityId, { version: versionId, me, onClose: () => { shownProject = ''; render(); } });
     } catch (err) {

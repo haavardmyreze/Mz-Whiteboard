@@ -495,6 +495,10 @@ const WBViewer = (() => {
       opts = next;
       can = { read: () => true, write: () => true, draw: () => true, member: () => true, ...(next.can || {}) };
     }
+    // A run (`host.run`): the pieces are shots in order, played through one after another like an edit, with
+    // a strip of them all under the picture in place of the side strip. Stills are held a few seconds.
+    const runMode = () => !!opts.run;
+    const STILL = 3;
     setHost(first);
     const me = () => opts.me();
 
@@ -531,7 +535,9 @@ const WBViewer = (() => {
       WB.themeButton(), doneBtn);
     // On a phone there is no room for the panel's brush: the viewer's own few tools sit along the bottom.
     const tools = el('nav', { class: 'chrome v-tools' });
-    const root = el('div', { class: 'viewer', hidden: true }, stage, bar, film, filmTab, filmGrip, timeline, panel, cpTab, tools);
+    // The next shot of a run waits here, loaded and on its first frame, to take over at the cut.
+    const spareBox = el('div', { class: 'v-spare', 'aria-hidden': 'true' });
+    const root = el('div', { class: `viewer${opts.run ? ' run' : ''}`, hidden: true }, stage, bar, film, filmTab, filmGrip, timeline, panel, cpTab, tools, spareBox);
     document.body.append(root);
 
     let pieces = [];
@@ -573,6 +579,121 @@ const WBViewer = (() => {
     function readHost() {
       pieces = (opts.media() || []).filter((p) => p && (p.type === 'image' || p.type === 'video'));
       notes = can.read() ? (opts.notes() || []) : [];
+      if (runMode()) layoutRun();
+    }
+
+    // ---- a run: where each shot starts and how long it is
+    let runClips = [];     // { id, start, dur, piece }
+    let runTotal = 0;
+    let runPlaying = false;
+    let spare = null;      // { id, video }: the next shot, loaded
+    let stillAt = 0;       // how long a still has been showing, in a run
+    let stillRaf = 0;
+    const measured = new Map();
+    function layoutRun() {
+      let at = 0;
+      runClips = pieces.map((p) => {
+        const dur = p.type === 'video' ? (p.dur > 0 ? p.dur : measured.get(p.id) || 4) : STILL;
+        const c = { id: p.id, start: at, dur, piece: p };
+        at += dur;
+        return c;
+      });
+      runTotal = at;
+      // A video whose length was not recorded is measured, and the run laid out again with it.
+      for (const p of pieces) {
+        if (p.type !== 'video' || p.dur > 0 || measured.has(p.id)) continue;
+        measured.set(p.id, 4);
+        const probe = el('video', { preload: 'metadata', src: p.src });
+        probe.addEventListener('loadedmetadata', () => {
+          if (probe.duration > 0 && isFinite(probe.duration)) measured.set(p.id, probe.duration);
+          probe.removeAttribute('src');
+          probe.load();
+          if (open && runMode()) {
+            layoutRun();
+            paintRun(true);
+            syncTimeline();
+          }
+        }, { once: true });
+      }
+    }
+    const clipOf = (id) => runClips.find((c) => c.id === id) || null;
+    const runAt = () => {
+      const c = open && clipOf(open.id);
+      if (!c) return 0;
+      const video = videoOpen();
+      return c.start + (video ? whereOf(video) : stillAt);
+    };
+    // The next shot is loaded while this one plays, so the cut to it is clean.
+    function prepareSpare() {
+      const i = runClips.findIndex((c) => c.id === open.id);
+      const next = runClips[i + 1] || (looping ? runClips[0] : null);
+      if (spare && (!next || spare.id !== next.id)) dropSpare();
+      if (!next || next.piece.type !== 'video' || next.id === open.id || spare) return;
+      const video = makeVideo(next.piece);
+      video.muted = !!(videoOpen() && videoOpen().muted);
+      spare = { id: next.id, video };
+      spareBox.replaceChildren(video);
+    }
+    function dropSpare() {
+      if (!spare) return;
+      spare.video.removeAttribute('src');
+      spare.video.load();
+      spare.video.remove();
+      spare = null;
+    }
+    // On to the next shot, at its start; round to the first at the end, if looping.
+    function runOn() {
+      if (!runMode() || !runPlaying || !open) return;
+      const i = runClips.findIndex((c) => c.id === open.id);
+      let next = runClips[i + 1];
+      if (!next) {
+        if (!looping) {
+          runPlaying = false;
+          syncTimeline();
+          return;
+        }
+        next = runClips[0];
+      }
+      if (next.id === open.id) {
+        const v = videoOpen();
+        if (v) goTo(v, 0);
+        stillAt = 0;
+        playOpen();
+        return;
+      }
+      show(next.id);
+    }
+    function playOpen() {
+      const video = videoOpen();
+      cancelAnimationFrame(stillRaf);
+      if (video) return void video.play().catch(() => {});
+      let last = performance.now();
+      const tick = (now) => {
+        if (!runPlaying || !open || videoOpen()) return;
+        stillAt += (now - last) / 1000;
+        last = now;
+        if (stillAt >= STILL) {
+          stillAt = 0;
+          runOn();
+          return;
+        }
+        syncTimeline();
+        stillRaf = requestAnimationFrame(tick);
+      };
+      stillRaf = requestAnimationFrame(tick);
+    }
+    // Moves the run to a moment of it: the shot there opens, on that moment.
+    function runSeek(t) {
+      if (!runClips.length) return;
+      t = clamp(t, 0, Math.max(0, runTotal - 0.001));
+      let c = runClips[0];
+      for (const x of runClips) if (t >= x.start) c = x;
+      if (!open || open.id !== c.id) show(c.id);
+      const local = t - c.start;
+      const video = videoOpen();
+      if (video) goTo(video, Math.min(local, c.dur));
+      else stillAt = Math.min(local, STILL - 0.01);
+      syncTimeline();
     }
 
     // `followed` is true when it opens because the person being followed opened it.
@@ -600,9 +721,14 @@ const WBViewer = (() => {
         mount(piece);
       }
       document.body.classList.toggle('focus-video', piece.type === 'video');
+      if (runMode() && (!was || was.id !== id)) {
+        stillAt = 0;
+        prepareSpare();
+      }
       paintAll();
       layout();
       fit();
+      if (runMode() && runPlaying && (!was || was.id !== id)) playOpen();
       if (thread) pickThread(thread);
       if (opts.onOpen) opts.onOpen(id);
       return true;
@@ -618,6 +744,9 @@ const WBViewer = (() => {
       if (media) media.remove();
       media = null;
       pieceBox.replaceChildren();
+      runPlaying = false;
+      cancelAnimationFrame(stillRaf);
+      dropSpare();
       root.hidden = true;
       document.body.classList.remove('focus', 'focus-video', 'cp-open');
       closeNames();
@@ -643,19 +772,11 @@ const WBViewer = (() => {
       pieceBox.style.height = `${H}px`;
       fullRes.delete(piece.id);
       if (piece.type === 'video') {
-        const video = el('video', { playsinline: '', preload: 'auto' });
-        video.loop = looping;
-        if (piece.poster || piece.th) video.poster = piece.poster || piece.th;
-        video.src = piece.src;
-        for (const type of ['timeupdate', 'seeked', 'loadedmetadata', 'durationchange']) video.addEventListener(type, () => { syncTimeline(); if (type !== 'timeupdate') { paintMarks(); paintInk(); } });
-        for (const type of ['progress', 'suspend']) video.addEventListener(type, syncLoaded);
-        for (const type of ['play', 'pause', 'volumechange']) video.addEventListener(type, () => { syncTimeline(); paintInk(); });
-        const onFrame = (now, meta) => {
-          if (media !== video) return;
-          syncTimeline(video.duration > 0 && isFinite(video.duration) ? meta.mediaTime % video.duration : meta.mediaTime);
-          if (!video.paused) video.requestVideoFrameCallback(onFrame);
-        };
-        video.addEventListener('play', () => { if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(onFrame); });
+        let video;
+        if (spare && spare.id === piece.id) {
+          video = spare.video;
+          spare = null;
+        } else video = makeVideo(piece);
         media = video;
         // Open, it is scrubbed and stepped through: worth having all of it. Held back a moment so stepping
         // quickly past videos does not start fetching every one of them.
@@ -665,6 +786,26 @@ const WBViewer = (() => {
       }
       ink.setAttribute('viewBox', `0 0 ${UNITS} ${(UNITS * H) / W}`);
       pieceBox.replaceChildren(media, ink);
+    }
+
+    function makeVideo(piece) {
+      const video = el('video', { playsinline: '', preload: 'auto' });
+      // In a run, the run loops, not the shot.
+      video.loop = looping && !runMode();
+      if (piece.poster || piece.th) video.poster = piece.poster || piece.th;
+      video.src = piece.src;
+      const mine = () => media === video;
+      for (const type of ['timeupdate', 'seeked', 'loadedmetadata', 'durationchange']) video.addEventListener(type, () => { if (!mine()) return; syncTimeline(); if (type !== 'timeupdate') { paintMarks(); paintInk(); } });
+      for (const type of ['progress', 'suspend']) video.addEventListener(type, () => { if (mine()) syncLoaded(); });
+      for (const type of ['play', 'pause', 'volumechange']) video.addEventListener(type, () => { if (!mine()) return; syncTimeline(); paintInk(); });
+      video.addEventListener('ended', () => { if (mine()) runOn(); });
+      const onFrame = (now, meta) => {
+        if (!mine()) return;
+        syncTimeline(video.duration > 0 && isFinite(video.duration) ? meta.mediaTime % video.duration : meta.mediaTime);
+        if (!video.paused) video.requestVideoFrameCallback(onFrame);
+      };
+      video.addEventListener('play', () => { if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(onFrame); });
+      return video;
     }
 
     async function holdWhole(piece) {
@@ -736,8 +877,10 @@ const WBViewer = (() => {
       dlBtn.hidden = !opts.download || !/^\/uploads\//.test(open.src || '');
       clearBtn.hidden = !opts.clear || !can.member();
       clearBtn.disabled = !plainDrawings().length;
-      timeline.hidden = open.type !== 'video';
-      paintFilm();
+      timeline.hidden = open.type !== 'video' && !runMode();
+      timeline.classList.toggle('still', open.type !== 'video');
+      if (runMode()) paintRun();
+      else paintFilm();
       renderPanel();
       paintMarks();
       paintInk();
@@ -937,10 +1080,11 @@ const WBViewer = (() => {
       looping = on;
       store('wb:loop', on);
       const video = videoOpen();
-      if (video) video.loop = on;
+      if (video) video.loop = on && !runMode();
       tlLoop.classList.toggle('active', on);
       tlLoop.setAttribute('aria-pressed', String(on));
       tlLoop.title = on ? 'Looping: starts again at the end. Click to stop at the end' : 'Stops at the end. Click to loop';
+      if (typeof spare !== 'undefined' && open && runMode()) prepareSpare();
     }
     setLooping(looping);
     const tlTime = el('button', { class: 'tl-time', text: '0:00', title: 'Show minutes and seconds, frame number or timecode', onclick: cycleTimeMode });
@@ -948,10 +1092,35 @@ const WBViewer = (() => {
     const tlTip = el('span', { class: 'tl-tip', hidden: true });
     const tlLoaded = el('i', { class: 'tl-loaded' });
     const tlWave = el('canvas', { class: 'tl-wave', width: 480, height: 80 });
-    const tlTrack = el('div', { class: 'tl-track' }, tlWave, el('i', { class: 'tl-rail' }, tlLoaded, el('i', { class: 'tl-played' })), tlMarks, el('i', { class: 'tl-head' }), tlTip);
+    const tlRun = el('div', { class: 'tl-run' });
+    const tlTrack = el('div', { class: 'tl-track' }, tlWave, tlRun, el('i', { class: 'tl-rail' }, tlLoaded, el('i', { class: 'tl-played' })), tlMarks, el('i', { class: 'tl-head' }), tlTip);
+    // A run's strip: every shot as a clip as long as it lasts, with its still, and where each sequence
+    // begins. It is the track: dragging along it moves through the whole run.
+    let runSig = '';
+    function paintRun(force = false) {
+      const sig = runClips.map((c) => `${c.id}:${c.dur.toFixed(2)}:${c.piece.poster || c.piece.th || ''}`).join('|');
+      if (force || sig !== runSig) {
+        runSig = sig;
+        let seq = null;
+        tlRun.replaceChildren(...runClips.map((c) => {
+          const still = stillOf(c.piece);
+          const starts = c.piece.seq && c.piece.seq !== seq;
+          seq = c.piece.seq;
+          return el('i', {
+            class: `tl-clip${starts ? ' seq-start' : ''}`, 'data-id': c.id, title: c.piece.label || c.piece.name || '',
+            style: { left: `${(c.start / runTotal) * 100}%`, width: `${(c.dur / runTotal) * 100}%`, ...(still && { backgroundImage: `url("${still}")` }) },
+          }, starts && el('b', { class: 'tl-seqname', text: c.piece.seq }));
+        }));
+      }
+      for (const n of tlRun.children) n.classList.toggle('at', n.dataset.id === (open && open.id));
+      const i = runClips.findIndex((c) => c.id === (open && open.id));
+      posEl.textContent = `${i + 1} / ${runClips.length}`;
+      posEl.style.minWidth = `${String(runClips.length).length * 2 + 3}ch`;
+      prevBtn.disabled = nextBtn.disabled = runClips.length < 2;
+    }
     timeline.append(tlPlay,
-      el('button', { class: 'iconbtn', html: ICON.frameBack, title: 'Back one frame ( , )   With Shift, one second', onclick: (e) => stepFrame(-1, e.shiftKey) }),
-      el('button', { class: 'iconbtn', html: ICON.frameFwd, title: 'Forward one frame ( . )   With Shift, one second', onclick: (e) => stepFrame(1, e.shiftKey) }),
+      el('button', { class: 'iconbtn tl-step', html: ICON.frameBack, title: 'Back one frame ( , )   With Shift, one second', onclick: (e) => stepFrame(-1, e.shiftKey) }),
+      el('button', { class: 'iconbtn tl-step', html: ICON.frameFwd, title: 'Forward one frame ( . )   With Shift, one second', onclick: (e) => stepFrame(1, e.shiftKey) }),
       tlTime, tlTrack, tlLoop, tlSound);
     window.addEventListener('wb:theme', () => {
       delete tlWave.dataset.drawn;
@@ -968,19 +1137,24 @@ const WBViewer = (() => {
 
     function syncTimeline(at) {
       const video = videoOpen();
-      if (!video) return;
-      if (at == null) at = whereOf(video);
-      const dur = video.duration;
-      if (changing.has(video) && !(dur > 0)) return;
+      if (!open || (!video && !runMode())) return;
+      if (at == null && video) at = whereOf(video);
+      const dur = video ? video.duration : STILL;
+      if (video && changing.has(video) && !(dur > 0)) return;
       const fps = fpsOf(open.id);
-      tlTrack.style.setProperty('--p', `${(dur > 0 && isFinite(dur) ? clamp(at / dur, 0, 1) : 0) * 100}%`);
-      const label = timeLabel(at, dur, fps);
+      // In a run, the track and the time are the run's: where this shot starts, and on from there.
+      const c = runMode() ? clipOf(open.id) : null;
+      const here = c ? c.start + (video ? at : stillAt) : at;
+      const span = c ? runTotal : dur;
+      tlTrack.style.setProperty('--p', `${(span > 0 && isFinite(span) ? clamp(here / span, 0, 1) : 0) * 100}%`);
+      const label = timeLabel(here, span, fps);
       if (tlTime.textContent !== label) tlTime.textContent = label;
-      const state = `${video.paused}${video.muted}`;
+      const playing = runMode() ? runPlaying || (video && !video.paused) : !video.paused;
+      const state = `${!playing}${video ? video.muted : ''}`;
       if (timeline.dataset.state !== state) {
         timeline.dataset.state = state;
-        tlPlay.innerHTML = video.paused ? ICON.play : ICON.pause;
-        tlSound.innerHTML = video.muted ? ICON.muted : ICON.sound;
+        tlPlay.innerHTML = playing ? ICON.pause : ICON.play;
+        if (video) tlSound.innerHTML = video.muted ? ICON.muted : ICON.sound;
       }
       // The moment a comment written now would be about.
       if (!panel.hidden && !momentChip.hidden && !(draft && draft.at != null)) {
@@ -1015,6 +1189,21 @@ const WBViewer = (() => {
     }
     function togglePlay() {
       const video = videoOpen();
+      if (runMode() && open) {
+        interact();
+        runPlaying = video ? video.paused : !runPlaying;
+        if (runPlaying) {
+          // From the very end, the run starts again.
+          if (!runClips.some((c) => c.start > runAt() - 0.01) && video && video.duration - whereOf(video) < 0.1) runSeek(0);
+          playOpen();
+        } else {
+          if (video) video.pause();
+          cancelAnimationFrame(stillRaf);
+        }
+        syncTimeline();
+        told();
+        return;
+      }
       if (!video) return;
       interact();
       if (video.paused) video.play().catch(() => {});
@@ -1024,11 +1213,13 @@ const WBViewer = (() => {
     function toggleSound() {
       const video = videoOpen();
       if (video) video.muted = !video.muted;
+      if (spare && video) spare.video.muted = video.muted;
     }
     function stepFrame(dir, second = false) {
       const video = videoOpen();
       if (!video) return;
       interact();
+      runPlaying = false;
       video.pause();
       const fps = fpsOf(open.id);
       if (fps) goTo(video, frameTime(clamp(frameIndex(whereOf(video), fps) + dir * (second ? Math.round(fps) : 1), 0, lastFrame(video, fps)), fps));
@@ -1043,6 +1234,7 @@ const WBViewer = (() => {
     function seek(at) {
       const video = videoOpen();
       if (!video || at == null) return;
+      runPlaying = false;
       video.pause();
       goTo(video, at);
       told();
@@ -1074,6 +1266,7 @@ const WBViewer = (() => {
     let markPress = null;
     let dragFromMark = false;
     const scrubbable = () => {
+      if (runMode() && open && runTotal > 0) return videoOpen() || tlTrack;
       const video = videoOpen();
       return video && video.duration > 0 && isFinite(video.duration) ? video : null;
     };
@@ -1081,10 +1274,15 @@ const WBViewer = (() => {
       const video = videoOpen();
       const r = tlTrack.getBoundingClientRect();
       const k = clamp((e.clientX - r.left) / Math.max(1, r.width), 0, 1);
+      if (runMode()) return { k, at: k * runTotal };
       return { k, at: wholeFrame(k * video.duration) };
     }
     function scrubTo(e) {
       const { at } = trackMoment(e);
+      if (runMode()) {
+        runSeek(at);
+        return told();
+      }
       goTo(videoOpen(), at);
       syncTimeline(at);
       told();
@@ -1096,8 +1294,12 @@ const WBViewer = (() => {
         // capture is a nicety
       }
       interact();
-      scrub = { pid: e.pointerId, resume: !video.paused };
-      video.pause();
+      scrub = { pid: e.pointerId, resume: runMode() ? runPlaying : !video.paused };
+      if (runMode()) {
+        runPlaying = false;
+        cancelAnimationFrame(stillRaf);
+      }
+      if (videoOpen()) videoOpen().pause();
       scrubTo(e);
     }
     tlTrack.addEventListener('pointerdown', (e) => {
@@ -1123,7 +1325,7 @@ const WBViewer = (() => {
       }
       const { k, at } = trackMoment(e);
       tlTip.hidden = false;
-      tlTip.textContent = fmtMoment(at, fpsOf(open.id));
+      tlTip.textContent = runMode() ? `${fmtMoment(at, fpsOf(open.id))}${runClipAt(at) ? ` · ${runClipAt(at).piece.label || ''}` : ''}` : fmtMoment(at, fpsOf(open.id));
       tlTip.style.left = `${k * 100}%`;
       if (scrub && e.pointerId === scrub.pid) scrubTo(e);
     });
@@ -1133,9 +1335,24 @@ const WBViewer = (() => {
       e.stopPropagation();
       e.preventDefault();
     }, true);
+    const runClipAt = (t) => {
+      let c = null;
+      for (const x of runClips) if (t >= x.start) c = x;
+      return c;
+    };
     const endScrub = (e) => {
       if (markPress && e.pointerId === markPress.pid) markPress = null;
       if (!scrub || e.pointerId !== scrub.pid) return;
+      if (runMode()) {
+        if (scrub.resume) {
+          runPlaying = true;
+          playOpen();
+        }
+        scrub = null;
+        tlTip.hidden = !tlTrack.matches(':hover');
+        syncTimeline();
+        return void told();
+      }
       const video = scrubbable();
       if (video && scrub.resume && !atEnd()) video.play().catch(() => {});
       scrub = null;
@@ -1152,13 +1369,15 @@ const WBViewer = (() => {
       const video = videoOpen();
       const dur = video ? video.duration : 0;
       if (!video || !(dur > 0) || !isFinite(dur)) return void tlMarks.replaceChildren();
+      const c0 = runMode() ? clipOf(open.id) : null;
+      const leftOf = (at) => `${clamp(c0 ? (c0.start + at) / runTotal : at / dur, 0, 1) * 100}%`;
       const stacks = new Map();
       for (const c of roots()) {
         if (c.on !== open.id) continue;
         const at = momentOf(c);
         if (at == null) continue;
         const key = Math.round(at * 1000);
-        (stacks.get(key) || stacks.set(key, { left: `${clamp(at / dur, 0, 1) * 100}%`, threads: [] }).get(key)).threads.push(c);
+        (stacks.get(key) || stacks.set(key, { left: leftOf(at), threads: [] }).get(key)).threads.push(c);
       }
       tlMarks.replaceChildren(...[...stacks.values()].map(({ left, threads }) => {
         const reading = threads.findIndex((c) => c.id === activeThread);
@@ -2101,7 +2320,7 @@ const WBViewer = (() => {
       } else if (k === 'f' && e.shiftKey) toggleFilm();
       else if (k === 'c' && e.shiftKey) { if (can.read()) togglePanel(); }
       else if (k === 'c' && !e.shiftKey) startComment();
-      else if (videoOpen() && (k === 'k' || k === 'enter')) togglePlay();
+      else if ((videoOpen() || runMode()) && (k === 'k' || k === 'enter')) togglePlay();
       else if (videoOpen() && e.code === 'Comma') stepFrame(-1, e.shiftKey);
       else if (videoOpen() && e.code === 'Period') stepFrame(1, e.shiftKey);
       else if (videoOpen() && k === 'm') toggleSound();
@@ -2120,7 +2339,7 @@ const WBViewer = (() => {
       spaceDown = false;
       spaceTap = false;
       root.classList.remove('space-held');
-      if (open && tapped && videoOpen()) togglePlay();
+      if (open && tapped && (videoOpen() || runMode())) togglePlay();
     }, true);
     window.addEventListener('blur', () => {
       spaceDown = false;
@@ -2144,6 +2363,7 @@ const WBViewer = (() => {
       use(next) {
         close();
         setHost(next);
+        root.classList.toggle('run', runMode());
       },
       host: () => opts,
       refresh,
@@ -2209,14 +2429,9 @@ const WBViewer = (() => {
   // Opens the versions of one entity of a project's catalogue in a player, at `version` (or the newest).
   // What is said about them is live: everyone who has the entity open, here or on any board a version is
   // on, sees it as it is written, and what is written here is there on those boards.
-  async function openEntity(viewer, entityId, { version = null, me, onClose = () => {} } = {}) {
-    const page = await WB.api('GET', `/api/entities/${entityId}`);
-    const versions = page.versions.filter((v) => !v.hidden || v.id === version);
-    if (!versions.length) throw new Error('There is nothing filed under it yet');
-    // Oldest first, so the arrows go forward in time; the newest of each task last.
-    versions.sort((a, b) => (a.task || '').localeCompare(b.task || '') || a.number - b.number);
-    const pieces = versions.map((v) => ({ ...v.look, id: v.id, type: v.kind || v.look.type, label: v.label, name: v.look.name || v.originalName }));
-    let notes = page.notes.map((n) => ({ ...n, type: 'comment', on: n.versionId, obn: n.board && n.board.id ? n.board.name : 'the catalogue' }));
+  // An entity's room: the live notes on its versions. `onNotes(list)` hears every change; `send(ops)`
+  // adds, changes and deletes them; `close()` leaves.
+  function entityRoom(entityId, me, onNotes) {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     let ws = null;
     let closed = false;
@@ -2234,42 +2449,44 @@ const WBViewer = (() => {
         } catch {
           return;
         }
-        if (msg.t === 'init' || msg.t === 'notes') {
-          notes = msg.notes;
-          viewer.refresh();
-        }
+        if (msg.t === 'init' || msg.t === 'notes') onNotes(msg.notes);
       });
       ws.addEventListener('close', () => { if (!closed) setTimeout(connect, 1500); });
     };
     connect();
-    const sendOps = (ops) => {
-      const msg = { t: 'op', ops };
-      if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
-      else outbox.push(msg);
+    return {
+      send(ops) {
+        const msg = { t: 'op', ops };
+        if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
+        else outbox.push(msg);
+      },
+      close() {
+        closed = true;
+        if (ws) ws.close();
+      },
     };
-    viewer.use({
-      me: () => me,
-      title: () => page.entity.name,
-      media: () => pieces,
-      notes: () => notes,
-      can: { member: () => true },
-      // What is said shows at once here, and the room says what it came to.
+  }
+
+  // What a host whose notes live in entity rooms does with them: shown at once here, and the room says
+  // what it came to.
+  function roomNotes(viewer, getRoom, getNotes, setNotes) {
+    return {
       add: (c) => {
-        notes = [...notes, c];
+        setNotes([...getNotes(), c]);
         viewer.refresh();
-        sendOps([{ t: 'add', item: c }]);
+        getRoom()?.send([{ t: 'add', item: c }]);
       },
       set: (id, patch) => {
-        notes = notes.map((n) => (n.id === id ? { ...n, ...patch } : n));
+        setNotes(getNotes().map((n) => (n.id === id ? { ...n, ...patch } : n)));
         viewer.refresh();
-        sendOps([{ t: 'set', id, patch }]);
+        getRoom()?.send([{ t: 'set', id, patch }]);
       },
       remove: async (ids) => {
         const sure = await WB.dialog({ title: 'Delete it?', text: 'It goes for everyone, on every board the version is on.', ok: 'Delete', danger: true });
         if (!sure) return;
-        notes = notes.filter((n) => !ids.includes(n.id));
+        setNotes(getNotes().filter((n) => !ids.includes(n.id)));
         viewer.refresh();
-        sendOps([{ t: 'del', ids }]);
+        getRoom()?.send([{ t: 'del', ids }]);
       },
       download: (p) => {
         const a = el('a', { href: p.orig || p.src, download: (p.name || p.label || 'media').replace(/\.[^.]+$/, '') + (/\.[a-z0-9]+$/i.exec(p.orig || p.src)?.[0] || '') });
@@ -2277,17 +2494,99 @@ const WBViewer = (() => {
         a.click();
         a.remove();
       },
+    };
+  }
+
+  // ---------------------------------------------------------------- an asset, set or shot's versions
+  //
+  // Opens the versions of one entity of a project's catalogue in a player, at `version` (or the newest).
+  // What is said about them is live: everyone who has the entity open, here or on any board a version is
+  // on, sees it as it is written, and what is written here is there on those boards.
+  async function openEntity(viewer, entityId, { version = null, me, onClose = () => {} } = {}) {
+    const page = await WB.api('GET', `/api/entities/${entityId}`);
+    const versions = page.versions.filter((v) => !v.hidden || v.id === version);
+    if (!versions.length) throw new Error('There is nothing filed under it yet');
+    // Oldest first, so the arrows go forward in time; the newest of each task last.
+    versions.sort((a, b) => (a.task || '').localeCompare(b.task || '') || a.number - b.number);
+    const pieces = versions.map((v) => ({ ...v.look, id: v.id, type: v.kind || v.look.type, label: v.label, name: v.look.name || v.originalName }));
+    const shape = (list) => list.map((n) => (n.type === 'comment' ? n : { ...n, type: 'comment', on: n.versionId, obn: n.board && n.board.id ? n.board.name : 'the catalogue' }));
+    let notes = shape(page.notes);
+    const room = entityRoom(entityId, me, (list) => {
+      notes = list;
+      viewer.refresh();
+    });
+    viewer.use({
+      me: () => me,
+      title: () => page.entity.name,
+      media: () => pieces,
+      notes: () => notes,
+      can: { member: () => true },
+      ...roomNotes(viewer, () => room, () => notes, (next) => { notes = next; }),
       onClose: () => {
-        closed = true;
-        if (ws) ws.close();
+        room.close();
         onClose();
       },
     });
     viewer.open(version && pieces.some((p) => p.id === version) ? version : pieces[pieces.length - 1].id);
   }
 
+  // ---------------------------------------------------------------- a project's shots, played through
+  //
+  // Opens the shots of a project in a player as an edit: the newest version of each (of `task`, or of
+  // any), in order, sequence by sequence, played one into the next. What is said is about the shot under
+  // the playhead, live, through its room. Shots with nothing filed are left out.
+  async function openRun(viewer, { load, me, title, choices, onClose = () => {} }) {
+    let pieces = await load();
+    if (!pieces.length) throw new Error('No shot has anything filed yet');
+    let notes = [];
+    let room = null;
+    let roomOf = null;
+    let joinTimer = 0;
+    // The room follows the shot on screen; a beat later, so playing through does not hop every room.
+    const follow = (id) => {
+      const p = pieces.find((x) => x.id === id);
+      if (!p || p.entityId === roomOf) return;
+      clearTimeout(joinTimer);
+      joinTimer = setTimeout(() => {
+        if (room) room.close();
+        roomOf = p.entityId;
+        notes = [];
+        room = entityRoom(p.entityId, me, (list) => {
+          notes = list;
+          viewer.refresh();
+        });
+      }, roomOf ? 400 : 0);
+    };
+    viewer.use({
+      run: true,
+      me: () => me,
+      title,
+      media: () => pieces,
+      notes: () => notes,
+      can: { member: () => true },
+      ...roomNotes(viewer, () => room, () => notes, (next) => { notes = next; }),
+      onOpen: follow,
+      onClose: () => {
+        clearTimeout(joinTimer);
+        if (room) room.close();
+        viewer.extras.replaceChildren();
+        onClose();
+      },
+    });
+    // The run's own choices go in the bar: which sequence, which task. A new choice starts it again.
+    if (choices) {
+      viewer.extras.replaceChildren(...choices(async () => {
+        const next = await load();
+        if (!next.length) return void WB.dialog({ title: 'Nothing to play', text: 'No shot there has anything filed yet.', ok: 'OK', cancellable: false });
+        pieces = next;
+        viewer.open(pieces[0].id);
+      }));
+    }
+    viewer.open(pieces[0].id);
+  }
+
   return {
-    create, openEntity, ICON, INK, inkColor, pathData, outlinePath, strokeNode, fmtTime, fmtMoment, timeLabel, cycleTimeMode,
+    create, openEntity, openRun, entityRoom, ICON, INK, inkColor, pathData, outlinePath, strokeNode, fmtTime, fmtMoment, timeLabel, cycleTimeMode,
     frameTime, frameIndex, lastFrame, goTo, whereOf, changing, switchSource, fetchWhole, releaseWhole, wholes, showWave,
     timeMode: () => timeMode,
   };

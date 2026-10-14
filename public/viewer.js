@@ -881,7 +881,11 @@ const WBViewer = (() => {
       runCap.hidden = !runMode();
       if (runMode()) runCap.replaceChildren(el('b', { text: open.name || '' }), el('span', { class: open.empty ? 'none' : '', text: versionPart(open) }));
       crumb.textContent = opts.title ? opts.title() : '';
-      dlBtn.hidden = !opts.download || !/^\/uploads\//.test(open.src || '');
+      // Shown whenever the host downloads, and only greyed out for what has no file (a run's slate), so
+      // the bar does not shift as the pieces change.
+      dlBtn.hidden = !opts.download;
+      dlBtn.disabled = !/^\/uploads\//.test(open.src || '');
+      dlBtn.title = dlBtn.disabled ? 'Nothing to download: nothing is filed yet' : 'Download the original media';
       clearBtn.hidden = !opts.clear || !can.member();
       clearBtn.disabled = !plainDrawings().length;
       timeline.hidden = open.type !== 'video' && !runMode();

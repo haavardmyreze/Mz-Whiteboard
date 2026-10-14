@@ -1071,6 +1071,19 @@
     refresh();
   }
 
+  // Esc lets go of whatever is selected, wherever things can be: the catalogue (handled with its own
+  // Select mode), versions, and boards and folders. A dialog, a menu or the player takes Esc first.
+  window.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || document.querySelector('dialog[open], .menu') || (document.querySelector('.viewer') && !document.querySelector('.viewer').hidden)) return;
+    if (document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
+    if (vpick.ids.size) {
+      vpick.ids.clear();
+      const f = folderById(vpick.project);
+      if (f) paintVersionPick(f);
+    }
+    if (bpick.size) dropBoardPick();
+  });
+
   // ------------------------------------------------------------- box select
   //
   // In the catalogue and in a project's Versions, a drag that starts on empty space draws a box, and

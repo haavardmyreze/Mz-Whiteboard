@@ -2297,3 +2297,10 @@ body.marqueeing, body.marqueeing * { user-select: none !important; -webkit-user-
 /* Boards, folders and versions picked by a box. */
 .card[data-pick].picked, .card.ver.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface-1)); }
 .pick-bar .btn[hidden] { display: none; }
+
+/* The Versions list shows its boxes only while something is selected. */
+body:not(.vpicking) .vl-box { display: none; }
+body:not(.vpicking) .vl-row { grid-template-columns: 96px minmax(0, 1fr) auto auto; }
+@media (max-width: 760px) {
+  body:not(.vpicking) .vl-row { grid-template-columns: 72px minmax(0, 1fr) auto; }
+}

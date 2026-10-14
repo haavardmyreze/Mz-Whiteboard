@@ -349,7 +349,8 @@ filed in it.
 - **Versions, as they came in.** A project's Versions (in the sidebar) lists every version filed in it,
   newest first: by day, and within a day by who filed a run of them, each with its still (which scrubs
   under the pointer and opens in the player), what it is, and the boards it is on. Click to pick, Shift
-  and a click for a run, or a day's or a run's box for all of it; then "Add to board" puts them on one of
+  and a click for a run, or drag a box; once something is picked, a day's or a run's box picks all of
+  it, and Esc lets go (as it does wherever things are picked); then "Add to board" puts them on one of
   the project's boards, in rows below what is there, or "New board" makes one in the project with them
   on it, laid out as the edit is: a column for each sequence, left to right, its shots going down from
   first to last (assets and sets in columns after them). Either way they are those versions, with their

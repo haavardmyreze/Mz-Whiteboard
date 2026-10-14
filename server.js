@@ -883,6 +883,24 @@ async function handleCatalogue(req, res, parts) {
         boards: [...boards.values()].filter((b) => visible(req.user, b) && boardProject(b) === project).map((b) => ({ id: b.id, name: b.name })),
       });
     }
+    // GET /api/projects/:id/timeline?task=   every shot in order, by sequence, with its newest version (of
+    // that task, or of any), what the timeline view lays out and plays through.
+    if (parts.length === 4 && parts[3] === 'timeline' && req.method === 'GET') {
+      flushAll();
+      const task = new URL(req.url, 'http://x').searchParams.get('task');
+      const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+      const shots = store.entities(project.id).filter((e) => e.tier === 'shot').sort(byName);
+      return sendJson(res, 200, {
+        tasks: store.projectTasks(project.id),
+        shots: shots.map((e) => {
+          const v = task ? store.newestOfTask(e.id, naming.tokenize(task) || null) : e.newest;
+          return {
+            id: e.id, name: e.name, seq: naming.seqOf(e.name), artists: e.artists,
+            version: v && { ...v, label: naming.label(e.name, v.task, v.number) },
+          };
+        }),
+      });
+    }
     // { name, tier } makes one; { names: [...], tier } sets up many at once, before anything is filed of
     // them. A name the project has already is left as it is. Without a tier, the name's shape says.
     if (parts.length === 4 && parts[3] === 'entities' && req.method === 'POST') {

@@ -1787,3 +1787,36 @@ test('a project is set up with its assets, sets and shots ahead, each with artis
   assert.deepEqual([anna.assigned[0].role, anna.items.map((i) => i.kind)], ['cc', ['version']]);
   assert.deepEqual((await call('GET', '/api/feed?name=Ben')).body.assigned, []);
 });
+
+test('a project\'s timeline is every shot in order with its newest version, and a card knows its newest', async (t) => {
+  const s = start(4842);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  await call('POST', `/api/projects/${project.id}/entities`, { names: ['kilo-0100', 'kilo-0020', 'kilo-0010', 'abc-0010', 'char-robot'] });
+  const up = async () => (await (await fetch(`${s.base}/api/upload?name=a.mp4`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
+  const file = async (name, task, dur) => (await call('POST', `/api/projects/${project.id}/versions`, { entity: { name }, task, files: [{ look: { type: 'video', src: await up(), name: 'x.mp4', dur } }] })).body.versions[0];
+  await file('kilo-0010', 'anim', 4);
+  const comp = await file('kilo-0010', 'comp', 5);
+  await file('kilo-0020', 'anim', 3);
+
+  const tl = (await call('GET', `/api/projects/${project.id}/timeline`)).body;
+  // shots only, by sequence and number (0100 after 0020), each with its newest version of any task
+  assert.deepEqual(tl.shots.map((x) => [x.name, x.seq, x.version && x.version.label]), [['abc-0010', 'abc', null], ['kilo-0010', 'kilo', 'kilo-0010 comp v1'], ['kilo-0020', 'kilo', 'kilo-0020 anim v1'], ['kilo-0100', 'kilo', null]]);
+  assert.equal(tl.shots[1].version.look.dur, 5);
+  assert.deepEqual(tl.tasks, ['anim', 'comp']);
+  const anim = (await call('GET', `/api/projects/${project.id}/timeline?task=anim`)).body;
+  assert.deepEqual(anim.shots.map((x) => x.version && x.version.label), [null, 'kilo-0010 anim v1', 'kilo-0020 anim v1', null]);
+  // the catalogue's cards carry their newest version, to scrub and to play
+  const cat = (await call('GET', `/api/projects/${project.id}`)).body;
+  const k10 = cat.entities.find((e) => e.name === 'kilo-0010');
+  assert.equal(k10.newest.id, comp.id);
+  assert.equal(k10.newest.look.type, 'video');
+  assert.equal(cat.entities.find((e) => e.name === 'char-robot').newest, null);
+});

@@ -145,6 +145,7 @@
   // (#/f/<id>/catalogue/t/shot), the sequence (…/s/kilo) or the entity (…/<entity id>) being looked at.
   function currentView() {
     // The Import page that was is part of the catalogue now.
+    if (/^#\/f\/[\w-]+\/timeline/.test(location.hash)) return { page: 'timeline', entity: null };
     const m = /^#\/f\/[\w-]+\/(catalogue|import)(?:\/(?:(t|s)\/([\w-]+)|([\w-]+)))?/.exec(location.hash);
     if (!m) return { page: 'boards', entity: null };
     if (m[1] === 'import') return { page: 'catalogue', entity: null };
@@ -505,6 +506,7 @@
   const ICON_HOME = svg('<path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5"/>', 16);
   const ICON_BOARDS = svg('<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>', 16);
   const ICON_CAT = svg('<path d="M5 4h4v16H5zM10 4h4v16h-4z"/><path d="M15.5 4.6l3.8-1 3.7 15.5-3.8 1z"/>', 16);
+  const ICON_FILM = svg('<rect x="3" y="6" width="18" height="12" rx="1.5"/><path d="M8 6v12M16 6v12M3 10h5M3 14h5M16 10h5M16 14h5"/>', 16);
   const ICON_DOT = svg('<circle cx="12" cy="12" r="2" fill="currentColor"/>', 16);
   const ICON_CHEVRON = svg('<path d="M9 6l6 6-6 6"/>', 14);
   const ICON_STAR = svg('<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9z"/>', 16);
@@ -524,6 +526,7 @@
     if (rt.kind === 'space') return `w:${rt.space}`;
     const f = folderById(rt.id);
     const v = f && f.project ? currentView() : { page: 'boards' };
+    if (v.page === 'timeline') return `tl:${rt.id}`;
     if (v.page !== 'catalogue') return f && f.project ? `p:${rt.id}` : `f:${rt.id}`;
     if (v.seq) return `s:${rt.id}:${v.seq}`;
     if (v.tier) return `t:${rt.id}:${v.tier}`;
@@ -594,6 +597,7 @@
     const kids = () => [
       ...sideRow({ key: `p:${f.id}`, depth: depth + 1, icon: ICON_BOARDS, label: 'Boards', href: `#/f/${f.id}`, count: boardsIn(f.id).length, drop, hereK }),
       ...sideRow({ key: `c:${f.id}`, depth: depth + 1, icon: ICON_CAT, label: 'Catalogue', href: `#/f/${f.id}/catalogue`, kids: tierRows, hereK }),
+      ...sideRow({ key: `tl:${f.id}`, depth: depth + 1, icon: ICON_FILM, label: 'Timeline', href: `#/f/${f.id}/timeline`, hereK }),
       ...subs(),
     ];
     return sideRow({ key: `f:${f.id}`, depth, icon: PROJECT_SM, label: f.name, href: `#/f/${f.id}`, kids, drop, hereK, cls: 'project' });
@@ -672,7 +676,8 @@
             parts.push([name, `#/f/${f.id}/catalogue/${v.entity}`]);
             pin = e || (shownEntity && shownEntity.id === v.entity) ? { kind: 'entity', id: v.entity, name, projectId: f.id, tier: (e || shownEntity).tier, thumb: (e && e.thumb) || null } : null;
           }
-        } else parts.push(['Boards', `#/f/${f.id}`]);
+        } else if (v.page === 'timeline') parts.push(['Timeline', `#/f/${f.id}/timeline`]);
+        else parts.push(['Boards', `#/f/${f.id}`]);
       }
     }
     const nodes = parts.map(([label, href, folderId, ws], i) => {
@@ -771,8 +776,18 @@
     return out.filter(Boolean);
   }
 
+  // The timeline, while it is open (timeline.js); let go of when the page goes elsewhere.
+  let timeline = null;
+  let timelineOf = null;
+
   function render() {
     const rt = route();
+    const onTimeline = rt.kind === 'folder' && folderById(rt.id) && folderById(rt.id).project && currentView().page === 'timeline';
+    if (timeline && (!onTimeline || timelineOf !== rt.id)) {
+      timeline.destroy();
+      timeline = null;
+      timelineOf = null;
+    }
     if (rt.kind === 'folder') space = folderById(rt.id).workspace || space;
     else if (rt.kind === 'space') space = rt.space;
     if (rt.kind !== 'home') store('wb:workspace', space);
@@ -824,6 +839,17 @@
     const sig = `${project.id}|${view.page}|${view.entity}`;
     const fresh = shownProject !== sig;
     shownProject = sig;
+    if (view.page === 'timeline') {
+      // Laid out once; the background refresh of the library leaves it playing.
+      if (timeline && timelineOf === project.id && $('content').querySelector('.tl-view')) return;
+      $('content').replaceChildren();
+      timelineOf = project.id;
+      timeline = WBTimeline.mount($('content'), {
+        load: (task) => api('GET', `/api/projects/${project.id}/timeline${task ? `?task=${encodeURIComponent(task)}` : ''}`),
+        open: (entityId, versionId) => lookAt(entityId, versionId),
+      });
+      return;
+    }
     // What is being brought in shows above the catalogue, on its page and on each entity's.
     const tray = importer(project).tray;
     if (fresh && (view.entity || !catalogues.has(project.id))) $('content').replaceChildren(el('p', { class: 'home-empty', text: 'Loading…' }));
@@ -861,6 +887,7 @@
   function catTools(project) {
     return el('div', { class: 'cat-tools' },
       el('span', { class: 'cat-hint', text: 'Drop images and videos anywhere here to add them' }),
+      el('a', { class: 'btn', href: `#/f/${project.id}/timeline`, html: `${ICON_PLAY}<span>Timeline</span>`, title: 'Every shot in order, played through' }),
       el('button', { type: 'button', class: 'btn', html: `${ICON_PLUS}<span>Add assets, sets &amp; shots</span>`, title: 'Set up what the project has, before anything is filed of it', onclick: () => addEntities(project) }),
       el('button', { type: 'button', class: 'btn', html: `${ICON_IMPORT}<span>Import</span>`, title: 'Bring images and videos into the catalogue', onclick: () => importer(project).pick() }));
   }
@@ -944,9 +971,77 @@
     box.focus();
   }
 
+  // Moving the pointer across a video's picture scrubs through it, as if the pointer were dragging its
+  // playhead: the left edge is the start, the right edge the end. Only while the pointer is over it is
+  // the video fetched at all.
+  function scrubber(box, look) {
+    if (!look || look.type !== 'video' || !look.src) return box;
+    let video = null;
+    let head = null;
+    let want = null;
+    let busy = false;
+    const seek = () => {
+      const d = video && (video.duration > 0 && isFinite(video.duration) ? video.duration : look.dur);
+      if (!video || want == null || busy || !(d > 0) || video.readyState < 1) return;
+      busy = true;
+      video.currentTime = Math.min(d - 0.04, want * d);
+      want = null;
+    };
+    box.classList.add('scrubs');
+    box.addEventListener('pointerenter', (e) => {
+      if (e.pointerType === 'touch' || video) return;
+      video = el('video', { class: 'scrub-video', playsinline: '', preload: 'auto', src: look.src });
+      video.muted = true;
+      head = el('i', { class: 'scrub-head' });
+      video.addEventListener('seeked', () => {
+        busy = false;
+        video.classList.add('on');
+        seek();
+      });
+      video.addEventListener('loadedmetadata', seek);
+      box.append(video, head);
+    });
+    box.addEventListener('pointermove', (e) => {
+      if (!video) return;
+      const r = box.getBoundingClientRect();
+      const k = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+      head.style.left = `${k * 100}%`;
+      want = k;
+      seek();
+    });
+    box.addEventListener('pointerleave', () => {
+      if (video) {
+        video.removeAttribute('src');
+        video.load();
+        video.remove();
+        head.remove();
+      }
+      video = head = null;
+      want = null;
+      busy = false;
+    });
+    return box;
+  }
+
+  const ICON_PLAY = svg('<path d="M8 5.5v13l11-6.5z" fill="currentColor" stroke="none"/>', 14);
+
+  // An asset, set or shot's card: its picture plays the newest version at once (scrubbing through it
+  // under the pointer); its name goes to its page.
   function entityTile(project, e) {
+    const newest = e.newest || null;
+    const thumbs = el('div', { class: `card-thumbs n${e.thumb ? 1 : 0}`, ...(newest && { title: 'Play the latest' }) },
+      e.thumb && el('img', { src: e.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
+      newest && el('span', { class: 'play-latest', html: `${ICON_PLAY}<span>Latest</span>` }));
+    if (newest) {
+      scrubber(thumbs, newest.look);
+      thumbs.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        lookAt(e.id, newest.id);
+      });
+    }
     return el('a', { class: 'card ent', href: `#/f/${project.id}/catalogue/${e.id}` },
-      el('div', { class: `card-thumbs n${e.thumb ? 1 : 0}` }, e.thumb && el('img', { src: e.thumb, alt: '', loading: 'lazy', draggable: 'false' })),
+      thumbs,
       el('div', { class: 'card-body' },
         el('div', { class: 'card-name', text: e.name }),
         el('div', { class: 'card-meta', text: e.versions == null ? (N.TIERS.includes(e.tier) ? e.tier : '') : e.versions ? `${plural(e.versions, 'version')} · last ${ago(e.latestAt)}` : 'Nothing filed yet' }),
@@ -1179,9 +1274,9 @@
       if (hide) undoable(`${v.label} archived`, async () => { await api('PATCH', `/api/versions/${v.id}`, { hidden: false }); render(); });
     };
     const card = (v) => el('div', { class: `card ver${v.hidden ? ' hidden-ver' : ''}` },
-      el('button', { type: 'button', class: `card-thumbs n${v.thumb ? 1 : 0}`, title: 'Open it, to look, comment and draw', onclick: () => lookAt(entity.id, v.id) },
+      scrubber(el('button', { type: 'button', class: `card-thumbs n${v.thumb ? 1 : 0}`, title: 'Open it, to look, comment and draw', onclick: () => lookAt(entity.id, v.id) },
         v.thumb && el('img', { src: v.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
-        v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })),
+        v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })), v.look),
       el('div', { class: 'card-body' },
         el('div', { class: 'card-name', text: v.label }),
         el('div', { class: 'card-meta', text: [v.artist, v.descriptor].filter(Boolean).join(' · ') || v.originalName || '' }),
@@ -1210,8 +1305,11 @@
       el('div', { class: 'ent-thread-ver' }, byVersion.get(n.versionId)?.label || '', n.done && el('span', { class: 'ent-done', text: 'Resolved' })),
       msg(n, true), replies(n.id).map((r) => msg(r, false))));
     const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
+    const latest = page.versions.find((v) => !v.hidden);
     return el('div', { class: 'ent-page' },
-      entityPeople(entity),
+      el('div', { class: 'ent-top' },
+        latest && el('button', { type: 'button', class: 'btn primary', html: `${ICON_PLAY}<span>Play latest</span>`, title: `Open ${latest.label}, with every other version beside it`, onclick: () => lookAt(entity.id, latest.id) }),
+        entityPeople(entity)),
       label('Versions', versions.length),
       hidden > 0 && el('label', { class: 'ent-hidden' }, el('input', { type: 'checkbox', checked: showHidden, onchange: (e) => { showHidden = e.target.checked; render(); } }), `Show archived (${hidden})`),
       el('div', { class: 'board-grid ent-grid' },

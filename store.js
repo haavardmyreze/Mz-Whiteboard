@@ -668,10 +668,21 @@ function openStore(dataDir) {
     SELECT e.*,
       (SELECT count(*) FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL) AS n,
       (SELECT max(v.created_at) FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL) AS latest,
-      (SELECT v.thumb FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL AND v.thumb IS NOT NULL ORDER BY v.created_at DESC, v.number DESC LIMIT 1) AS thumb
+      (SELECT v.thumb FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL AND v.thumb IS NOT NULL ORDER BY v.created_at DESC, v.number DESC LIMIT 1) AS thumb,
+      (SELECT v.id FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL ORDER BY v.created_at DESC, v.number DESC LIMIT 1) AS newest
     FROM entities e WHERE e.project_id = ? ORDER BY e.name`);
-  // A project's entities, each with how many versions it has, when the last came, and its newest still.
-  const entities = (projectId) => readEntities.all(projectId).map((r) => ({ ...entityOf(r), versions: r.n, latestAt: r.latest || null, thumb: r.thumb || null }));
+  // A project's entities, each with how many versions it has, when the last came, its newest still, and
+  // its newest version: enough to scrub through it, or play it, from its card.
+  const glance = (id) => {
+    const v = id && version(id);
+    if (!v) return null;
+    const { src, poster, th, dur, fps, nw, nh } = v.look;
+    return { id: v.id, task: v.task, number: v.number, kind: v.kind, at: v.createdAt, look: { type: v.look.type, src, poster, th, dur, fps, nw, nh } };
+  };
+  const entities = (projectId) => readEntities.all(projectId).map((r) => ({ ...entityOf(r), versions: r.n, latestAt: r.latest || null, thumb: r.thumb || null, newest: glance(r.newest) }));
+  // The newest version of each entity, of one task or of any; for a project's timeline.
+  const readNewestOfTask = db.prepare('SELECT id FROM versions WHERE entity_id = ? AND task IS ? AND hidden = 0 AND deleted_at IS NULL ORDER BY number DESC LIMIT 1');
+  const newestOfTask = (entityId, task) => glance((readNewestOfTask.get(entityId, task) || {}).id);
   const readEntity = db.prepare('SELECT * FROM entities WHERE id = ?');
   const entity = (id) => {
     const r = readEntity.get(id);
@@ -882,7 +893,7 @@ function openStore(dataDir) {
   return {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
-    entities, entity, entityNamed, addEntity, setEntity, entitiesOf, happenings, people, entityCount, addVersion, version, versionsOf, hideVersion, editVersion, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion,
+    entities, newestOfTask, entity, entityNamed, addEntity, setEntity, entitiesOf, happenings, people, entityCount, addVersion, version, versionsOf, hideVersion, editVersion, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion,
     note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,

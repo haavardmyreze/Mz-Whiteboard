@@ -250,6 +250,9 @@ const WBViewer = (() => {
   const bound = new WeakMap();    // a video finding a moment -> { next: where to go after, if anywhere }
   const changing = new WeakMap(); // a video on its way to another source -> { at: where it is to be once there }
   function goTo(video, at) {
+    // Never quite to the end: a looping video put on its end has ended, starts again from its first
+    // frame, and a scrub held past the end would flick between the two.
+    if (video.duration > 0 && isFinite(video.duration)) at = Math.max(0, Math.min(at, video.duration - 0.02));
     const moving = changing.get(video);
     if (moving) {
       moving.at = at;

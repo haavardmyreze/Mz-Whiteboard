@@ -317,6 +317,15 @@ filed in it.
   or "File all" for every row that says where it goes (one still on its way in is filed when it
   arrives). "For all" fills every row at once. Nothing goes on a board. Click a filed one to open it in
   the player.
+- **Looking without choosing.** Move the pointer across a video's picture in the catalogue and it
+  scrubs through it, as if the pointer were dragging its playhead. An asset, set or shot's picture
+  plays its newest version at once ("Latest"); its name goes to its page, which has Play latest too.
+- **The timeline.** A project's Timeline (in the sidebar, or above the catalogue) lays out every shot
+  in order, sequence by sequence, as clips the length of their newest version (of any task, or of
+  one), like an editor's timeline but only for looking. The monitor above plays the whole run through,
+  the playhead drags, the arrows step from shot to shot, Space plays and pauses, Ctrl and the wheel
+  zoom, and a double-click opens a clip in the player. Images hold for three seconds; shots with
+  nothing filed show as a slate, or can be left out.
 - **Setting a project up.** "Add assets, sets & shots" above the catalogue takes names, typed or pasted
   one a line, each an asset, a set or a shot by its shape (or all of one kind, as chosen), and a run of
   shots from a sequence and its numbers (kilo, 10 to 200 by 10). They are in the catalogue and the
@@ -393,7 +402,8 @@ A project's catalogue has its own: `GET /api/projects/<folder>` (its assets, set
 versions (each file may say its own `entity` and `task`). `POST /api/projects/<folder>/entities` takes
 `{ "names": [...], "tier" }` to set many up at once; `PATCH /api/entities/<id>` takes `name`, `tier`,
 `artists` and `cc`. `GET /api/people` lists the names the app knows, and `GET /api/feed?name=` is
-Home's For you.
+Home's For you. `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest
+version.
 
 ## Settings
 

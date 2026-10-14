@@ -651,7 +651,7 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport, body[data-
 /* A finger held on a picture would otherwise bring up the phone's own menu for it, in the middle of a stroke. */
 #viewport, #viewport img, #viewport video { -webkit-touch-callout: none; -webkit-user-drag: none; }
 /* The bars over the board never scroll or zoom the page under a finger: the board does its own zooming. */
-#topbar, #toolbar, #tooloptions, #seltools, #timeline, #cptab, #followpill { touch-action: none; }
+#topbar, #toolbar, #tooloptions, #seltools, .v-timeline, .v-cptab, #followpill { touch-action: none; }
 
 #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; --z: 1; --inv: 1; }
 #frames, #items, #inks { position: absolute; left: 0; top: 0; }
@@ -1142,7 +1142,7 @@ kbd { display: inline-grid; place-items: center; min-width: 24px; height: 24px; 
    floating chrome moves in by what the strips take. */
 body.focus { --film: var(--fsw, 92px); --side: 0px; }
 body.focus.film-off { --film: 0px; }
-body.film-off #filmstrip { display: none; }
+body.film-off .v-film { display: none; }
 /* The panel is as wide as it has been dragged (--cpw), though never so wide that the piece has no room. */
 body.focus.cp-open { --side: min(var(--cpw, 320px), 60vw); }
 /* In here a press on the piece draws: there is one tool, so there is no strip of them. The brush's
@@ -1158,9 +1158,9 @@ body.focus .video .vbar, body.focus .video .vplay { display: none; }
 body.focus .item:is(.image, .video).peersel { outline: none; }
 
 /* The strip: small, quiet, and numbered the way the bar above counts them. */
-#filmstrip { left: 0; top: var(--bar); bottom: 0; z-index: 30; display: flex; flex-direction: column; gap: 6px; width: var(--film); padding: 10px 8px 10px 4px; border-width: 0 1px 0 0; border-radius: 0; box-shadow: none; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
-#filmstrip::-webkit-scrollbar { display: none; }
-#filmstrip[hidden] { display: none; }
+.v-film { left: 0; top: var(--bar); bottom: 0; z-index: 30; display: flex; flex-direction: column; gap: 6px; width: var(--film); padding: 10px 8px 10px 4px; border-width: 0 1px 0 0; border-radius: 0; box-shadow: none; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.v-film::-webkit-scrollbar { display: none; }
+.v-film[hidden] { display: none; }
 .fs-item { flex: none; display: flex; align-items: flex-start; gap: 4px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
 .fs-num { flex: none; width: 16px; padding-top: 1px; font-size: 10px; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; text-align: right; }
 .fs-thumb { position: relative; flex: 1; min-width: 0; display: block; overflow: hidden; border-radius: var(--r-1); background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); opacity: 0.7; transition: opacity 0.12s, box-shadow 0.12s; }
@@ -1172,17 +1172,17 @@ body.focus .item:is(.image, .video).peersel { outline: none; }
 .fs-badge svg { width: 7px; height: 7px; margin-left: 1px; }
 .fs-count { position: absolute; right: 3px; top: 3px; min-width: 14px; height: 14px; padding: 0 4px; border-radius: 7px; background: var(--accent-fill); color: #fff; font-size: 9.5px; font-weight: 600; line-height: 14px; letter-spacing: 0; text-align: center; }
 /* Put away and brought back by a tab on its edge, and made wider by that edge. */
-#fstab { position: fixed; z-index: 31; left: var(--film); top: calc(50% + var(--bar) / 2); transform: translateY(-50%); display: none; place-items: center; width: 30px; height: 68px; padding: 0; border: 1px solid var(--line); border-left: 0; border-radius: 0 var(--r-3) var(--r-3) 0; background: var(--surface-1); color: var(--muted); cursor: pointer; transition: background 0.12s var(--ease), color 0.12s var(--ease); }
-body.focus #fstab { display: grid; }
-#fstab:hover { background: var(--surface-2); color: var(--text); }
-#fstab svg { width: 16px; height: 16px; }
+.v-fstab { position: fixed; z-index: 31; left: var(--film); top: calc(50% + var(--bar) / 2); transform: translateY(-50%); display: none; place-items: center; width: 30px; height: 68px; padding: 0; border: 1px solid var(--line); border-left: 0; border-radius: 0 var(--r-3) var(--r-3) 0; background: var(--surface-1); color: var(--muted); cursor: pointer; transition: background 0.12s var(--ease), color 0.12s var(--ease); }
+body.focus .v-fstab { display: grid; }
+.v-fstab:hover { background: var(--surface-2); color: var(--text); }
+.v-fstab svg { width: 16px; height: 16px; }
 .fs-grip { position: fixed; z-index: 31; left: calc(var(--film) - 4px); top: var(--bar); bottom: 0; display: none; width: 8px; cursor: ew-resize; touch-action: none; }
 body.focus:not(.film-off) .fs-grip { display: block; }
 .fs-grip::after { content: ''; position: absolute; left: 3px; top: 0; bottom: 0; width: 2px; background: var(--accent); opacity: 0; transition: opacity 0.12s var(--ease); }
 .fs-grip:hover::after, .fs-grip.held::after, .fs-grip:focus-visible::after { opacity: 1; }
 .fs-grip:focus-visible { outline: none; }
 /* Wide enough, a row: the picture, and beside it the name and what it is. */
-#filmstrip { container-type: inline-size; }
+.v-film { container-type: inline-size; }
 .fs-label { display: none; }
 @container (min-width: 150px) {
   .fs-item { align-items: center; gap: 8px; padding: 3px 4px 3px 0; border-radius: var(--r-2); text-align: left; }
@@ -1197,12 +1197,12 @@ body.focus:not(.film-off) .fs-grip { display: block; }
 }
 
 /* The timeline: the transport, the time, and a track with a mark for every comment. */
-#timeline { left: calc(var(--film) + 12px); right: calc(var(--side) + 12px); bottom: 12px; z-index: 30; display: flex; align-items: center; gap: 2px; height: 48px; padding: 0 8px 0 6px; }
-#timeline[hidden] { display: none; }
-#timeline .iconbtn { flex: none; }
-#timeline .iconbtn svg { width: 16px; height: 16px; }
-#timeline .tl-loop { color: var(--muted); }
-#timeline .tl-loop.active { color: var(--accent); }
+.v-timeline { left: calc(var(--film) + 12px); right: calc(var(--side) + 12px); bottom: 12px; z-index: 30; display: flex; align-items: center; gap: 2px; height: 48px; padding: 0 8px 0 6px; }
+.v-timeline[hidden] { display: none; }
+.v-timeline .iconbtn { flex: none; }
+.v-timeline .iconbtn svg { width: 16px; height: 16px; }
+.v-timeline .tl-loop { color: var(--muted); }
+.v-timeline .tl-loop.active { color: var(--accent); }
 .tl-time { flex: none; min-width: 96px; height: var(--h-sm); margin: 0 4px; padding: 0 8px; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text); font: inherit; font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; text-align: center; cursor: pointer; }
 .tl-time:hover { background: var(--hover); }
 .tl-track { position: relative; flex: 1; align-self: stretch; min-width: 60px; margin: 0 10px 0 6px; cursor: pointer; touch-action: none; --p: 0%; }
@@ -1308,21 +1308,21 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
 
 /* The panel. Out on the board it floats and lists every thread; beside the viewer it is docked, part of
    the frame around the piece, and holds that piece's threads and the box to write a new one. */
-#commentpanel, #threadpanel { z-index: 40; right: 12px; top: calc(var(--bar) + 12px); display: flex; flex-direction: column; width: var(--cpw, 336px); max-width: calc(100vw - 24px); max-height: calc(100vh - var(--bar) - 24px); overflow: hidden; animation: rise 0.14s var(--ease); }
-#commentpanel[hidden], #threadpanel[hidden] { display: none; }
+.v-panel, #threadpanel { z-index: 40; right: 12px; top: calc(var(--bar) + 12px); display: flex; flex-direction: column; width: var(--cpw, 336px); max-width: calc(100vw - 24px); max-height: calc(100vh - var(--bar) - 24px); overflow: hidden; animation: rise 0.14s var(--ease); }
+.v-panel[hidden], #threadpanel[hidden] { display: none; }
 /* The way to the comments is a tab on the side of the viewer, on the edge the panel comes out from:
    where the comments are, and nowhere near the top of the screen. */
-#cptab { position: fixed; z-index: 41; right: var(--side); top: calc(50% + var(--bar) / 2); transform: translateY(-50%); display: none; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 30px; min-height: 68px; padding: 10px 0; border: 1px solid var(--line); border-right: 0; border-radius: var(--r-3) 0 0 var(--r-3); background: var(--surface-1); box-shadow: var(--shadow-1); color: var(--text-2); cursor: pointer; transition: background 0.12s var(--ease), color 0.12s var(--ease); }
-body.focus #cptab { display: flex; }
-#cptab:hover { background: var(--surface-2); color: var(--text); }
-#cptabicon { display: grid; }
-#cptab svg { width: 16px; height: 16px; }
-#cptab .count { min-width: 16px; height: 16px; padding: 0 4px; font-size: 10px; }
+.v-cptab { position: fixed; z-index: 41; right: var(--side); top: calc(50% + var(--bar) / 2); transform: translateY(-50%); display: none; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 30px; min-height: 68px; padding: 10px 0; border: 1px solid var(--line); border-right: 0; border-radius: var(--r-3) 0 0 var(--r-3); background: var(--surface-1); box-shadow: var(--shadow-1); color: var(--text-2); cursor: pointer; transition: background 0.12s var(--ease), color 0.12s var(--ease); }
+body.focus .v-cptab { display: flex; }
+.v-cptab:hover { background: var(--surface-2); color: var(--text); }
+.v-cptab-icon { display: grid; }
+.v-cptab svg { width: 16px; height: 16px; }
+.v-cptab .count { min-width: 16px; height: 16px; padding: 0 4px; font-size: 10px; }
 /* Open, the panel says how many there are itself. */
-#cptab[aria-expanded="true"] .count { display: none; }
-body.focus #commentpanel { animation: cp-slide 0.16s var(--ease); }
+.v-cptab[aria-expanded="true"] .count { display: none; }
+body.focus .v-panel { animation: cp-slide 0.16s var(--ease); }
 @keyframes cp-slide { from { transform: translateX(16px); opacity: 0; } }
-body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: var(--side); max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: none; }
+body.focus .v-panel { right: 0; bottom: 0; top: var(--bar); width: var(--side); max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: none; }
 /* Its inner edge is taken hold of to make it wider or narrower. */
 .cp-grip { position: absolute; left: 0; top: 0; bottom: 0; z-index: 2; width: 8px; cursor: ew-resize; touch-action: none; }
 .cp-grip::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--accent); opacity: 0; transition: opacity 0.12s var(--ease); }
@@ -1429,8 +1429,8 @@ body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: var(--si
 /* Read-only link: only looking around is left. */
 body.viewonly #tooloptions, body.viewonly #seltools, body.viewonly #selbox,
 body.viewonly #share, body.viewonly #snap,
-body.viewonly:not(.guest-reads) #cptab,
-body.viewonly:not(.guest-reads) #commentpanel { display: none !important; }
+body.viewonly:not(.guest-reads) .v-cptab,
+body.viewonly:not(.guest-reads) .v-panel { display: none !important; }
 body.viewonly #boardname, body.viewonly #back { pointer-events: none; }
 body.viewonly .item { cursor: grab; }
 /* What can be opened says so: a zoom cursor, a ring and an expand badge on hover. */
@@ -1599,7 +1599,7 @@ body.login { display: grid; place-items: center; min-height: 100%; padding: 24px
 @media (max-width: 960px) {
   body.focus { --film: 0px; }
   body.focus.cp-open { --side: min(var(--cpw, 280px), 50vw); }
-  #filmstrip, #fstab, .fs-grip { display: none !important; }
+  .v-film, .v-fstab, .fs-grip { display: none !important; }
 }
 
 /* A phone held upright: the tools lie along the bottom where a thumb reaches them, labelled, with undo
@@ -1641,13 +1641,13 @@ body.login { display: grid; place-items: center; min-height: 100%; padding: 24px
   /* No room for the strips: a swipe goes to the next piece, the comments come up as a sheet over the
      tools, and a video's timeline sits just above the tools. */
   body.focus, body.focus.cp-open { --film: 0px; --side: 0px; }
-  #filmstrip, #fstab, .fs-grip { display: none !important; }
-  #timeline { left: 8px; right: 8px; bottom: calc(var(--tbh) + 14px + env(safe-area-inset-bottom)); }
+  .v-film, .v-fstab, .fs-grip { display: none !important; }
+  .v-timeline { left: 8px; right: 8px; bottom: calc(var(--tbh) + 14px + env(safe-area-inset-bottom)); }
   .tl-time { min-width: 0; margin: 0; padding: 0 4px; }
   body.focus #followpill { bottom: calc(var(--tbh) + 16px + env(safe-area-inset-bottom)); }
   body.focus-video #followpill { bottom: calc(var(--tbh) + 72px + env(safe-area-inset-bottom)); }
   .cp-grip { display: none; }
-  #commentpanel, #threadpanel, body.focus #commentpanel { left: 8px; right: 8px; top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 45; width: auto; max-width: none; max-height: 62vh; border-width: 1px; border-radius: var(--r-3); box-shadow: var(--shadow-pop); }
+  .v-panel, #threadpanel, body.focus .v-panel { left: 8px; right: 8px; top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 45; width: auto; max-width: none; max-height: 62vh; border-width: 1px; border-radius: var(--r-3); box-shadow: var(--shadow-pop); }
   #followpill { max-width: calc(100vw - 16px); }
   /* Text a finger types into is set at the size a phone reads without zooming the page in on it. */
   .cp-compose textarea, .cp-reply textarea, .msg-edit textarea { font-size: 16px; line-height: 22px; }
@@ -2034,8 +2034,8 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .v-bar .v-clear[hidden], .v-bar [hidden] { display: none; }
 .v-extras { display: flex; align-items: center; }
 .v-extras:empty { display: none; }
-.viewer #filmstrip, .viewer #timeline, .viewer #commentpanel, .viewer .v-bar { z-index: 2; }
-.viewer #fstab, .viewer .fs-grip, .viewer #cptab { z-index: 3; }
+.viewer .v-film, .viewer .v-timeline, .viewer .v-panel, .viewer .v-bar { z-index: 2; }
+.viewer .v-fstab, .viewer .fs-grip, .viewer .v-cptab { z-index: 3; }
 #helppanel { z-index: 46; }
 /* A phone's tools for the viewer, along the bottom: the hand, the brush, the eraser, the laser, undo and redo. */
 .v-tools { display: none; }
@@ -2046,7 +2046,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
   .v-tools .iconbtn svg { width: 20px; height: 20px; }
   .v-tools .tl { display: block; font-size: 10px; line-height: 1.25; }
   .v-tools .iconbtn.active { background: var(--accent-fill); color: #fff; }
-  .viewer #timeline { bottom: calc(var(--tbh) + 14px + env(safe-area-inset-bottom)); }
+  .viewer .v-timeline { bottom: calc(var(--tbh) + 14px + env(safe-area-inset-bottom)); }
   .v-bar { gap: 4px; padding: 0 8px; }
   .v-bar .wordmark, .v-bar .bar-slash, .v-bar .bar-crumb, .v-bar .themebtn, .v-bar .v-clear, .v-extras { display: none !important; }
   .v-name { flex: 1 1 0; }
@@ -2139,8 +2139,8 @@ button.imp-row:hover { background: var(--hover); }
 
 /* A run in the player: the shots of a project played through. No side strip; the bar under the picture
    runs the whole width, and its track is the strip of shots. */
-.viewer.run #filmstrip, .viewer.run #fstab, .viewer.run .fs-grip { display: none !important; }
-.viewer.run #timeline { left: 12px; height: 70px; }
+.viewer.run .v-film, .viewer.run .v-fstab, .viewer.run .fs-grip { display: none !important; }
+.viewer.run .v-timeline { left: 12px; height: 70px; }
 .tl-run { display: none; }
 .viewer.run .tl-run { display: block; position: absolute; left: 0; right: 0; top: 7px; bottom: 7px; overflow: hidden; border-radius: 4px; background: var(--surface-3); }
 .viewer.run .tl-track .tl-rail, .viewer.run .tl-track .tl-wave { display: none !important; }
@@ -2165,7 +2165,7 @@ button.imp-row:hover { background: var(--hover); }
 .tl-seqname { position: absolute; z-index: 1; top: 2px; left: 3px; padding: 0 4px; border-radius: 3px; background: rgba(0, 0, 0, 0.65); color: #fff; font-size: 9.5px; font-weight: 700; line-height: 14px; letter-spacing: 0.06em; text-transform: uppercase; }
 .viewer.run .tl-head { top: 3px; bottom: 3px; width: 2px; height: auto; margin: 0 0 0 -1px; border-radius: 1px; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }
 .viewer.run .tl-mark.comment { top: -3px; z-index: 2; }
-#timeline.still .iconbtn.tl-step { opacity: 0.35; pointer-events: none; }
+.v-timeline.still .iconbtn.tl-step { opacity: 0.35; pointer-events: none; }
 .v-spare { position: fixed; left: 0; top: 0; width: 2px; height: 2px; overflow: hidden; opacity: 0; pointer-events: none; }
 .v-spare video { width: 2px; height: 2px; }
 /* The run's choices in the bar: which sequence, which task. */
@@ -2285,9 +2285,9 @@ body:not(.vpicking) .vl-row { grid-template-columns: 96px minmax(0, 1fr) auto au
 .viewer.docked { --dock-l: 252px; --dock-t: 48px; clip-path: inset(var(--dock-t) 0 0 var(--dock-l)); }
 .viewer.docked .v-bar { top: var(--dock-t); left: var(--dock-l); }
 .viewer.docked .v-bar .brand, .viewer.docked .v-bar .brand + .bar-slash { display: none; }
-.viewer.docked #timeline { left: calc(var(--dock-l) + 12px); }
-.viewer.docked #commentpanel { top: calc(var(--bar) + var(--dock-t)); }
-.viewer.docked #cptab { top: calc(50% + (var(--bar) + var(--dock-t)) / 2); }
+.viewer.docked .v-timeline { left: calc(var(--dock-l) + 12px); }
+.viewer.docked .v-panel { top: calc(var(--bar) + var(--dock-t)); }
+.viewer.docked .v-cptab { top: calc(50% + (var(--bar) + var(--dock-t)) / 2); }
 .viewer.docked .v-runcap { top: calc(var(--bar) + var(--dock-t) + 14px); left: calc(var(--dock-l) + 24px); }
 @media (max-width: 900px) {
   .viewer.docked { --dock-l: 0px; }

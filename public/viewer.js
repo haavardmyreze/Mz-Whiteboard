@@ -286,14 +286,17 @@ const WBViewer = (() => {
     const me = () => opts.me();
 
     // ---- the frame around the piece
-    const film = el('nav', { id: 'filmstrip', class: 'chrome', 'aria-label': 'Images and video' });
-    const filmTab = el('button', { id: 'fstab', 'aria-controls': 'filmstrip', onclick: () => toggleFilm() });
+    // Classes, not ids, so a page may hold more than one player: each is styled within its own root.
+    const filmId = `v-film-${WB.uid()}`;
+    const panelId = `v-panel-${WB.uid()}`;
+    const film = el('nav', { id: filmId, class: 'v-film chrome', 'aria-label': 'Images and video' });
+    const filmTab = el('button', { class: 'v-fstab', 'aria-controls': filmId, onclick: () => toggleFilm() });
     const filmGrip = el('div', { class: 'fs-grip', role: 'separator', tabindex: '0', 'aria-orientation': 'vertical', 'aria-label': 'Width of the strip', title: 'Drag to widen and see names. Double-click to put it back' });
-    const timeline = el('div', { id: 'timeline', class: 'chrome', hidden: true });
-    const panel = el('aside', { id: 'commentpanel', class: 'chrome', 'aria-label': 'Comments', hidden: true });
-    const cpTabIcon = el('span', { id: 'cptabicon' });
-    const cpTabCount = el('span', { id: 'cptabcount', class: 'count', hidden: true });
-    const cpTab = el('button', { id: 'cptab', title: 'Show the comments (Shift+C)', 'aria-controls': 'commentpanel', 'aria-expanded': 'false', onclick: () => togglePanel() }, cpTabIcon, cpTabCount);
+    const timeline = el('div', { class: 'v-timeline chrome', hidden: true });
+    const panel = el('aside', { id: panelId, class: 'v-panel chrome', 'aria-label': 'Comments', hidden: true });
+    const cpTabIcon = el('span', { class: 'v-cptab-icon' });
+    const cpTabCount = el('span', { class: 'v-cptab-count count', hidden: true });
+    const cpTab = el('button', { class: 'v-cptab', title: 'Show the comments (Shift+C)', 'aria-controls': panelId, 'aria-expanded': 'false', onclick: () => togglePanel() }, cpTabIcon, cpTabCount);
     const pieceBox = el('div', { class: 'v-piece' });
     const ink = svgEl('svg', { class: 'v-ink' });
     const laserCanvas = el('canvas', { class: 'v-laser' });

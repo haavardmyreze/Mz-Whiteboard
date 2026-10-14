@@ -424,10 +424,9 @@ const WBViewer = (() => {
   //
   // A browser keeps only a little of a paused video in hand and fetches the rest as it is asked for, so a
   // scrub keeps landing on moments it has not got and drags until the hand has been over the whole length
-  // once. A video that is opened is therefore fetched whole, in one go, and played from memory. Where a
-  // copy is kept on this computer already (see the board's cache) it comes from there. A host may do this
-  // itself (a board does, so it can fetch ahead); otherwise this is how.
-  const WHOLE_MAX = 400 * 1024 * 1024;
+  // once. A video that is opened is therefore fetched whole, in one go, and played from memory. It comes
+  // from the copy kept on this computer if there is one, and is kept there if not (media.js). A host may
+  // do this itself (a board does); otherwise this is how.
   const WHOLE_KEPT = 1024 * 1024 * 1024;
   const wholes = new Map(); // address -> { loaded, total, url, size, used, ctl, ready }
 
@@ -437,26 +436,10 @@ const WBViewer = (() => {
     entry = { loaded: 0, total: 0, url: null, size: 0, used: performance.now(), ctl: new AbortController() };
     wholes.set(src, entry);
     entry.ready = (async () => {
-      const cache = 'caches' in window ? await caches.open(WB.media.CACHE).catch(() => null) : null;
-      const hit = cache ? await cache.match(src).catch(() => null) : null;
-      let blob;
-      if (hit) {
-        blob = await hit.blob();
-        entry.total = entry.loaded = blob.size;
-      } else {
-        const res = await fetch(src, { signal: entry.ctl.signal });
-        entry.total = Number(res.headers.get('content-length')) || 0;
-        if (!res.ok || !res.body || !entry.total || entry.total > WHOLE_MAX) throw new Error('not one to hold');
-        const reader = res.body.getReader();
-        const pieces = [];
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          pieces.push(value);
-          entry.loaded += value.length;
-        }
-        blob = new Blob(pieces, { type: res.headers.get('content-type') || 'video/mp4' });
-      }
+      const blob = await WB.media.get(src, {
+        signal: entry.ctl.signal,
+        onProgress: (loaded, total) => { entry.loaded = loaded; entry.total = total; },
+      });
       entry.size = blob.size;
       entry.url = URL.createObjectURL(blob);
       // Memory is not for hoarding: the videos opened longest ago are let go of.
@@ -628,6 +611,9 @@ const WBViewer = (() => {
     // The next shot is loaded while this one plays, so the cut to it is clean.
     function prepareSpare() {
       const i = runClips.findIndex((c) => c.id === open.id);
+      // The shots after this one are kept on this computer ahead of the cut to them (media.js).
+      const coming = [...runClips.slice(i), ...(looping ? runClips.slice(0, i) : [])].slice(0, 6);
+      WB.media.want('run', coming.filter((c) => c.piece.type === 'video').map((c) => c.piece.src), { rank: WB.media.RANK.run, hold: true });
       const next = runClips[i + 1] || (looping ? runClips[0] : null);
       if (spare && (!next || spare.id !== next.id)) dropSpare();
       if (!next || next.piece.type !== 'video' || next.id === open.id || spare) return;
@@ -738,6 +724,7 @@ const WBViewer = (() => {
 
     function close() {
       if (!open) return;
+      WB.media.want('run', []);
       const was = open;
       leavePiece(was);
       switchTyped(was.id, null);

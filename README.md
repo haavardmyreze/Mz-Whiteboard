@@ -129,6 +129,20 @@ private networks, otherwise only the host machine can connect.
   or with the browser asked to save data, nothing is fetched ahead. A small ring in the bar fills as
   the videos are cached, with a count beside it ("2/5 cached"), and turns to a tick and "Cached" once
   the whole board is; hover or press it and it says more.
+- **Videos are kept on this computer everywhere, not only on boards.** One cache serves every page
+  (`public/media.js`): whatever video you open, in a board, the catalogue, the timeline or from Home, is
+  kept, and is there at once the next time. Ahead of you, in this order, it also fetches the timeline's
+  next few shots as it plays, the open board's videos, the videos the page you are on shows (the
+  catalogue's cards, say), and the newest version of your work, of what you are cc'd on and of what
+  you pinned (Home's feed is fetched every few minutes for this, wherever you are). Your settings
+  (your name at the top right) turn fetching ahead off, or any of boards, work, cc'd and pinned. Up
+  to 4 GB is kept; what was wanted longest ago makes room, never what the open board, the page or
+  the timeline is showing, and when nothing more can be made room for, fetching ahead stops rather
+  than throwing out what is wanted. A small service worker (`public/sw.js`) answers the pages' own
+  video players from the kept copies, scrubbing included, so a card scrubbed on hover or the
+  timeline's next shot plays from the disk too. What is kept is listed in IndexedDB, a record a video,
+  and a lock for each file keeps two tabs from fetching the same one; the list from before (in
+  localStorage) is taken over the first time.
   A video that is more than the browser can process (a very large frame in Safari, say) is not added:
   a message names it and says which browsers to add it from instead, rather than putting the bare
   file on the board. (On a plain http address, where no browser can make review copies, videos still
@@ -434,7 +448,8 @@ highest number each task of each entity has reached). `POST /api/projects/<folde
 `{ "names": [...], "tier" }` to set many up at once; `PATCH /api/entities/<id>` takes `name`, `tier`,
 `artists` and `cc`, and `PATCH /api/projects/<folder>/entities` takes `{ "ids": [...], "tier",
 "artists": { "add" | "remove" | "set": [...] }, "cc": { ... } }` to change many at once. `GET /api/people`
-lists the names the app knows, and `GET /api/feed?name=` is Home's Updates and My work.
+lists the names the app knows, and `GET /api/feed?name=` is Home's Updates and My work (and `cc`, what you are cc'd on, each with
+its newest version, for the cache to fetch ahead).
 `GET /api/projects/<folder>/activity` what happened in the project in the last two weeks (versions
 filed and comments, newest first), `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest version,
 `GET /api/projects/<folder>/versions?before=` the project's versions newest first, and

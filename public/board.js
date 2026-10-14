@@ -2018,114 +2018,31 @@
 
   // ---- the board's videos, kept on this machine
   //
-  // Over the internet the wait is for a video to arrive, and it is longest just when it is opened. So
-  // once a board is open its videos are fetched ahead, quietly, one at a time and in the order the
-  // viewer steps through them, and kept on this machine's disk. Opening one then finds it here: it
-  // comes from the disk at once, this time and every time after. A file's address is made from what is
-  // in it, so a copy kept here can never be out of date.
-  //
-  // What is opened never waits for this: it has the line to itself, and what was being fetched ahead
-  // gives way to it. Where the browser has nowhere to keep things (a plain http address that is not
-  // this machine) or has been asked to save data, nothing is fetched ahead and all is as it was.
-  const KEPT_MAX = WB.media.MAX; // how much is kept on disk across boards
-  const mediaCache = 'caches' in window ? caches.open(WB.media.CACHE).catch(() => null) : Promise.resolve(null);
-  const kept = store('wb:kept') || {};     // a video's address -> [its size, when it was last wanted]
-  const aheadFailed = new Set();
-  const onDisk = new Set();                // which of them are known to be there
+  // Once a board is open its videos are fetched ahead, quietly, one at a time and in the order the viewer
+  // steps through them, and kept on this computer (media.js, which keeps for every page). Opening one
+  // then finds it there, this time and every time after. What is on the open board is never made room for.
+  const media = WB.media;
+  const KEPT_MAX = media.MAX;
   let diskReady = false;
-  mediaCache.then((cache) => {
-    diskReady = !!cache;
+  media.ready.then((ok) => {
+    diskReady = ok;
     paintKept();
   });
-  let ahead = null;                        // what is being fetched ahead: { src, ctl, done, loaded, total }
+  media.on(() => paintKept());
+  // Fetching ahead has stopped: turned off, the disk is full, or the browser is saving data.
+  const aheadOff = () => !!media.status().paused;
+  const aheadNow = () => media.status().current;
+
   let aheadTimer = 0;
-  let aheadRunning = false;
-  let aheadOff = !!(navigator.connection && navigator.connection.saveData) || !WB.media.ahead();
-
-  async function keepOnDisk(cache, src, blob) {
-    try {
-      await cache.put(src, new Response(blob, { headers: { 'Content-Type': blob.type || 'video/mp4', 'Content-Length': String(blob.size) } }));
-    } catch {
-      // No room, or no leave to keep things here: nothing more is fetched ahead this time.
-      aheadOff = true;
-      paintKept();
-      return;
-    }
-    kept[src] = [blob.size, Date.now()];
-    onDisk.add(src);
-    paintKept();
-    // What has gone longest unwanted makes room, though never what is on the board that is open.
-    const here = new Set([...items.values()].map((it) => it.src));
-    let total = Object.values(kept).reduce((sum, k) => sum + k[0], 0);
-    for (const [old, k] of Object.entries(kept).sort((a, b) => a[1][1] - b[1][1])) {
-      if (total <= KEPT_MAX) break;
-      if (here.has(old)) continue;
-      await cache.delete(old).catch(() => {});
-      delete kept[old];
-      onDisk.delete(old);
-      total -= k[0];
-    }
-    store('wb:kept', kept);
-  }
-
   function queueAhead() {
     paintKept();
-    if (aheadOff) return;
     clearTimeout(aheadTimer);
-    aheadTimer = setTimeout(fetchAhead, 2500);
-  }
-
-  async function fetchAhead() {
-    const cache = await mediaCache;
-    if (!cache || aheadRunning || aheadOff) return;
-    aheadRunning = true;
-    try {
-      for (;;) {
-        // What has been opened has the line to itself.
-        while ([...wholes.values()].some((e) => !e.url)) await new Promise((resolve) => setTimeout(resolve, 400));
-        if (aheadOff) break;
-        // From the piece that is open onwards, since the next one is the likeliest to be wanted next.
-        const order = mediaOrder().filter(wholeable);
-        const from = Math.max(0, order.findIndex((it) => it.id === openId));
-        let next = null;
-        for (const it of [...order.slice(from), ...order.slice(0, from)]) {
-          if (aheadFailed.has(it.src) || onDisk.has(it.src)) continue;
-          if (await cache.match(it.src).catch(() => null)) onDisk.add(it.src);
-          else if (!next && !wholes.has(it.src)) next = it.src;
-        }
-        paintKept();
-        if (!next) break;
-        const ctl = new AbortController();
-        const job = (ahead = { src: next, ctl, loaded: 0, total: 0 });
-        job.done = (async () => {
-          const res = await fetch(next, { signal: ctl.signal });
-          job.total = Number(res.headers.get('content-length')) || 0;
-          if (!res.ok || !res.body || !job.total || job.total > WHOLE_MAX) throw new Error('not one to keep');
-          const reader = res.body.getReader();
-          const pieces = [];
-          let told = 0;
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            pieces.push(value);
-            job.loaded += value.length;
-            if (job.loaded - told > job.total / 50) {
-              told = job.loaded;
-              paintKept();
-            }
-          }
-          await keepOnDisk(cache, next, new Blob(pieces, { type: res.headers.get('content-type') || 'video/mp4' }));
-        })().catch(() => {
-          // Given up for something that was opened, it is tried again; anything else is left alone.
-          if (!ctl.signal.aborted) aheadFailed.add(next);
-        });
-        await job.done;
-        if (ahead === job) ahead = null;
-      }
-    } finally {
-      aheadRunning = false;
-      paintKept();
-    }
+    aheadTimer = setTimeout(() => {
+      // From the piece that is open onwards, since the next one is the likeliest to be wanted next.
+      const order = mediaOrder().filter(wholeable);
+      const from = Math.max(0, order.findIndex((it) => it.id === openId));
+      media.want(`board:${boardId}`, [...order.slice(from), ...order.slice(0, from)].map((it) => it.src), { rank: media.RANK.board, kind: 'boards', hold: true });
+    }, 1000);
   }
 
   // The ring in the bar: how much of this board's video is on this computer already.
@@ -2164,19 +2081,20 @@
 
   function paintKeptPop() {
     const board = mediaOrder().filter((it) => it.type === 'video');
-    const srcs = [...new Set(board.filter(wholeable).map((it) => it.src))].filter((src) => !aheadFailed.has(src));
-    const here = srcs.filter((src) => onDisk.has(src));
-    const hereBytes = here.reduce((sum, src) => sum + (kept[src] ? kept[src][0] : 0), 0);
-    const allBytes = Object.values(kept).reduce((sum, k) => sum + k[0], 0);
+    const srcs = [...new Set(board.filter(wholeable).map((it) => it.src))].filter((src) => !media.failed(src));
+    const here = srcs.filter((src) => media.has(src));
+    const hereBytes = here.reduce((sum, src) => sum + media.sizeOf(src), 0);
+    const allBytes = media.total();
+    const ahead = aheadNow();
     // Too large to keep, or failed on the way: those play from the server, as they always did.
-    const remote = board.length - board.filter((it) => wholeable(it) && !aheadFailed.has(it.src)).length;
+    const remote = board.length - board.filter((it) => wholeable(it) && !media.failed(it.src)).length;
     const nameOf = (src) => {
       const it = board.find((one) => one.src === src);
       return (it && it.name) || 'A video';
     };
     const coming = [];
-    if (ahead && ahead.total && !onDisk.has(ahead.src)) coming.push([ahead.src, ahead.loaded / ahead.total]);
-    for (const [src, e] of wholes) if (!e.url && e.total && !onDisk.has(src) && (!ahead || ahead.src !== src)) coming.push([src, e.loaded / e.total]);
+    if (ahead && ahead.total && !media.has(ahead.src) && srcs.includes(ahead.src)) coming.push([ahead.src, ahead.loaded / ahead.total]);
+    for (const [src, e] of wholes) if (!e.url && e.total && !media.has(src) && (!ahead || ahead.src !== src)) coming.push([src, e.loaded / e.total]);
 
     const k = srcs.length ? here.length / srcs.length : 0;
     const R = 2 * Math.PI * 17;
@@ -2187,13 +2105,13 @@
       el('div', { class: 'kp-head' }, ring,
         el('div', { class: 'kp-title' }, el('b', { text: `${here.length} of ${srcs.length} ${srcs.length === 1 ? 'video' : 'videos'}` }), el('span', { text: 'cached from this board' })),
         el('b', { class: 'kp-size', text: sizeLabel(hereBytes) })),
-      aheadOff && here.length < srcs.length && el('div', { class: 'kp-warn', title: 'The disk is full, or the browser is saving data' }, el('span', { html: ICON.pause }), 'Paused'),
+      aheadOff() && here.length < srcs.length && el('div', { class: 'kp-warn', title: 'Turned off in your settings, the disk is full, or the browser is saving data' }, el('span', { html: ICON.pause }), 'Paused'),
       coming.length > 0 && el('div', { class: 'kp-list' }, coming.map(([src, f]) => el('div', { class: 'kp-item' },
         el('span', { class: 'kp-name', text: nameOf(src) }), el('span', { class: 'kp-pct', text: `${Math.floor(f * 100)}%` }), bar(f)))),
       remote > 0 && el('div', { class: 'kp-line', title: 'Too large to cache, or could not be cached' },
         el('span', { class: 'kp-ic', html: ICON.cloud }), el('span', { text: `${remote} from the server` })),
       el('div', { class: 'kp-total' },
-        el('div', { class: 'kp-line' }, el('span', { class: 'kp-ic', html: ICON.kept }), el('span', { text: 'All boards' }),
+        el('div', { class: 'kp-line' }, el('span', { class: 'kp-ic', html: ICON.kept }), el('span', { text: 'Everything cached' }),
           el('span', { class: 'kp-of', text: `${sizeLabel(allBytes)} / ${sizeLabel(KEPT_MAX)}` })),
         bar(allBytes / KEPT_MAX)),
     ].filter(Boolean));
@@ -2203,29 +2121,30 @@
   keptRing.querySelector('.arc').style.strokeDasharray = KEPT_RING;
   function paintKept() {
     const srcs = new Set(mediaOrder().filter(wholeable).map((it) => it.src));
-    for (const src of aheadFailed) srcs.delete(src);
+    for (const src of [...srcs]) if (media.failed(src)) srcs.delete(src);
     const total = srcs.size;
     keptRing.hidden = !diskReady || !total;
     if (keptRing.hidden) {
       if (!keptPop.hidden) toggleKeptPop(false);
       return;
     }
-    const done = [...srcs].filter((src) => onDisk.has(src)).length;
+    const done = [...srcs].filter((src) => media.has(src)).length;
     // What is on its way counts for as much of itself as has arrived.
     let coming = 0;
-    if (ahead && ahead.total && srcs.has(ahead.src) && !onDisk.has(ahead.src)) coming += ahead.loaded / ahead.total;
-    for (const [src, e] of wholes) if (!e.url && e.total && srcs.has(src) && !onDisk.has(src)) coming += e.loaded / e.total;
+    const ahead = aheadNow();
+    if (ahead && ahead.total && srcs.has(ahead.src) && !media.has(ahead.src)) coming += ahead.loaded / ahead.total;
+    for (const [src, e] of wholes) if (!e.url && e.total && srcs.has(src) && !media.has(src)) coming += e.loaded / e.total;
     const k = clamp((done + coming) / total, 0, 1);
     const full = done >= total;
     const videos = total === 1 ? 'video' : 'videos';
     keptRing.querySelector('.arc').style.strokeDashoffset = KEPT_RING * (1 - k);
     keptRing.querySelector('.kept-label').textContent = full ? 'Cached' : `${done}/${total} cached`;
     keptRing.classList.toggle('full', full);
-    keptRing.classList.toggle('off', aheadOff && !full);
+    keptRing.classList.toggle('off', aheadOff() && !full);
     const tip = full
       ? `${total === 1 ? 'The video' : `All ${total} videos`} on this board ${total === 1 ? 'is' : 'are'} cached on this computer, so ${total === 1 ? 'it opens and scrubs' : 'they open and scrub'} instantly`
-      : aheadOff
-        ? `${done} of ${total} ${videos} cached on this computer. Caching has stopped: the disk is full, or the browser is saving data`
+      : aheadOff()
+        ? `${done} of ${total} ${videos} cached on this computer. Caching has stopped: it is turned off, the disk is full, or the browser is saving data`
         : `Caching this board's videos on this computer so they open and scrub instantly: ${done} of ${total} done`;
     if (keptRing.dataset.tip !== tip) {
       keptRing.dataset.tip = tip;
@@ -2240,35 +2159,15 @@
     entry = { loaded: 0, total: 0, url: null, size: 0, ctl: new AbortController() };
     wholes.set(src, entry);
     entry.ready = (async () => {
-      const cache = await mediaCache;
-      // On its way in ahead already: that is the copy to wait for, not a second one beside it. Anything
-      // else being fetched ahead gives up the line.
-      if (ahead && ahead.src === src) await ahead.done;
-      else if (ahead) ahead.ctl.abort();
-      const hit = cache ? await cache.match(src).catch(() => null) : null;
-      let blob;
-      if (hit) {
-        blob = await hit.blob();
-        entry.total = entry.loaded = blob.size;
-        if (kept[src]) kept[src][1] = Date.now();
-        onDisk.add(src);
-      } else {
-        onDisk.delete(src);
-        const res = await fetch(src, { signal: entry.ctl.signal });
-        entry.total = Number(res.headers.get('content-length')) || 0;
-        if (!res.ok || !res.body || !entry.total || entry.total > WHOLE_MAX) throw new Error('not one to hold in memory');
-        const reader = res.body.getReader();
-        const pieces = [];
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          pieces.push(value);
-          entry.loaded += value.length;
+      // From the copy kept on this computer if there is one; kept there if not.
+      const blob = await media.get(src, {
+        signal: entry.ctl.signal,
+        onProgress: (loaded, total) => {
+          entry.loaded = loaded;
+          entry.total = total;
           paintKept();
-        }
-        blob = new Blob(pieces, { type: res.headers.get('content-type') || 'video/mp4' });
-        if (cache) keepOnDisk(cache, src, blob);
-      }
+        },
+      });
       // Stepped past while it was on its way.
       if (entry.ctl.signal.aborted || blob.size > WHOLE_MAX) throw new Error('not wanted any more');
       entry.size = blob.size;
@@ -4219,7 +4118,7 @@
     { id: 'guide', label: 'Guide', icon: ICON.help, guide: [
       [ICON.stack, 'Versions', 'On a board in a project, select images or videos and file them as versions of an asset, set or shot (Shift+V). Their notes go with them, and show on every board the version is on. The catalogue button adds versions to the board.'],
       [ICON.comment, 'Comments with drawings', 'Draw on the open image or video while writing a comment, and the drawing belongs to it: it shows when the comment is read, on the frame it is about.'],
-      [ICON.kept, 'Video cache', `The videos on boards you open are saved on this computer, so they open and scrub at once. Up to ${KEPT_MAX / 1024 ** 3} GB across all boards; the ones opened longest ago make room.`],
+      [ICON.kept, 'Video cache', `The videos on boards you open, and the newest of your work, of what you are cc'd on and of what you pinned, are saved on this computer, so they open and scrub at once. Up to ${KEPT_MAX / 1024 ** 3} GB in all; the ones opened longest ago make room.`],
       [ICON.activity, 'Snapshots', 'Before each round of changes the board is kept as it was. Putting one back keeps what is there now as a snapshot too, so nothing is lost. Notes and catalogue versions are not touched.'],
       [ICON.download, 'Originals', 'Video is made lighter on upload so it plays smoothly for review. The file it came from is kept, and is what is downloaded.'],
       [ICON.link, 'Sharing', 'A link lets people outside the team look, read the comments or comment, without signing in, until you turn it off or it runs out.'],

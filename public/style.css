@@ -2331,3 +2331,6 @@ body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
 .home-side .section-label + .home-quiet + .section-label, .home-side .home-work + .section-label { margin-top: 28px; }
 .folder-grid.ph-parts { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 8px; }
 @media (max-width: 1100px) { .folder-grid.ph-parts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* The kinds of thing cached ahead, under the switch for all of it. */
+.acct-row.sub { min-height: 30px; margin-top: 2px; padding-left: 14px; }
+.acct-row.sub.off { opacity: 0.5; cursor: default; }

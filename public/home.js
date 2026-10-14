@@ -70,7 +70,7 @@
 
     async function paint() {
       const u = WB.info().user;
-      const stats = WB.media.stats();
+      const stats = await WB.media.stats();
       let quota = null;
       try {
         quota = navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate() : null;
@@ -79,7 +79,14 @@
       }
       const ahead = el('input', { type: 'checkbox', role: 'switch', 'aria-label': 'Cache videos ahead' });
       ahead.checked = WB.media.ahead();
-      ahead.addEventListener('change', () => WB.media.setAhead(ahead.checked));
+      ahead.addEventListener('change', () => { WB.media.setAhead(ahead.checked); paint(); });
+      const on = WB.media.kinds();
+      const kind = (k, text) => {
+        const box = el('input', { type: 'checkbox', role: 'switch', 'aria-label': text, disabled: !ahead.checked });
+        box.checked = on[k] !== false;
+        box.addEventListener('change', () => WB.media.setKind(k, box.checked));
+        return el('label', { class: `acct-row sub${ahead.checked ? '' : ' off'}` }, el('span', { text }), box);
+      };
       const theme = WB.theme();
       dlg.replaceChildren(
         el('button', { type: 'button', class: 'iconbtn acct-close', html: ICON.close, title: 'Close (Esc)', onclick: () => dlg.close() }),
@@ -110,7 +117,12 @@
               },
             })),
           el('i', { class: 'kp-bar' }, el('i', { style: { width: `${Math.min(1, stats.bytes / WB.media.MAX) * 100}%` } })),
-          el('label', { class: 'acct-row' }, el('span', { text: 'Cache videos of the boards I open' }), ahead),
+          el('label', { class: 'acct-row' }, el('span', { text: 'Cache videos ahead' }), ahead),
+          kind('boards', 'Boards I open'),
+          kind('work', 'The newest of my work'),
+          kind('cc', 'The newest of what I am cc\'d on'),
+          kind('pinned', 'The newest of what I pinned'),
+          el('p', { class: 'acct-note', text: 'Whatever you open, and what the page you are on and the timeline show, is always cached. What was opened longest ago makes room.' }),
           quota && quota.quota && el('p', { class: 'acct-note', text: `Browser storage · ${size(quota.usage || 0)} used of ${size(quota.quota)}` })),
         (WB.info().admin || WB.info().signOut) && el('div', { class: 'acct-foot' },
           WB.info().admin && el('a', { class: 'btn', href: '/admin', html: `${ICON.shield}<span>Admin</span>` }),
@@ -497,6 +509,7 @@
     else list.unshift({ ...entry, at: Date.now() });
     store('wb:pins', list.slice(0, 60));
     render();
+    keepAhead();
   }
 
   // ------------------------------------------------------------- the sidebar
@@ -624,6 +637,7 @@
       // the tree shows the project without its catalogue's parts
     }
     loading.delete(id);
+    keepAhead();
     renderSide(route());
     renderCrumbs(route());
     if (route().kind === 'home' && !$('q').value.trim()) render();
@@ -765,8 +779,59 @@
     } catch {
       return;
     }
+    keepAhead();
     if (route().kind === 'home' && !$('q').value.trim()) render();
   }
+
+  // ------------------------------------------------------------- kept on this computer ahead
+  //
+  // The newest version of your work, of what you are cc'd on, and of what you pinned, is fetched ahead
+  // and kept on this computer (media.js), so it opens and scrubs at once when you get to it. So is what
+  // the page you are on shows. Each can be turned off in your settings.
+  const askedCat = new Set();
+  const videoOf = (n) => (n && n.look && n.look.type === 'video' ? n.look.src : null);
+  function keepAhead() {
+    const R = WB.media.RANK;
+    if (feed) {
+      WB.media.want('work', feed.work.map((e) => videoOf(e.newest)), { rank: R.work, kind: 'work' });
+      WB.media.want('cc', (feed.cc || []).map((e) => videoOf(e.newest)), { rank: R.cc, kind: 'cc' });
+    }
+    const pinned = [];
+    for (const p of pins()) {
+      if (p.kind !== 'entity' && !(p.kind === 'place' && (p.what === 'sequence' || p.what === 'tier'))) continue;
+      if (!folderById(p.projectId)) continue;
+      const cat = catalogues.get(p.projectId);
+      if (!cat) {
+        // Once: a catalogue that will not load is not asked for again and again.
+        if (!askedCat.has(p.projectId)) {
+          askedCat.add(p.projectId);
+          loadCatalogue(p.projectId);
+        }
+        continue;
+      }
+      const tier = p.what === 'tier' && (/\/t\/([\w-]+)$/.exec(p.href) || [])[1];
+      const of = p.kind === 'entity' ? cat.entities.filter((e) => e.id === p.id)
+        : p.what === 'sequence' ? cat.entities.filter((e) => e.tier === 'shot' && N.seqOf(e.name) === p.name)
+          : cat.entities.filter((e) => e.tier === tier);
+      pinned.push(...of.slice().sort((a, b) => (b.latestAt || 0) - (a.latestAt || 0)).slice(0, 40).map((e) => videoOf(e.newest)));
+    }
+    WB.media.want('pinned', pinned, { rank: R.pinned, kind: 'pinned' });
+  }
+  // What the page shows: every video card that can be scrubbed, in the order they are made. The cards of
+  // one go (one render) make the list; the next go makes it afresh.
+  let pageSrcs = null;
+  function keepForPage(src) {
+    if (!pageSrcs) {
+      pageSrcs = [];
+      queueMicrotask(() => {
+        WB.media.want('page', pageSrcs.slice(0, 60), { rank: WB.media.RANK.page, hold: true });
+        pageSrcs = null;
+      });
+    }
+    pageSrcs.push(src);
+  }
+  // The feed is fetched now and then wherever you are, so what is new is kept before you look.
+  setInterval(() => { if (!document.hidden) loadFeed(); }, 5 * 60 * 1000);
   // What came since you last marked Updates read, kept by this browser.
   const feedSeen = () => Number(store('wb:feed:seen')) || 0;
   let feedShow = store('wb:feed:show') || 'all'; // all | notes | versions
@@ -1283,8 +1348,13 @@
     }
   }
 
+  let renderedFor = null;
   function render() {
     const rt = route();
+    if (renderedFor !== location.hash) {
+      renderedFor = location.hash;
+      WB.media.want('page', []);
+    }
     // The timeline is docked beside the sidebar: going elsewhere from it (the sidebar, the bar) closes it.
     if (runOf && !(rt.kind === 'folder' && rt.id === runOf && currentView().page === 'timeline') && thePlayer().isOpen()) {
       runOf = null;
@@ -1616,6 +1686,7 @@
   // the video fetched at all.
   function scrubber(box, look) {
     if (!look || look.type !== 'video' || !look.src) return box;
+    keepForPage(look.src);
     let video = null;
     let head = null;
     let want = null;
@@ -2458,5 +2529,6 @@
   });
   window.addEventListener('hashchange', render);
   await refresh();
+  if (!feed) loadFeed();
   setInterval(() => { if (!document.hidden && !dragging && !document.querySelector('dialog[open], .menu')) refresh(true); }, 15000);
 })();

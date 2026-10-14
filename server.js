@@ -1104,6 +1104,7 @@ async function handleCatalogue(req, res, parts) {
   }
   // GET /api/feed?name=: what is relevant to the person asking (signed in, or by the name given).
   //   work: what they make: the assets, sets and shots they are an artist on, or have filed versions of
+  //   cc:   what they are cc'd on, as cards like work's
   //   items: in the last two weeks: notes on their work (theirs too, marked `mine`), and versions filed
   //          by others of their work and of what they are cc'd on
   if (parts[1] === 'feed' && parts.length === 2 && req.method === 'GET') {
@@ -1135,15 +1136,19 @@ async function handleCatalogue(req, res, parts) {
         version: { id: n.versionId, label: label(n.versionId)?.label }, note: { id: n.id, text: String(n.data.text || '').slice(0, 300), reply: !!n.re, done: !!n.data.done, board: n.boardId ? { id: n.boardId, name: n.boardName } : null },
       })),
     ].sort((a, b) => b.at - a.at).slice(0, 80);
-    const work = mine.filter(isWork).map((e) => {
+    const card = (e) => {
       const list = store.versionsOf(e.id).filter((v) => !v.hidden);
       const newest = list[0] || null;
       return {
         ...about(e), versions: list.length, latestAt: newest ? newest.createdAt : null, thumb: (list.find((v) => v.thumb) || {}).thumb || null,
         newest: newest && { ...store.newestGlance(e.id), label: label(newest.id)?.label }, artists: e.artists, cc: e.cc,
       };
-    }).sort((a, b) => (b.latestAt || 0) - (a.latestAt || 0) || a.name.localeCompare(b.name, undefined, { numeric: true }));
-    return sendJson(res, 200, { name, work, items });
+    };
+    const byLatest = (a, b) => (b.latestAt || 0) - (a.latestAt || 0) || a.name.localeCompare(b.name, undefined, { numeric: true });
+    const work = mine.filter(isWork).map(card).sort(byLatest);
+    // What they are cc'd on, the same way: its newest is what a browser keeps ahead for them.
+    const cc = mine.filter((e) => e.role === 'cc').map(card).sort(byLatest);
+    return sendJson(res, 200, { name, work, cc, items });
   }
   // GET /api/versions/:id
   // PATCH  { entity, task, number, descriptor, artist }   what it is filed as: its name follows

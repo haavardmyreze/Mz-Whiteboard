@@ -1787,6 +1787,9 @@ test('a project is set up with its assets, sets and shots ahead, each with artis
   // Anna is cc'd: new versions reach her, it is not her work
   const anna = (await call('GET', '/api/feed?name=Anna')).body;
   assert.deepEqual([anna.work, anna.items.map((i) => i.kind)], [[], ['version']]);
+  // and what she is cc'd on comes as cards with its newest, for her browser to keep ahead
+  assert.deepEqual(anna.cc.map((e) => [e.name, e.role, e.newest.id, e.newest.look.src]), [['kilo-0010', 'cc', v.id, src]]);
+  assert.deepEqual(erik.cc, []);
   // Ben filed it: it is his work too, and Anna's note reaches him; his own version does not
   const ben = (await call('GET', '/api/feed?name=Ben')).body;
   assert.deepEqual([ben.work.map((e) => [e.name, e.role]), ben.items.map((i) => [i.kind, i.by])], [[['kilo-0010', 'filed']], [['note', 'Anna']]]);

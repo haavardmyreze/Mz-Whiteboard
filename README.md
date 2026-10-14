@@ -33,8 +33,8 @@ private networks, otherwise only the host machine can connect.
   kilo / kilo-0010), each part a link; the star at its end pins that folder, project or shot to Home.
   On a narrow window the sidebar is a drawer, opened with the button at the left of the bar.
 - **Home.** Three things, and nothing else. What you pinned (boards, folders, projects, shots) along
-  the top. Updates: in the last two weeks, by others, comments on your work and new versions of it, and
-  new versions of what you are cc'd on, newest first; what came since you last marked them read is
+  the top. Updates: in the last two weeks, comments on your work (yours too, as "You", never marked
+  new), new versions of it by others, and new versions of what you are cc'd on, newest first; what came since you last marked them read is
   marked, and All, Comments and New versions narrow it. Click one to open it in the player. Beside it,
   My work: the assets, sets and shots you are an artist on or have filed versions of. Every card is the
   catalogue's own: it scrubs under the pointer and plays the latest. Pin from a card's `...` menu or

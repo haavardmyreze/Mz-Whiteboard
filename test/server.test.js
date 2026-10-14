@@ -1790,6 +1790,13 @@ test('a project is set up with its assets, sets and shots ahead, each with artis
   // Ben filed it: it is his work too, and Anna's note reaches him; his own version does not
   const ben = (await call('GET', '/api/feed?name=Ben')).body;
   assert.deepEqual([ben.work.map((e) => [e.name, e.role]), ben.items.map((i) => [i.kind, i.by])], [[['kilo-0010', 'filed']], [['note', 'Anna']]]);
+  // what you said yourself on your work is there too, marked as yours
+  const benRoom = await joiner(4841)(`entity=${shot.id}`, 'Ben');
+  t.after(() => benRoom.ws.close());
+  benRoom.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'feednote2', type: 'comment', on: v.id, text: 'Fixed in the next one' } }] }));
+  await pause(250);
+  const ben2 = (await call('GET', '/api/feed?name=Ben')).body;
+  assert.deepEqual(ben2.items.map((i) => [i.kind, i.by, i.mine]), [['note', 'Ben', true], ['note', 'Anna', false]]);
 });
 
 test('a project\'s timeline is every shot in order with its newest version, and a card knows its newest', async (t) => {

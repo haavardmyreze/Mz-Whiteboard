@@ -1000,8 +1000,8 @@ async function handleCatalogue(req, res, parts) {
   }
   // GET /api/feed?name=: what is relevant to the person asking (signed in, or by the name given).
   //   work: what they make: the assets, sets and shots they are an artist on, or have filed versions of
-  //   items: in the last two weeks, by others: notes on their work, and versions filed of their work and
-  //          of what they are cc'd on
+  //   items: in the last two weeks: notes on their work (theirs too, marked `mine`), and versions filed
+  //          by others of their work and of what they are cc'd on
   if (parts[1] === 'feed' && parts.length === 2 && req.method === 'GET') {
     const url = new URL(req.url, 'http://x');
     const name = req.user ? req.user.name : cleanName(url.searchParams.get('name'), null);
@@ -1026,8 +1026,8 @@ async function handleCatalogue(req, res, parts) {
       ...versions.filter((v) => (v.createdBy || '').toLowerCase() !== me).map((v) => ({
         kind: 'version', at: v.createdAt, by: v.createdBy, entity: about(byId.get(v.entityId)), version: { id: v.id, label: label(v.id)?.label, thumb: v.thumb, kind: v.kind },
       })),
-      ...notes.filter((n) => isWork(byId.get(n.entityId)) && (n.data.name || n.createdBy || '').toLowerCase() !== me).map((n) => ({
-        kind: 'note', at: n.createdAt, by: n.data.name || n.createdBy, color: n.data.color, entity: about(byId.get(n.entityId)),
+      ...notes.filter((n) => isWork(byId.get(n.entityId))).map((n) => ({
+        kind: 'note', at: n.createdAt, by: n.data.name || n.createdBy, mine: (n.data.name || n.createdBy || '').toLowerCase() === me, color: n.data.color, entity: about(byId.get(n.entityId)),
         version: { id: n.versionId, label: label(n.versionId)?.label }, note: { id: n.id, text: String(n.data.text || '').slice(0, 300), reply: !!n.re, done: !!n.data.done, board: n.boardId ? { id: n.boardId, name: n.boardName } : null },
       })),
     ].sort((a, b) => b.at - a.at).slice(0, 80);

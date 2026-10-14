@@ -722,11 +722,12 @@
     const thing = el('strong', { text: item.version.label || item.entity.name });
     const what = item.kind === 'version'
       ? [el('strong', { text: item.by || 'Somebody' }), ' filed ', thing]
-      : [el('strong', { text: item.by || 'Somebody' }), item.note.reply ? ' replied on ' : ' commented on ', thing];
+      : [el('strong', { text: item.mine ? 'You' : item.by || 'Somebody' }), item.note.reply ? ' replied on ' : ' commented on ', thing];
     const why = item.entity.role === 'cc' ? 'you are cc\'d' : 'your work';
     const where = [item.entity.project, why, item.note && item.note.board && `on ${item.note.board.name}`, ago(item.at)].filter(Boolean).join(' · ');
+    const fresh = item.at > seen && !item.mine;
     return el('button', {
-      type: 'button', class: `feed-row ${item.kind}${item.at > seen ? ' unread' : ''}`, title: 'Open it, to look, comment and draw',
+      type: 'button', class: `feed-row ${item.kind}${fresh ? ' unread' : ''}${item.mine ? ' mine' : ''}`, title: 'Open it, to look, comment and draw',
       onclick: () => lookAt(item.entity.id, item.version.id),
     },
     item.kind === 'version'
@@ -736,7 +737,7 @@
       el('span', { class: 'feed-what' }, ...what),
       item.note && el('span', { class: 'feed-text', text: item.note.text }),
       el('span', { class: 'feed-where', text: where })),
-    item.at > seen && el('i', { class: 'feed-dot', 'aria-label': 'New' }));
+    fresh && el('i', { class: 'feed-dot', 'aria-label': 'New' }));
   }
 
   // An asset, set or shot as its project's catalogue has it, so its card scrubs and plays like any other.
@@ -774,7 +775,7 @@
     // Updates: what happened to your work, and new versions of what you are cc'd on.
     const seen = feedSeen();
     const all = feed ? feed.items : [];
-    const fresh = all.filter((x) => x.at > seen).length;
+    const fresh = all.filter((x) => x.at > seen && !x.mine).length;
     const shown = all.filter((x) => feedShow === 'all' || (feedShow === 'notes' ? x.kind === 'note' : x.kind === 'version'));
     const seg = el('div', { class: 'seg feed-seg', role: 'tablist' }, [['all', 'All'], ['notes', 'Comments'], ['versions', 'New versions']].map(([k, text]) => el('button', {
       type: 'button', class: `seg-btn${feedShow === k ? ' on' : ''}`, role: 'tab', 'aria-selected': String(feedShow === k), text,

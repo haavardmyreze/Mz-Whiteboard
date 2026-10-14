@@ -10,6 +10,11 @@ const { spawn } = require('node:child_process');
 const { createAuth } = require('../auth');
 const { openStore } = require('../store');
 
+// The pages send X-WB: 1 with every request, which the server wants with every change (see "Requests
+// from other sites" in README.md), so these do too. `bareFetch` sends only what it is given.
+const bareFetch = globalThis.fetch;
+const fetch = (url, options = {}) => bareFetch(url, { ...options, headers: { 'x-wb': '1', ...options.headers } });
+
 // ---------------------------------------------------------------- sign-in
 
 const AUDIENCE = '/projects/123/locations/europe-west1/services/wipboard';
@@ -225,7 +230,7 @@ test('comments are stamped with who wrote them, only ever sit on a piece of cont
   // whoever wrote it can change what it says, and it is marked as edited; nothing else about it moves
   author.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'set', id: 'comment01', patch: { text: '  Lovely, really ', name: 'Boss', on: 'elsewhere' } }] }));
   await wait(300);
-  const edit = reviewer.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).find((o) => o.t === 'set' && o.patch.text);
+  const edit = reviewer.seen.filter((m) => m.t === 'op' && !m.fix).flatMap((m) => m.ops).find((o) => o.t === 'set' && o.patch.text);
   assert.equal(edit.patch.text, 'Lovely, really');
   assert.ok(edit.patch.edited > 0);
   assert.deepEqual(Object.keys(edit.patch).sort(), ['edited', 'text']);
@@ -329,7 +334,8 @@ test('with google sign-in nothing is served to strangers except the sign-in page
     PUBLIC_URL: 'http://localhost:4797', ALLOWED_EMAILS: 'anna@example.com',
   }, (data) => {
     const store = openStore(data);
-    store.saveBoard({ id: 'boardone1', name: 'Secret plans', workspace: 'myreze', shareToken, shareAccess: 'view', createdAt: 1, updatedAt: 1 });
+    store.saveBoard({ id: 'boardone1', name: 'Secret plans', workspace: 'myreze', shareToken, shareAccess: 'view', createdAt: 1, updatedAt: 1 },
+      [{ id: 'videoone1', type: 'video', x: 0, y: 0, w: 10, h: 10, src: '/uploads/abc.mp4', th: '/uploads/abc.png', orig: '/uploads/orig.mov' }]);
     store.close();
   });
   t.after(s.stop);
@@ -351,10 +357,15 @@ test('with google sign-in nothing is served to strangers except the sign-in page
   assert.deepEqual(await (await get(`/api/shared/${shareToken}`)).json(), { name: 'Secret plans', access: 'view' });
   assert.equal((await get('/api/shared/notarealtokenvalue000')).status, 404);
   assert.equal((await get('/api/boards/boardone1')).status, 401);
-  // opening it lets that browser load the board's files, which a stranger still cannot
+  // opening it lets that browser load the files the board shows, which a stranger still cannot; never
+  // any other file, nor the file a video was made from
   const page = await get(`/s/${shareToken}`);
   assert.match(page.headers.get('set-cookie'), /wb_view=/);
-  assert.notEqual((await get('/uploads/abc.png', { headers: { cookie: `wb_view=${shareToken}` } })).status, 401);
+  const viewing = { headers: { cookie: `wb_view=${shareToken}` } };
+  assert.notEqual((await get('/uploads/abc.png', viewing)).status, 401);
+  assert.notEqual((await get('/uploads/abc.mp4', viewing)).status, 401);
+  assert.equal((await get('/uploads/orig.mov', viewing)).status, 401);
+  assert.equal((await get('/uploads/other.png', viewing)).status, 401);
   assert.equal((await get('/uploads/abc.png', { headers: { cookie: 'wb_view=wrongtoken00000000000' } })).status, 401);
 });
 
@@ -736,8 +747,15 @@ test('a deleted comment that somebody else undoes comes back as its author wrote
     { t: 'add', item: { id: 'comment01', type: 'comment', on: 'imageone1', text: 'Mine', t: 1700000000000 } },
   ] }));
   await pause(150);
-  // Ben deletes it, then undoes: his browser sends the comment back, and the server must not make it his
-  ben.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'del', ids: ['comment01'] }] }));
+  // Ben may not delete what Anna wrote: it stays, and his page is given it back before the ack
+  ben.ws.send(JSON.stringify({ t: 'op', seq: 1, ops: [{ t: 'del', ids: ['comment01'] }] }));
+  await pause(150);
+  const fixed = ben.seen.findIndex((m) => m.t === 'op' && m.fix);
+  assert.equal(ben.seen[fixed].ops[0].item.id, 'comment01');
+  assert.deepEqual(ben.seen[fixed + 1], { t: 'ack', seq: 1 });
+  assert.ok(!anna.seen.some((m) => m.t === 'op' && m.ops.some((o) => o.t === 'del')));
+  // Anna deletes it, Ben's page undoes that: the comment comes back, and the server must not make it his
+  anna.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'del', ids: ['comment01'] }] }));
   await pause(150);
   ben.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'comment01', type: 'comment', on: 'imageone1', text: 'Tampered', name: 'Ben' } }] }));
   await pause(150);
@@ -1333,6 +1351,8 @@ test('a board is kept as it was before each round of changes, and can be put bac
   for (const [conn, from] of [[anna, before[0]], [ben, before[1]]]) {
     const init = conn.seen.slice(from).find((m) => m.t === 'init');
     assert.deepEqual(init.items.map((it) => [it.id, it.text]), [['noteone01', 'first']]);
+    // marked as put back, so each page lets go of what it could undo
+    assert.equal(init.restored, true);
     assert.equal(init.peers.length, 1);
     assert.notEqual(init.peers[0].id, init.you);
   }
@@ -1947,4 +1967,464 @@ test('a project lists its versions newest first, and puts chosen ones on one of 
   // not a board of another project, nor versions of nothing
   assert.equal((await call('POST', `/api/projects/${project.id}/place`, { board: loose.id, versions: [a.id] })).status, 404);
   assert.equal((await call('POST', `/api/projects/${project.id}/place`, { board: board.id, versions: ['nothing1'] })).status, 400);
+});
+
+// ---------------------------------------------------------------- requests from other sites, and who is guessing
+
+// A request for some address (its Host header), which fetch would not let us choose.
+function askFor(port, host, method = 'GET', p = '/api/library', headers = {}) {
+  return new Promise((resolve, reject) => {
+    const req = require('node:http').request({ host: '127.0.0.1', port, path: p, method, headers: { host, ...headers } }, (res) => {
+      res.resume();
+      res.on('end', () => resolve(res.statusCode));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+test('the server answers only to its own addresses, and takes changes only with X-WB', async (t) => {
+  const s = start(4846, { ALLOWED_HOSTS: 'boards.example.com, *.studio.test' });
+  t.after(s.stop);
+  await s.ready;
+  // a page on another site that points its own name at this server gets nothing back
+  assert.equal(await askFor(4846, 'evil.example'), 421);
+  assert.equal(await askFor(4846, 'evil.example:4846', 'GET', '/'), 421);
+  assert.equal(await askFor(4846, 'evil.example', 'GET', '/healthz'), 200);
+  for (const host of ['127.0.0.1:4846', 'localhost:4846', '[::1]:4846', 'boards.example.com', 'pc-3.studio.test', `${os.hostname()}:4846`, 'abc.trycloudflare.com']) {
+    assert.equal(await askFor(4846, host), 200, host);
+  }
+  await assert.rejects(joiner(4846)('board=nothing', 'Mallory', { headers: { host: 'evil.example' } }));
+
+  // reading needs nothing more; a change without the header is refused, and so is stopping the server
+  assert.equal((await bareFetch(`${s.base}/api/library`)).status, 200);
+  const bare = await bareFetch(`${s.base}/api/boards`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"name":"x"}' });
+  assert.equal(bare.status, 403);
+  assert.match((await bare.json()).error, /X-WB/i);
+  assert.equal((await bareFetch(`${s.base}/api/upload?name=a.png`, { method: 'POST', body: 'x' })).status, 403);
+  assert.equal((await bareFetch(`${s.base}/__shutdown`, { method: 'POST' })).status, 403);
+  assert.equal((await fetch(`${s.base}/api/boards`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"name":"x"}' })).status, 201);
+  assert.equal((await fetch(`${s.base}/healthz`)).status, 200);
+});
+
+test('wrong passwords are counted by the address a trusted proxy names, only when it is trusted, and a flood does not wipe the count', async () => {
+  const { clientAddress } = require('../auth');
+  const at = (remoteAddress, headers) => ({ socket: { remoteAddress }, headers });
+  // without TRUST_PROXY anybody could write those headers, so they are not believed, even from this machine
+  assert.equal(clientAddress(at('127.0.0.1', { 'cf-connecting-ip': '9.9.9.9', 'x-forwarded-for': '8.8.8.8' })), '127.0.0.1');
+  assert.equal(clientAddress(at('127.0.0.1', { 'cf-connecting-ip': '9.9.9.9' }), 'cloudflare'), '9.9.9.9');
+  // a proxy adds the address it saw last; whatever came before is the visitor's to make up
+  assert.equal(clientAddress(at('10.0.0.1', { 'x-forwarded-for': '1.1.1.1, 5.5.5.5' }), '1'), '5.5.5.5');
+  assert.equal(clientAddress(at('10.0.0.1', {}), '1'), '10.0.0.1');
+
+  const attempt = async (auth, headers, remote = '127.0.0.1') => {
+    const req = fakeReq({ name: 'Eve', password: 'nope' }, headers);
+    req.socket = { remoteAddress: remote };
+    const res = jsonRes();
+    await auth.handle(req, res, new URL('http://x/auth/password'));
+    return res.status;
+  };
+  // made-up headers do not buy more tries
+  const plain = passwordAuth();
+  for (let i = 0; i < 8; i++) assert.equal(await attempt(plain, { 'cf-connecting-ip': `9.9.9.${i}` }), 401);
+  assert.equal(await attempt(plain, { 'cf-connecting-ip': '9.9.9.99' }), 429);
+  // behind Cloudflare each visitor has their own count
+  const cf = passwordAuth({ trustProxy: 'cloudflare' });
+  for (let i = 0; i < 8; i++) await attempt(cf, { 'cf-connecting-ip': '7.7.7.7' });
+  assert.equal(await attempt(cf, { 'cf-connecting-ip': '7.7.7.7' }), 429);
+  assert.equal(await attempt(cf, { 'cf-connecting-ip': '7.7.7.8' }), 401);
+  // thousands of other addresses make room by forgetting the oldest, not everybody
+  const flood = passwordAuth();
+  for (let i = 0; i < 5000; i++) await attempt(flood, {}, `10.${i >> 8}.${i & 255}.1`);
+  for (let i = 0; i < 8; i++) await attempt(flood, {}, '6.6.6.6');
+  for (let i = 0; i < 200; i++) await attempt(flood, {}, `11.0.${i}.1`);
+  assert.equal(await attempt(flood, {}, '6.6.6.6'), 429);
+});
+
+// ---------------------------------------------------------------- workspaces, and what each person sees of others'
+
+test('what is shared stays shared, rooms and boards follow who may see them, and other people\'s board names stay theirs', async (t) => {
+  const secret = 'share-guard-secret';
+  const mk = createAuth(googleOptions({ sessionSecret: secret, allowedDomains: 'x.com', allowedEmails: '', publicUrl: 'http://localhost:4847' }));
+  const cookie = (email, name) => mk.sessionCookie({ email, name }).split(';')[0];
+  const anna = cookie('anna@x.com', 'Anna');
+  const ben = cookie('ben@x.com', 'Ben');
+  const boss = cookie('boss@x.com', 'Boss');
+  const s = start(4847, {
+    AUTH_MODE: 'google', GOOGLE_CLIENT_ID: 'client-1', GOOGLE_CLIENT_SECRET: 'shh', PUBLIC_URL: 'http://localhost:4847',
+    ALLOWED_DOMAINS: 'x.com', SESSION_SECRET: secret, ADMIN_EMAILS: 'boss@x.com',
+  });
+  t.after(s.stop);
+  await s.ready;
+  const call = async (who, method, p, body) => {
+    const res = await fetch(s.base + p, { method, headers: { cookie: who, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  };
+  const open = joiner(4847);
+
+  // a folder with something in it, or somebody else's board, is not taken out of the shared workspace
+  const full = (await call(anna, 'POST', '/api/folders', { name: 'Shared stuff' })).body;
+  await call(anna, 'POST', '/api/boards', { name: 'Inside', folderId: full.id });
+  const refused = await call(ben, 'PATCH', `/api/folders/${full.id}`, { workspace: 'personal' });
+  assert.equal(refused.status, 403);
+  assert.match(refused.body.error, /admin/);
+  assert.equal((await call(anna, 'PATCH', `/api/folders/${full.id}`, { workspace: 'personal' })).status, 403);
+  const empty = (await call(anna, 'POST', '/api/folders', { name: 'Empty' })).body;
+  assert.equal((await call(ben, 'PATCH', `/api/folders/${empty.id}`, { workspace: 'personal' })).body.workspace, 'personal');
+  const team = (await call(anna, 'POST', '/api/boards', { name: 'Team board' })).body;
+  assert.equal((await call(ben, 'PATCH', `/api/boards/${team.id}`, { workspace: 'personal' })).status, 403);
+  assert.equal((await call(ben, 'GET', `/api/boards/${team.id}`)).status, 200);
+  assert.equal((await call(anna, 'PATCH', `/api/boards/${team.id}`, { workspace: 'personal' })).body.workspace, 'personal');
+  assert.equal((await call(anna, 'PATCH', `/api/boards/${team.id}`, { workspace: 'myreze' })).status, 200);
+  // and a folder that is not there is not found, wherever it is named
+  assert.equal((await call(anna, 'POST', '/api/boards', { name: 'x', folderId: 'nosuchfolder' })).status, 404);
+  assert.equal((await call(anna, 'POST', '/api/folders', { name: 'x', parentId: 'nosuchfolder' })).status, 404);
+  assert.equal((await call(anna, 'PATCH', `/api/boards/${team.id}`, { folderId: 'nosuchfolder' })).status, 404);
+
+  // a shared project with a version, which Anna also puts on a board of her own and talks about there
+  const kilo = (await call(boss, 'POST', '/api/folders', { name: 'Kilo' })).body;
+  await call(boss, 'PATCH', `/api/folders/${kilo.id}`, { project: true });
+  const src = (await (await fetch(`${s.base}/api/upload?name=a.png`, { method: 'POST', headers: { cookie: boss }, body: crypto.randomBytes(300) })).json()).url;
+  const [v1] = (await call(boss, 'POST', `/api/projects/${kilo.id}/versions`, { entity: { name: 'kilo-0010' }, files: [{ look: { type: 'image', src } }] })).body.versions;
+  const hers = (await call(anna, 'POST', '/api/boards', { name: 'Anna secret plans', workspace: 'personal' })).body;
+  const annaConn = await open(`board=${hers.id}`, 'Anna', { headers: { cookie: anna } });
+  t.after(() => annaConn.ws.close());
+  annaConn.ws.send(JSON.stringify({ t: 'op', ops: [
+    { t: 'add', item: { id: 'placed001', type: 'image', x: 0, y: 0, w: 10, h: 10, src, ver: v1.id } },
+    { t: 'add', item: { id: 'annanote1', type: 'comment', on: 'placed001', text: 'Mine' } },
+  ] }));
+  await pause(250);
+  const named = async (who) => (await call(who, 'GET', `/api/entities/${v1.entityId}`)).body.notes.find((n) => n.id === 'annanote1').board;
+  assert.deepEqual(await named(anna), { id: hers.id, name: 'Anna secret plans' });
+  assert.deepEqual(await named(ben), { id: hers.id, name: null });
+  // on a shared board showing the same version, nor does the thread say where it was made
+  const benConn = await open(`board=${team.id}`, 'Ben', { headers: { cookie: ben } });
+  t.after(() => benConn.ws.close());
+  benConn.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'placed002', type: 'image', x: 0, y: 0, w: 10, h: 10, src, ver: v1.id } }] }));
+  await pause(250);
+  const brought = benConn.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).find((o) => o.t === 'add' && o.item.id === 'annanote1').item;
+  assert.equal(brought.ob, hers.id);
+  assert.equal(brought.obn, null);
+  const room = await open(`entity=${v1.entityId}`, 'Ben', { headers: { cookie: ben } });
+  assert.equal(room.seen.find((m) => m.t === 'init').notes.find((n) => n.id === 'annanote1').obn, null);
+
+  // a version of a project in somebody's personal workspace never goes on a shared board
+  const mine = (await call(anna, 'POST', '/api/folders', { name: 'Side project', workspace: 'personal' })).body;
+  await call(anna, 'PATCH', `/api/folders/${mine.id}`, { project: true });
+  const [own] = (await call(anna, 'POST', `/api/projects/${mine.id}/versions`, { entity: { name: 'char-cat' }, files: [{ look: { type: 'image', src } }] })).body.versions;
+  const annaOnTeam = await open(`board=${team.id}`, 'Anna', { headers: { cookie: anna } });
+  t.after(() => annaOnTeam.ws.close());
+  annaOnTeam.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'leaked001', type: 'image', x: 0, y: 0, w: 10, h: 10, src, ver: own.id } }] }));
+  await pause(200);
+  assert.equal(benConn.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).find((o) => o.t === 'add' && o.item.id === 'leaked001').item.ver, undefined);
+  // and Anna's own page is told it is plain media there
+  const fix = annaOnTeam.seen.find((m) => m.t === 'op' && m.fix).ops[0];
+  assert.deepEqual([fix.t, fix.item.id, fix.item.ver], ['add', 'leaked001', undefined]);
+
+  // only an admin moves a project out of the shared workspace; whoever has it open and may no longer see it is shown the door
+  assert.equal((await call(anna, 'PATCH', `/api/folders/${kilo.id}`, { workspace: 'personal' })).status, 403);
+  assert.equal((await call(boss, 'PATCH', `/api/folders/${kilo.id}`, { workspace: 'personal' })).status, 200);
+  await pause(200);
+  assert.equal(room.closed, 4003);
+  await assert.rejects(open(`entity=${v1.entityId}`, 'Ben', { headers: { cookie: ben } }));
+});
+
+// ---------------------------------------------------------------- the board's own socket
+
+test('a round of changes sent twice is applied once, and the sender is told what the server made of it', async (t) => {
+  const s = start(4848);
+  t.after(s.stop);
+  await s.ready;
+  const WebSocket = require('ws');
+  const json = { 'content-type': 'application/json' };
+  const board = await (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: json, body: JSON.stringify({ name: 'Sync' }) })).json();
+  const join = (name, cid) => new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:4848/ws?board=${board.id}`);
+    const conn = { ws, seen: [] };
+    ws.on('open', () => ws.send(JSON.stringify({ t: 'hello', name, cid })));
+    ws.on('message', (raw) => {
+      const msg = JSON.parse(raw);
+      conn.seen.push(msg);
+      if (msg.t === 'init') resolve(conn);
+    });
+    ws.on('error', reject);
+  });
+  const anna = await join('Anna', 'page-anna-1');
+  const ben = await join('Ben', 'page-ben-1');
+  t.after(() => { anna.ws.close(); ben.ws.close(); });
+  const send = (conn, seq, ops) => conn.ws.send(JSON.stringify({ t: 'op', seq, ops }));
+  const added = (conn) => conn.seen.filter((m) => m.t === 'op' && !m.fix).flatMap((m) => m.ops).filter((o) => o.t === 'add').map((o) => o.item.id);
+
+  send(anna, 1, [{ t: 'add', item: { id: 'noteone01', type: 'note', x: 0, y: 0, w: 10, h: 10, text: 'once' } }]);
+  await pause(150);
+  // the connection dropped before the ack came, so the page sends it again, on a new connection
+  const again = await join('Anna', 'page-anna-1');
+  t.after(() => again.ws.close());
+  send(again, 1, [{ t: 'add', item: { id: 'notetwo01', type: 'note', x: 0, y: 0, w: 10, h: 10, text: 'twice' } }]);
+  await pause(150);
+  assert.deepEqual(again.seen.filter((m) => m.t === 'ack'), [{ t: 'ack', seq: 1 }]);
+  assert.deepEqual(added(ben), ['noteone01']);
+  // a page without numbers is acked as before
+  anna.ws.send(JSON.stringify({ t: 'op', ops: [] }));
+  await pause(100);
+  assert.deepEqual(anna.seen.filter((m) => m.t === 'ack').pop(), { t: 'ack' });
+
+  // files only from here, or written in; an image may be shown from another site, its still may not
+  send(anna, 2, [{ t: 'add', item: { id: 'imageone1', type: 'image', x: 0, y: 0, w: 10, h: 10, src: 'https://example.com/a.png', th: 'https://evil.example/t.png', prev: 'data:image/webp;base64,AAAA', orig: 'javascript:alert(1)' } },
+    { t: 'add', item: { id: 'videoone1', type: 'video', x: 0, y: 0, w: 10, h: 10, src: 'https://example.com/a.mp4', poster: '/uploads/p.webp', wf: { c: 'AAEC', x: 1 } } }]);
+  await pause(150);
+  const at = anna.seen.findIndex((m) => m.t === 'op' && m.fix);
+  const [image, video] = anna.seen[at].ops.map((o) => o.item);
+  assert.deepEqual([image.src, image.th, image.prev, image.orig], ['https://example.com/a.png', undefined, 'data:image/webp;base64,AAAA', undefined]);
+  assert.deepEqual([video.src, video.poster, video.wf], [undefined, '/uploads/p.webp', { c: 'AAEC' }]);
+  // the server's version comes just before the ack
+  assert.deepEqual(anna.seen[at + 1], { t: 'ack', seq: 2 });
+
+  // what a pointer says is only what pointers say
+  ben.ws.send(JSON.stringify({ t: 'p', p: { c: [1, 2], s: ['imageone1', 7], v: [0, 0, 100, 50], junk: 'x'.repeat(1000), f: { not: 'an id' } } }));
+  await pause(100);
+  assert.deepEqual(anna.seen.filter((m) => m.t === 'p').pop().p, { c: [1, 2], s: ['imageone1'], v: [0, 0, 100, 50] });
+});
+
+test('deleting a thread takes its replies with it, undo brings them back, and only a note shown here can be brought back', async (t) => {
+  const s = start(4849);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const mk = async (name) => (await fetch(`${s.base}/api/boards`, { method: 'POST', headers: json, body: JSON.stringify({ name }) })).json();
+  const one = await mk('One');
+  const two = await mk('Two');
+  const open = joiner(4849);
+  const anna = await open(`board=${one.id}`, 'Anna');
+  const ben = await open(`board=${one.id}`, 'Ben');
+  const elsewhere = await open(`board=${two.id}`, 'Anna');
+  t.after(() => { anna.ws.close(); ben.ws.close(); elsewhere.ws.close(); });
+  const ops = (conn, list) => conn.ws.send(JSON.stringify({ t: 'op', ops: list }));
+  const image = (id) => ({ t: 'add', item: { id, type: 'image', x: 0, y: 0, w: 10, h: 10, src: '/uploads/a.png' } });
+  ops(anna, [image('imageone1'), { t: 'add', item: { id: 'thread001', type: 'comment', on: 'imageone1', text: 'Darker?' } }]);
+  await pause(150);
+  ops(ben, [{ t: 'add', item: { id: 'reply0001', type: 'comment', on: 'imageone1', re: 'thread001', text: 'On it' } }]);
+  await pause(150);
+  // Anna deletes her thread: Ben's reply goes with it, for everybody
+  ops(anna, [{ t: 'del', ids: ['thread001'] }]);
+  await pause(200);
+  const shown = async () => (await open(`board=${one.id}`, 'Cara')).seen.find((m) => m.t === 'init').items.filter((i) => i.type === 'comment').map((i) => i.id).sort();
+  assert.deepEqual(await shown(), []);
+  assert.ok(ben.seen.some((m) => m.t === 'op' && m.ops.some((o) => o.t === 'del' && o.ids.includes('reply0001'))));
+  // undo brings the thread back, with the reply
+  ops(anna, [{ t: 'add', item: { id: 'thread001', type: 'comment', on: 'imageone1', text: 'Darker?' } }]);
+  await pause(200);
+  assert.deepEqual(await shown(), ['reply0001', 'thread001']);
+
+  // a note on another board, deleted there, cannot be brought back from here by naming it
+  ops(elsewhere, [image('imagetwo1'), { t: 'add', item: { id: 'othernote', type: 'comment', on: 'imagetwo1', text: 'Elsewhere' } }]);
+  await pause(150);
+  ops(elsewhere, [{ t: 'del', ids: ['othernote'] }]);
+  await pause(150);
+  ops(anna, [{ t: 'add', item: { id: 'othernote', type: 'comment', on: 'imageone1', text: 'Elsewhere' } }]);
+  await pause(200);
+  const later = await open(`board=${two.id}`, 'Dora');
+  assert.deepEqual(later.seen.find((m) => m.t === 'init').items.filter((i) => i.type === 'comment'), []);
+  assert.deepEqual(anna.seen.filter((m) => m.t === 'op' && m.fix).pop().ops, [{ t: 'del', ids: ['othernote'] }]);
+});
+
+// ---------------------------------------------------------------- the catalogue
+
+test('filing checks everything before it files anything, and so does changing a version', async (t) => {
+  const s = start(4850);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const board = (await call('POST', '/api/boards', { name: 'Standup', folderId: project.id })).body;
+  const up = async () => (await (await fetch(`${s.base}/api/upload?name=a.png`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
+  const src = await up();
+  const conn = await joiner(4850)(`board=${board.id}`, 'Anna');
+  t.after(() => conn.ws.close());
+  conn.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'imageone1', type: 'image', x: 0, y: 0, w: 10, h: 10, src, name: 'a.png' } }] }));
+  await pause(200);
+  const entities = async () => (await call('GET', `/api/projects/${project.id}`)).body.entities;
+  const piece = { board: board.id, item: 'imageone1' };
+
+  // a bad file after a good one, the same piece twice, a number asked for twice: nothing is filed, nothing made
+  assert.equal((await call('POST', `/api/projects/${project.id}/versions`, { entity: { name: 'kilo-0010' }, files: [piece, { look: { type: 'image', src: '/uploads/nothere.png' } }] })).status, 400);
+  assert.equal((await call('POST', `/api/projects/${project.id}/versions`, { entity: { name: 'kilo-0010' }, files: [piece, piece] })).status, 400);
+  const twice = await call('POST', `/api/projects/${project.id}/versions`, { entity: { name: 'kilo-0010' }, files: [{ number: 3, look: { type: 'image', src } }, { number: 3, look: { type: 'image', src } }] });
+  assert.equal(twice.status, 409);
+  assert.equal((await call('POST', `/api/projects/${project.id}/versions`, { entity: { name: 'kilo-0010' }, files: [{ look: { type: 'image', src } }, { number: 0, look: { type: 'image', src } }] })).status, 400);
+  assert.deepEqual(await entities(), []);
+  assert.ok(!conn.seen.some((m) => m.t === 'op' && m.ops.some((o) => o.t === 'set')));
+
+  const [v1, v2] = (await call('POST', `/api/projects/${project.id}/versions`, { entity: { name: 'kilo-0010' }, task: 'anim', files: [{ look: { type: 'image', src } }, { look: { type: 'image', src } }] })).body.versions;
+  assert.deepEqual([v1.label, v2.label], ['kilo-0010 anim v1', 'kilo-0010 anim v2']);
+  // a refused change changes nothing it came with: not archived, no entity made
+  assert.equal((await call('PATCH', `/api/versions/${v2.id}`, { hidden: true, number: 1 })).status, 409);
+  assert.equal((await call('GET', `/api/versions/${v2.id}`)).body.hidden, false);
+  assert.equal((await call('PATCH', `/api/versions/${v2.id}`, { entity: { name: 'kilo-0099' }, number: 0 })).status, 400);
+  assert.deepEqual((await entities()).map((e) => e.name), ['kilo-0010']);
+  // moved to a new entity, it is made then
+  assert.equal((await call('PATCH', `/api/versions/${v2.id}`, { entity: { name: 'kilo-0099' } })).body.label, 'kilo-0099 anim v1');
+  assert.equal((await call('PUT', `/api/versions/${v2.id}`, {})).status, 405);
+});
+
+test('a catalogue note that mentions somebody tells them, and says where in the catalogue it is', async (t) => {
+  const s = start(4851);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => (await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) })).json();
+  const project = await call('POST', '/api/folders', { name: 'Kilo' });
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const src = (await (await fetch(`${s.base}/api/upload?name=a.png`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
+  const [v] = (await call('POST', `/api/projects/${project.id}/versions`, { by: 'Ben', entity: { name: 'kilo-0010' }, task: 'anim', files: [{ look: { type: 'image', src } }] })).versions;
+  const room = await joiner(4851)(`entity=${v.entityId}`, 'Anna');
+  t.after(() => room.ws.close());
+  room.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'catnote01', type: 'comment', on: v.id, text: '@Cleo can you look?' } }] }));
+  await pause(200);
+  const [cleo] = (await call('GET', '/api/notifications?name=Cleo')).items;
+  assert.deepEqual(
+    [cleo.id, cleo.kind, cleo.board, cleo.entityId, cleo.projectId, cleo.versionId, cleo.on, cleo.author],
+    ['catnote01', 'mention', null, v.entityId, project.id, v.id, 'kilo-0010 anim v1', 'Anna'],
+  );
+  // Ben filed the version: a note on it is on his work
+  assert.deepEqual((await call('GET', '/api/notifications?name=Ben')).items.map((i) => [i.id, i.kind]), [['catnote01', 'work']]);
+});
+
+test('the newest version is one thing everywhere, and a project\'s versions page through ties without skipping', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wipboard-newest-'));
+  try {
+    const store = openStore(dir);
+    store.saveFolders([{ id: 'kilo', name: 'Kilo', workspace: 'myreze', createdAt: 1, project: true }]);
+    store.addEntity({ id: 'shot1', projectId: 'kilo', tier: 'shot', name: 'kilo-0010' });
+    const look = { type: 'image', src: '/uploads/a.png' };
+    const file = (id, task, at, number = null) => store.addVersion({ id, entityId: 'shot1', task, number, kind: 'image', look, at });
+    file('anim1', 'anim', 10);
+    file('anim7', 'anim', 20, 7); // numbered by hand: the newest of anim, though another comes after it
+    file('anim3', 'anim', 30, 3);
+    file('comp1', 'comp', 15);
+    // of a task, the highest number; of the entity, the latest filed of those
+    assert.equal(store.newestVersion('shot1', 'anim').id, 'anim7');
+    assert.equal(store.newestOfTask('shot1', 'anim').id, 'anim7');
+    assert.equal(store.entities('kilo')[0].newest.id, 'anim7');
+    assert.equal(store.entityCards(['shot1']).get('shot1').newest.id, 'anim7');
+    file('comp2', 'comp', 25);
+    assert.equal(store.entities('kilo')[0].newest.id, 'comp2');
+
+    // many filed in the same millisecond still come one page after another, each once
+    for (let i = 0; i < 7; i++) file(`same${i}`, 'light', 99);
+    const seen = [];
+    let after;
+    for (;;) {
+      const page = store.projectVersions('kilo', { limit: 3, ...(after && { after }) });
+      seen.push(...page.map((v) => v.id));
+      if (page.length < 3) break;
+      const last = page.at(-1);
+      after = [last.createdAt, last.number, last.id];
+    }
+    assert.equal(seen.length, 12);
+    assert.equal(new Set(seen).size, 12);
+    // a version with no task is stored as '' and comes out as none
+    file('plain1', null, 5);
+    assert.equal(store.version('plain1').task, null);
+    assert.throws(() => file('plain2', null, 6, 1), /taken/);
+    store.close();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the Versions list hands out where its next page starts, and still takes a time', async (t) => {
+  const s = start(4852);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const src = (await (await fetch(`${s.base}/api/upload?name=a.png`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
+  const [v] = (await call('POST', `/api/projects/${project.id}/versions`, { entity: { name: 'kilo-0010' }, files: [{ look: { type: 'image', src } }] })).body.versions;
+  const first = (await call('GET', `/api/projects/${project.id}/versions`)).body;
+  assert.deepEqual([first.versions.length, first.more, first.next], [1, false, null]);
+  assert.equal((await call('GET', `/api/projects/${project.id}/versions?before=${v.createdAt}`)).body.versions.length, 0);
+  assert.equal((await call('GET', `/api/projects/${project.id}/versions?before=${v.createdAt + 1}`)).body.versions.length, 1);
+  const cursor = Buffer.from(JSON.stringify([v.createdAt, v.number + 1, ''])).toString('base64url');
+  assert.equal((await call('GET', `/api/projects/${project.id}/versions?before=${cursor}`)).body.versions.length, 1);
+  assert.equal((await call('GET', `/api/projects/${project.id}/versions?before=not-a-page`)).status, 400);
+});
+
+test('shot names are read by the project\'s naming rules, whatever their sequence is called', {
+  skip: require('../public/naming').tierOf('ch01-0010') !== 'shot' && 'waits for public/naming.js to read ch01-0010 as a shot of sequence ch01',
+}, async (t) => {
+  const s = start(4853);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => (await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) })).json();
+  const project = await call('POST', '/api/folders', { name: 'Kilo' });
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const { made } = await call('POST', `/api/projects/${project.id}/entities`, { names: ['ch01-0010', 'kilo-0010', 'char-robot'] });
+  assert.deepEqual(made.map((e) => [e.name, e.tier]), [['ch01-0010', 'shot'], ['kilo-0010', 'shot'], ['char-robot', 'asset']]);
+  const tl = await call('GET', `/api/projects/${project.id}/timeline`);
+  assert.deepEqual(tl.shots.map((x) => [x.name, x.seq]), [['ch01-0010', 'ch01'], ['kilo-0010', 'kilo']]);
+});
+
+// ---------------------------------------------------------------- the database, brought up to date
+
+test('a database from before has its untasked versions numbered once each, and one bad row does not stop it opening', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wipboard-upgrade-'));
+  try {
+    openStore(dir).close();
+    // as a server from before left it: no-task versions as NULL (two with one number), a drawing that
+    // cannot be read, a comment on nothing, and no record of having been brought up to date
+    const old = new DatabaseSync(path.join(dir, 'wipboard.db'));
+    old.exec('DROP INDEX versions_numbered; PRAGMA user_version = 0;');
+    const put = old.prepare("INSERT INTO versions (id, entity_id, task, number, kind, look, created_at) VALUES (?, 'e1', NULL, ?, 'image', '{}', ?)");
+    put.run('first', 1, 1);
+    put.run('second', 1, 2);
+    put.run('third', 2, 3);
+    const item = old.prepare('INSERT INTO items (board_id, id, data, type, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1)');
+    item.run('b1', 'stroke001', '{"cid": broken', 'stroke');
+    item.run('b1', 'pin000001', JSON.stringify({ id: 'pin000001', type: 'comment', text: 'On the board itself' }), 'comment');
+    old.close();
+
+    const store = openStore(dir);
+    assert.deepEqual(['first', 'second', 'third'].map((id) => [store.version(id).task, store.version(id).number]), [[null, 1], [null, 3], [null, 2]]);
+    assert.throws(() => store.addVersion({ id: 'fourth', entityId: 'e1', number: 3, kind: 'image', look: {} }), /taken/);
+    // the row that cannot be read is still there, untouched, and only left out of the board
+    const raw = new DatabaseSync(path.join(dir, 'wipboard.db'));
+    assert.deepEqual(raw.prepare("SELECT id FROM items WHERE board_id = 'b1'").all().map((r) => r.id), ['stroke001']);
+    raw.close();
+    assert.deepEqual(store.loadItems('b1'), []);
+    assert.deepEqual(store.notesForBoard('b1').map((n) => [n.id, n.itemId, n.data.text]), [['pin000001', '', 'On the board itself']]);
+    assert.equal(fs.readdirSync(path.join(dir, 'backups')).filter((f) => f.startsWith('wipboard-before-')).length, 1);
+    store.close();
+    const again = new DatabaseSync(path.join(dir, 'wipboard.db'));
+    assert.equal(again.prepare('PRAGMA user_version').get().user_version, 1);
+    again.close();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------- uploads
+
+test('nobody has more than twenty files on their way in at once', async (t) => {
+  const s = start(4854);
+  t.after(s.stop);
+  await s.ready;
+  const piece = (uid, offset, done) => fetch(`${s.base}/api/upload?name=a.png&uid=${uid}&offset=${offset}&done=${done}`, { method: 'POST', body: Buffer.alloc(10) });
+  for (let i = 0; i < 20; i++) assert.equal((await piece(`waiting${String(i).padStart(2, '0')}`, 0, 0)).status, 200);
+  assert.equal((await piece('waiting20', 0, 0)).status, 429);
+  // one already on its way carries on, and once it is in there is room again
+  assert.equal((await piece('waiting00', 10, 1)).status, 200);
+  assert.equal((await piece('waiting20', 0, 0)).status, 200);
 });

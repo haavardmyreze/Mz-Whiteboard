@@ -38,7 +38,6 @@ const WBIngest = (() => {
     for (let i = 0; i < bytes.length; i += 8192) out += String.fromCharCode(...bytes.subarray(i, i + 8192));
     return btoa(out);
   };
-  const fromB64 = (text) => Uint8Array.from(atob(text), (ch) => ch.charCodeAt(0));
 
   // The average colour of the top and of the bottom of a small copy of a frame.
   function frameColours(ctx) {

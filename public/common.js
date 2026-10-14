@@ -392,8 +392,8 @@ const WB = (() => {
     };
     const take = (o) => {
       input.value = o.value;
-      hide();
       input.dispatchEvent(new Event('input', { bubbles: true }));
+      // After the input event, whose listener (show) would open it again.
       hide();
       if (onPick) onPick(o);
     };

@@ -174,21 +174,6 @@ strong { font-weight: 600; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 input[type="text"]:focus-visible, input[type="search"]:focus-visible, textarea:focus-visible { outline: none; }
 
-kbd {
-  display: inline-block;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 5px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-1);
-  background: var(--surface-2);
-  color: var(--text-2);
-  font: 500 11px/18px var(--sans);
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-  vertical-align: 1px;
-}
-
 .spacer { flex: 1; }
 .sep { flex: none; align-self: stretch; width: 1px; margin: 8px 4px; background: var(--line); }
 
@@ -495,7 +480,7 @@ body.home:not(.admin) .appbar .wordmark { color: var(--text); }
   body.side-open .side { transform: none; }
   body.side-open .side-scrim { display: block; position: fixed; z-index: 29; inset: var(--bar) 0 0 0; background: var(--backdrop); }
 }
-.home-hint { margin: 40px 0 0; color: var(--muted); font-size: 12.5px; }
+
 .home-empty { max-width: 360px; margin: 72px auto; color: var(--muted); text-align: center; line-height: 1.6; }
 
 .crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 0; min-height: 32px; margin: 0 -6px; }
@@ -718,9 +703,8 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport, body[data-
 .vmark { position: absolute; top: 50%; width: 9px; height: 9px; margin: -13px 0 0 -4.5px; padding: 0; border: 0; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.45); cursor: pointer; pointer-events: auto; }
 .vmark:hover { transform: scale(1.3); }
 /* Drawn on another frame of its video than the one showing. */
-.item.offframe { visibility: hidden; }
+
 /* A stroke's line can be pressed whether or not it is in sight (Firefox holds to that), so the line is put out of reach as well. */
-.item.offframe, .item.offframe * { pointer-events: none !important; }
 
 /* The scrub bar: a hairline that fills as the clip plays, with a small round playhead. */
 .vbar input[type="range"] { -webkit-appearance: none; appearance: none; flex: 1; min-width: 30px; height: 16px; margin: 0; background: transparent; cursor: pointer; --p: 0%; }
@@ -968,7 +952,7 @@ body.focus #viewport { background-image: none; background-color: var(--viewer-bg
 
 #topbar, .v-bar { left: 0; right: 0; top: 0; z-index: 35; border-width: 0 0 1px; border-radius: 0; background: color-mix(in srgb, var(--bg) 78%, transparent); box-shadow: none; }
 /* What the bar holds depends on whether a piece is open: the board's things, or the viewer's. */
-body:not(.focus) .viewer-only, body.focus .board-only { display: none !important; }
+body.focus .board-only { display: none !important; }
 #boardname {
   width: min(400px, 34vw);
   height: var(--h);
@@ -990,7 +974,7 @@ body:not(.focus) .viewer-only, body.focus .board-only { display: none !important
 #zoom { min-width: 52px; padding: 0 8px; font-variant-numeric: tabular-nums; letter-spacing: 0; }
 #help { font-size: 14px; }
 #peers { display: flex; align-items: center; padding: 0 2px 0 8px; }
-#share, #focusdone { margin-left: 4px; }
+#share { margin-left: 4px; }
 /* The ring for what is kept on this computer. Quiet while it fills, quieter still once it is full. */
 .kept-ring { flex: none; display: flex; align-items: center; gap: 5px; height: var(--h-sm); padding: 0 8px 0 5px; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text-2); cursor: pointer; transition: background 0.12s var(--ease); }
 .kept-ring:hover { background: var(--hover); }
@@ -1040,17 +1024,17 @@ body:not(.focus) .viewer-only, body.focus .board-only { display: none !important
    board's name, who is here and Share never slide off the edge. */
 @media (max-width: 900px) {
   #boardname { flex: 0 1 min(400px, 34vw); width: auto; min-width: 72px; margin-left: 0; }
-  #topbar .wordmark, #topbar .bar-slash, #focusboard { display: none !important; }
+  #topbar .wordmark, #topbar .bar-slash { display: none !important; }
   #topbar .brand { padding-right: 4px; }
 }
 @media (max-width: 640px) {
   #topbar { gap: 4px; padding: 0 8px; }
-  #topbar .bar-group.board-only, #help, #focusclear, .kept-ring { display: none !important; }
+  #topbar .bar-group.board-only, #help, .kept-ring { display: none !important; }
   #peers .avatar:not(.me) { display: none; }
   /* With a piece open the bar is the viewer's: its name gets the room, and who is here and the theme can wait. */
   body.focus #peers, body.focus #topbar .themebtn { display: none; }
-  #focusname { flex: 1 1 0; }
-  #share, #focusdone { margin-left: 0; }
+
+  #share { margin-left: 0; }
 }
 
 .count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--surface-3); color: var(--text); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0; }
@@ -1133,7 +1117,8 @@ body.dragging-tool, body.dragging-tool * { cursor: grabbing !important; }
 .keys dt:first-of-type, .keys dt:first-of-type + dd { border-top: 0; }
 .keys dt { padding-right: 16px; color: var(--text-2); }
 .keys dd { justify-content: flex-end; gap: 4px; margin: 0; }
-kbd { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 7px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 12px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* A key, wherever one is named: in the shortcuts, the tips, the search box. (One rule: there were two.) */
+kbd { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 7px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 12px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; text-align: center; vertical-align: 1px; white-space: nowrap; }
 .kb-say { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .guide { display: flex; flex-direction: column; gap: 14px; padding: 4px 0 6px; }
 .guide section { display: grid; grid-template-columns: 32px 1fr; gap: 12px; }
@@ -1243,7 +1228,6 @@ body.focus:not(.film-off) .fs-grip { display: block; }
 
 /* ---------------------------------------------------------------- comments */
 
-
 /* Out on the board, what has comments says so in its corner: how many threads are open, or a tick once
    they are all resolved. A solid chip in ink, so it reads on any picture. Sized in ems off one number,
    so it follows the zoom within limits. */
@@ -1321,7 +1305,6 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
 .cat-ent { display: flex; flex-direction: column; gap: 2px; margin: 0 0 12px; }
 .cat-ent b { font-size: 15px; font-weight: 650; }
 .cat-ent span { color: var(--muted); font-size: 12px; }
-.msg-from { overflow: hidden; color: var(--muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 
 /* The panel. Out on the board it floats and lists every thread; beside the viewer it is docked, part of
    the frame around the piece, and holds that piece's threads and the box to write a new one. */
@@ -1376,7 +1359,7 @@ body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: var(--si
 .msg-acts .iconbtn.mini { width: 22px; height: 22px; }
 /* The name comes first: what follows it (where it was said) gives way before it does. */
 .msg-top strong { flex: 0 0 auto; max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.msg-top .msg-from { flex: 0 1 auto; min-width: 0; }
+
 .msg-text > .tchip { display: inline-flex; height: 18px; margin-right: 6px; vertical-align: 1px; white-space: nowrap; }
 .msg-time { flex: none; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .msg-acts { flex: none; display: flex; gap: 2px; margin-left: auto; opacity: 0; transition: opacity 0.12s; }
@@ -1447,7 +1430,7 @@ body.focus #commentpanel { right: 0; bottom: 0; top: var(--bar); width: var(--si
 body.viewonly #tooloptions, body.viewonly #seltools, body.viewonly #selbox,
 body.viewonly #share, body.viewonly #snap,
 body.viewonly:not(.guest-reads) #cptab,
-body.viewonly:not(.guest-reads) #commentpanel, body.viewonly #focusclear { display: none !important; }
+body.viewonly:not(.guest-reads) #commentpanel { display: none !important; }
 body.viewonly #boardname, body.viewonly #back { pointer-events: none; }
 body.viewonly .item { cursor: grab; }
 /* What can be opened says so: a zoom cursor, a ring and an expand badge on hover. */
@@ -1503,7 +1486,7 @@ body.welcoming [data-logo-slot] > svg { visibility: hidden; }
 @keyframes logo-breathe { 0%, 100% { fill-opacity: 0.04; } 50% { fill-opacity: 0.22; } }
 
 /* Workspaces: Myreze (shared) and Personal. The tabs keep to the same left edge as everything below them. */
-.spaces { display: flex; gap: 4px; margin: -16px 0 24px; }
+
 .space { display: inline-flex; align-items: center; gap: 8px; height: var(--h); padding: 0 12px; border: 1px solid transparent; border-radius: var(--r-2); background: transparent; color: var(--text-2); font-weight: 600; cursor: pointer; transition: background 0.12s var(--ease), border-color 0.12s var(--ease), color 0.12s var(--ease); }
 .space:hover { background: var(--hover); color: var(--text); }
 .space.current { border-color: var(--line-strong); background: var(--surface-2); color: var(--text); }
@@ -1976,12 +1959,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .ve-preview span { color: var(--muted); font-size: 12px; }
 .ve-name { font-weight: 600; overflow-wrap: anywhere; }
 .dlg p.ve-error { margin: 12px 0 0; color: var(--danger); }
-.undo-toast {
-  position: fixed; left: 50%; bottom: 24px; z-index: 60; transform: translateX(-50%);
-  display: flex; align-items: center; gap: 12px; max-width: calc(100vw - 32px); padding: 8px 8px 8px 16px;
-  border: 1px solid var(--line-strong); border-radius: var(--r-3); background: var(--surface-1); box-shadow: var(--shadow-pop);
-  animation: rise 0.18s var(--ease);
-}
+
 .ent-threads { display: flex; flex-direction: column; gap: 12px; max-width: 720px; }
 .ent-thread { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); }
 .ent-thread.done { opacity: 0.6; }
@@ -1992,14 +1970,10 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .ent-msg-main { flex: 1; min-width: 0; }
 .ent-msg-top { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; }
 .ent-msg-top span { color: var(--muted); font-size: 11.5px; }
-.ent-msg-top .ent-msg-where { margin-left: auto; }
+
 .ent-msg-top a { margin-left: auto; color: var(--muted); font-size: 11.5px; text-decoration: none; }
 .ent-msg-top a:hover { color: var(--text); text-decoration: underline; }
 .ent-msg-text { margin-top: 2px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-.media-dlg { width: auto; max-width: min(1400px, calc(100vw - 48px)); padding: 12px; }
-.media-dlg img, .media-dlg video { display: block; max-width: 100%; max-height: calc(100vh - 140px); margin: 0 auto; border-radius: var(--r-2); background: var(--thumb-bg); }
-.media-head { display: flex; align-items: center; gap: 10px; margin: 0 0 10px 4px; }
-.media-head span { flex: 1; overflow: hidden; color: var(--muted); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
 
 .imp { margin-top: 24px; padding: 12px 16px 4px; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); }
 .imp[hidden] { display: none; }
@@ -2008,12 +1982,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .imp-head .btn[hidden] { display: none; }
 .imp .imp-list { margin-top: 4px; }
 .imp .imp-row:last-child { border-bottom: 0; }
-.imp-drop { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 40px 24px; border: 1.5px dashed var(--line-strong); border-radius: var(--r-3); color: var(--text-2); text-align: center; cursor: pointer; transition: border-color 0.12s var(--ease), background 0.12s var(--ease); }
-.imp-drop:hover, .imp-drop:focus-visible { border-color: var(--muted); background: var(--hover); outline: none; }
-.imp-drop.drop { border-color: var(--accent); background: var(--accent-soft); }
-.imp-drop b { color: var(--text); font-size: 15px; }
-.imp-drop span:last-child { max-width: 520px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
-.imp-drop-ic { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 4px; border-radius: 50%; background: var(--surface-3); color: var(--text-2); }
+
 .imp-head { flex-wrap: wrap; gap: 8px 12px; min-height: 32px; }
 .imp-head b { flex: none; }
 .imp-gap { flex: 1; }
@@ -2151,7 +2120,6 @@ button.imp-row:hover { background: var(--hover); }
 .feed-what strong { font-weight: 600; }
 .feed-text { overflow: hidden; color: var(--text-2); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .feed-where { color: var(--muted); font-size: 11.5px; }
-.feed-cc { margin-left: 8px; padding: 1px 6px; border-radius: 8px; background: var(--surface-3); color: var(--text-2); font-size: 10.5px; font-weight: 600; vertical-align: 1px; }
 
 /* Scrubbing a video under the pointer, and playing an asset, set or shot's latest from its card. */
 .card-thumbs.scrubs { position: relative; }
@@ -2163,7 +2131,6 @@ button.imp-row:hover { background: var(--hover); }
 .card.ent:hover .play-latest { opacity: 1; }
 .ent-top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin: 8px 0 0; }
 .ent-top .ent-people { margin: 0; }
-
 
 /* The version an imported file is to be. */
 .imp-v { display: inline-flex; align-items: center; gap: 2px; color: var(--muted); font-size: 12.5px; }
@@ -2289,7 +2256,7 @@ body.picking main { padding-bottom: 120px; }
 .vl-box.on::after { content: ""; position: absolute; left: 4px; top: 2px; width: 7px; height: 4px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg); }
 .vl-box.some::after { content: ""; position: absolute; left: 3px; right: 3px; top: 7px; height: 2px; background: #fff; }
 body.vpicking main { padding-bottom: 120px; }
-.undo-toast a.btn { text-decoration: none; }
+
 @media (max-width: 760px) {
   .vl-row { grid-template-columns: 22px 72px minmax(0, 1fr) auto; }
   .vl-thumb { width: 72px; height: 40px; }

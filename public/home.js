@@ -190,14 +190,12 @@
   // In a project folder: which of its pages is open, its home, its boards (#/f/<id>/boards) or catalogue, and in the catalogue the tier
   // (#/f/<id>/catalogue/t/shot), the sequence (…/s/kilo) or the entity (…/<entity id>) being looked at.
   function currentView() {
-    // The Import page that was is part of the catalogue now.
     if (/^#\/f\/[\w-]+\/timeline/.test(location.hash)) return { page: 'timeline', entity: null };
     if (/^#\/f\/[\w-]+\/versions/.test(location.hash)) return { page: 'versions', entity: null };
     if (/^#\/f\/[\w-]+\/boards/.test(location.hash)) return { page: 'boards', entity: null };
-    const m = /^#\/f\/[\w-]+\/(catalogue|import)(?:\/(?:(t|s)\/([\w-]+)|([\w-]+)))?/.exec(location.hash);
+    const m = /^#\/f\/[\w-]+\/(catalogue)(?:\/(?:(t|s)\/([\w-]+)|([\w-]+)))?/.exec(location.hash);
     // A project's own root is its home page.
     if (!m) return { page: 'home', entity: null };
-    if (m[1] === 'import') return { page: 'catalogue', entity: null };
     return { page: 'catalogue', tier: m[2] === 't' ? m[3] : null, seq: m[2] === 's' ? m[3] : null, entity: m[4] || null };
   }
 

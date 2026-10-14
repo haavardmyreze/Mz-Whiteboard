@@ -160,7 +160,6 @@
   let me = null;
   let ws = null;
   let online = false;
-  let myId = null;
   let firstInit = true;
   let booted = false;
   let orderDirty = true;         // the pieces' reading order (mediaOrder) needs working out again            // the board's panels and tools exist: until then the keys do nothing
@@ -302,15 +301,9 @@
     }, 200);
   }
 
-  // True while the camera eases, so the clamp that keeps an open piece in view does not cut the move short.
-  let camEasing = false;
-
   function stopCamAnim() {
     cancelAnimationFrame(camAnim);
     clearTimeout(camTimer);
-    if (camEasing) {
-      camEasing = false;
-    }
     coasting = false;
   }
 
@@ -367,14 +360,12 @@
     // Occluded or background windows may get no animation frames at all; land on the
     // target anyway so a follower who is not looking stays in step with the person they follow.
     // While frames keep coming the move is theirs to finish, however slowly they come.
-    camEasing = true;
     let lastFrame = performance.now();
     const land = () => {
       if (performance.now() - lastFrame < 250) {
         camTimer = setTimeout(land, 250);
         return;
       }
-      camEasing = false;
       setCam(to.x, to.y, to.z);
     };
     camTimer = setTimeout(land, dur + 150);
@@ -405,7 +396,6 @@
       if (k < 1) camAnim = requestAnimationFrame(tick);
       else {
         clearTimeout(camTimer);
-        camEasing = false;
       }
     };
     camAnim = requestAnimationFrame(tick);
@@ -1377,7 +1367,6 @@
 
   // ------------------------------------------------------------- frames, drawings, snapping
 
-  const center = (r) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
   const hasPoint = (r, p) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
   const grow = (r, m) => ({ x: r.x - m, y: r.y - m, w: r.w + 2 * m, h: r.h + 2 * m });
   const area = (r) => r.w * r.h;
@@ -1397,12 +1386,8 @@
     return f && f.type === 'frame' ? f : null;
   }
 
-  // While an image is open, only it and its drawings take part in anything. Nor does what is out of sight:
-  // something drawn for a comment on another frame of a video than the one showing.
-  function selectable(it) {
-    const node = els.get(it.id);
-    return !node || !node.classList.contains('offframe');
-  }
+  // Everything on the board can be selected. (Kept as the one place to say otherwise.)
+  const selectable = (it) => !!it;
 
   function frameIds() {
     return [...items.values()].filter((it) => it.type === 'frame').map((it) => it.id);
@@ -2953,7 +2938,7 @@
     pinch = null;
     // The finger still down after a pinch carries on moving the view, as a hand would. It never draws,
     // and lifting it is not a tap.
-    if (pinched && touches.size === 1 && !gesture && true) {
+    if (pinched && touches.size === 1 && !gesture) {
       const [[pointerId, at]] = [...touches];
       beginPan({ pointerId, clientX: at.x, clientY: at.y }, { touch: true, moved: true });
     }
@@ -3573,7 +3558,7 @@
   // The tools a phone keeps under More, which stands in for whichever of them is in hand.
   const MORE_TOOLS = ['arrow', 'block', 'frame', 'laser'];
 
-  const TOOL_LABELS = { select: 'Select', pan: 'Pan', upload: 'Media', note: 'Note', text: 'Heading', block: 'Block', frame: 'Frame', pen: 'Draw', eraser: 'Erase', arrow: 'Arrow', laser: 'Laser', undo: 'Undo', redo: 'Redo', clear: 'Clear', more: 'More' };
+  const TOOL_LABELS = { select: 'Select', pan: 'Pan', upload: 'Media', note: 'Note', text: 'Heading', block: 'Block', frame: 'Frame', pen: 'Draw', eraser: 'Erase', arrow: 'Arrow', laser: 'Laser', undo: 'Undo', redo: 'Redo', more: 'More' };
 
   // Drag a note, heading, block or frame out of the strip and drop it where you want it, instead of
   // choosing the tool and then clicking. A plain click on the tool still works as before.
@@ -3761,9 +3746,6 @@
 
   const TOOL_KEYS = { v: 'select', h: 'pan', n: 'note', t: 'text', b: 'block', f: 'frame', p: 'pen', e: 'eraser', a: 'arrow', l: 'laser' };
 
-  // The video the keys are for: the open one in the viewer, the selected one out on the board.
-  const keyVideo = () => selectedVideo();
-
   // Space held is the hand for moving around; tapped, it plays or pauses, as in any player.
   let spaceTap = false;
   let spaceAt = 0;
@@ -3817,7 +3799,7 @@
     }
     if (e.altKey && !altGr) return;
 
-    const video = keyVideo();
+    const video = selectedVideo();
     if (e.shiftKey && e.code === 'Digit1') { userMovedView(); fitAll(); }
     else if (e.shiftKey && e.code === 'Digit2') { const r = selBounds(); if (r) { userMovedView(); fitRect(r); } }
     else if (k === 'home') { userMovedView(); fitAll(); }
@@ -3861,7 +3843,7 @@
     spaceDown = false;
     spaceTap = false;
     document.body.classList.remove('space-held');
-    const video = tapped ? keyVideo() : null;
+    const video = tapped ? selectedVideo() : null;
     if (video) toggleVideo(video);
   });
   window.addEventListener('blur', () => {
@@ -4270,7 +4252,6 @@
       redoStack.length = 0;
     }
     pendingKeys.clear();
-    myId = msg.you;
     online = true;
     retry = 500;
     $('conn').hidden = true;

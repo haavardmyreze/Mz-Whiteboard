@@ -236,31 +236,7 @@ const WB = (() => {
     return btn;
   }
 
-  // ---- videos kept on this computer (see board.js): where, how much at most, and what is there
-  const media = {
-    CACHE: 'wb-media-1',
-    MAX: 4 * 1024 * 1024 * 1024,
-    // Whether boards fetch their videos ahead to keep; this browser's choice.
-    ahead: () => store('wb:noahead') !== true,
-    setAhead: (on) => store('wb:noahead', !on),
-    stats() {
-      const kept = store('wb:kept') || {};
-      const list = Object.values(kept).filter((k) => Array.isArray(k));
-      return { count: list.length, bytes: list.reduce((sum, k) => sum + (k[0] || 0), 0), last: Math.max(0, ...list.map((k) => k[1] || 0)) };
-    },
-    async clear() {
-      try {
-        if ('caches' in window) await caches.delete(media.CACHE);
-      } catch {
-        // nothing kept, or no leave to say so
-      }
-      try {
-        localStorage.removeItem('wb:kept');
-      } catch {
-        // storage blocked: there was nothing in it either
-      }
-    },
-  };
+  // Videos kept on this computer: media.js, which sets WB.media.
 
   // What /api/me said (after identity() or askName() has run): whether read-only links, a public address and sign-out exist here.
   const info = () => session;
@@ -353,5 +329,99 @@ const WB = (() => {
 
   welcome();
 
-  return { el, store, user, dialog, askName, info, offline, watchServer, initials, ago, api, theme, setTheme, themeButton, media, colors: USER_COLORS, saveUser };
+  // A list of suggestions under a text box, as it is typed in: the arrows walk it, Enter or a click takes
+  // one, Esc puts it away. `source(text)` gives the suggestions: { value, label, hint, thumb, make }; one
+  // with `make` is the way to make something new of what was typed. Taking one puts its value in the box
+  // and tells the box (an "input" event), then `onPick`.
+  function combo(input, source, { onPick } = {}) {
+    const list = el('div', { class: 'combo-list', role: 'listbox', hidden: true });
+    let options = [];
+    let at = -1;
+    input.setAttribute('autocomplete', 'off');
+    input.setAttribute('role', 'combobox');
+    input.setAttribute('aria-expanded', 'false');
+    const place = () => {
+      const r = input.getBoundingClientRect();
+      list.style.left = `${Math.round(r.left)}px`;
+      list.style.top = `${Math.round(r.bottom + 4)}px`;
+      list.style.minWidth = `${Math.round(r.width)}px`;
+    };
+    const paint = () => {
+      list.replaceChildren(...options.map((o, i) => el('button', {
+        type: 'button', class: `combo-opt${i === at ? ' at' : ''}${o.make ? ' make' : ''}`, role: 'option', tabindex: '-1',
+        onpointerdown: (e) => e.preventDefault(),
+        onclick: () => take(o),
+      },
+      o.thumb !== undefined && el('span', { class: 'combo-thumb' }, o.thumb && el('img', { src: o.thumb, alt: '' })),
+      el('span', { class: 'combo-label', text: o.label ?? o.value }),
+      o.hint && el('span', { class: 'combo-hint', text: o.hint }))));
+    };
+    const show = () => {
+      options = source(input.value) || [];
+      at = options.length && input.value.trim() ? 0 : -1;
+      if (!options.length) return hide();
+      if (!list.isConnected) (input.closest('dialog') || document.body).append(list);
+      list.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+      place();
+      paint();
+    };
+    const hide = () => {
+      list.hidden = true;
+      input.setAttribute('aria-expanded', 'false');
+    };
+    const take = (o) => {
+      input.value = o.value;
+      hide();
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      hide();
+      if (onPick) onPick(o);
+    };
+    input.addEventListener('focus', show);
+    input.addEventListener('input', () => { if (document.activeElement === input) show(); });
+    input.addEventListener('blur', () => setTimeout(hide, 100));
+    input.addEventListener('keydown', (e) => {
+      if (list.hidden) {
+        if (e.key === 'ArrowDown') { show(); e.preventDefault(); }
+        return;
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        at = (at + (e.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+        paint();
+        list.children[at]?.scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Enter' && at >= 0) take(options[at]);
+      else if (e.key === 'Escape') hide();
+      else if (e.key === 'Tab' && at >= 0 && input.value.trim() && options[at].value !== input.value) { take(options[at]); return; }
+      else return;
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    window.addEventListener('scroll', () => { if (!list.hidden) place(); }, true);
+    window.addEventListener('resize', () => { if (!list.hidden) place(); });
+    return { show, hide, list };
+  }
+
+  // Suggestions of what a source names, best first: those that start with what was typed, then those
+  // that hold it anywhere.
+  function rank(items, typed, key = (x) => x, max = 8) {
+    const q = String(typed || '').trim().toLowerCase();
+    if (!q) return items.slice(0, max);
+    const starts = [];
+    const holds = [];
+    for (const x of items) {
+      const k = String(key(x)).toLowerCase();
+      if (k.startsWith(q)) starts.push(x);
+      else if (k.includes(q)) holds.push(x);
+    }
+    return [...starts, ...holds].slice(0, max);
+  }
+
+  // What was opened lately, newest first, for Home: { kind: 'board' | 'entity', id, … }.
+  function remember(entry) {
+    const list = (Array.isArray(store('wb:recent')) ? store('wb:recent') : []).filter((x) => !(x.kind === entry.kind && x.id === entry.id));
+    list.unshift({ ...entry, at: Date.now() });
+    store('wb:recent', list.slice(0, 40));
+  }
+
+  return { el, store, remember, combo, rank, user, dialog, askName, info, offline, watchServer, initials, ago, api, theme, setTheme, themeButton, media: null, colors: USER_COLORS, saveUser };
 })();

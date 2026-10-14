@@ -25,6 +25,22 @@ private networks, otherwise only the host machine can connect.
 
 ## What it does
 
+- **Getting around the home page.** A sidebar on the left holds Home, then what you pinned (each a row
+  that goes there), then each workspace with its folders and projects as a tree. A project opens to its
+  Boards, Catalogue, Versions and Timeline, and the catalogue to its assets, sets and shots, the shots by
+  sequence, each with a count. Only what you are in is open: the way to the page you are on is opened
+  for you, and the rest close as you go elsewhere (an arrow opens a row for a look in the meantime). Above the page one slim line says where you are (Myreze / Kilo / Catalogue / Shots /
+  kilo / kilo-0010), each part a link; the star at its end pins exactly what is there to Home: a board's folder, a project, a sequence, a tier of the catalogue, the catalogue, Versions, the Timeline, or an asset, set or shot.
+  On a narrow window the sidebar is a drawer, opened with the button at the left of the bar.
+- **Home.** Three things, and nothing else. What you pinned (boards, folders, projects, shots) along
+  the top. Updates: in the last two weeks, comments on your work (yours too, as "You", never marked
+  new), new versions of it by others, and new versions of what you are cc'd on, newest first; what came since you last marked them read is
+  marked, and All, Comments and New versions narrow it. Click one to open it in the player. Beside it,
+  My work: the assets, sets and shots you are an artist on or have filed versions of. Every card is the
+  catalogue's own: it scrubs under the pointer and plays the latest. Pin from a card's `...` menu or
+  the star beside where you are; pins and what is read are kept by this browser.
+- **Cards or compact rows.** The button beside the theme in the top bar shows boards, folders and the
+  catalogue as cards, or as compact rows (a small still beside each name), remembered per browser.
 - **One bar across the top, the same on every page.** The mark in the corner goes to all boards, and
   beside it is where you are, as a path: the board, and with an image or video open, the board and
   then the piece. On the right is what can be done there, ending in the one thing set in ink (New
@@ -63,31 +79,34 @@ private networks, otherwise only the host machine can connect.
   board: whether every image and video shows its file name (the same for everyone on the board, and
   kept with it), and the way to its sharing, its files and its activity.
 - **Activity, and going back.** The clock in the bar lists who opened a board and who changed it,
-  newest first; the same thing done again within ten minutes is one line. Under it are earlier
-  versions: before each round of changes (whatever follows ten quiet minutes) the board is kept as it
-  was, the last forty times, and any of them can be put back for everyone. What is replaced is kept as
-  one more version, so putting back can itself be undone. A version is the board's items packed small
-  (about 13 KB for a board of thirty pieces); the files stay where they are.
+  newest first; the same thing done again within ten minutes is one line. Under it are snapshots:
+  before each round of changes (whatever follows ten quiet minutes) the board is kept as it was, the
+  last forty times, and any of them can be put back for everyone. What is replaced is kept as one more
+  snapshot, so putting back can itself be undone. A snapshot is the board's items packed small (about
+  13 KB for a board of thirty pieces); the files stay where they are. Putting one back moves what is
+  on the board only: notes, and versions in a project's catalogue, stay as they are.
 - **Frame-accurate video.** Each video knows its frame rate, read from the file when it is added. `,` and `.` step one frame
   (with Shift, one second), Space or K plays and pauses, M turns the sound on and off,
   and scrubbing lands on whole frames. Click the time on a video to switch between minutes and seconds,
   the frame number and a timecode; the choice is remembered per browser. Starting to draw or comment
   on a playing video stops it on the frame showing. Whoever follows you sees exactly the frame you stop on.
-- **The viewer.** Double-click an image or video (or tap it on a phone) and it opens on its own, laid
+- **The viewer.** Double-click an image or video (or tap it on a phone) and it opens in the player,
+  the same one that opens versions from a project's catalogue (`public/viewer.js`). It is laid
   out like a review tool: the rest of the board is hidden behind a plain backdrop, every image and
   video on the board runs down the left edge as a strip of small numbered thumbnails, the comments on
   the open piece sit in a panel on the right, and under a video is its timeline. The bar across the
   top becomes the viewer's: the piece's name, the way to the next and the one before, its zoom, and
   Done. Nothing else lies over the piece. The comments fold away and back with the tab on their edge
   (Shift+C), so the piece can have the whole width. Esc, Done or the board's name in the bar closes it
-  and the board comes back where it was. There is no tool strip in here, because there is one tool:
-  a press on the piece is a brush stroke (the brush's colours, and the eraser, are beside the comment
-  box). Zoom in with the wheel or a pinch and move around with a right-drag, Space and a drag, or
+  and the board comes back where it was. It opens to look at: a drag moves the picture, and nothing is
+  drawn until the pen beside the comment box is turned on (or P), as in Frame.io. With the pen on, its
+  colours and the eraser show above the box, and sending the comment turns it off again. Zoom in with
+  the wheel or a pinch and move around with a drag, a right-drag, Space and a drag, or
   the middle button (two fingers on a phone); the view never zooms out past the piece or wanders off
   it onto the board. The zoom button in the bar switches between fitting the screen and actual size,
   and zooming in on a large image loads its original. What is drawn belongs to the piece, so it moves
-  and scales with it, and everyone who has it open sees it live. The laser (L, and L again for the
-  brush) still points for everyone. Somebody holding a link has the hand instead of the brush.
+  and scales with it, and everyone who has it open sees it live. The laser (L, and L or Esc again to
+  put it away) still points for everyone. Somebody holding a link has no pen.
 - **One meaning per key.** In the viewer the arrow keys always go to the next or previous image or
   video (so do a click in the strip, a swipe, or, on a window too narrow for the strip, the arrows in the bar), in the order the board reads:
   frame by frame, rows first and then left to right, with loose media taking its place among the
@@ -99,6 +118,8 @@ private networks, otherwise only the host machine can connect.
   a dark bed in both themes so the colours read the same. Every comment has a small mark above the track in its writer's colour, at the moment it is
   about; click one to go there, and the comments open on it if they were folded away. Comments about
   the same moment share one mark with their number on it, and each click goes to the next of them. Nothing lies over the picture while it is open.
+  The loop button beside the sound starts a video again from the top when it reaches the end; it is on
+  unless turned off, and the choice is remembered per browser. A comment's frame leads its text.
 - **The board's videos are fetched ahead.** Once a board is open its videos are fetched quietly in
   the background, one at a time in the order the viewer steps through them, and kept on the
   computer's disk (up to 4 GB, the longest unused making room). Opening one then finds it there
@@ -108,6 +129,26 @@ private networks, otherwise only the host machine can connect.
   or with the browser asked to save data, nothing is fetched ahead. A small ring in the bar fills as
   the videos are cached, with a count beside it ("2/5 cached"), and turns to a tick and "Cached" once
   the whole board is; hover or press it and it says more.
+- **Videos are kept on this computer everywhere, not only on boards.** One cache serves every page
+  (`public/media.js`): whatever video you open, in a board, the catalogue, the timeline or from Home, is
+  kept, and is there at once the next time. Ahead of you, in this order, it also fetches the timeline's
+  next few shots as it plays, the open board's videos, the videos the page you are on shows (the
+  catalogue's cards, say), and the newest version of your work, of what you are cc'd on and of what
+  you pinned (Home's feed is fetched every few minutes for this, wherever you are). Your settings
+  (your name at the top right) turn fetching ahead off, or any of boards, work, cc'd and pinned. Up
+  to 4 GB is kept; what was wanted longest ago makes room, never what the open board, the page or
+  the timeline is showing, and when nothing more can be made room for, fetching ahead stops rather
+  than throwing out what is wanted. A small service worker (`public/sw.js`) answers the pages' own
+  video players from the kept copies, scrubbing included, so a card scrubbed on hover or the
+  timeline's next shot plays from the disk too. What is kept is listed in IndexedDB, a record a video,
+  and a lock for each file keeps two tabs from fetching the same one; the list from before (in
+  localStorage) is taken over the first time.
+- **Seeing what is cached.** Every video card (in the catalogue, an asset's versions, the Versions
+  list, Home) has a badge in its top right corner: a green tick once it is cached on this computer, a
+  ring filling while it comes, a cloud while it still plays from the server. The ring a board has in
+  its bar is in Home's bar too, for whatever you are looking at: the cards of the page, or with the
+  timeline open, the whole timeline ("3/12 cached", then "Cached"), which is fetched in full behind the
+  next few shots. Pressed, it says how much of it is here, what is on its way, and how full the cache is.
   A video that is more than the browser can process (a very large frame in Safari, say) is not added:
   a message names it and says which browsers to add it from instead, rather than putting the bare
   file on the board. (On a plain http address, where no browser can make review copies, videos still
@@ -149,20 +190,24 @@ private networks, otherwise only the host machine can connect.
   the number of open threads, or a tick once they are all resolved; click it to open the piece with
   its comments beside it. Comments belong to the viewer, so there is no button for them out on the
   board; Shift+C there still lists every thread on the board, and picking one opens what it is about. Who wrote a comment comes from the sign-in, not from the
-  browser. Comments go when the thing they are on is deleted, and come back with it on undo, still in
-  their author's name whoever pressed undo.
-- **Drawings go with comments.** To point at something, circle it. A stroke on the open piece
-  belongs to the comment being written, and starts one if none is: the box takes the keyboard, so
+  browser. Comments are kept apart from the board, as notes: taking a piece off the board takes its
+  comments out of sight, and undo brings them back, still in their author's name whoever pressed undo.
+  Only deleting a thread deletes it. On a piece filed as a version (see Projects, below) the comments
+  belong to the version, so they are there on every board the version is on. Which board a comment was
+  made on is kept with it, but not shown: what it is about is the version.
+- **Drawings go with comments.** To point at something, turn on the comment's pen and circle it. A
+  stroke on the open piece belongs to the comment being written, and starts one if none is: the box takes the keyboard, so
   draw, type what it is about, Enter. On a video the comment is about the frame that was drawn on,
   and its drawing shows only while the video is stopped there. Only the drawing of the comment being
   read is on the picture: pick another thread and its drawing takes the other's place, so two
   comments about the same frame never draw over one another. Whoever follows you reads the thread
-  you are reading, and sees its drawing with you. What is drawn for a comment is part
-  of the review, not of the board: it shows in the viewer only, never out on the board, and a copy of
-  the piece does not take it along. A thread with a drawing says so under its text. Deleting a thread
-  deletes its drawing. A drawing whose comment was never sent is not thrown away: it stays on the piece
-  as an ordinary drawing, there on every frame and out on the board too. "Clear drawing" in the bar asks
-  first, and clears only those ordinary drawings: what was drawn for a comment stays with its thread.
+  you are reading, and sees its drawing with you. What is drawn for a comment is kept with the comment,
+  measured against the picture, so it goes wherever the comment goes: on a version, to every board the
+  version is on and to the catalogue. It shows in the viewer only, never out on the board. A thread with
+  a drawing says so under its text. Deleting a thread deletes its drawing. A drawing whose comment is
+  never sent is taken away when you move on, and says so. What is drawn out on the board with the
+  pen shows in the viewer too, as an ordinary drawing; "Clear drawing" in the bar asks first, and clears
+  only those: what was drawn for a comment stays with its thread.
 - **Smart snapping.** Dragged items snap to the edges and centres of their neighbours and
   to equal gaps, with guide lines. Toggle with S, hold Ctrl while dragging to bypass.
 - **Live collaboration.** Everyone sees edits, cursors and selections as they happen.
@@ -237,10 +282,117 @@ commands, the settings and why it should run as a single instance.
 
 ## Folders
 
-The board list is organised in folders. Drag a board or folder onto a folder, or onto a
-name in the path above the list, to move it; the `...` menu on each card has Rename,
+The board list is organised in folders. Drag a board or folder onto a folder (a card, a row in the
+sidebar, or a name in the path above the list) to move it, or onto the other workspace's name in the
+sidebar to move it there; the `...` menu on each card has Rename,
 "Move to..." and Delete. Deleting a folder only removes the folder: its boards and
 subfolders move up one level.
+
+## Projects: versions and the catalogue
+
+A folder can be made a project (the `...` menu on its card: "Make it a project"). A project keeps a
+catalogue of what the team makes for it, its **assets, sets and shots**, and every **version** of them,
+while its boards stay what they are: playlists for one review each, a standup, a client call. A
+project cannot sit inside another one, cannot be deleted, and stays a project once something is
+filed in it.
+
+- **Filing a version.** On a board in a project, select images or videos and press Shift+V (or the
+  button in the floating toolbar). Each piece has its own row: which asset, set or shot it is, and the
+  task if the project uses them. Typing suggests what the project has (with its newest still and how
+  many versions), and a name it does not have yet is made, as an asset, set or shot by its shape or as
+  chosen. Nothing has to be named a particular way: `screenshoot_090126.png` is filed like anything
+  else. What a file's name does say is filled in ahead, and so is the frame it sits in (a frame titled
+  `kilo-0010`) and, for one piece, the last choice made. With several, "For all" fills every row at
+  once to start from; each still goes where its own row says.
+- **Numbering.** The catalogue counts versions itself: `kilo-0010 anim v1`, `v2`, `v3`, per asset, set
+  or shot and task, in the order they were filed. A version number in the file's name (`_v012`) is
+  not used or shown; the number can be changed by hand (see below).
+- **On the board.** A piece that is a version says which in its corner. When a newer one of the same
+  thing has been filed since, the chip says so; click it to swap the newer one in, or to see them all.
+  The layers button in the bar opens the project's catalogue beside the board: pick an asset, set or
+  shot, then click a version to put it on the board.
+- **Notes.** Comments on a version belong to it (see Comments above). Filing a piece takes the comments
+  already made on it along. People holding a link to a board see only the notes made on that board;
+  the team sees them all.
+- **A project's home.** Clicking a project opens its home page, not its boards: its parts (Catalogue,
+  with how many assets, sets and shots; Boards; Versions; Timeline) along the top, then Activity, the
+  versions filed and comments written in it in the last two weeks, beside what was filed last (cards that
+  scrub and play) and the boards last worked on. Its boards are at `#/f/<project>/boards`.
+- **The catalogue page.** A project has its Boards and its Catalogue, both in the sidebar. The catalogue
+  is laid out like the project on disk: assets, sets, and shots by sequence, each with its newest
+  still. An asset, set or shot opens on every version of it (where each is on a board, who filed it,
+  what its name said) and every note made about any of them, on any board. Click a version and it opens
+  in the player, the same one a board uses, with the other versions in the strip beside it: comment and
+  draw there, and it is on every board the version is on, live, as what is said on those boards is
+  live there. The same is a click away from inside a board (the catalogue panel, or a version's chip).
+- **Editing, archiving and deleting versions.** A version's menu on its asset, set or shot's page:
+  - *Edit…* changes what it is filed as: the asset, set or shot, the task, the number, the artist and
+    the description. Its name follows, on every board it is on, and its notes go with it. Moved to
+    another asset or task without a number, it becomes the next version there. A number another
+    version has is refused.
+  - *Archive* puts it out of the way: it is left out of the catalogue (tick "Show archived" to see
+    it) and no longer counts as the newest. Boards it is on keep it.
+  - *Delete…* is for a version no board shows; one on a board says which, so it can be taken off
+    first or archived instead. A deleted version is marked, not removed: its number is never given
+    out again, and Undo brings it back. A snapshot or an undo on a board that would bring back a
+    piece of it brings back plain media.
+- **Bringing files in.** Drop images and videos anywhere on a project's catalogue, or press Import above
+  it. Each is brought in exactly as a file dropped on a board is (`public/ingest.js`): a video gets its
+  review copy, its timeline strip, its stills and its frame rate, and the file it was made from is kept
+  too. A strip above the catalogue has a row for each file, with its own asset, set or shot and task,
+  filled in ahead from its name (on an asset, set or shot's own page, from that one), with the same
+  suggestions as filing on a board. Nothing is filed until you say: File on a row, Enter in its boxes,
+  or "File all" for every row that says where it goes (one still on its way in is filed when it
+  arrives). "For all" fills every row at once. Each row has its version number too, filled in as the
+  next one (one past the last of that asset, set or shot and task, and past the rows above it going to
+  the same); type another to use it instead, and the rows below count on from it. A number that is
+  taken is refused, with what has it. Nothing goes on a board. Click a filed one to open it in
+  the player.
+- **Looking without choosing.** Move the pointer across a video's picture in the catalogue and it
+  scrubs through it, as if the pointer were dragging its playhead. An asset, set or shot's picture
+  plays its newest version at once ("Latest"); its name goes to its page, which has Play latest too.
+- **The timeline.** A project's Timeline (in the sidebar, or above the catalogue) plays every shot in
+  order, sequence by sequence, in the player, as an edit, beside the sidebar and under the page's bar,
+  which stay in reach (going elsewhere from either closes the timeline): the newest version of each (of any task, or
+  of one), one into the next. The next shot is loaded while one plays, so the cut to it is clean. In
+  place of the side strip, the bar under the picture holds every shot as a clip as long as it lasts,
+  with its still and where each sequence begins; dragging along it moves through the whole run, and the
+  time is the run's, in seconds, frames or timecode as everywhere else. The player's bar picks all
+  sequences or one, and the task; both are remembered. The arrows step from shot to shot, Space plays
+  and pauses, loop goes round to the first shot, and what is written is about the shot under the
+  playhead, on its version, like any other comment. Stills hold for three seconds. The shot on screen
+  and its version are written over the picture and in the bar, and each clip in the strip says its
+  shot. Shots with nothing filed (of the task chosen) are there as a slate, held like a still, with no
+  comments, as they have no version to be on; "Filed shots only" leaves them out.
+- **Setting a project up.** "Add assets, sets & shots" above the catalogue takes names, typed or pasted
+  one a line, each an asset, a set or a shot by its shape (or all of one kind, as chosen), and a run of
+  shots from a sequence and its numbers (kilo, 10 to 200 by 10). They are in the catalogue and the
+  sidebar at once, with nothing filed yet.
+- **Artists and CC.** An asset, set or shot's page names its artists and who else is cc'd, picked from
+  everyone the app knows (who signed in, filed, wrote a note or was named before) or typed. Its card
+  shows its artists.
+- **Versions, as they came in.** A project's Versions (in the sidebar) lists every version filed in it,
+  newest first: by day, and within a day by who filed a run of them, each with its still (which scrubs
+  under the pointer and opens in the player), what it is, and the boards it is on. Click to pick, Shift
+  and a click for a run, or drag a box; once something is picked, a day's or a run's box picks all of
+  it, and Esc lets go (as it does wherever things are picked); then "Add to board" puts them on one of
+  the project's boards, in rows below what is there, or "New board" makes one in the project with them
+  on it, laid out as the edit is: a column for each sequence, left to right, its shots going down from
+  first to last (assets and sets in columns after them). Either way they are those versions, with their
+  notes.
+- **Changing many at once.** Select, above the catalogue, picks assets, sets and shots with a click
+  (Shift and a click for every one between), or drag on empty space to draw a box over them, as in a
+  file manager (with Shift, Ctrl or Cmd it adds to what is picked; the Versions list and an asset's
+  versions work the same, and in a folder a box picks boards and folders to move or delete together); the bar at the foot has Select all, Clear and Edit. Edit
+  changes them together: artists and people cc'd added, taken off or set outright, and what they are
+  (assets, sets or shots), showing who each field has now. What is left alone stays as each has it, and
+  all of them change or none do. Esc, or Done, stops selecting.
+
+Names are read by the project's naming preset. The one there is follows the Myreze styleguide:
+`_` separates parts, `-` joins words, all lower case. An asset is `char-`, `prop-`, `env-`, `veh-` or
+`fx-` something, a set is `set-` something, a shot is `<sequence>-<number>` (`kilo-0010`). A file named
+`<context>_<task>[_<descriptor>]_<artist>_v###` (`kilo-0010_anim_erik_v012.mov`) says all of it. The
+rules are in `public/naming.js`, shared by the server and the pages.
 
 ## Data and backup
 
@@ -248,7 +400,7 @@ Everything lives in `data/` next to the server:
 
 | Path            | Contents                                                        |
 | --------------- | --------------------------------------------------------------- |
-| `data/wipboard.db` | Boards, their items, folders and the catalogue, in one SQLite database (with `-wal` and `-shm` files beside it while the server runs) |
+| `data/wipboard.db` | Boards, their items and snapshots, folders, projects' catalogues (assets, sets, shots and their versions) and every note, in one SQLite database (with `-wal` and `-shm` files beside it while the server runs) |
 | `data/uploads/` | Uploaded media, named by content hash (duplicates stored once): pictures, videos' review copies, and the files those were made from |
 | `data/backups/` | A copy of the database made each day the server runs; the last seven are kept |
 | `data/.session-secret` | Signs the sign-in cookies. Made on first start with a sign-in mode; keep it private |
@@ -262,19 +414,23 @@ opens it, so the number of old boards does not slow the server down.
 and copy the whole `data` folder. Copying `wipboard.db` while the server runs can catch it halfway
 through a write; the files in `data/backups/` are always whole.
 
+**Updating from before projects** moves every board's comments into the notes table and renames the
+boards' history to snapshots, once, the first time the server starts. A copy of the database as it was
+is put in `data/backups/` first (`wipboard-before-catalogue-<time>.db`).
+
 **Deleted boards** are kept, only hidden. To bring one back, stop the server and run
 `node scripts/restore-board.js` to list them, then `node scripts/restore-board.js <board id>`. It
 comes back at the top level of its workspace.
 
-## The catalogue
+## Searching across boards
 
 Every item on every board is indexed by what it is, what it is called, which frame holds it and which
-uploaded file it shows, so questions across boards are quick. For now the catalogue is there for the
-features that will use it, and can be asked directly. `GET /api/catalog` takes any of:
+uploaded file it shows, so questions across boards are quick. It can be asked directly.
+`GET /api/catalog` takes any of:
 
 | Parameter | Finds |
 | --------- | ----- |
-| `type`    | `frame`, `image`, `video`, `note`, `text`, `block`, `comment`, `stroke`, or several: `image,video` |
+| `type`    | `frame`, `image`, `video`, `note`, `text`, `block`, `stroke`, or several: `image,video` |
 | `name`    | Items called exactly this, ignoring case and spacing: a frame's title, a file's name, a note's text |
 | `in`      | Items inside a frame called this |
 | `q`       | Words anywhere in what items are called or say; the last word may be the start of one |
@@ -288,6 +444,23 @@ item, its board, the frame it is in, when it was added and by whom. `GET /api/ca
 describes an uploaded file (its size, original name, size in pixels, length and frame rate, who
 uploaded it) and lists every board it is on. Only boards in workspaces the person asking can see are
 searched, and deleted boards never are.
+
+A project's catalogue has its own: `GET /api/projects/<folder>` (its assets, sets and shots),
+`GET /api/entities/<id>` (one of them, every version and every note), `GET`, `PATCH` and `DELETE
+/api/versions/<id>` (`PATCH` takes `entity`, `task`, `number`, `artist`, `descriptor`, `hidden`, or
+`{ "deleted": false }` to bring a deleted one back), and `POST /api/projects/<folder>/versions` to file
+versions (each file may say its own `entity`, `task` and `number`; the catalogue's `tops` says the
+highest number each task of each entity has reached). `POST /api/projects/<folder>/entities` takes
+`{ "names": [...], "tier" }` to set many up at once; `PATCH /api/entities/<id>` takes `name`, `tier`,
+`artists` and `cc`, and `PATCH /api/projects/<folder>/entities` takes `{ "ids": [...], "tier",
+"artists": { "add" | "remove" | "set": [...] }, "cc": { ... } }` to change many at once. `GET /api/people`
+lists the names the app knows, and `GET /api/feed?name=` is Home's Updates and My work (and `cc`, what you are cc'd on, each with
+its newest version, for the cache to fetch ahead).
+`GET /api/projects/<folder>/activity` what happened in the project in the last two weeks (versions
+filed and comments, newest first), `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest version,
+`GET /api/projects/<folder>/versions?before=` the project's versions newest first, and
+`POST /api/projects/<folder>/place` takes `{ "board", "versions": [...], "layout" }` to put versions on
+one of the project's boards (`"layout": "sequences"` for a column per sequence).
 
 ## Settings
 
@@ -321,14 +494,17 @@ Environment variables, or lines in a `.env` file next to `server.js`. All option
 
 ```
 server.js          HTTP + WebSocket server, boards in memory
-store.js           The database: boards, items, folders and the catalogue
-notifications.js   What each person is told about, worked out from the comments
+store.js           The database: boards, items, folders, projects' catalogues and notes
+notifications.js   What each person is told about, worked out from the notes
 auth.js            Who is asking: the four sign-in modes
-public/board.js    The canvas: rendering, input, sync, the viewer, following
-public/home.js     Board list
+public/board.js    The canvas: rendering, input, sync, following
+public/viewer.js   The player: one piece at a time, its strip, timeline, comments and drawings; used by boards and the catalogue
+public/ingest.js   Bringing media in: review copies of video, originals, timeline strips, stills; used by boards and the catalogue
+public/home.js     Board list, and a project's catalogue
+public/naming.js   How file names are read for the catalogue (shared with the server)
 public/common.js   Shared helpers
 public/login.html  Sign-in page (password and Google modes)
 public/style.css   All styling
 scripts/           restore-board.js: bring back a deleted board
-test/              npm test: sign-in, uploads, live sync, workspaces, links, the database, catalogue and notifications
+test/              npm test: sign-in, uploads, live sync, workspaces, links, the database, catalogue, versions, notes and notifications
 ```

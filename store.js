@@ -30,12 +30,16 @@ try {
 }
 
 const SCHEMA = `
+-- A folder marked as a project (project = 1) owns a catalogue: the entities below. Its settings are what
+-- the project is set to, as JSON, such as which naming preset its files are read by.
 CREATE TABLE IF NOT EXISTS folders (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   parent_id TEXT,
   workspace TEXT NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  project INTEGER NOT NULL DEFAULT 0,
+  settings TEXT
 );
 
 CREATE TABLE IF NOT EXISTS boards (
@@ -65,8 +69,9 @@ CREATE TABLE IF NOT EXISTS activity (
 CREATE INDEX IF NOT EXISTS activity_by_board ON activity (board_id, at);
 
 -- A board as it was before a round of changes, to go back to: everything on it, packed small. The
--- files themselves are not copied; they stay in uploads/ whatever happens to the board.
-CREATE TABLE IF NOT EXISTS versions (
+-- files themselves are not copied; they stay in uploads/ whatever happens to the board. Notes are not
+-- in it either: putting a board back moves what is on it, never what was said.
+CREATE TABLE IF NOT EXISTS snapshots (
   board_id TEXT NOT NULL,
   at INTEGER NOT NULL,
   who TEXT,
@@ -90,6 +95,7 @@ CREATE TABLE IF NOT EXISTS items (
   created_at INTEGER NOT NULL,
   created_by TEXT,
   updated_at INTEGER NOT NULL,
+  version_id TEXT,
   PRIMARY KEY (board_id, id)
 );
 CREATE INDEX IF NOT EXISTS items_by_label ON items (type, label_key);
@@ -108,6 +114,68 @@ CREATE TRIGGER IF NOT EXISTS items_text_set AFTER UPDATE OF label ON items BEGIN
   INSERT INTO items_text (items_text, rowid, label) SELECT 'delete', old.rowid, old.label WHERE old.label IS NOT NULL;
   INSERT INTO items_text (rowid, label) SELECT new.rowid, new.label WHERE new.label IS NOT NULL;
 END;
+
+-- The catalogue of a project. An entity is an asset, a set or a shot; every version belongs to one. It
+-- can be there before anything is filed of it. artists and cc are names (JSON arrays): who makes it, and
+-- who else follows it; both see what happens to it in their feed.
+CREATE TABLE IF NOT EXISTS entities (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  tier TEXT NOT NULL,
+  name TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  created_by TEXT,
+  artists TEXT,
+  cc TEXT,
+  UNIQUE (project_id, name)
+);
+
+-- A version: one file filed under an entity, and a task if the project uses them. The number counts the
+-- versions of that entity and task in the order they were filed; hip is a version number read from
+-- the file's name, kept only as a label. Its look is what a board needs to show the file (its address,
+-- stills, size, length), as JSON. An archived version (hidden) is kept out of the catalogue's way; a
+-- deleted one is marked, never removed, so its number is not given out again and it can be brought back.
+CREATE TABLE IF NOT EXISTS versions (
+  id TEXT PRIMARY KEY,
+  entity_id TEXT NOT NULL,
+  task TEXT,
+  number INTEGER NOT NULL,
+  descriptor TEXT,
+  artist TEXT,
+  hip INTEGER,
+  media TEXT,
+  thumb TEXT,
+  kind TEXT NOT NULL,
+  original_name TEXT,
+  look TEXT NOT NULL,
+  board_id TEXT,
+  created_at INTEGER NOT NULL,
+  created_by TEXT,
+  hidden INTEGER NOT NULL DEFAULT 0,
+  deleted_at INTEGER,
+  UNIQUE (entity_id, task, number)
+);
+CREATE INDEX IF NOT EXISTS versions_by_entity ON versions (entity_id, task, number);
+
+-- What people say about the work. A note belongs to a version, so it is there on every board the
+-- version is on, or, while a piece of media is not filed as a version, to that piece on its board.
+-- board_id and item_id are where it was made; data is the note as the boards show it (its text,
+-- who wrote it, the frame it is about, whether it is resolved). A deleted note is kept, marked, so that
+-- undo can bring it back as its author wrote it.
+CREATE TABLE IF NOT EXISTS notes (
+  id TEXT PRIMARY KEY,
+  board_id TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  version_id TEXT,
+  re TEXT,
+  data TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  created_by TEXT,
+  updated_at INTEGER NOT NULL,
+  deleted_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS notes_by_version ON notes (version_id);
+CREATE INDEX IF NOT EXISTS notes_by_item ON notes (board_id, item_id);
 
 -- Small things kept per person, such as which notifications they have read.
 CREATE TABLE IF NOT EXISTS user_state (
@@ -192,7 +260,73 @@ function derive(it) {
     media: it.type === 'image' || it.type === 'video' ? uploadName(it.src) : null,
     // The small still the board list shows for it.
     thumb: typeof it.th === 'string' ? it.th : it.type === 'image' && typeof (it.prev || it.src) === 'string' ? it.prev || it.src : null,
+    // The catalogue version it shows, when it is one.
+    version_id: typeof it.ver === 'string' ? it.ver : null,
   };
+}
+
+// Comments used to be items on their board. They are notes now, kept in a table of their own, so that
+// one made about a version is there on every board the version is on. A database from before has its
+// comments moved across once, each still on what it was on.
+function moveCommentsToNotes(db) {
+  const rows = db.prepare("SELECT board_id, id, data, created_at, created_by, updated_at FROM items WHERE type = 'comment'").all();
+  if (!rows.length) return;
+  const put = db.prepare(`INSERT OR IGNORE INTO notes (id, board_id, item_id, version_id, re, data, created_at, created_by, updated_at)
+    VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    for (const r of rows) {
+      let c;
+      try {
+        c = JSON.parse(r.data);
+      } catch {
+        continue;
+      }
+      if (typeof c.on !== 'string') continue;
+      put.run(r.id, r.board_id, c.on, typeof c.re === 'string' ? c.re : null, JSON.stringify(c), r.created_at, r.created_by, r.updated_at);
+    }
+    db.exec("DELETE FROM items WHERE type = 'comment'");
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+// What was drawn for a comment used to be strokes on the board, beside the piece. It belongs to the note
+// now, measured against the piece (its width is 1000), so it goes wherever the note goes. A stroke whose
+// comment was never sent is an ordinary drawing and stays where it is.
+const r2 = (v) => Math.round(v * 100) / 100;
+function moveDrawingsToNotes(db) {
+  const rows = db.prepare(`SELECT board_id, id, data FROM items WHERE type = 'stroke' AND data LIKE '%"cid"%'`).all();
+  if (!rows.length) return;
+  const readHost = db.prepare('SELECT data FROM items WHERE board_id = ? AND id = ?');
+  const readNote = db.prepare('SELECT data FROM notes WHERE id = ?');
+  const putData = db.prepare('UPDATE notes SET data = ? WHERE id = ?');
+  const drop = db.prepare('DELETE FROM items WHERE board_id = ? AND id = ?');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    for (const r of rows) {
+      const s = JSON.parse(r.data);
+      const note = typeof s.cid === 'string' && readNote.get(s.cid);
+      const hostRow = note && typeof s.pid === 'string' && readHost.get(r.board_id, s.pid);
+      if (!hostRow) continue;
+      const h = JSON.parse(hostRow.data);
+      if (!(h.w > 0)) continue;
+      const k = 1000 / h.w;
+      const stroke = { x: r2((s.x - h.x) * k), y: r2((s.y - h.y) * k), w: r2(s.w * k), h: r2(s.h * k), pts: s.pts, size: r2(s.size * k), color: s.color || 'ink' };
+      if (Array.isArray(s.ws)) stroke.ws = s.ws;
+      if (s.arrow) stroke.arrow = true;
+      const data = JSON.parse(note.data);
+      data.drawing = [...(Array.isArray(data.drawing) ? data.drawing : []), stroke];
+      putData.run(JSON.stringify(data), s.cid);
+      drop.run(r.board_id, r.id);
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
 }
 
 function openStore(dataDir) {
@@ -200,11 +334,34 @@ function openStore(dataDir) {
   const file = path.join(dataDir, 'wipboard.db');
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;');
+  const hasTable = (table) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
+  const hasColumn = (table, column) => !!db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name = ?`).get(column);
+  // What a board was before a round of changes used to be called a version. Versions are now what the
+  // catalogue keeps, so the board's own are snapshots, and a database from before has its table renamed.
+  const oldSnapshots = hasTable('versions') && hasColumn('versions', 'sig');
+  const oldComments = hasTable('items') && !!db.prepare(`SELECT 1 FROM items WHERE type = 'comment' OR (type = 'stroke' AND data LIKE '%"cid"%') LIMIT 1`).get();
+  // The database as it was is copied aside first, whole, in case anything about the move is not as it should be.
+  if (oldSnapshots || oldComments) {
+    fs.mkdirSync(path.join(dataDir, 'backups'), { recursive: true });
+    const copy = path.join(dataDir, 'backups', `wipboard-before-catalogue-${Date.now()}.db`);
+    db.prepare('VACUUM INTO ?').run(copy);
+  }
+  if (oldSnapshots) db.exec('ALTER TABLE versions RENAME TO snapshots');
   db.exec(SCHEMA);
-  // Added later: a file's checksum, which a zip of it needs. Databases from before get the column here.
-  if (!db.prepare("SELECT 1 FROM pragma_table_info('media') WHERE name = 'crc'").get()) db.exec('ALTER TABLE media ADD COLUMN crc INTEGER');
-  // And what a board is set to (see BOARD_SETTINGS in server.js), as JSON.
-  if (!db.prepare("SELECT 1 FROM pragma_table_info('boards') WHERE name = 'settings'").get()) db.exec('ALTER TABLE boards ADD COLUMN settings TEXT');
+  // Added later, so databases from before get the columns here: a file's checksum, which a zip of it
+  // needs; what a board is set to (see BOARD_SETTINGS in server.js); whether a folder is a project and
+  // what it is set to; and which catalogue version an item on a board shows.
+  if (!hasColumn('media', 'crc')) db.exec('ALTER TABLE media ADD COLUMN crc INTEGER');
+  if (!hasColumn('boards', 'settings')) db.exec('ALTER TABLE boards ADD COLUMN settings TEXT');
+  if (!hasColumn('folders', 'project')) db.exec('ALTER TABLE folders ADD COLUMN project INTEGER NOT NULL DEFAULT 0');
+  if (!hasColumn('folders', 'settings')) db.exec('ALTER TABLE folders ADD COLUMN settings TEXT');
+  if (!hasColumn('items', 'version_id')) db.exec('ALTER TABLE items ADD COLUMN version_id TEXT');
+  if (!hasColumn('versions', 'deleted_at')) db.exec('ALTER TABLE versions ADD COLUMN deleted_at INTEGER');
+  if (!hasColumn('entities', 'artists')) db.exec('ALTER TABLE entities ADD COLUMN artists TEXT');
+  if (!hasColumn('entities', 'cc')) db.exec('ALTER TABLE entities ADD COLUMN cc TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS items_by_version ON items (version_id)');
+  moveCommentsToNotes(db);
+  moveDrawingsToNotes(db);
 
   function transaction(fn) {
     db.exec('BEGIN IMMEDIATE');
@@ -225,11 +382,11 @@ function openStore(dataDir) {
       share_token = excluded.share_token, share_access = excluded.share_access, share_expires = excluded.share_expires,
       updated_at = excluded.updated_at, settings = excluded.settings, deleted_at = NULL`);
   const putItem = db.prepare(`
-    INSERT INTO items (board_id, id, data, type, label, label_key, frame_id, parent_id, media, thumb, created_at, created_by, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO items (board_id, id, data, type, label, label_key, frame_id, parent_id, media, thumb, created_at, created_by, updated_at, version_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (board_id, id) DO UPDATE SET data = excluded.data, type = excluded.type, label = excluded.label,
       label_key = excluded.label_key, frame_id = excluded.frame_id, parent_id = excluded.parent_id, media = excluded.media,
-      thumb = excluded.thumb, updated_at = excluded.updated_at`);
+      thumb = excluded.thumb, updated_at = excluded.updated_at, version_id = excluded.version_id`);
   const dropItem = db.prepare('DELETE FROM items WHERE board_id = ? AND id = ?');
   // What the board learns about a file fills in what the upload alone could not say, and never overwrites.
   const learnMedia = db.prepare(`
@@ -238,7 +395,7 @@ function openStore(dataDir) {
 
   function writeItem(boardId, it, by, now) {
     const d = derive(it);
-    putItem.run(boardId, it.id, JSON.stringify(it), d.type, d.label, d.label_key, d.frame_id, d.parent_id, d.media, d.thumb, now, by || null, now);
+    putItem.run(boardId, it.id, JSON.stringify(it), d.type, d.label, d.label_key, d.frame_id, d.parent_id, d.media, d.thumb, now, by || null, now, d.version_id);
     if (d.media) learnMedia.run(text(it.name), num(it.nw), num(it.nh), num(it.dur), num(it.fps), d.media);
   }
 
@@ -253,7 +410,8 @@ function openStore(dataDir) {
     transaction(() => {
       putBoard.run(...boardValues(board));
       for (const id of removed) dropItem.run(board.id, id);
-      for (const it of changed) writeItem(board.id, it, creators.get(it.id), now);
+      // Notes are kept apart (see below), whatever the board holds of them to show.
+      for (const it of changed) if (it.type !== 'comment') writeItem(board.id, it, creators.get(it.id), now);
     });
   }
 
@@ -266,11 +424,11 @@ function openStore(dataDir) {
     }));
   }
 
-  // ---------------------------------------------------------------- activity and versions
+  // ---------------------------------------------------------------- activity and snapshots
 
   const ACTIVITY_SAME = 10 * 60 * 1000; // the same person doing the same thing again within this is one line
   const ACTIVITY_KEPT = 300;            // lines kept for a board
-  const VERSIONS_KEPT = 40;             // versions kept for a board
+  const SNAPSHOTS_KEPT = 40;            // snapshots kept for a board
   const lastOfKind = db.prepare('SELECT id, at FROM activity WHERE board_id = ? AND who = ? AND what = ? ORDER BY at DESC, id DESC LIMIT 1');
   const addActivity = db.prepare('INSERT INTO activity (board_id, at, who, what, n) VALUES (?, ?, ?, ?, ?)');
   const bumpActivity = db.prepare('UPDATE activity SET at = ?, n = n + ? WHERE id = ?');
@@ -284,26 +442,32 @@ function openStore(dataDir) {
   }
   const activity = (boardId, limit = 200) => readActivity.all(boardId, limit);
 
-  const putVersion = db.prepare('INSERT OR REPLACE INTO versions (board_id, at, who, count, sig, items) VALUES (?, ?, ?, ?, ?, ?)');
-  const newestVersion = db.prepare('SELECT at, sig FROM versions WHERE board_id = ? ORDER BY at DESC LIMIT 1');
-  const listVersions = db.prepare('SELECT at, who, count FROM versions WHERE board_id = ? ORDER BY at DESC');
-  const readVersion = db.prepare('SELECT items FROM versions WHERE board_id = ? AND at = ?');
-  const trimVersions = db.prepare('DELETE FROM versions WHERE board_id = ? AND at NOT IN (SELECT at FROM versions WHERE board_id = ? ORDER BY at DESC LIMIT ?)');
+  const putSnapshot = db.prepare('INSERT OR REPLACE INTO snapshots (board_id, at, who, count, sig, items) VALUES (?, ?, ?, ?, ?, ?)');
+  const newestSnapshot = db.prepare('SELECT at, sig FROM snapshots WHERE board_id = ? ORDER BY at DESC LIMIT 1');
+  const listSnapshots = db.prepare('SELECT at, who, count FROM snapshots WHERE board_id = ? ORDER BY at DESC');
+  const readSnapshot = db.prepare('SELECT items FROM snapshots WHERE board_id = ? AND at = ?');
+  const trimSnapshots = db.prepare('DELETE FROM snapshots WHERE board_id = ? AND at NOT IN (SELECT at FROM snapshots WHERE board_id = ? ORDER BY at DESC LIMIT ?)');
   // Keeps the board as it is now, unless that is exactly what was kept last. Says whether it did.
-  function addVersion(boardId, list, who, count, now = Date.now()) {
-    const json = JSON.stringify(list);
+  // Notes are left out: they are not the board's to put back.
+  function addSnapshot(boardId, list, who, count, now = Date.now()) {
+    const json = JSON.stringify(list.filter((it) => it.type !== 'comment'));
     const sig = crypto.createHash('sha1').update(json).digest('hex');
-    const last = newestVersion.get(boardId);
+    const last = newestSnapshot.get(boardId);
     if (last && last.sig === sig) return false;
-    putVersion.run(boardId, now, who || null, count, sig, zlib.gzipSync(json));
-    trimVersions.run(boardId, boardId, VERSIONS_KEPT);
+    putSnapshot.run(boardId, now, who || null, count, sig, zlib.gzipSync(json));
+    trimSnapshots.run(boardId, boardId, SNAPSHOTS_KEPT);
     return true;
   }
-  const versions = (boardId) => listVersions.all(boardId);
-  const lastVersionAt = (boardId) => newestVersion.get(boardId)?.at || 0;
-  function version(boardId, at) {
-    const row = readVersion.get(boardId, at);
-    return row ? JSON.parse(zlib.gunzipSync(row.items).toString('utf8')) : null;
+  const snapshots = (boardId) => listSnapshots.all(boardId);
+  const lastSnapshotAt = (boardId) => newestSnapshot.get(boardId)?.at || 0;
+  // Snapshots from before notes had their own table hold the comments too, and what was drawn for
+  // them; those are not put back.
+  const noteExists = db.prepare('SELECT 1 FROM notes WHERE id = ?');
+  function snapshot(boardId, at) {
+    const row = readSnapshot.get(boardId, at);
+    if (!row) return null;
+    return JSON.parse(zlib.gunzipSync(row.items).toString('utf8'))
+      .filter((it) => it.type !== 'comment' && !(it.type === 'stroke' && typeof it.cid === 'string' && noteExists.get(it.cid)));
   }
 
   const readItems = db.prepare('SELECT data FROM items WHERE board_id = ? ORDER BY rowid');
@@ -333,14 +497,20 @@ function openStore(dataDir) {
   const restoreBoard = (id) => unmark.run(id).changes > 0;
 
   const readFolders = db.prepare('SELECT * FROM folders');
-  const folders = () => readFolders.all().map((r) => ({ id: r.id, name: r.name, parentId: r.parent_id, workspace: r.workspace, createdAt: r.created_at }));
+  const folders = () => readFolders.all().map((r) => ({
+    id: r.id, name: r.name, parentId: r.parent_id, workspace: r.workspace, createdAt: r.created_at,
+    project: !!r.project, settings: r.settings ? JSON.parse(r.settings) : {},
+  }));
   const clearFolders = db.prepare('DELETE FROM folders');
-  const putFolder = db.prepare('INSERT INTO folders (id, name, parent_id, workspace, created_at) VALUES (?, ?, ?, ?, ?)');
+  const putFolder = db.prepare('INSERT INTO folders (id, name, parent_id, workspace, created_at, project, settings) VALUES (?, ?, ?, ?, ?, ?, ?)');
   // The whole tree at once: it is small, and changes to it come one click at a time.
   function saveFolders(list) {
     transaction(() => {
       clearFolders.run();
-      for (const f of list) putFolder.run(f.id, f.name, f.parentId || null, f.workspace, f.createdAt);
+      for (const f of list) {
+        putFolder.run(f.id, f.name, f.parentId || null, f.workspace, f.createdAt, f.project ? 1 : 0,
+          f.settings && Object.keys(f.settings).length ? JSON.stringify(f.settings) : null);
+      }
     });
   }
 
@@ -480,21 +650,241 @@ function openStore(dataDir) {
     }));
   }
 
+  // ---------------------------------------------------------------- projects: entities and versions
+
+  const names = (json) => {
+    try {
+      const list = JSON.parse(json || '[]');
+      return Array.isArray(list) ? list.filter((x) => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  };
+  const entityOf = (r) => ({
+    id: r.id, projectId: r.project_id, tier: r.tier, name: r.name, createdAt: r.created_at, createdBy: r.created_by,
+    artists: names(r.artists), cc: names(r.cc),
+  });
+  const readEntities = db.prepare(`
+    SELECT e.*,
+      (SELECT count(*) FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL) AS n,
+      (SELECT max(v.created_at) FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL) AS latest,
+      (SELECT v.thumb FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL AND v.thumb IS NOT NULL ORDER BY v.created_at DESC, v.number DESC LIMIT 1) AS thumb,
+      (SELECT v.id FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL ORDER BY v.created_at DESC, v.number DESC LIMIT 1) AS newest
+    FROM entities e WHERE e.project_id = ? ORDER BY e.name`);
+  // A project's entities, each with how many versions it has, when the last came, its newest still, and
+  // its newest version: enough to scrub through it, or play it, from its card.
+  const glance = (id) => {
+    const v = id && version(id);
+    if (!v) return null;
+    const { src, poster, th, dur, fps, nw, nh } = v.look;
+    return { id: v.id, task: v.task, number: v.number, kind: v.kind, at: v.createdAt, look: { type: v.look.type, src, poster, th, dur, fps, nw, nh } };
+  };
+  // The highest number each task of each entity has reached (deleted versions too: their numbers are
+  // not given out again), so the next one can be said ahead: { task (or '' for none): number }.
+  const readTops = db.prepare('SELECT v.entity_id, v.task, max(v.number) AS top FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ? GROUP BY v.entity_id, v.task');
+  const entities = (projectId) => {
+    const tops = new Map();
+    for (const t of readTops.all(projectId)) (tops.get(t.entity_id) || tops.set(t.entity_id, {}).get(t.entity_id))[t.task ?? ''] = t.top;
+    return readEntities.all(projectId).map((r) => ({ ...entityOf(r), versions: r.n, latestAt: r.latest || null, thumb: r.thumb || null, newest: glance(r.newest), tops: tops.get(r.id) || {} }));
+  };
+  // A project's versions, newest filed first (archived and deleted ones left out), each with its entity.
+  const readProjectVersions = db.prepare(`SELECT v.*, e.name AS entity_name, e.tier AS entity_tier FROM versions v JOIN entities e ON e.id = v.entity_id
+    WHERE e.project_id = ? AND v.deleted_at IS NULL AND v.hidden = 0 AND v.created_at < ? ORDER BY v.created_at DESC, v.number DESC LIMIT ?`);
+  const projectVersions = (projectId, { before = Number.MAX_SAFE_INTEGER, limit = 300 } = {}) =>
+    readProjectVersions.all(projectId, before, limit).map((r) => ({ ...versionOf(r), entityName: r.entity_name, entityTier: r.entity_tier }));
+  // An entity's newest version (of any task), as its card shows it.
+  const readNewestAny = db.prepare('SELECT id FROM versions WHERE entity_id = ? AND hidden = 0 AND deleted_at IS NULL ORDER BY created_at DESC, number DESC LIMIT 1');
+  const newestGlance = (entityId) => glance((readNewestAny.get(entityId) || {}).id);
+  // The newest version of each entity, of one task or of any; for a project's timeline.
+  const readNewestOfTask = db.prepare('SELECT id FROM versions WHERE entity_id = ? AND task IS ? AND hidden = 0 AND deleted_at IS NULL ORDER BY number DESC LIMIT 1');
+  const newestOfTask = (entityId, task) => glance((readNewestOfTask.get(entityId, task) || {}).id);
+  const readEntity = db.prepare('SELECT * FROM entities WHERE id = ?');
+  const entity = (id) => {
+    const r = readEntity.get(id);
+    return r ? entityOf(r) : null;
+  };
+  const readEntityNamed = db.prepare('SELECT * FROM entities WHERE project_id = ? AND name = ?');
+  const entityNamed = (projectId, name) => {
+    const r = readEntityNamed.get(projectId, name);
+    return r ? entityOf(r) : null;
+  };
+  const putEntity = db.prepare('INSERT INTO entities (id, project_id, tier, name, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (project_id, name) DO NOTHING');
+  // Made, or the one of that name the project has already.
+  function addEntity({ id, projectId, tier, name, by = null }) {
+    putEntity.run(id, projectId, tier, name, Date.now(), by);
+    return entityNamed(projectId, name);
+  }
+  // Renames it, moves it to another tier, or says who works on it and who follows it.
+  const putEntityFields = db.prepare('UPDATE entities SET name = ?, tier = ?, artists = ?, cc = ? WHERE id = ?');
+  function setEntity(id, { name, tier, artists, cc }) {
+    const e = entity(id);
+    if (!e) return { ok: false };
+    const to = { name: name ?? e.name, tier: tier ?? e.tier, artists: artists ?? e.artists, cc: cc ?? e.cc };
+    if (to.name !== e.name) {
+      const have = entityNamed(e.projectId, to.name);
+      if (have) return { ok: false, taken: have };
+    }
+    putEntityFields.run(to.name, to.tier, JSON.stringify(to.artists), JSON.stringify(to.cc), id);
+    return { ok: true, entity: entity(id) };
+  }
+  // Every entity with this person among its artists or cc, in any project (the caller sees which it may show).
+  const readFollowed = db.prepare("SELECT * FROM entities WHERE artists LIKE ? OR cc LIKE ?");
+  function entitiesOf(name) {
+    const key = String(name || '').trim().toLowerCase();
+    if (!key) return [];
+    const like = `%${key.replace(/[%_\\]/g, '')}%`;
+    return readFollowed.all(like, like).map(entityOf).map((e) => ({
+      ...e,
+      role: e.artists.some((a) => a.toLowerCase() === key) ? 'artist' : e.cc.some((a) => a.toLowerCase() === key) ? 'cc' : null,
+    })).filter((e) => e.role);
+  }
+  // The entities this person has filed versions of (in any project): their work too, named or not.
+  const readFiledBy = db.prepare('SELECT DISTINCT entity_id FROM versions WHERE lower(created_by) = ? AND deleted_at IS NULL');
+  const entitiesFiledBy = (name) => readFiledBy.all(String(name || '').trim().toLowerCase()).map((r) => entity(r.entity_id)).filter(Boolean);
+  // What happened lately to some entities: versions filed and notes written, newest first.
+  function happenings(entityIds, since, limit = 80) {
+    if (!entityIds.length) return { versions: [], notes: [] };
+    const ids = entityIds.map(() => '?').join(', ');
+    const versions = db.prepare(`SELECT * FROM versions WHERE entity_id IN (${ids}) AND deleted_at IS NULL AND created_at >= ? ORDER BY created_at DESC LIMIT ?`)
+      .all(...entityIds, since, limit).map(versionOf);
+    const notes = db.prepare(`SELECT n.*, v.entity_id AS entity_id, b.name AS board_name FROM notes n JOIN versions v ON v.id = n.version_id
+      LEFT JOIN boards b ON b.id = n.board_id
+      WHERE v.entity_id IN (${ids}) AND v.deleted_at IS NULL AND n.deleted_at IS NULL AND n.created_at >= ? ORDER BY n.created_at DESC LIMIT ?`)
+      .all(...entityIds, since, limit).map((row) => ({ ...noteOf(row), entityId: row.entity_id, boardName: row.board_name }));
+    return { versions, notes };
+  }
+  // Everyone the app knows by name: who signed in, who filed or wrote something, who is named on an entity.
+  function people() {
+    const out = new Set();
+    for (const u of readUsers.all()) if (u.name) out.add(u.name);
+    for (const r of db.prepare('SELECT DISTINCT created_by AS n FROM versions WHERE created_by IS NOT NULL UNION SELECT DISTINCT created_by FROM notes WHERE created_by IS NOT NULL').all()) out.add(r.n);
+    for (const r of db.prepare('SELECT artists, cc FROM entities WHERE artists IS NOT NULL OR cc IS NOT NULL').all()) for (const n of [...names(r.artists), ...names(r.cc)]) out.add(n);
+    return [...out].filter(Boolean).sort((a, b) => a.localeCompare(b));
+  }
+  const countEntities = db.prepare('SELECT count(*) AS n FROM entities WHERE project_id = ?');
+  const entityCount = (projectId) => countEntities.get(projectId).n;
+
+  const versionOf = (r) => ({
+    id: r.id, entityId: r.entity_id, task: r.task, number: r.number, descriptor: r.descriptor, artist: r.artist, hip: r.hip,
+    media: r.media, thumb: r.thumb, kind: r.kind, originalName: r.original_name, look: JSON.parse(r.look), boardId: r.board_id,
+    createdAt: r.created_at, createdBy: r.created_by, hidden: !!r.hidden, deletedAt: r.deleted_at || null,
+  });
+  const nextNumber = db.prepare('SELECT coalesce(max(number), 0) + 1 AS n FROM versions WHERE entity_id = ? AND task IS ?');
+  const putVersion = db.prepare(`INSERT INTO versions (id, entity_id, task, number, descriptor, artist, hip, media, thumb, kind, original_name, look, board_id, created_at, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const readVersion = db.prepare('SELECT * FROM versions WHERE id = ?');
+  const version = (id) => {
+    const r = readVersion.get(id);
+    return r ? versionOf(r) : null;
+  };
+  // Files a piece of media as the next version of an entity (and task). The number is counted here:
+  // one more than the last of that entity and task, in the order they were filed.
+  // `number`, when given, is the one it is to have; a number another version of that entity and task has
+  // (or had, before it was deleted) is refused with that version.
+  function addVersion({ id, entityId, task = null, number: asked = null, descriptor = null, artist = null, hip = null, media = null, thumb = null, kind, originalName = null, look, boardId = null, by = null, at = Date.now() }) {
+    return transaction(() => {
+      if (asked != null) {
+        const holder = readHolder.get(entityId, task, asked);
+        if (holder) throw Object.assign(new Error('That number is taken'), { taken: versionOf(holder) });
+      }
+      const number = asked ?? nextNumber.get(entityId, task).n;
+      putVersion.run(id, entityId, task, number, descriptor, artist, hip, media, thumb, kind, originalName, JSON.stringify(look), boardId, at, by);
+      return version(id);
+    });
+  }
+  const readVersionsOf = db.prepare('SELECT * FROM versions WHERE entity_id = ? AND deleted_at IS NULL ORDER BY created_at DESC, number DESC');
+  const versionsOf = (entityId) => readVersionsOf.all(entityId).map(versionOf);
+  const putHidden = db.prepare('UPDATE versions SET hidden = ? WHERE id = ?');
+  const hideVersion = (id, hidden) => putHidden.run(hidden ? 1 : 0, id).changes > 0;
+  // Who has a number: a deleted version keeps its own, so that bringing it back finds it free.
+  const readHolder = db.prepare('SELECT * FROM versions WHERE entity_id = ? AND task IS ? AND number = ?');
+  const putPlace = db.prepare('UPDATE versions SET entity_id = ?, task = ?, number = ?, descriptor = ?, artist = ? WHERE id = ?');
+  // Changes what a version is filed as. Moved to another entity or task without a number, it is the next
+  // of those; a number some other version has is refused, with that version.
+  function editVersion(id, { entityId, task, number, descriptor, artist }) {
+    return transaction(() => {
+      const v = version(id);
+      if (!v) return { ok: false };
+      const to = { entityId: entityId ?? v.entityId, task: task !== undefined ? task : v.task, descriptor: descriptor !== undefined ? descriptor : v.descriptor, artist: artist !== undefined ? artist : v.artist };
+      const moved = to.entityId !== v.entityId || to.task !== v.task;
+      to.number = number ?? (moved ? nextNumber.get(to.entityId, to.task).n : v.number);
+      const holder = readHolder.get(to.entityId, to.task, to.number);
+      if (holder && holder.id !== id) return { ok: false, taken: versionOf(holder) };
+      putPlace.run(to.entityId, to.task, to.number, to.descriptor, to.artist, id);
+      return { ok: true, version: version(id) };
+    });
+  }
+  const putGone = db.prepare('UPDATE versions SET deleted_at = ? WHERE id = ?');
+  const deleteVersion = (id) => putGone.run(Date.now(), id).changes > 0;
+  const restoreVersion = (id) => putGone.run(null, id).changes > 0;
+  const readNewest = db.prepare('SELECT id, number FROM versions WHERE entity_id = ? AND task IS ? AND hidden = 0 AND deleted_at IS NULL ORDER BY number DESC LIMIT 1');
+  // The newest version of an entity and task that is not hidden: what a board points out is there.
+  const newestVersion = (entityId, task) => readNewest.get(entityId, task ?? null) || null;
+  const readTasks = db.prepare('SELECT DISTINCT v.task FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ? AND v.task IS NOT NULL ORDER BY v.task');
+  const projectTasks = (projectId) => readTasks.all(projectId).map((r) => r.task);
+  const readArtists = db.prepare('SELECT DISTINCT v.artist FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ? AND v.artist IS NOT NULL ORDER BY v.artist');
+  const projectArtists = (projectId) => readArtists.all(projectId).map((r) => r.artist);
+  // The boards a version is on, as last written.
+  const readPlacements = db.prepare(`SELECT DISTINCT b.id, b.name, b.workspace FROM items i JOIN boards b ON b.id = i.board_id
+    WHERE i.version_id = ? AND b.deleted_at IS NULL ORDER BY b.updated_at DESC`);
+  const boardsWithVersion = (versionId) => readPlacements.all(versionId);
+
+  // ---------------------------------------------------------------- notes
+
+  const noteOf = (r) => ({
+    id: r.id, boardId: r.board_id, itemId: r.item_id, versionId: r.version_id, re: r.re, data: JSON.parse(r.data),
+    createdAt: r.created_at, createdBy: r.created_by, updatedAt: r.updated_at, deletedAt: r.deleted_at,
+  });
+  const readNote = db.prepare('SELECT * FROM notes WHERE id = ?');
+  const note = (id) => {
+    const r = readNote.get(id);
+    return r ? noteOf(r) : null;
+  };
+  const putNote = db.prepare(`INSERT INTO notes (id, board_id, item_id, version_id, re, data, created_at, created_by, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  function addNote({ id, boardId, itemId, versionId = null, re = null, data, by = null, at = Date.now() }) {
+    putNote.run(id, boardId, itemId, versionId, re, JSON.stringify(data), at, by, at);
+    return note(id);
+  }
+  const putNoteData = db.prepare('UPDATE notes SET data = ?, updated_at = ? WHERE id = ?');
+  const setNote = (id, data) => putNoteData.run(JSON.stringify(data), Date.now(), id).changes > 0;
+  const putNoteGone = db.prepare('UPDATE notes SET deleted_at = ? WHERE id = ?');
+  const deleteNote = (id) => putNoteGone.run(Date.now(), id).changes > 0;
+  const restoreNote = (id) => putNoteGone.run(null, id).changes > 0;
+  // A piece filed as a version takes the notes made on it with it: from then on they are the version's.
+  const putNotesFiled = db.prepare('UPDATE notes SET version_id = ? WHERE board_id = ? AND item_id = ? AND version_id IS NULL');
+  const fileNotes = (boardId, itemId, versionId) => putNotesFiled.run(versionId, boardId, itemId).changes;
+  // Every note a board shows: those on its media that is not filed, and those on the versions it holds.
+  const readLooseNotes = db.prepare('SELECT * FROM notes WHERE board_id = ? AND version_id IS NULL AND deleted_at IS NULL');
+  function notesForBoard(boardId, versionIds = []) {
+    const ids = [...new Set(versionIds)];
+    const rows = readLooseNotes.all(boardId);
+    if (ids.length) rows.push(...db.prepare(`SELECT * FROM notes WHERE version_id IN (${ids.map(() => '?').join(', ')}) AND deleted_at IS NULL`).all(...ids));
+    return rows.sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1)).map(noteOf);
+  }
+  // The notes on some versions, with the name of the board each was made on.
+  function notesOfVersions(versionIds) {
+    if (!versionIds.length) return [];
+    return db.prepare(`SELECT n.*, b.name AS board_name FROM notes n LEFT JOIN boards b ON b.id = n.board_id
+      WHERE n.deleted_at IS NULL AND n.version_id IN (${versionIds.map(() => '?').join(', ')}) ORDER BY n.created_at`).all(...versionIds)
+      .map((r) => ({ ...noteOf(r), boardName: r.board_name }));
+  }
+
   // ---------------------------------------------------------------- notifications
 
-  // Every comment on the boards in these workspaces that have had one since `since`, with what each is on
-  // and who made that, and who made the board. Older comments on those boards come too: a new reply
-  // needs the thread it is in.
+  // Every note made on the boards in these workspaces whose thread has had one since `since`, with what
+  // each was made on and who added that, and who made the board. Older notes in those threads come
+  // too: a new reply needs the thread it is in.
   function commentsForNotices(spaces, since) {
     const list = spaces.map(() => '?').join(', ');
     return db.prepare(`
-      SELECT c.data, c.created_at, b.id AS board_id, b.name AS board_name, b.created_by AS board_by,
+      SELECT n.data, n.id, n.re, n.created_at, b.id AS board_id, b.name AS board_name, b.created_by AS board_by,
         h.created_by AS host_by, h.type AS host_type, h.label AS host_label
-      FROM items c JOIN boards b ON b.id = c.board_id
-      LEFT JOIN items h ON h.board_id = c.board_id AND h.id = c.parent_id
-      WHERE c.type = 'comment' AND b.deleted_at IS NULL AND b.workspace IN (${list})
-        AND c.board_id IN (SELECT board_id FROM items WHERE type = 'comment' AND created_at > ?)`).all(...spaces, since)
-      .map((r) => ({ ...r, comment: JSON.parse(r.data) }));
+      FROM notes n JOIN boards b ON b.id = n.board_id
+      LEFT JOIN items h ON h.board_id = n.board_id AND h.id = n.item_id
+      WHERE n.deleted_at IS NULL AND b.deleted_at IS NULL AND b.workspace IN (${list})
+        AND coalesce(n.re, n.id) IN (SELECT coalesce(re, id) FROM notes WHERE deleted_at IS NULL AND created_at > ?)`).all(...spaces, since)
+      .map((r) => ({ ...r, comment: { ...JSON.parse(r.data), id: r.id, ...(r.re && { re: r.re }) } }));
   }
 
   const readState = db.prepare('SELECT value FROM user_state WHERE user = ? AND key = ?');
@@ -525,7 +915,10 @@ function openStore(dataDir) {
   }
 
   return {
-    saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity, addVersion, versions, version, lastVersionAt,
+    saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
+    addSnapshot, snapshots, snapshot, lastSnapshotAt,
+    transaction, entities, newestOfTask, newestGlance, projectVersions, entity, entityNamed, addEntity, setEntity, entitiesOf, entitiesFiledBy, happenings, people, entityCount, addVersion, version, versionsOf, hideVersion, editVersion, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion,
+    note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,
     grants, setGrant, removeGrant, removeGrantsOn,

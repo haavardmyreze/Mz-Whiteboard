@@ -13,6 +13,7 @@ const { openStore } = require('./store');
 const { noticesFor, markRead } = require('./notifications');
 const { createAdmin } = require('./admin');
 const zip = require('./zip');
+const naming = require('./public/naming');
 
 // Settings can live in a .env file next to this one (KEY=value per line); real environment variables win.
 try {
@@ -150,7 +151,6 @@ function boardRecord(saved, items = null) {
     lastUsed: Date.now(),
     peers: new Map(),
     viewerSeq: 0,
-    removedComments: new Map(),
     // What has changed since the last write: items to write, items to remove, and who added each new one.
     changed: new Set(),
     removed: new Set(),
@@ -175,6 +175,7 @@ function openItems(board) {
   board.lastUsed = Date.now();
   if (board.items) return board;
   board.items = new Map(store.loadItems(board.id).map((it) => [it.id, it]));
+  syncNotes(board);
   return board;
 }
 
@@ -185,7 +186,6 @@ function unloadIdle() {
     if (!board.items || board.peers.size || board.dirty || board.saveTimer || board.lastUsed > cutoff) continue;
     board.summary = summarize(board);
     board.items = null;
-    board.removedComments.clear();
   }
 }
 
@@ -239,9 +239,9 @@ function writeBoard(board) {
 // come many to the second while something is dragged, so what is noted waits here a few seconds and is
 // written together; the store makes one line of the same thing done again within a few minutes.
 //
-// And before a round of changes begins, the board is kept as it was: a version it can be put back to.
-// A round is whatever follows a quiet spell, so there is at most one version every few minutes.
-const VERSION_EVERY = Number(process.env.WIPBOARD_VERSION_MS) || 10 * 60 * 1000;
+// And before a round of changes begins, the board is kept as it was: a snapshot it can be put back to.
+// A round is whatever follows a quiet spell, so there is at most one snapshot every few minutes.
+const SNAPSHOT_EVERY = Number(process.env.WIPBOARD_SNAPSHOT_MS || process.env.WIPBOARD_VERSION_MS) || 10 * 60 * 1000;
 const noted = new Map(); // board|who|what -> { board, who, what, n }
 
 function note(board, who, what, n = 1) {
@@ -264,16 +264,16 @@ function writeNoted() {
 setInterval(writeNoted, 5000).unref();
 
 // `force` keeps one whatever the time since the last, as before a board is put back to an older one.
-function keepVersion(board, who, force = false) {
+function keepSnapshot(board, who, force = false) {
   const now = Date.now();
-  if (board.versionAt === undefined) board.versionAt = store.lastVersionAt(board.id);
-  if (!force && now - board.versionAt < VERSION_EVERY) return;
-  board.versionAt = now;
-  if (!board.items || !board.items.size) return;
+  if (board.snapshotAt === undefined) board.snapshotAt = store.lastSnapshotAt(board.id);
+  if (!force && now - board.snapshotAt < SNAPSHOT_EVERY) return;
+  board.snapshotAt = now;
+  if (!board.items || !summarize(board).count) return;
   try {
-    store.addVersion(board.id, [...board.items.values()], who, summarize(board).count, now);
+    store.addSnapshot(board.id, [...board.items.values()], who, summarize(board).count, now);
   } catch (err) {
-    console.error(`Failed to keep a version of board ${board.id}: ${err.message}`);
+    console.error(`Failed to keep a snapshot of board ${board.id}: ${err.message}`);
   }
 }
 
@@ -324,6 +324,118 @@ function boardMeta(board) {
   };
 }
 
+// ---------------------------------------------------------------- notes
+//
+// What people say about the work is kept in the notes table, not on the board. A note on a piece of
+// media that is filed as a version belongs to the version, so it shows on every board the version is
+// on, and it says which board it was made on. A note on media that is not filed belongs to that piece
+// on its board. The boards still show notes as comment items on what they are about, so the browser
+// and everything it does with comments is as it was: each board holds the comment items its notes
+// come to, worked out afresh whenever what is on it changes (see syncNotes).
+//
+// A note goes only when somebody deletes it. A piece taken off a board, or a board put back to an
+// earlier snapshot, takes the notes out of sight, never out of the table: they come back with it.
+
+// What a note keeps of a comment, besides where it is (which the board works out).
+function noteData(c) {
+  const { id, type, on, re, ob, obn, ...data } = c;
+  return data;
+}
+
+// The comment item a board shows for a note, on the piece `host`.
+function noteItem(board, n, host) {
+  const c = { ...noteData(n.data), id: n.id, type: 'comment', on: host };
+  if (n.re) c.re = n.re;
+  // Made on another board: which one, so the thread can say so.
+  if (n.boardId !== board.id) {
+    c.ob = n.boardId;
+    // Made in the catalogue, on no board at all.
+    c.obn = n.boardId === '' ? 'the catalogue' : boards.get(n.boardId)?.name || 'another board';
+  }
+  return c;
+}
+
+// The comment items a board should hold now: the notes on its media that is not filed, on the piece
+// they were made on, and the notes on the versions it holds, on the piece showing that version (the one
+// it was made on, when that is here, otherwise the first). Replies sit with their thread.
+function notesWanted(board) {
+  const placed = new Map(); // version id -> the pieces showing it, in board order
+  for (const it of board.items.values()) {
+    if (it.type === 'comment' || typeof it.ver !== 'string') continue;
+    (placed.get(it.ver) || placed.set(it.ver, []).get(it.ver)).push(it.id);
+  }
+  const notes = store.notesForBoard(board.id, [...placed.keys()]);
+  const want = new Map();
+  for (const n of notes) {
+    if (n.re) continue;
+    let host = null;
+    if (n.versionId) {
+      const list = placed.get(n.versionId);
+      if (list) host = n.boardId === board.id && list.includes(n.itemId) ? n.itemId : list[0];
+    } else if (board.items.has(n.itemId) && board.items.get(n.itemId).type !== 'comment') {
+      host = n.itemId;
+    }
+    if (host) want.set(n.id, noteItem(board, n, host));
+  }
+  for (const n of notes) {
+    const root = n.re && want.get(n.re);
+    if (root && !root.re) want.set(n.id, noteItem(board, n, root.on));
+  }
+  return want;
+}
+
+// Brings the comment items a board holds in line with its notes. Returns the ops that did it, for
+// everybody on the board (whoever made the change too: the server may have put a note elsewhere).
+function syncNotes(board) {
+  if (!board.items) return [];
+  const want = notesWanted(board);
+  const gone = [];
+  for (const [id, it] of board.items) {
+    if (it.type === 'comment' && !want.has(id)) {
+      board.items.delete(id);
+      gone.push(id);
+    }
+  }
+  const ops = gone.length ? [{ t: 'del', ids: gone }] : [];
+  for (const [id, c] of want) {
+    const have = board.items.get(id);
+    if (have && JSON.stringify(have) === JSON.stringify(c)) continue;
+    board.items.set(id, c);
+    ops.push({ t: 'add', item: c });
+  }
+  return ops;
+}
+
+// Notes on these versions have changed: every other board that is open and holds one of them is told.
+function spreadNotes(versionIds, from) {
+  if (!versionIds.size) return;
+  for (const board of boards.values()) {
+    if (board === from || !board.items) continue;
+    if (![...board.items.values()].some((it) => it.type !== 'comment' && versionIds.has(it.ver))) continue;
+    const ops = syncNotes(board);
+    if (ops.length) broadcast(board, { t: 'op', ops, from: null });
+  }
+  tellRooms(versionIds);
+}
+
+// What was drawn for a comment, kept with it: strokes measured against the piece, whose width is 1000.
+// Each as a board's drawing is: a box, its points within the box from 0 to 1, how wide the line is
+// along them, its colour.
+function cleanDrawing(list) {
+  if (!Array.isArray(list)) return null;
+  const out = [];
+  const n = (v) => Number.isFinite(v);
+  for (const s of list.slice(0, 100)) {
+    if (!s || typeof s !== 'object' || !['x', 'y', 'w', 'h', 'size'].every((k) => n(s[k]))) continue;
+    if (!Array.isArray(s.pts) || s.pts.length < 2 || s.pts.length > 6000 || !s.pts.every(n)) continue;
+    const stroke = { x: s.x, y: s.y, w: s.w, h: s.h, pts: s.pts, size: s.size, color: typeof s.color === 'string' && s.color.length <= 16 ? s.color : 'ink' };
+    if (Array.isArray(s.ws) && s.ws.length * 2 === s.pts.length && s.ws.every(n)) stroke.ws = s.ws;
+    if (s.arrow === true) stroke.arrow = true;
+    out.push(stroke);
+  }
+  return out.length ? out : null;
+}
+
 // A comment is built from scratch rather than copied: who wrote it comes from the connection, not
 // from what the browser claims, and only the fields a comment has are kept.
 function cleanComment(it, peer) {
@@ -356,6 +468,8 @@ function cleanComment(it, peer) {
   if (num(it.at) !== null && it.at >= 0) clean.at = it.at;
   // On a video whose frame rate is known, the exact frame as well.
   if (Number.isSafeInteger(it.fr) && it.fr >= 0) clean.fr = it.fr;
+  const drawing = cleanDrawing(it.drawing);
+  if (drawing) clean.drawing = drawing;
   return clean;
 }
 
@@ -375,18 +489,44 @@ function commentPatch(it, asked, peer) {
   return Object.keys(patch).length ? patch : null;
 }
 
-// Comments deleted since the server started, so undoing a delete brings each one back exactly as it
-// was written. Without this the server would stamp it with whoever pressed undo.
-const REMOVED_COMMENTS_KEPT = 500;
-function rememberComment(board, comment) {
-  board.removedComments.set(comment.id, comment);
-  if (board.removedComments.size > REMOVED_COMMENTS_KEPT) board.removedComments.delete(board.removedComments.keys().next().value);
+// A new note from a comment somebody sent: on the version the piece shows, if it shows one, and a
+// reply in the thread it answers.
+function addNote(board, c, peer) {
+  let versionId = null;
+  if (c.re) {
+    const root = store.note(c.re);
+    if (!root || root.deletedAt || root.re) return null;
+    versionId = root.versionId;
+  } else {
+    const host = board.items.get(c.on);
+    if (host && typeof host.ver === 'string') versionId = host.ver;
+  }
+  return store.addNote({ id: c.id, boardId: board.id, itemId: c.on, versionId, re: c.re || null, data: noteData(c), by: peer ? peer.name : null });
+}
+
+// A version that is there: not one that never was, nor one deleted.
+const liveVersion = (id) => {
+  const v = typeof id === 'string' && store.version(id);
+  return v && !v.deletedAt ? v : null;
+};
+
+// A piece may show a catalogue version (`ver`) only if there is such a version. A snapshot or an undo
+// that brings back a piece of a version since deleted brings it back as plain media.
+function checkVer(it) {
+  if (it.ver === undefined || it.ver === null) return;
+  if (!liveVersion(it.ver)) delete it.ver;
 }
 
 // `touch` is false for housekeeping a browser does by itself, which must not make the board look edited.
+// What the notes then come to on this board and on others is settled by settle() below, after the ops
+// themselves have gone out.
 function applyOps(board, ops, peer, touch = true) {
   const applied = [];
+  applied.notes = new Set(); // versions whose notes changed
+  applied.resync = false;    // whether what the board shows of its notes may have to change
+  applied.versions = new Set(); // versions put on the board
   if (!Array.isArray(ops)) return applied;
+  const removedComments = [];
   for (const op of ops) {
     if (!op || typeof op !== 'object') continue;
     if (op.t === 'add') {
@@ -394,14 +534,32 @@ function applyOps(board, ops, peer, touch = true) {
       if (!it || typeof it !== 'object' || !ID_RE.test(it.id) || typeof it.type !== 'string') continue;
       if (it.type === 'comment') {
         if (board.items.has(it.id)) continue;
-        it = board.removedComments.get(it.id) || cleanComment(it, peer);
-        if (!it) continue;
-        board.removedComments.delete(it.id);
+        const known = store.note(it.id);
+        if (known) {
+          // Undo bringing back a note that was deleted: as its author wrote it, wherever it belongs.
+          if (known.deletedAt) store.restoreNote(it.id);
+          if (known.versionId) applied.notes.add(known.versionId);
+          applied.resync = true;
+          continue;
+        }
+        const clean = cleanComment(it, peer);
+        const n = clean && addNote(board, clean, peer);
+        if (!n) continue;
+        if (n.versionId) applied.notes.add(n.versionId);
+        applied.resync = true;
+        it = noteItem(board, n, clean.on);
+        board.items.set(it.id, it);
+        applied.push({ t: 'add', item: it });
+        continue;
       }
+      if (it.type === 'stroke' || it.type === 'frame' || it.type === 'note' || it.type === 'text' || it.type === 'block') delete it.ver;
+      else checkVer(it);
+      if (typeof it.ver === 'string') applied.versions.add(it.ver);
       board.items.set(it.id, it);
       board.changed.add(it.id);
       board.removed.delete(it.id);
       if (peer && !board.creators.has(it.id)) board.creators.set(it.id, peer.name);
+      applied.resync = true;
       applied.push({ t: 'add', item: it });
     } else if (op.t === 'set') {
       const it = board.items.get(op.id);
@@ -410,24 +568,40 @@ function applyOps(board, ops, peer, touch = true) {
       if (it.type === 'comment') {
         patch = commentPatch(it, op.patch, peer);
         if (!patch) continue;
+        const n = store.note(op.id);
+        if (!n) continue;
+        store.setNote(op.id, { ...n.data, ...patch });
+        if (n.versionId) applied.notes.add(n.versionId);
       } else {
         for (const key of Object.keys(op.patch)) {
           if (key === 'id' || key === 'type' || key === '__proto__') continue;
           patch[key] = op.patch[key];
         }
+        if ('ver' in patch) {
+          checkVer(patch);
+          if (!('ver' in patch)) patch.ver = null;
+          applied.resync = true;
+          if (typeof patch.ver === 'string') applied.versions.add(patch.ver);
+        }
       }
       Object.assign(it, patch);
-      board.changed.add(op.id);
+      if (it.ver === null) delete it.ver;
+      if (it.type !== 'comment') board.changed.add(op.id);
       applied.push({ t: 'set', id: op.id, patch });
     } else if (op.t === 'del') {
       if (!Array.isArray(op.ids)) continue;
       const ids = op.ids.filter((id) => {
         const gone = board.items.get(id);
-        if (gone && gone.type === 'comment') rememberComment(board, gone);
-        if (!board.items.delete(id)) return false;
+        if (!gone) return false;
+        board.items.delete(id);
+        if (gone.type === 'comment') {
+          removedComments.push(gone);
+          return true;
+        }
         board.changed.delete(id);
         board.removed.add(id);
         board.creators.delete(id);
+        applied.resync = true;
         return true;
       });
       if (ids.length) applied.push({ t: 'del', ids });
@@ -446,8 +620,29 @@ function applyOps(board, ops, peer, touch = true) {
       if (Object.keys(patch).length) applied.push({ t: 'meta', patch });
     }
   }
+  // A comment taken off together with what it was on only goes out of sight with it. Taken off on its
+  // own, from a piece still here, somebody deleted it.
+  for (const c of removedComments) {
+    applied.resync = true;
+    const n = store.note(c.id);
+    if (!n) continue;
+    if (n.versionId) applied.notes.add(n.versionId);
+    if (board.items.has(c.on)) store.deleteNote(c.id);
+  }
   if (applied.length) scheduleSave(board, touch);
   return applied;
+}
+
+// After ops have gone out: the board's notes as they now come out, here and on the other boards that
+// hold the versions they are on, and what those versions are called, for whoever does not know yet.
+function settle(board, applied) {
+  if (applied.resync) {
+    const ops = syncNotes(board);
+    // What a board shows of notes it already had, worked out again: nobody has just said anything.
+    if (ops.length) broadcast(board, { t: 'op', ops, from: null, sync: true });
+  }
+  spreadNotes(applied.notes, board);
+  if (applied.versions.size) broadcast(board, { t: 'versions', list: [...applied.versions].map(versionInfo).filter(Boolean) });
 }
 
 // ---------------------------------------------------------------- folders
@@ -470,7 +665,31 @@ function isWithin(folderId, ancestorId) {
   return false;
 }
 
-const publicFolder = (f) => ({ id: f.id, name: f.name, parentId: f.parentId, workspace: spaceName(f.workspace), createdAt: f.createdAt });
+const publicFolder = (f) => ({
+  id: f.id, name: f.name, parentId: f.parentId, workspace: spaceName(f.workspace), createdAt: f.createdAt,
+  ...(f.project && { project: true, settings: f.settings || {} }),
+});
+
+// The project a folder is in, or is: the nearest folder up its path that is marked as one.
+function projectOf(folderId) {
+  for (let id = folderId, hops = 0; id && hops < 1000; id = folders.get(id)?.parentId, hops++) {
+    const f = folders.get(id);
+    if (f && f.project) return f;
+  }
+  return null;
+}
+const boardProject = (board) => (board ? projectOf(board.folderId) : null);
+// Whether a folder or anything below it is a project.
+function holdsProject(folder) {
+  for (const f of folders.values()) if (f.project && isWithin(f.id, folder.id)) return true;
+  return false;
+}
+// What a project is set to: for now, which naming preset its files are read by.
+function cleanProjectSettings(asked, was = {}) {
+  const out = { ...was };
+  if (asked && typeof asked === 'object' && typeof asked.naming === 'string' && naming.PRESETS[asked.naming]) out.naming = asked.naming;
+  return out;
+}
 
 // Moves a folder, everything below it and the boards in them to another workspace; it lands at the top level there.
 function moveFolderToSpace(folder, key) {
@@ -488,6 +707,512 @@ function moveFolderToSpace(folder, key) {
     scheduleSave(board, false);
     dropStrangers(board);
   }
+}
+
+// ---------------------------------------------------------------- the catalogue of a project
+//
+// A project folder keeps a catalogue: its entities (assets, sets and shots) and the versions filed under
+// them. A version is filed from a piece of media on a board in the project, or from the project's
+// catalogue page. A piece on a board that shows a version says which (`ver`); the board shows what it is
+// called, and when there is a newer one.
+
+const LOOK_KEYS = ['type', 'src', 'orig', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'wf', 'name'];
+const UPLOAD_KEYS = new Set(['src', 'orig', 'prev', 'th', 'poster']);
+
+// What a board needs to show a file, taken from a piece on a board or from a file brought into the catalogue, keeping
+// only what such a piece has: addresses of uploaded files, its size, length and rate, its name.
+function cleanLook(asked) {
+  const look = {};
+  if (!asked || typeof asked !== 'object') return null;
+  for (const key of LOOK_KEYS) {
+    const v = asked[key];
+    if (v === undefined || v === null) continue;
+    if (UPLOAD_KEYS.has(key)) {
+      if (uploadName(v)) look[key] = v;
+    } else if (key === 'type') {
+      if (v === 'image' || v === 'video') look.type = v;
+    } else if (key === 'name') {
+      if (typeof v === 'string') look.name = v.slice(0, 200);
+    } else if (key === 'wf') {
+      // The timeline strip: the colours of the picture and the loudness of the sound, each packed small.
+      if (v && typeof v === 'object' && typeof v.c === 'string' && v.c.length < 100000 && (v.p === undefined || (typeof v.p === 'string' && v.p.length < 100000))) look.wf = { c: v.c, ...(v.p && { p: v.p }) };
+    } else if (Number.isFinite(v) && v >= 0) {
+      look[key] = v;
+    }
+  }
+  if (!look.src || !look.type || !store.media(uploadName(look.src))) return null;
+  return look;
+}
+
+// A version as a board and the catalogue show it: what it is called, and the newest of its entity and
+// task when that is a later one.
+function versionInfo(ref) {
+  const v = typeof ref === 'string' ? liveVersion(ref) : ref;
+  const e = v && store.entity(v.entityId);
+  if (!e) return null;
+  const newest = store.newestVersion(v.entityId, v.task);
+  return {
+    id: v.id, entityId: e.id, entity: e.name, tier: e.tier, projectId: e.projectId, task: v.task, number: v.number,
+    label: naming.label(e.name, v.task, v.number), artist: v.artist, descriptor: v.descriptor, hidden: v.hidden,
+    thumb: v.thumb, kind: v.kind, newest: newest && newest.id !== v.id && newest.number > v.number ? newest : null,
+  };
+}
+
+function publicVersion(v) {
+  return {
+    ...versionInfo(v), look: v.look, originalName: v.originalName, createdAt: v.createdAt, createdBy: v.createdBy,
+    board: v.boardId && boards.has(v.boardId) ? { id: v.boardId, name: boards.get(v.boardId).name } : null,
+  };
+}
+
+// The versions a board shows, as it shows them.
+function boardVersions(board) {
+  const ids = new Set();
+  for (const it of board.items.values()) if (it.type !== 'comment' && typeof it.ver === 'string') ids.add(it.ver);
+  return [...ids].map(versionInfo).filter(Boolean);
+}
+
+// An entity has a new version, or one hidden or shown again: the boards that show any of its versions
+// are told what they are now called, and whether a newer one is there.
+function retellEntity(entityId) {
+  for (const board of boards.values()) {
+    if (!board.items || !board.peers.size) continue;
+    const list = boardVersions(board).filter((v) => v.entityId === entityId);
+    if (list.length) broadcast(board, { t: 'versions', list });
+  }
+}
+
+const presetOf = (project) => naming.preset(project.settings && project.settings.naming);
+
+// The entity a file is to go under: one the project has, by its id, or one to make, by its name.
+function resolveEntity(project, spec, by) {
+  if (typeof spec === 'string') {
+    const e = store.entity(spec);
+    if (!e || e.projectId !== project.id) throw refusal(400, 'That entity is not in this project');
+    return e;
+  }
+  if (!spec || typeof spec !== 'object') throw refusal(400, 'Say which asset, set or shot it is');
+  const name = naming.tokenize(spec.name);
+  if (!name) throw refusal(400, 'An asset, set or shot needs a name');
+  const have = store.entityNamed(project.id, name);
+  if (have) return have;
+  const presetId = project.settings && project.settings.naming;
+  const tier = naming.TIERS.includes(spec.tier) ? spec.tier : naming.tierOf(name, presetId) || 'asset';
+  return store.addEntity({ id: newId(), projectId: project.id, tier, name, by });
+}
+
+const tokenOrNull = (v) => (typeof v === 'string' && naming.tokenize(v) ? naming.tokenize(v) : null);
+
+// Files pieces of media as versions. Each file is a piece on a board ({ board, item }) or a file
+// brought into the catalogue ({ look }); what each says about itself (entity, task, descriptor,
+// artist) goes before what is said for them all. What its name says fills in the rest.
+async function fileVersions(req, project, body) {
+  const by = req.user ? req.user.name : cleanName(body.by, null);
+  const files = Array.isArray(body.files) ? body.files.slice(0, 500) : [];
+  if (!files.length) throw refusal(400, 'Nothing to file');
+  const presetId = project.settings && project.settings.naming;
+  // Everything is checked before anything is filed, so a mistake files nothing.
+  const plan = files.map((f) => {
+    if (!f || typeof f !== 'object') throw refusal(400, 'Each file is a piece on a board or an uploaded file');
+    let board = null;
+    let item = null;
+    let look;
+    if (f.board) {
+      board = boards.get(f.board);
+      if (!visible(req.user, board)) throw refusal(404, 'Board not found');
+      if (boardProject(board) !== project) throw refusal(400, `“${board.name}” is not in this project`);
+      openItems(board);
+      item = board.items.get(f.item);
+      if (!item || (item.type !== 'image' && item.type !== 'video')) throw refusal(400, 'Only images and videos are filed as versions');
+      if (liveVersion(item.ver)) throw refusal(409, `“${item.name || 'That piece'}” is ${versionInfo(item.ver).label} already`);
+      look = cleanLook(item);
+      if (!look) throw refusal(400, `“${item.name || 'That piece'}” has not finished uploading`);
+    } else {
+      look = cleanLook(f.look);
+      if (!look) throw refusal(400, 'That file is not on the server');
+    }
+    const parsed = naming.parse(look.name || '', presetId);
+    return { f, board, item, look, parsed };
+  });
+  const out = [];
+  const entitiesTouched = new Set();
+  for (const p of plan) {
+    const pick = (key) => (p.f[key] !== undefined ? p.f[key] : body[key]);
+    const entity = resolveEntity(project, pick('entity') ?? (p.parsed.entity && { name: p.parsed.entity, tier: p.parsed.tier }), by);
+    const task = pick('task') !== undefined ? tokenOrNull(pick('task')) : p.parsed.task;
+    const descriptor = pick('descriptor') !== undefined ? tokenOrNull(pick('descriptor')) : p.parsed.descriptor;
+    const artist = pick('artist') !== undefined ? tokenOrNull(pick('artist')) : p.parsed.artist;
+    const media = uploadName(p.look.src);
+    const thumb = p.look.th || (p.look.type === 'image' ? p.look.prev || p.look.src : p.look.poster) || null;
+    // A number may be asked for (one a file says on its own); otherwise it is the next.
+    const asked = p.f.number ?? null;
+    if (asked != null && !(Number.isSafeInteger(asked) && asked >= 1 && asked <= 99999)) throw refusal(400, 'A version number is a whole number from 1');
+    let v;
+    try {
+      v = store.addVersion({
+        id: newId(), entityId: entity.id, task, number: asked, descriptor, artist,
+        media, thumb, kind: p.look.type, originalName: p.look.name || null, look: p.look, boardId: p.board ? p.board.id : null, by,
+      });
+    } catch (err) {
+      if (!err.taken) throw err;
+      const name = naming.label(entity.name, task, asked);
+      throw refusal(409, err.taken.deletedAt ? `${name} was given to a version since deleted, so it can't be used again` : `There is a ${name} already`);
+    }
+    entitiesTouched.add(entity.id);
+    if (p.board) {
+      // What was said about the piece goes with it: from now on it is said about the version.
+      store.fileNotes(p.board.id, p.item.id, v.id);
+      const applied = applyOps(p.board, [{ t: 'set', id: p.item.id, patch: { ver: v.id } }], null, false);
+      if (applied.length) broadcast(p.board, { t: 'op', ops: applied, from: null });
+      settle(p.board, applied);
+      note(p.board, by || 'Somebody', 'file');
+    }
+    out.push(publicVersion(v));
+  }
+  for (const id of entitiesTouched) retellEntity(id);
+  return out;
+}
+
+async function handleCatalogue(req, res, parts) {
+  const projectFor = (id) => (visibleFolder(req.user, id) && folders.get(id).project ? folders.get(id) : null);
+  // GET /api/projects/:id                  the project and its entities
+  // POST /api/projects/:id/entities        { name, tier }
+  // POST /api/projects/:id/versions        { files, entity, task, descriptor, artist }
+  if (parts[1] === 'projects') {
+    const project = projectFor(parts[2]);
+    if (!project) return sendJson(res, 404, { error: 'Project not found' });
+    if (parts.length === 3 && req.method === 'GET') {
+      flushAll();
+      const preset = presetOf(project);
+      return sendJson(res, 200, {
+        project: publicFolder(project),
+        preset: { id: (project.settings && project.settings.naming) || naming.DEFAULT, name: preset.name, tiers: preset.tiers.map((t) => ({ id: t.id, label: t.label, one: t.one })), tasks: preset.tasks },
+        entities: store.entities(project.id),
+        tasks: [...new Set([...preset.tasks, ...store.projectTasks(project.id)])],
+        artists: store.projectArtists(project.id),
+        boards: [...boards.values()].filter((b) => visible(req.user, b) && boardProject(b) === project).map((b) => ({ id: b.id, name: b.name })),
+      });
+    }
+    // GET /api/projects/:id/versions?before=   its versions, newest filed first, a page at a time: the
+    // project's Versions list.
+    if (parts.length === 4 && parts[3] === 'versions' && req.method === 'GET') {
+      flushAll();
+      const before = Number(new URL(req.url, 'http://x').searchParams.get('before')) || undefined;
+      const list = store.projectVersions(project.id, { before, limit: 300 });
+      return sendJson(res, 200, {
+        versions: list.map((v) => {
+          const { src, poster, th, dur, fps, nw, nh, type } = v.look;
+          return {
+            id: v.id, entityId: v.entityId, entity: v.entityName, tier: v.entityTier, task: v.task, number: v.number,
+            label: naming.label(v.entityName, v.task, v.number), kind: v.kind, thumb: v.thumb, look: { type, src, poster, th, dur, fps, nw, nh },
+            artist: v.artist, createdAt: v.createdAt, createdBy: v.createdBy,
+            boards: store.boardsWithVersion(v.id).filter((b) => canSee(req.user, b.workspace)).map((b) => ({ id: b.id, name: b.name })),
+          };
+        }),
+        more: list.length === 300,
+      });
+    }
+    // POST /api/projects/:id/place { board, versions: [ids], layout }: puts versions on one of the
+    // project's boards, as pieces that are those versions, below what is on it already: in rows, or
+    // with `layout: 'sequences'` a column for each sequence, its shots going down from first to last
+    // (assets and sets in columns of their own after them).
+    if (parts.length === 4 && parts[3] === 'place' && req.method === 'POST') {
+      const body = await readJson(req, 256 * 1024);
+      const board = boards.get(body.board);
+      if (!visible(req.user, board) || boardProject(board) !== project) return sendJson(res, 404, { error: 'Board not found' });
+      const ids = Array.isArray(body.versions) ? [...new Set(body.versions)].slice(0, 200) : [];
+      const list = ids.map((id) => liveVersion(id)).filter((v) => v && store.entity(v.entityId).projectId === project.id);
+      if (!list.length) return sendJson(res, 400, { error: 'Pick versions of this project' });
+      openItems(board);
+      const all = [...board.items.values()].filter((it) => Number.isFinite(it.x) && Number.isFinite(it.y));
+      const left = all.length ? Math.min(...all.map((it) => it.x)) : 0;
+      const top = all.length ? Math.max(...all.map((it) => it.y + (it.h || 0))) + 160 : 0;
+      let z = all.reduce((m, it) => Math.max(m, it.z || 0), 0);
+      const W = 750;
+      const GAP = 24;
+      const sizeOf = (look) => {
+        const h = Math.round(Math.min(1080, W * ((look.nh || 9) / (look.nw || 16))));
+        return { w: Math.round(h === 1080 ? 1080 * ((look.nw || 16) / (look.nh || 9)) : W), h };
+      };
+      const piece = (v, x, y) => ({ t: 'add', item: { ...v.look, id: newId(), type: v.look.type, x: left + x, y: top + y, ...sizeOf(v.look), z: ++z, ver: v.id } });
+      const ops = [];
+      if (body.layout === 'sequences') {
+        const byName = (a, b) => a.localeCompare(b, undefined, { numeric: true });
+        const cols = new Map();
+        for (const v of list) {
+          const e = store.entity(v.entityId);
+          const key = e.tier === 'shot' ? `0:${naming.seqOf(e.name) || e.name}` : `${e.tier === 'asset' ? 1 : 2}:${e.tier === 'asset' ? 'Assets' : 'Sets'}`;
+          (cols.get(key) || cols.set(key, []).get(key)).push({ v, name: e.name });
+        }
+        let x = 0;
+        for (const key of [...cols.keys()].sort((a, b) => a[0] - b[0] || byName(a, b))) {
+          const col = cols.get(key).sort((a, b) => byName(a.name, b.name) || byName(a.v.task || '', b.v.task || '') || a.v.number - b.v.number);
+          let y = 0;
+          let widest = 0;
+          for (const { v } of col) {
+            const op = piece(v, x, y);
+            ops.push(op);
+            y += op.item.h + GAP;
+            widest = Math.max(widest, op.item.w);
+          }
+          x += widest + 120;
+        }
+      } else {
+        const cols = Math.min(6, Math.max(1, Math.ceil(Math.sqrt(list.length * 1.5))));
+        let x = 0;
+        let y = 0;
+        let tallest = 0;
+        list.forEach((v, i) => {
+          if (i && i % cols === 0) {
+            x = 0;
+            y += tallest + GAP;
+            tallest = 0;
+          }
+          const op = piece(v, x, y);
+          ops.push(op);
+          x += op.item.w + GAP;
+          tallest = Math.max(tallest, op.item.h);
+        });
+      }
+      const applied = applyOps(board, ops, null, true);
+      if (applied.length) broadcast(board, { t: 'op', ops: applied, from: null });
+      settle(board, applied);
+      note(board, req.user ? req.user.name : cleanName(body.by, null) || 'Somebody', 'add', list.length);
+      return sendJson(res, 200, { board: { id: board.id, name: board.name }, placed: ops.map((o) => o.item.id) });
+    }
+    // GET /api/projects/:id/activity   what happened in the project in the last two weeks, newest first:
+    // versions filed and comments written, on any of its assets, sets and shots (the project's home shows it).
+    if (parts.length === 4 && parts[3] === 'activity' && req.method === 'GET') {
+      flushAll();
+      const byId = new Map(store.entities(project.id).map((e) => [e.id, e]));
+      const { versions, notes } = store.happenings([...byId.keys()], Date.now() - 14 * 24 * 3600 * 1000, 60);
+      const about = (e) => ({ id: e.id, name: e.name, tier: e.tier, projectId: project.id, project: project.name });
+      const label = (id) => versionInfo(id)?.label;
+      const items = [
+        ...versions.map((v) => ({ kind: 'version', at: v.createdAt, by: v.createdBy, entity: about(byId.get(v.entityId)), version: { id: v.id, label: label(v.id), thumb: v.thumb, kind: v.kind } })),
+        ...notes.map((n) => ({
+          kind: 'note', at: n.createdAt, by: n.data.name || n.createdBy, color: n.data.color, entity: about(byId.get(n.entityId)),
+          version: { id: n.versionId, label: label(n.versionId) }, note: { id: n.id, text: String(n.data.text || '').slice(0, 300), reply: !!n.re },
+        })),
+      ].sort((a, b) => b.at - a.at).slice(0, 60);
+      return sendJson(res, 200, { items });
+    }
+    // GET /api/projects/:id/timeline?task=   every shot in order, by sequence, with its newest version (of
+    // that task, or of any), what the timeline view lays out and plays through.
+    if (parts.length === 4 && parts[3] === 'timeline' && req.method === 'GET') {
+      flushAll();
+      const task = new URL(req.url, 'http://x').searchParams.get('task');
+      const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+      const shots = store.entities(project.id).filter((e) => e.tier === 'shot').sort(byName);
+      return sendJson(res, 200, {
+        tasks: store.projectTasks(project.id),
+        shots: shots.map((e) => {
+          const v = task ? store.newestOfTask(e.id, naming.tokenize(task) || null) : e.newest;
+          return {
+            id: e.id, name: e.name, seq: naming.seqOf(e.name), artists: e.artists,
+            version: v && { ...v, label: naming.label(e.name, v.task, v.number) },
+          };
+        }),
+      });
+    }
+    // PATCH { ids, tier, artists: { add, remove, set }, cc: { add, remove, set } }: many at once. What is not
+    // said of them is left as each has it; all or none are changed.
+    if (parts.length === 4 && parts[3] === 'entities' && req.method === 'PATCH') {
+      const body = await readJson(req, 1024 * 1024);
+      const ids = Array.isArray(body.ids) ? [...new Set(body.ids)].slice(0, 2000) : [];
+      const list = ids.map((id) => store.entity(id));
+      if (!list.length || list.some((e) => !e || e.projectId !== project.id)) return sendJson(res, 400, { error: 'Pick assets, sets or shots of this project' });
+      if (body.tier !== undefined && !naming.TIERS.includes(body.tier)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
+      const people = (v) => [...new Set((Array.isArray(v) ? v : []).slice(0, 50).map((n) => cleanName(n, null)).filter(Boolean))];
+      const change = (now, how) => {
+        if (!how || typeof how !== 'object') return now;
+        if (Array.isArray(how.set)) return people(how.set);
+        const drop = people(how.remove).map((n) => n.toLowerCase());
+        const kept = now.filter((n) => !drop.includes(n.toLowerCase()));
+        for (const n of people(how.add)) if (!kept.some((k) => k.toLowerCase() === n.toLowerCase())) kept.push(n);
+        return kept;
+      };
+      const done = store.transaction(() => list.map((e) => store.setEntity(e.id, {
+        ...(body.tier !== undefined && { tier: body.tier }),
+        artists: change(e.artists, body.artists),
+        cc: change(e.cc, body.cc),
+      }).entity));
+      for (const e of done) retellEntity(e.id);
+      return sendJson(res, 200, { entities: done });
+    }
+    // { name, tier } makes one; { names: [...], tier } sets up many at once, before anything is filed of
+    // them. A name the project has already is left as it is. Without a tier, the name's shape says.
+    if (parts.length === 4 && parts[3] === 'entities' && req.method === 'POST') {
+      const body = await readJson(req, 1024 * 1024);
+      const by = req.user ? req.user.name : cleanName(body.by, null);
+      if (!Array.isArray(body.names)) return sendJson(res, 201, resolveEntity(project, { name: body.name, tier: body.tier }, by));
+      const wanted = [...new Set(body.names.slice(0, 2000).map((n) => naming.tokenize(n)).filter(Boolean))];
+      if (!wanted.length) return sendJson(res, 400, { error: 'No names to add' });
+      const had = wanted.filter((n) => store.entityNamed(project.id, n));
+      const made = wanted.filter((n) => !had.includes(n)).map((n) => resolveEntity(project, { name: n, tier: body.tier }, by));
+      return sendJson(res, 201, { made, had });
+    }
+    if (parts.length === 4 && parts[3] === 'versions' && req.method === 'POST') {
+      const body = await readJson(req, 4 * 1024 * 1024);
+      return sendJson(res, 201, { versions: await fileVersions(req, project, body) });
+    }
+    return sendJson(res, 404, { error: 'Not found' });
+  }
+  // PATCH /api/entities/:id { name, tier, artists, cc }: renamed, or who works on it and who follows it.
+  if (parts[1] === 'entities' && parts.length === 3 && req.method === 'PATCH') {
+    const entity = store.entity(parts[2]);
+    const project = entity && projectFor(entity.projectId);
+    if (!project) return sendJson(res, 404, { error: 'Not found' });
+    const body = await readJson(req);
+    const edit = {};
+    if (body.name !== undefined) {
+      edit.name = naming.tokenize(body.name);
+      if (!edit.name) return sendJson(res, 400, { error: 'An asset, set or shot needs a name' });
+    }
+    if (body.tier !== undefined) {
+      if (!naming.TIERS.includes(body.tier)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
+      edit.tier = body.tier;
+    }
+    const people = (list) => [...new Set((Array.isArray(list) ? list : []).slice(0, 50).map((n) => cleanName(n, null)).filter(Boolean))];
+    if (body.artists !== undefined) edit.artists = people(body.artists);
+    if (body.cc !== undefined) edit.cc = people(body.cc);
+    const done = store.setEntity(entity.id, edit);
+    if (!done.ok) return sendJson(res, 409, { error: `There is a ${done.taken.name} in this project already` });
+    retellEntity(entity.id);
+    return sendJson(res, 200, done.entity);
+  }
+  // GET /api/entities/:id: an entity, every version of it, and everything said about them.
+  if (parts[1] === 'entities' && parts.length === 3 && req.method === 'GET') {
+    const entity = store.entity(parts[2]);
+    const project = entity && projectFor(entity.projectId);
+    if (!project) return sendJson(res, 404, { error: 'Not found' });
+    flushAll();
+    const versions = store.versionsOf(entity.id);
+    const notes = store.notesOfVersions(versions.map((v) => v.id)).map((n) => ({
+      id: n.id, versionId: n.versionId, re: n.re, board: { id: n.boardId, name: n.boardName }, ...noteData(n.data),
+    }));
+    return sendJson(res, 200, {
+      entity, project: publicFolder(project),
+      versions: versions.map((v) => ({ ...publicVersion(v), boards: store.boardsWithVersion(v.id).filter((b) => canSee(req.user, b.workspace)).map((b) => ({ id: b.id, name: b.name })) })),
+      notes,
+    });
+  }
+  // GET /api/people: every name the app knows, for picking artists and people to keep in the loop.
+  if (parts[1] === 'people' && parts.length === 2 && req.method === 'GET') {
+    flushAll();
+    return sendJson(res, 200, { people: store.people() });
+  }
+  // GET /api/feed?name=: what is relevant to the person asking (signed in, or by the name given).
+  //   work: what they make: the assets, sets and shots they are an artist on, or have filed versions of
+  //   cc:   what they are cc'd on, as cards like work's
+  //   items: in the last two weeks: notes on their work (theirs too, marked `mine`), and versions filed
+  //          by others of their work and of what they are cc'd on
+  if (parts[1] === 'feed' && parts.length === 2 && req.method === 'GET') {
+    const url = new URL(req.url, 'http://x');
+    const name = req.user ? req.user.name : cleanName(url.searchParams.get('name'), null);
+    if (!name) return sendJson(res, 200, { work: [], items: [] });
+    flushAll();
+    const byId = new Map();
+    for (const e of store.entitiesOf(name)) byId.set(e.id, e);
+    for (const e of store.entitiesFiledBy(name)) if (!byId.has(e.id)) byId.set(e.id, { ...e, role: 'filed' });
+    for (const [id, e] of byId) if (!projectFor(e.projectId)) byId.delete(id);
+    const mine = [...byId.values()];
+    const isWork = (e) => e.role === 'artist' || e.role === 'filed';
+    const since = Date.now() - 14 * 24 * 3600 * 1000;
+    const { versions, notes } = store.happenings(mine.map((e) => e.id), since, 150);
+    const me = name.toLowerCase();
+    const about = (e) => ({ id: e.id, name: e.name, tier: e.tier, projectId: e.projectId, project: folders.get(e.projectId).name, role: e.role });
+    const labelOf = new Map();
+    const label = (versionId) => {
+      if (!labelOf.has(versionId)) labelOf.set(versionId, versionInfo(versionId));
+      return labelOf.get(versionId);
+    };
+    const items = [
+      ...versions.filter((v) => (v.createdBy || '').toLowerCase() !== me).map((v) => ({
+        kind: 'version', at: v.createdAt, by: v.createdBy, entity: about(byId.get(v.entityId)), version: { id: v.id, label: label(v.id)?.label, thumb: v.thumb, kind: v.kind },
+      })),
+      ...notes.filter((n) => isWork(byId.get(n.entityId))).map((n) => ({
+        kind: 'note', at: n.createdAt, by: n.data.name || n.createdBy, mine: (n.data.name || n.createdBy || '').toLowerCase() === me, color: n.data.color, entity: about(byId.get(n.entityId)),
+        version: { id: n.versionId, label: label(n.versionId)?.label }, note: { id: n.id, text: String(n.data.text || '').slice(0, 300), reply: !!n.re, done: !!n.data.done, board: n.boardId ? { id: n.boardId, name: n.boardName } : null },
+      })),
+    ].sort((a, b) => b.at - a.at).slice(0, 80);
+    const card = (e) => {
+      const list = store.versionsOf(e.id).filter((v) => !v.hidden);
+      const newest = list[0] || null;
+      return {
+        ...about(e), versions: list.length, latestAt: newest ? newest.createdAt : null, thumb: (list.find((v) => v.thumb) || {}).thumb || null,
+        newest: newest && { ...store.newestGlance(e.id), label: label(newest.id)?.label }, artists: e.artists, cc: e.cc,
+      };
+    };
+    const byLatest = (a, b) => (b.latestAt || 0) - (a.latestAt || 0) || a.name.localeCompare(b.name, undefined, { numeric: true });
+    const work = mine.filter(isWork).map(card).sort(byLatest);
+    // What they are cc'd on, the same way: its newest is what a browser keeps ahead for them.
+    const cc = mine.filter((e) => e.role === 'cc').map(card).sort(byLatest);
+    return sendJson(res, 200, { name, work, cc, items });
+  }
+  // GET /api/versions/:id
+  // PATCH  { entity, task, number, descriptor, artist }   what it is filed as: its name follows
+  // PATCH  { hidden }                                      archived: out of the catalogue's way, and no longer the newest
+  // PATCH  { deleted: false }                              a deleted one brought back
+  // DELETE                                                 only one that no board shows; it is marked, not removed
+  if (parts[1] === 'versions' && parts.length === 3) {
+    const v = store.version(parts[2]);
+    const entity = v && store.entity(v.entityId);
+    const project = entity && projectFor(entity.projectId);
+    if (!project) return sendJson(res, 404, { error: 'Not found' });
+    if (v.deletedAt && !(req.method === 'PATCH')) return sendJson(res, 404, { error: 'That version was deleted' });
+    if (req.method === 'GET') return sendJson(res, 200, publicVersion(v));
+    if (req.method === 'DELETE') {
+      flushAll();
+      const on = store.boardsWithVersion(v.id);
+      if (on.length) {
+        const seen = on.filter((b) => canSee(req.user, b.workspace)).map((b) => `“${b.name}”`);
+        const where = seen.length ? `on ${seen.length === 1 ? seen[0] : `${seen.slice(0, -1).join(', ')} and ${seen.at(-1)}`}` : 'on a board';
+        return sendJson(res, 409, { error: `${versionInfo(v).label} is ${where}. Take it off ${on.length === 1 ? 'that board' : 'those boards'} first, or archive it instead.` });
+      }
+      store.deleteVersion(v.id);
+      retellEntity(entity.id);
+      tellRoom(entity.id);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (req.method === 'PATCH') {
+      const body = await readJson(req);
+      if (v.deletedAt) {
+        if (body.deleted !== false) return sendJson(res, 404, { error: 'That version was deleted' });
+        store.restoreVersion(v.id);
+      }
+      if ('hidden' in body) store.hideVersion(v.id, !!body.hidden);
+      const edit = {};
+      if (body.entity !== undefined) {
+        const by = req.user ? req.user.name : cleanName(body.by, null);
+        edit.entityId = resolveEntity(project, body.entity, by).id;
+      }
+      if (body.task !== undefined) edit.task = tokenOrNull(body.task);
+      if (body.descriptor !== undefined) edit.descriptor = tokenOrNull(body.descriptor);
+      if (body.artist !== undefined) edit.artist = tokenOrNull(body.artist);
+      if (body.number !== undefined && body.number !== null) {
+        const n = Number(body.number);
+        if (!Number.isSafeInteger(n) || n < 1 || n > 99999) return sendJson(res, 400, { error: 'A version number is a whole number from 1' });
+        edit.number = n;
+      }
+      if (Object.keys(edit).length) {
+        const done = store.editVersion(v.id, edit);
+        if (!done.ok) {
+          const t = done.taken;
+          const name = naming.label(store.entity(t.entityId).name, t.task, t.number);
+          return sendJson(res, 409, { error: t.deletedAt ? `${name} was given to a version since deleted, so it can't be used again` : `There is a ${name} already` });
+        }
+      }
+      // The boards showing it, and the catalogue rooms it was and is in, are told what it is now called.
+      const now = store.version(v.id);
+      for (const id of new Set([entity.id, now.entityId])) {
+        retellEntity(id);
+        tellRoom(id);
+      }
+      return sendJson(res, 200, publicVersion(now));
+    }
+  }
+  return sendJson(res, 404, { error: 'Not found' });
 }
 
 // ---------------------------------------------------------------- admin
@@ -881,6 +1606,7 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { auth: auth.mode, user: req.user || null, admin: admin.allows(req), canShare: SHARING, maxUpload: MAX_UPLOAD, publicUrl: auth.publicUrl || null, shareBases: shareBases(), signOut: !!auth.interactive });
   }
   if (parts[1] === 'admin') return admin.handle(req, res, parts.slice(2));
+  if (['projects', 'entities', 'versions', 'people', 'feed'].includes(parts[1])) return handleCatalogue(req, res, parts);
   if (parts[1] === 'library' && req.method === 'GET') {
     return sendJson(res, 200, {
       folders: [...folders.values()].filter((f) => canSee(req.user, f.workspace)).map(publicFolder),
@@ -909,8 +1635,22 @@ async function handleApi(req, res, url) {
           if (parentId && !visibleFolder(req.user, parentId)) return sendJson(res, 400, { error: 'Folder not found' });
           if (parentId && folders.get(parentId).workspace !== folder.workspace) return sendJson(res, 400, { error: 'Move it to the other workspace first' });
           if (parentId && isWithin(parentId, folder.id)) return sendJson(res, 400, { error: 'A folder cannot be moved into itself' });
+          if (parentId && projectOf(parentId) && holdsProject(folder)) return sendJson(res, 400, { error: 'A project cannot go inside another project' });
           folder.parentId = parentId;
         }
+        // Marked as a project, a folder has a catalogue. Not inside another project, nor around one;
+        // and once its catalogue has something in it, it stays a project.
+        if ('project' in body && !!body.project !== !!folder.project) {
+          if (body.project) {
+            if (projectOf(folder.parentId) || holdsProject(folder)) return sendJson(res, 400, { error: 'A project cannot be inside another project, or hold one' });
+            folder.project = true;
+            folder.settings = cleanProjectSettings({ naming: naming.DEFAULT }, folder.settings);
+          } else {
+            if (store.entityCount(folder.id)) return sendJson(res, 409, { error: 'This project has a catalogue, so it stays a project' });
+            folder.project = false;
+          }
+        }
+        if ('settings' in body && folder.project) folder.settings = cleanProjectSettings(body.settings, folder.settings);
         if ('workspace' in body) {
           const key = spaceKey(body.workspace, req.user);
           if (key !== folder.workspace) moveFolderToSpace(folder, key);
@@ -920,6 +1660,9 @@ async function handleApi(req, res, url) {
         return sendJson(res, 200, publicFolder(folder));
       }
       if (req.method === 'DELETE') {
+        // A project is where its catalogue lives: its versions and what was said about them. It is not
+        // dissolved into the folder above like a plain folder.
+        if (folder.project) return sendJson(res, 409, { error: 'A project cannot be deleted' });
         // Nothing inside is deleted: boards and subfolders move up one level.
         for (const f of folders.values()) if (f.parentId === folder.id) f.parentId = folder.parentId;
         for (const board of boards.values()) {
@@ -977,31 +1720,33 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, { ok: true });
     }
   }
-  // What has happened on a board, newest first, and the versions it can be put back to.
+  // What has happened on a board, newest first, and the snapshots it can be put back to.
   if (parts[1] === 'boards' && parts.length === 4 && parts[3] === 'activity' && req.method === 'GET') {
     const board = boards.get(parts[2]);
     if (!visible(req.user, board)) return sendJson(res, 404, { error: 'Board not found' });
     writeNoted();
-    return sendJson(res, 200, { events: store.activity(board.id), versions: store.versions(board.id) });
+    return sendJson(res, 200, { events: store.activity(board.id), snapshots: store.snapshots(board.id) });
   }
   // Puts a board back as it was. What is there now is kept first, so this can be undone the same way.
-  if (parts[1] === 'boards' && parts.length === 6 && parts[3] === 'versions' && parts[5] === 'restore' && req.method === 'POST') {
+  // Only what is on the board goes back: versions and what was said about them stay as they are.
+  if (parts[1] === 'boards' && parts.length === 6 && parts[3] === 'snapshots' && parts[5] === 'restore' && req.method === 'POST') {
     const board = boards.get(parts[2]);
     if (!visible(req.user, board)) return sendJson(res, 404, { error: 'Board not found' });
     const body = await readJson(req);
     const who = req.user ? req.user.name : cleanName(body.by, 'Somebody');
-    const was = store.version(board.id, Number(parts[4]));
-    if (!was) return sendJson(res, 404, { error: 'That version is not kept any more' });
+    const was = store.snapshot(board.id, Number(parts[4]));
+    if (!was) return sendJson(res, 404, { error: 'That snapshot is not kept any more' });
     openItems(board);
-    keepVersion(board, who, true);
+    keepSnapshot(board, who, true);
     const next = new Map(was.map((it) => [it.id, it]));
-    for (const id of board.items.keys()) if (!next.has(id)) board.removed.add(id);
+    for (const it of next.values()) checkVer(it);
+    for (const [id, it] of board.items) if (it.type !== 'comment' && !next.has(id)) board.removed.add(id);
     for (const id of next.keys()) {
       board.changed.add(id);
       board.removed.delete(id);
     }
     board.items = next;
-    board.removedComments.clear();
+    syncNotes(board);
     scheduleSave(board);
     note(board, who, 'restore');
     // Everybody on the board is given it afresh, as when they opened it.
@@ -1039,6 +1784,8 @@ async function handleApi(req, res, url) {
       }
       const applied = applyOps(board, [{ t: 'meta', patch: { name: body.name } }]);
       if (applied.length) broadcast(board, { t: 'op', ops: applied, from: null });
+      // Boards showing notes made here say where they were made, by name.
+      if (applied.length) for (const other of boards.values()) if (other !== board && other.items && [...other.items.values()].some((it) => it.ob === board.id)) settle(other, Object.assign([], { resync: true, notes: new Set(), versions: new Set() }));
       return sendJson(res, 200, boardMeta(board));
     }
     if (req.method === 'DELETE') {
@@ -1234,6 +1981,14 @@ server.on('upgrade', async (req, socket, head) => {
       if (!viewed) return socket.destroy();
       return wss.handleUpgrade(req, socket, head, (ws) => onConnect(ws, viewed, null, shared));
     }
+    const entityId = url.searchParams.get('entity');
+    if (entityId) {
+      const entity = store.entity(entityId);
+      if (!entity || !fromOurPages(req)) return socket.destroy();
+      const who = await auth.authenticate(req);
+      if (who.status || !visibleFolder(who.user, entity.projectId)) return socket.destroy();
+      return wss.handleUpgrade(req, socket, head, (ws) => joinRoom(ws, entity, who.user));
+    }
     const board = boards.get(url.searchParams.get('board'));
     if (!board || !fromOurPages(req)) return socket.destroy();
     const who = await auth.authenticate(req);
@@ -1253,14 +2008,16 @@ function send(ws, msg) {
 }
 
 // What people holding a link are shown: the board, and the team's comments only if the link includes them.
-const hiddenFromViewers = (board, op) => board.shareAccess === 'view'
-  && (op.t === 'add' ? op.item.type === 'comment' : op.t === 'set' && board.items.get(op.id)?.type === 'comment');
+// A link shows the notes made on its own board, not those made about the same version on others.
+const hiddenNote = (board, c) => !!c && c.type === 'comment' && (board.shareAccess === 'view' || c.ob !== undefined);
+const hiddenFromViewers = (board, op) => (op.t === 'add' ? hiddenNote(board, op.item) : op.t === 'set' && hiddenNote(board, board.items.get(op.id)));
 
 // All that somebody commenting through a link can send: new comments and replies on what is there.
 function guestOps(board, ops) {
   if (!Array.isArray(ops)) return [];
   return ops.filter((op) => op && op.t === 'add' && op.item && op.item.type === 'comment' && !board.items.has(op.item.id)
-    && board.items.has(op.item.on) && (!op.item.re || board.items.get(op.item.re)?.type === 'comment'));
+    && board.items.has(op.item.on) && board.items.get(op.item.on).type !== 'comment'
+    && (!op.item.re || (board.items.get(op.item.re)?.type === 'comment' && !hiddenNote(board, board.items.get(op.item.re)))));
 }
 
 function broadcast(board, msg, except) {
@@ -1284,21 +2041,25 @@ function broadcast(board, msg, except) {
 
 const VIEWER_COLORS = ['#8bb6e8', '#74c2b9', '#aa9ce6', '#e4c978', '#e090b8', '#82c79b'];
 
-// The board as somebody is given it when they join, and again if it is put back to an older version.
+// The board as somebody is given it when they join, and again if it is put back to an older snapshot.
 function sendInit(board, peer) {
   const access = board.shareAccess;
+  const project = boardProject(board);
   send(peer.ws, peer.viewer ? {
     t: 'init',
     you: peer.id,
     board: { name: board.name, settings: board.settings || {} },
     access,
-    items: [...board.items.values()].filter((it) => access !== 'view' || it.type !== 'comment').map(withoutOriginal),
+    items: [...board.items.values()].filter((it) => !hiddenNote(board, it)).map(withoutOriginal),
+    versions: boardVersions(board),
     peers: [...board.peers.values()].filter((p) => p !== peer).map(publicPeer),
   } : {
     t: 'init',
     you: peer.id,
     board: { id: board.id, name: board.name, settings: board.settings || {} },
+    project: project ? { id: project.id, name: project.name, naming: (project.settings && project.settings.naming) || naming.DEFAULT } : null,
     items: [...board.items.values()],
+    versions: boardVersions(board),
     peers: [...board.peers.values()].filter((p) => p !== peer).map(publicPeer),
   });
 }
@@ -1356,7 +2117,7 @@ function onConnect(ws, board, user, viewToken = null) {
     if (msg.t === 'op') {
       // Housekeeping a browser does on opening a board is not somebody changing it.
       const counts = peer.viewer || msg.quiet !== true;
-      if (counts) keepVersion(board, peer.name);
+      if (counts) keepSnapshot(board, peer.name);
       const applied = applyOps(board, peer.viewer ? guestOps(board, msg.ops) : msg.ops, peer, counts);
       if (counts && applied.length) {
         const comments = applied.every((op) => (op.t === 'add' ? op.item.type === 'comment' : op.t === 'set' && board.items.get(op.id)?.type === 'comment'));
@@ -1365,6 +2126,7 @@ function onConnect(ws, board, user, viewToken = null) {
       // Always ack, even when nothing applied, so the sender's outbox stays in step.
       send(ws, { t: 'ack' });
       if (applied.length) broadcast(board, { t: 'op', ops: applied, from: peer.id }, peer);
+      settle(board, applied);
     } else if (msg.t === 'p') {
       if (!msg.p || typeof msg.p !== 'object') return;
       const p = peer.viewer ? { c: msg.p.c, l: msg.p.l } : msg.p;
@@ -1379,7 +2141,9 @@ function onConnect(ws, board, user, viewToken = null) {
     } else if (msg.t === 'laser') {
       if (!Array.isArray(msg.pts)) return;
       const pts = msg.pts.slice(0, 200).filter((n) => Number.isFinite(n));
-      if (pts.length >= 2) broadcast(board, { t: 'laser', id: peer.id, pts: pts.slice(0, pts.length - (pts.length % 2)) }, peer);
+      // On the board the points are where on the board; in the viewer, where on the open piece (`on`).
+      const on = typeof msg.on === 'string' && ID_RE.test(msg.on) ? msg.on : undefined;
+      if (pts.length >= 2) broadcast(board, { t: 'laser', id: peer.id, pts: pts.slice(0, pts.length - (pts.length % 2)), ...(on && { on }) }, peer);
     } else if (msg.t === 'media') {
       broadcast(board, { t: 'media', from: peer.id, id: msg.id, playing: !!msg.playing, time: Number(msg.time) || 0 }, peer);
     }
@@ -1412,6 +2176,120 @@ setInterval(() => {
     ws.ping();
   }
 }, 30000).unref();
+
+// ---------------------------------------------------------------- the catalogue, live
+//
+// An asset, set or shot opened in the catalogue's viewer has a room of its own: everyone in it has all
+// the notes on all its versions, live, and what they write there is there on every board the version
+// is on, as what is written on those boards is there in the room. A note written in the catalogue was
+// made on no board (its board is '').
+
+const rooms = new Map(); // entity id -> Set of { ws, name, color, user }
+
+function roomNotes(entityId) {
+  const versions = store.versionsOf(entityId).map((v) => v.id);
+  return store.notesOfVersions(versions).map((n) => ({
+    ...noteData(n.data), id: n.id, type: 'comment', on: n.versionId, ...(n.re && { re: n.re }),
+    ob: n.boardId, obn: n.boardId === '' ? 'the catalogue' : boards.get(n.boardId)?.name || n.boardName || 'a board',
+  }));
+}
+
+function tellRoom(entityId) {
+  const peers = rooms.get(entityId);
+  if (!peers || !peers.size) return;
+  const msg = { t: 'notes', notes: roomNotes(entityId) };
+  for (const peer of peers) send(peer.ws, msg);
+}
+
+// Notes on these versions have changed somewhere: the rooms of their entities are told.
+function tellRooms(versionIds) {
+  if (!rooms.size) return;
+  const entities = new Set();
+  for (const id of versionIds) {
+    const v = store.version(id);
+    if (v && rooms.has(v.entityId)) entities.add(v.entityId);
+  }
+  for (const id of entities) tellRoom(id);
+}
+
+function joinRoom(ws, entity, user) {
+  const peer = { ws, user, name: user ? user.name : 'Guest', color: user ? user.color : '#888888', joined: false, viewer: false };
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+  const ofEntity = (versionId) => {
+    const v = typeof versionId === 'string' && store.version(versionId);
+    return !!v && v.entityId === entity.id;
+  };
+  const receive = (msg) => {
+    if (msg.t === 'hello') {
+      if (peer.joined) return;
+      peer.joined = true;
+      if (!user) {
+        peer.name = String(msg.name || 'Guest').slice(0, 32);
+        if (/^#[0-9a-f]{6}$/i.test(msg.color)) peer.color = msg.color;
+      }
+      (rooms.get(entity.id) || rooms.set(entity.id, new Set()).get(entity.id)).add(peer);
+      return send(ws, { t: 'init', notes: roomNotes(entity.id) });
+    }
+    if (!peer.joined || msg.t !== 'op' || !Array.isArray(msg.ops)) return;
+    const touched = new Set();
+    for (const op of msg.ops) {
+      if (!op || typeof op !== 'object') continue;
+      if (op.t === 'add' && op.item && ID_RE.test(op.item.id)) {
+        const known = store.note(op.item.id);
+        if (known) {
+          // Undo bringing a deleted note back, as its author wrote it.
+          if (known.deletedAt && ofEntity(known.versionId)) {
+            store.restoreNote(known.id);
+            touched.add(known.versionId);
+          }
+          continue;
+        }
+        const c = cleanComment(op.item, peer);
+        if (!c || !ofEntity(c.on)) continue;
+        let re = null;
+        if (c.re) {
+          const root = store.note(c.re);
+          if (!root || root.deletedAt || root.re || root.versionId !== c.on) continue;
+          re = root.id;
+        }
+        store.addNote({ id: c.id, boardId: '', itemId: c.on, versionId: c.on, re, data: noteData(c), by: peer.name });
+        touched.add(c.on);
+      } else if (op.t === 'set' && typeof op.id === 'string' && op.patch && typeof op.patch === 'object') {
+        const n = store.note(op.id);
+        if (!n || n.deletedAt || !ofEntity(n.versionId)) continue;
+        const patch = commentPatch(n.data, op.patch, peer);
+        if (!patch) continue;
+        store.setNote(n.id, { ...n.data, ...patch });
+        touched.add(n.versionId);
+      } else if (op.t === 'del' && Array.isArray(op.ids)) {
+        for (const id of op.ids) {
+          const n = typeof id === 'string' && store.note(id);
+          if (!n || n.deletedAt || !ofEntity(n.versionId)) continue;
+          store.deleteNote(n.id);
+          touched.add(n.versionId);
+        }
+      }
+    }
+    send(ws, { t: 'ack' });
+    if (touched.size) spreadNotes(touched, null);
+  };
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw);
+      if (msg && typeof msg === 'object') receive(msg);
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) console.error(`A message in the catalogue could not be handled: ${err.message}`);
+    }
+  });
+  ws.on('close', () => {
+    const peers = rooms.get(entity.id);
+    if (!peers) return;
+    peers.delete(peer);
+    if (!peers.size) rooms.delete(entity.id);
+  });
+  ws.on('error', () => {});
+}
 
 // ---------------------------------------------------------------- start
 

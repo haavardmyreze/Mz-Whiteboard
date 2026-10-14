@@ -37,27 +37,14 @@
     <div id="followring" hidden></div>
     <div id="dropzone" hidden><span>Drop to add to the board</span></div>
   </div>
-
   <!-- One bar, the same on every page: where you are on the left, what you can do there on the right.
        With an image or video open it is the viewer's bar too, so nothing else lies over the piece. -->
   <header id="topbar" class="appbar chrome">
-    <a class="brand" href="/" title="All boards" id="back"><span class="logomark" data-logo-slot></span><span class="wordmark">Boards</span></a>
+    <a class="brand" href="/" title="Back to the boards" id="back"><span class="logomark" data-logo-slot></span><span class="wordmark">Boards</span></a>
     <span class="bar-slash" aria-hidden="true">/</span>
     <input id="boardname" class="board-only" type="text" maxlength="120" spellcheck="false" aria-label="Board name">
-    <button id="focusboard" class="bar-crumb viewer-only" title="Back to the board (Esc)"></button>
-    <span class="bar-slash viewer-only" aria-hidden="true">/</span>
-    <!-- Shown only on a window too narrow for the strip of thumbnails. It comes before the name: the name
-         is a different length every time, and what is pressed over and over must not move. -->
-    <span class="stepper viewer-only">
-      <button class="iconbtn" id="focusprev" title="Previous image or video (←)"></button>
-      <span id="focuspos"></span>
-      <button class="iconbtn" id="focusnext" title="Next image or video (→)"></button>
-    </span>
-    <span id="focusname" class="viewer-only"></span>
     <span id="conn" hidden>Reconnecting…</span>
     <div class="spacer"></div>
-    <!-- Away from Fit, which is pressed often: this one deletes, and asks first. -->
-    <button class="btn ghost viewer-only" id="focusclear" title="Delete what is drawn on this image, apart from drawings that belong to comments">Clear drawing</button>
     <!-- How much of the board's video is cached on this computer: a small ring that fills, with a word to say what it counts. -->
     <button id="kept" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><circle class="track" cx="10" cy="10" r="7"/><circle class="arc" cx="10" cy="10" r="7"/><path class="tick" d="M6.6 10.3l2.3 2.3 4.6-5"/></svg><span class="kept-label"></span></button>
     <div id="peers"></div>
@@ -65,37 +52,29 @@
       <button id="snap" class="iconbtn" title="Smart snapping. Hold Ctrl while dragging to bypass (S)"></button>
       <button id="zoom" class="btn ghost" title="Fit everything (Shift+1)">100%</button>
     </span>
-    <span class="bar-group viewer-only">
-      <button class="iconbtn" id="focusdl" title="Download the original media" hidden></button>
-      <button class="btn ghost" id="focuszoom" title="Fit to the screen, or actual size">Fit</button>
-    </span>
     <span id="themeslot"></span>
     <button id="help" class="iconbtn" title="Keyboard shortcuts (?)">?</button>
+    <button id="catalogue" class="iconbtn board-only" title="The project's catalogue: its assets, sets and shots, to put on the board" hidden></button>
     <button id="activity" class="iconbtn board-only" title="Activity: who has opened and changed this board, and earlier versions of it" hidden></button>
     <button id="boardmenu" class="iconbtn board-only" title="Board settings: file names, sharing, files, activity" hidden></button>
     <button id="share" class="btn primary board-only" title="Make a view-only link anyone can open" hidden>Share</button>
-    <button id="focusdone" class="btn primary viewer-only" title="Back to the board (Esc)">Done</button>
   </header>
-
   <nav id="toolbar" class="chrome"></nav>
   <div id="tooloptions" class="chrome" hidden></div>
   <div id="seltools" hidden></div>
-  <nav id="filmstrip" class="chrome" aria-label="Images and video on this board" hidden></nav>
-  <div id="timeline" class="chrome" hidden></div>
-  <aside id="commentpanel" class="chrome" aria-label="Comments" hidden></aside>
-
-  <!-- The comments are part of the viewer, so the way to them is on its side, not up in the bar. -->
-  <button id="cptab" title="Show the comments (Shift+C)" aria-controls="commentpanel" aria-expanded="false" hidden><span id="cptabicon"></span><span id="cptabcount" class="count" hidden></span></button>
-
+  <aside id="threadpanel" class="chrome" aria-label="All comments" hidden></aside>
   <div id="followpill" hidden></div>
-
   <div id="helppanel" hidden></div>
   <div id="actpanel" class="chrome" hidden></div>
+  <div id="catpanel" class="chrome" aria-label="Catalogue" hidden></div>
   <div id="setpanel" class="chrome" hidden></div>
   <div id="toasts"></div>
   <input id="filepick" type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple hidden>
-
   <script src="/common.js"></script>
+  <script src="/media.js"></script>
+  <script src="/naming.js"></script>
+  <script src="/ingest.js"></script>
+  <script src="/viewer.js"></script>
   <script src="/board.js"></script>
 </body>
 </html>

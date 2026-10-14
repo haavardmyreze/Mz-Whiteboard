@@ -2,6 +2,8 @@
 
 (async () => {
   const { el, store } = WB;
+  // Bringing files in is the same everywhere: see ingest.js.
+  const { IMG_EXT, VID_EXT, fileExt, upload, loadImage, probeVideo, brightness, pickFrame, beyondThisBrowser, tellRefused, ingest, videoWave } = WBIngest;
   const $ = (id) => document.getElementById(id);
 
   // /s/<secret> is a read-only link: anyone holding it can watch the board and nothing else.
@@ -29,15 +31,6 @@
 
   const MIN_Z = 0.02;
   const MAX_Z = 16;
-  const PREVIEW_MAX = 2048;
-  const THUMB_MAX = 480;
-  // A video's poster: big enough to look sharp filling the screen on a laptop, small enough to load at once.
-  const POSTER_MAX = 1600;
-  // What a video looks and sounds like along its length: the colours of its picture and the loudness of its
-  // sound, drawn along the timeline of the video that is open. Out on the board the scrub bar stays plain.
-  // Made from the file as it is uploaded, then kept with the video.
-  const WAVE_COLS = 512;
-  const WAVE_BARS = 1024;
   const LASER_LIFE = 450;
   const INK = ['ink', '#e5484d', '#f59e0b', '#16a34a', '#2f7df6', '#8b5cf6'];
   const NOTE_FILLS = ['note', '#fff2a8', '#ffd3d1', '#d4f1d2', '#d0e6ff', '#e7dbff'];
@@ -144,13 +137,6 @@
   const levelSize = (lvl) => (TEXT_LEVELS.find((l) => l.lvl === lvl) || TEXT_LEVELS[1]).size;
   const COLORABLE = new Set(['note', 'text', 'frame', 'block', 'stroke']);
   const ITEM_TYPES = new Set(['image', 'video', 'note', 'text', 'frame', 'block', 'stroke']);
-  const IMG_EXT = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
-  const VID_EXT = /\.(mp4|m4v|webm|mov)$/i;
-  const EXT_BY_TYPE = {
-    'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp', 'image/avif': '.avif',
-    'image/bmp': '.bmp', 'image/svg+xml': '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov',
-  };
-
   const icon = (d) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
   const ICON = {
     select: icon('<path d="M5 3l5.5 16 2.5-6.5L19.5 10z"/>'),
@@ -200,6 +186,9 @@
     restore: icon('<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/><path d="M12 8v4l3 2"/>'),
     cloud: icon('<path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 9.5 4.3 4.3 0 0 1 17.5 18z"/>'),
     more: icon('<circle cx="5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/>'),
+    stack: icon('<path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5"/>'),
+    file: icon('<path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 3-1.5M17 18h5M19.5 15.5v5"/>'),
+    search: icon('<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4-4"/>'),
   };
   const CURSOR_SVG = '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M1 1l4.5 13 2.2-5.3L13 6.5z" fill="var(--c)" stroke="#fff" stroke-width="1"/></svg>';
 
@@ -207,6 +196,7 @@
 
   const items = new Map();       // id -> item; the shared document
   const comments = new Map();    // id -> comment; kept apart from items so they never take part in layout, snapping or fitting
+  const versionInfo = new Map(); // catalogue version id -> what it is called, and whether there is a newer one (see the catalogue below)
   const els = new Map();         // id -> DOM node
   const sel = new Set();
   const peers = new Map();       // id -> { id, name, color, p, cur }
@@ -219,8 +209,6 @@
   const cam = { x: 0, y: 0, z: 1 };
   const pointer = { sx: innerWidth / 2, sy: innerHeight / 2, inside: false };
   const pen = store('wb:pen') || { color: INK[1], size: PEN_SIZES[1] };
-  // A device used with the fingers: a phone or a tablet, not a computer with a touch screen and a mouse.
-  const touchFirst = window.matchMedia('(hover: none) and (pointer: coarse)');
   const textPref = store('wb:text') || { lvl: 2 };
 
   let me = null;
@@ -238,9 +226,8 @@
   let camAnim = 0;
   let camTimer = 0;
   let snapOn = store('wb:snap') !== false;
-  let focusId = null;
-  let focusReturn = null;
   let cmDirty = false;
+  let project = null;            // the project this board is in, if it is in one: { id, name, naming }
 
   // ------------------------------------------------------------- helpers
 
@@ -324,7 +311,6 @@
   // ------------------------------------------------------------- camera
 
   function applyCam() {
-    if (focusId && !camEasing) keepOnFocus();
     world.style.transform = `translate(${-cam.x * cam.z}px, ${-cam.y * cam.z}px) scale(${cam.z})`;
     world.style.setProperty('--z', cam.z);
     world.style.setProperty('--inv', 1 / cam.z);
@@ -337,7 +323,6 @@
     vp.style.backgroundSize = `${grid}px ${grid}px`;
     vp.style.backgroundPosition = `${-cam.x * cam.z}px ${-cam.y * cam.z}px`;
     $('zoom').textContent = `${Math.round(cam.z * 100)}%`;
-    if (focusId) showFocusZoom();
     updateOverlay();
     for (const peer of peers.values()) placeCursor(peer);
     const v = viewRect();
@@ -352,7 +337,7 @@
     settleTimer = setTimeout(() => {
       // Not before the board has loaded and been framed: the view remembered from last time is still waiting to be read.
       // Nor while something is open in the viewer: what is remembered is where the board was left, not a close-up of one piece.
-      if (!firstInit && !unframed && !focusId) store(`wb:cam:${boardId}`, { x: cam.x, y: cam.y, z: cam.z });
+      if (!firstInit && !unframed) store(`wb:cam:${boardId}`, { x: cam.x, y: cam.y, z: cam.z });
       checkRes();
     }, 200);
   }
@@ -365,7 +350,6 @@
     clearTimeout(camTimer);
     if (camEasing) {
       camEasing = false;
-      if (focusId) applyCam();
     }
     coasting = false;
   }
@@ -462,7 +446,6 @@
       else {
         clearTimeout(camTimer);
         camEasing = false;
-        if (focusId) applyCam();
       }
     };
     camAnim = requestAnimationFrame(tick);
@@ -598,11 +581,6 @@
     return d;
   }
 
-  function fmtTime(s) {
-    if (!isFinite(s)) return '0:00';
-    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-  }
-
   function buildVideo(it, node) {
     const video = el('video', { playsinline: true, loop: true, preload: 'metadata' });
     video.muted = true;
@@ -616,7 +594,6 @@
     const sound = el('button', { class: 'vbtn', html: ICON.muted, title: 'Sound on / off (M)', onclick: () => { video.muted = !video.muted; } });
     video.addEventListener('volumechange', () => {
       sound.innerHTML = video.muted ? ICON.muted : ICON.sound;
-      if (focusId === it.id) syncTimeline();
     });
     const tick = (at = whereOf(video)) => {
       // On its way to another source it has no length for a moment: what is showing stays as it is.
@@ -625,7 +602,6 @@
       seek.style.setProperty('--p', `${seek.value / 10}%`);
       if (seek.parentNode) seek.parentNode.style.setProperty('--p', `${seek.value / 10}%`);
       time.textContent = timeLabel(at, video.duration, fpsOf(it.id));
-      if (focusId === it.id) syncTimeline(at);
     };
     video.wbTick = tick;
     seek.addEventListener('input', () => {
@@ -659,17 +635,10 @@
         sendMedia(it.id);
       });
     }
-    for (const type of ['progress', 'suspend', 'loadedmetadata', 'seeked']) {
-      video.addEventListener(type, () => {
-        if (focusId === it.id) syncLoaded();
-      });
-    }
     video.addEventListener('timeupdate', () => tick());
     video.addEventListener('loadedmetadata', () => {
       tick();
       queueMarks();
-      // Drawings that arrived before their video could not tell which frame it was on.
-      refreshAnnotations(it.id);
     });
     // While it plays the counter follows each frame as it is shown, where the browser says which that is.
     const onFrame = (now, meta) => {
@@ -679,8 +648,6 @@
     };
     video.addEventListener('seeked', () => {
       tick();
-      // What was drawn for a comment shows on the frame the comment is about.
-      refreshAnnotations(it.id);
     });
     // Clicks on the big button are handled by the pointer gesture so the video can still be dragged by it.
     const center = el('div', { class: 'vplay', html: ICON.play, 'aria-hidden': 'true' });
@@ -689,8 +656,6 @@
         play.innerHTML = video.paused ? ICON.play : ICON.pause;
         center.innerHTML = video.paused ? ICON.play : ICON.pause;
         node.classList.toggle('playing', !video.paused);
-        refreshAnnotations(it.id);
-        if (focusId === it.id) syncTimeline();
         if (!video.paused && video.requestVideoFrameCallback) video.requestVideoFrameCallback(onFrame);
       });
     }
@@ -739,13 +704,14 @@
       els.set(it.id, node);
       (it.type === 'frame' ? framesLayer : it.type === 'stroke' ? inksLayer : itemsLayer).append(node);
     }
-    if (it.type === 'image' || it.type === 'video') node.dataset.name = it.name || '';
+    if (it.type === 'image' || it.type === 'video') {
+      node.dataset.name = it.name || '';
+      paintVerChip(node, it);
+    }
     const st = node.style;
     st.transform = `translate(${it.x}px, ${it.y}px)`;
     st.zIndex = it.z || 0;
     const isEditing = editing && editing.id === it.id;
-    node.classList.toggle('dim', !!focusId && it.id !== focusId && it.pid !== focusId);
-    if (it.pid && it.cid) markAnnotation(it, node);
 
     if (it.type === 'image') {
       st.width = `${it.w}px`;
@@ -836,7 +802,6 @@
       cmDirty = true;
       return;
     }
-    if (focusId === id) exitFocus();
     if (editing && editing.id === id) editing = null;
     items.delete(id);
     sel.delete(id);
@@ -855,7 +820,7 @@
     for (const it of items.values()) {
       if (it.type !== 'image' || !it.prev) continue;
       if (fullRes.has(it.id)) {
-        if (it.id !== focusId && it.w * cam.z * dpr < it.pw * 0.75) {
+        if (it.w * cam.z * dpr < it.pw * 0.75) {
           fullRes.delete(it.id);
           renderItem(it);
         }
@@ -902,9 +867,12 @@
     for (const op of ops) {
       if (op.t === 'add') {
         if (op.item.type === 'comment') {
+          // Told only of a comment that is new here: not one brought along with a version put on the
+          // board, nor one that has only been resolved or moved to another piece showing its version.
+          const fresh = remote === true && !op.item.re && !comments.has(op.item.id);
           comments.set(op.item.id, { ...op.item });
           cmDirty = true;
-          if (remote && !op.item.re) toast(`${op.item.name} commented on ${hostLabel(op.item)}`);
+          if (fresh) toast(`${op.item.name} commented on ${hostLabel(op.item)}`);
           continue;
         }
         items.set(op.item.id, { ...op.item });
@@ -943,7 +911,7 @@
     updateFrameCounts();
     updateOverlay();
     queueMarks();
-    if (focusId) queueViewer();
+    viewer.refresh();
     scheduleSettle();
   }
 
@@ -1156,7 +1124,7 @@
     for (const id of ids) {
       // What is open in the viewer is the page being looked at, not a thing on it: it is never selected,
       // so nothing done to a selection (delete, nudge, duplicate, reorder) can reach it from in there.
-      if (!items.has(id) || id === focusId) continue;
+      if (!items.has(id)) continue;
       sel.add(id);
       els.get(id).classList.add('sel');
     }
@@ -1175,6 +1143,13 @@
       if (it) r = union(r, of(it));
     }
     return r;
+  }
+
+  const narrow = () => vp.clientWidth < 700;
+  // How much of the bottom of the screen the tools take on a phone.
+  function bottomChrome() {
+    const tb = $('toolbar');
+    return tb.offsetParent ? Math.max(0, vp.clientHeight - tb.getBoundingClientRect().top) : 8;
   }
 
   function updateOverlay() {
@@ -1219,7 +1194,7 @@
     // Blocks, however many, are aligned together.
     const blocks = types.size === 1 && types.has('block') ? list : null;
     const align = blocks && blocks.every((it) => it.align === blocks[0].align) ? blocks[0].align : null;
-    const sig = `${[...types].sort().join()}|${Math.min(list.length, 2)}|${one ? `${one.lvl}${one.auto}` : ''}|${align}`;
+    const sig = `${[...types].sort().join()}|${Math.min(list.length, 2)}|${one ? `${one.lvl}${one.auto}` : ''}|${align}|${project ? fileable(list).length : 0}`;
     if (seltools.dataset.sig === sig) return;
     seltools.dataset.sig = sig;
 
@@ -1256,6 +1231,7 @@
     kids.push(btn(ICON.dup, 'Duplicate (Ctrl+D)', duplicate));
     if (one && (one.type === 'image' || one.type === 'video')) kids.push(btn(ICON.focus, 'Open it, to comment and draw on it (double-click)', () => enterFocus(one.id)));
     if (one && onServer(one)) kids.push(btn(ICON.download, downloadTitle(one), () => downloadPiece(one.id)));
+    if (project && !viewOnly && fileable(list).length) kids.push(btn(ICON.file, fileable(list).length > 1 ? `File these ${fileable(list).length} as versions in ${project.name} (Shift+V)` : `File as a version in ${project.name} (Shift+V)`, () => fileSelection()));
     kids.push(btn(ICON.trash, 'Delete (Del)', deleteSel));
     seltools.replaceChildren(...kids);
   }
@@ -1296,7 +1272,7 @@
   // Copies of the items plus whatever travels with them (frame contents, drawings on images).
   function cloneItems(ids, offset) {
     let z = topZ();
-    const list = [...withDependents(ids)].map((id) => items.get(id)).filter((it) => it && !commentOf(it))
+    const list = [...withDependents(ids)].map((id) => items.get(id)).filter(Boolean)
       .sort((a, b) => (a.z || 0) - (b.z || 0));
     const picked = new Set(ids);
     const copies = reid(list).map((it) => ({ ...it, x: round(it.x + offset), y: round(it.y + offset), z: ++z }));
@@ -1491,7 +1467,6 @@
   // While an image is open, only it and its drawings take part in anything. Nor does what is out of sight:
   // something drawn for a comment on another frame of a video than the one showing.
   function selectable(it) {
-    if (focusId && it.id !== focusId && it.pid !== focusId) return false;
     const node = els.get(it.id);
     return !node || !node.classList.contains('offframe');
   }
@@ -1768,7 +1743,6 @@
 
   // With items selected the frame button wraps them; otherwise it is the draw-a-frame tool.
   function frameSelection() {
-    if (focusId) return false;
     const members = [...sel].map((id) => items.get(id)).filter((it) => it && it.type !== 'frame' && it.type !== 'block' && it.type !== 'stroke' && !it.pid);
     if (!members.length) return false;
     const previous = members.map((it) => it.fid).filter(Boolean);
@@ -1782,7 +1756,6 @@
   }
 
   function activateFrame() {
-    if (focusId) return;
     if (!frameSelection()) setTool('frame');
   }
 
@@ -1919,7 +1892,12 @@
     guidePath.setAttribute('d', '');
   }
 
-  // ---- opening an image to draw on it
+  // ---- the viewer
+  //
+  // Double-click an image or video (or tap it on a phone) and it opens in the player, viewer.js: the same
+  // one the catalogue opens versions in. The board tells it what there is to open, in the order the board
+  // reads, and what has been said about it. What is said, drawn, played and pointed at in it comes back
+  // here, to be shared with everyone on the board and undone like anything else.
 
   // Every image and video in the order the board reads. A frame counts as one piece, placed among the
   // loose media by where it sits (rows first, then left to right), and what it holds is read through
@@ -1940,646 +1918,91 @@
     return readingOrder(pieces).flatMap((p) => (p.type === 'frame' ? readingOrder(held.get(p.id)) : [p]));
   }
 
-  // Moves on to the next or previous piece of media while one is open, going round at the ends.
-  // Steps pile up while a frame is being drawn and are made together, so a held key skips ahead
-  // instead of building the whole view for every piece it passes.
-  let stepPending = 0;
-  function stepFocus(dir) {
-    if (!focusId) return;
-    if (!stepPending) {
-      requestAnimationFrame(() => {
-        const n = stepPending;
-        stepPending = 0;
-        const list = mediaOrder();
-        const i = list.findIndex((it) => it.id === focusId);
-        if (i < 0 || list.length < 2) return;
-        enterFocus(list[(((i + n) % list.length) + list.length) % list.length].id);
-      });
+  // What is drawn on a piece out on the board, measured against the piece as the viewer measures it
+  // (its width is 1000).
+  function drawingsOn(id) {
+    const host = items.get(id);
+    if (!host || !(host.w > 0)) return [];
+    const k = 1000 / host.w;
+    return [...items.values()].filter((it) => it.type === 'stroke' && it.pid === id).map((st) => ({
+      id: st.id, x: (st.x - host.x) * k, y: (st.y - host.y) * k, w: st.w * k, h: st.h * k, pts: st.pts, ws: st.ws, size: st.size * k, color: st.color, arrow: st.arrow,
+    }));
+  }
+
+  const pieceOf = (it) => ({
+    id: it.id, type: it.type, src: it.src, prev: it.prev, pw: it.pw, th: it.th, poster: it.poster, nw: it.nw || it.w, nh: it.nh || it.h,
+    fps: it.fps, dur: it.dur, wf: it.wf, name: it.name, orig: it.orig, label: it.ver && versionInfo.get(it.ver) ? versionInfo.get(it.ver).label : null,
+  });
+
+  let openId = null; // what is open in the viewer
+  const boardHost = {
+    me: () => me,
+    title: () => $('boardname').value || 'Board',
+    media: () => mediaOrder().map(pieceOf),
+    notes: () => [...comments.values()],
+    drawings: drawingsOn,
+    can: { read: () => canRead(), write: () => canWrite(), draw: () => !viewOnly, member: () => !viewOnly },
+    add: (c) => exec([{ t: 'add', item: c }]),
+    set: (id, patch) => exec([{ t: 'set', id, patch }]),
+    remove: (ids) => exec([{ t: 'del', ids }]),
+    undo: () => stepHistory(undoStack, redoStack),
+    redo: () => stepHistory(redoStack, undoStack),
+    erase: (ids) => exec(delOps(ids)),
+    clear: (id) => exec([{ t: 'del', ids: [...items.values()].filter((it) => it.type === 'stroke' && it.pid === id).map((it) => it.id) }]),
+    download: viewOnly ? null : (p) => downloadPiece(p.id),
+    whole: (src) => fetchWhole(src),
+    wholeEntry: (src) => wholes.get(src),
+    release: (src) => dropWhole(src),
+    names: () => [...peers.values()].filter((p) => !p.viewer).map((p) => ({ name: p.name, color: p.color })),
+    toast,
+    onOpen: (id) => {
+      openId = id;
+      finishEdit();
+      setSel([]);
+      viewer.extras.append($('peers'));
+      renderPanel();
+      sendP({ f: id });
+      queueAhead();
+    },
+    onClose: () => {
+      openId = null;
+      $('topbar').querySelector('.bar-group.board-only').before($('peers'));
+      renderPanel();
+      sendP({ f: null, t: null });
+      const leader = following && peers.get(following);
+      if (leader && leader.p.v) followView(leader.p.v, 0);
+    },
+    onMedia: (id, playing, time) => {
+      wsSend({ t: 'media', id, playing, time });
+      // Kept in the presence too, so whoever starts following later lands on the same frame.
+      sendP({ m: [id, Math.round(time * 1000) / 1000, playing ? 1 : 0] });
+    },
+    onThread: (id) => sendP({ t: id }),
+    onLaser: (id, pts) => wsSend({ t: 'laser', pts, on: id }),
+    onInteract: () => stopFollowing(),
+    onWhole: (id, url) => mendStrip(id, url),
+  };
+  const viewer = WBViewer.create(boardHost);
+
+  // An asset, set or shot's versions, from the catalogue, in the same player; closed, it is the board's again.
+  async function lookAtEntity(entityId, version) {
+    try {
+      await WBViewer.openEntity(viewer, entityId, { version, me, onClose: () => viewer.use(boardHost) });
+    } catch (err) {
+      toast(err.message);
+      viewer.use(boardHost);
     }
-    stepPending += dir;
   }
 
-  // An open image or video fills the space between the bars. The view can zoom into it and move
-  // around it, but never out past it nor off it onto the board: it is the board's viewer, not a
-  // zoomed-in board, and only closing it goes back.
-  //
-  // Around it the viewer is laid out like a review tool: every image and video on the board down the
-  // left edge, the comments on the open one in a panel on the right, and under a video its timeline.
-  // What is left in the middle belongs to the piece. Measured when the layout changes, not on every
-  // move of the camera.
-  let viewerPad = { t: 112, r: 48, b: 48, l: 120 };
-  function layoutViewer() {
-    const below = timeline.hidden ? 0 : timeline.offsetHeight + 12;
-    viewerPad = vp.clientWidth < 700
-      ? { t: 64, r: 12, b: bottomChrome() + 12, l: 12 }
-      : { t: 72, r: (panel.hidden ? 0 : panel.offsetWidth) + 40, b: 32 + below, l: $('filmstrip').offsetWidth + 40 };
-  }
-  const focusInsets = () => viewerPad;
-
-  // How much of the bottom of the screen the strips along it take on a phone: the tools, and under a video its timeline.
-  function bottomChrome() {
-    const tops = [timeline, $('toolbar')].filter((n) => !n.hidden && n.offsetParent).map((n) => n.getBoundingClientRect().top);
-    return tops.length ? Math.max(0, vp.clientHeight - Math.min(...tops)) : 8;
-  }
-
-  // After the space around the piece has changed: a piece that filled it fills it again, and one that
-  // was zoomed into stays as it was.
-  function relayoutViewer() {
-    if (!focusId) return;
-    const fitted = !focusZoomed();
-    layoutViewer();
-    if (fitted) fitFocus();
-    else applyCam();
-  }
-
-  // The zoom at which the open piece just fits between the bars.
-  function focusFitZ() {
-    const r = bounds(items.get(focusId));
-    const i = focusInsets();
-    return Math.min(MAX_Z, (vp.clientWidth - i.l - i.r) / Math.max(r.w, 1), (vp.clientHeight - i.t - i.b) / Math.max(r.h, 1));
-  }
-
-  const focusZoomed = () => !!focusId && cam.z > focusFitZ() * 1.02;
-
-  // Zoom one image pixel to one screen pixel: actual size.
-  function actualSizeZ(it) {
-    return it.nw ? it.nw / it.w / (window.devicePixelRatio || 1) : focusFitZ() * 2;
-  }
-
-  // Applied to every view while something is open: while it fits it stays in the middle, and once it
-  // is larger its edges never come in further than the bars.
-  function keepOnFocus() {
-    const it = items.get(focusId);
-    if (!it) return;
-    const r = bounds(it);
-    const i = focusInsets();
-    cam.z = clamp(cam.z, focusFitZ(), MAX_Z);
-    const axis = (pos, size, lo, span, at) => {
-      const shown = size * cam.z;
-      const start = shown <= span ? lo + (span - shown) / 2 : clamp((pos - at) * cam.z, lo + span - shown, lo);
-      return pos - start / cam.z;
-    };
-    cam.x = axis(r.x, r.w, i.l, vp.clientWidth - i.l - i.r, cam.x);
-    cam.y = axis(r.y, r.h, i.t, vp.clientHeight - i.t - i.b, cam.y);
-  }
-
-  function fitFocus(dur = 0) {
-    const it = focusId && items.get(focusId);
-    if (it) fitRect(bounds(it), { inset: focusInsets(), dur });
-  }
-
-  // Between fitting the screen and actual size (or twice the fit, for something small), around a point.
-  function toggleFocusZoom(sx = vp.clientWidth / 2, sy = vp.clientHeight / 2) {
-    const it = focusId && items.get(focusId);
-    if (!it) return;
-    if (focusZoomed()) return fitFocus();
-    const fit = focusFitZ();
-    const actual = actualSizeZ(it);
-    zoomAt(sx, sy, (actual > fit * 1.1 ? actual : fit * 2) / cam.z);
-  }
-
-  function showFocusZoom() {
-    const it = items.get(focusId);
-    if (!it) return;
-    $('focuszoom').textContent = focusZoomed() ? `${Math.round((cam.z / actualSizeZ(it)) * 100)}%` : 'Fit';
-  }
-
-  // `followed` is true when it opens because the person being followed opened it.
-  let preloadTimer = 0;
-  function enterFocus(id, followed = false) {
+  function enterFocus(id) {
     const it = items.get(id);
     if (!it || (it.type !== 'image' && it.type !== 'video')) return;
-    finishEdit();
-    if (!followed && following) {
-      following = null;
-      updateFollowUI();
-    }
-    stopCamAnim();
-    const wasOpen = !!focusId;
-    if (!focusId) {
-      focusReturn = { x: cam.x, y: cam.y, z: cam.z };
-    }
-    const prev = focusId && videoOf(focusId);
-    if (prev && focusId !== id) prev.pause();
-    if (focusId && focusId !== id) dropWhole(focusId);
-    if (focusId !== id) {
-      // What was being written or read belongs to the piece before.
-      dropDraft();
-      activeThread = null;
-      switchTyped(id);
-    }
-    focusId = id;
-    // Whatever was selected on the board is left behind: nothing is selected in here.
-    setSel([]);
-    document.body.classList.add('focus');
-    document.body.classList.toggle('focus-video', it.type === 'video');
-    $('focusname').textContent = it.name || (it.type === 'video' ? 'Video' : 'Image');
-    $('focusclear').title = `Delete what is drawn on this ${it.type}, apart from drawings that belong to comments`;
-    $('filmstrip').hidden = false;
-    $('timeline').hidden = it.type !== 'video';
-    for (const [nid, node] of els) node.classList.toggle('dim', nid !== id && items.get(nid).pid !== id);
-    // In here a press on the piece draws with the brush. (Somebody holding a link has the hand instead.) On a
-    // phone one finger is all there is to look around with, so it opens with the hand and the brush is a
-    // tap away in the strip along the bottom: looking never leaves a mark.
-    if (!wasOpen) setTool(narrow() && touchFirst.matches ? 'pan' : 'pen');
-    if (it.type === 'video') {
-      // Open, it is scrubbed and stepped through: worth having all of it rather than just its start.
-      // Held back a moment so stepping quickly past videos does not start loading every one of them.
-      clearTimeout(preloadTimer);
-      preloadTimer = setTimeout(() => {
-        const video = focusId === id && videoOf(id);
-        if (!video) return;
-        // One fetch of the whole of it, rather than that and the browser's own reading ahead side by side.
-        if (wholeable(items.get(id))) holdWhole(id);
-        else video.preload = 'auto';
-      }, 300);
-    }
-    syncFilmstrip(!wasOpen);
-    queueViewer();
-    syncComments();
-    syncTimeline();
-    syncLoaded();
-    queueMarks();
-    layoutViewer();
-    fitFocus(followed || wasOpen ? 0 : 450);
-    sendP({ f: id });
-  }
-
-  function exitFocus() {
-    if (!focusId) return;
-    dropWhole(focusId);
-    dropDraft();
-    activeThread = null;
-    switchTyped(null);
-    focusId = null;
-    document.body.classList.remove('focus', 'focus-video');
-    $('filmstrip').hidden = true;
-    $('timeline').hidden = true;
-    for (const node of els.values()) node.classList.remove('dim');
-    setTool('select');
-    syncComments();
-    sendP({ f: null });
-    const leader = following && peers.get(following);
-    if (leader && leader.p.v) followView(leader.p.v, 0);
-    else if (focusReturn) animateCam(focusReturn, 520);
-    focusReturn = null;
+    viewer.open(id);
   }
 
   // Following someone means seeing what they have open, too.
   function followFocus(id) {
-    if (id && items.has(id)) {
-      if (focusId !== id) enterFocus(id, true);
-    } else if (focusId) {
-      exitFocus();
-    }
-  }
-
-  // The drawings on the open piece that are not part of a comment. What was drawn for a comment belongs
-  // to its thread (somebody else's, often) and goes only when the thread does.
-  const looseDrawings = () => [...items.values()].filter((it) => it.type === 'stroke' && it.pid === focusId && !commentOf(it));
-
-  async function clearDrawing() {
-    const host = items.get(focusId);
-    const ids = looseDrawings().map((it) => it.id);
-    if (!host || !ids.length) return;
-    const sure = await WB.dialog({
-      title: ids.length === 1 ? 'Clear the drawing?' : `Clear ${ids.length} drawings?`,
-      text: `Everything drawn on this ${host.type} that is not part of a comment is deleted, for everyone. Drawings that belong to comments stay with their threads.`,
-      ok: 'Clear',
-      danger: true,
-    });
-    if (sure && focusId === host.id) exec([{ t: 'del', ids: looseDrawings().map((it) => it.id) }]);
-  }
-
-  // ---- the strip down the left of the viewer: every image and video, in the order the arrows take them
-
-  const film = $('filmstrip');
-  // It can be put away (Shift+F, or its tab) and dragged wider by its edge. Wide enough, each piece shows
-  // its name beside its picture. Both are kept in this browser.
-  const FS_MIN = 64;
-  const FS_MAX = 360;
-  let filmOff = store('wb:filmoff') === true;
-  const filmTab = el('button', { id: 'fstab', 'aria-controls': 'filmstrip', onclick: () => toggleFilm() });
-  const filmGrip = el('div', {
-    class: 'fs-grip', role: 'separator', tabindex: '0', 'aria-orientation': 'vertical', 'aria-label': 'Width of the strip',
-    title: 'Drag to widen and see names. Double-click to put it back',
-  });
-  document.body.append(filmTab, filmGrip);
-  function syncFilmTab() {
-    document.body.classList.toggle('film-off', filmOff);
-    filmTab.innerHTML = filmOff ? ICON.next : ICON.prev;
-    filmTab.title = filmOff ? 'Show the strip (Shift+F)' : 'Hide the strip (Shift+F)';
-    filmTab.setAttribute('aria-expanded', String(!filmOff));
-  }
-  function toggleFilm(show = filmOff) {
-    filmOff = !show;
-    store('wb:filmoff', filmOff);
-    syncFilmTab();
-    relayoutViewer();
-    if (show) syncFilmstrip(true, true);
-  }
-  function setFilmWidth(w, keep = true) {
-    if (w != null) w = Math.round(clamp(w, FS_MIN, FS_MAX));
-    if (w == null) document.body.style.removeProperty('--fsw');
-    else document.body.style.setProperty('--fsw', `${w}px`);
-    if (keep) store('wb:fsw', w);
-    relayoutViewer();
-  }
-  syncFilmTab();
-  if (Number.isFinite(store('wb:fsw'))) setFilmWidth(store('wb:fsw'), false);
-  filmGrip.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    try {
-      filmGrip.setPointerCapture(e.pointerId);
-    } catch {
-      // without it the drag lasts only while the pointer stays on the edge
-    }
-    filmGrip.classList.add('held');
-    const move = (m) => setFilmWidth(m.clientX, false);
-    const end = () => {
-      filmGrip.classList.remove('held');
-      filmGrip.removeEventListener('pointermove', move);
-      filmGrip.removeEventListener('pointerup', end);
-      filmGrip.removeEventListener('pointercancel', end);
-      setFilmWidth(film.offsetWidth);
-    };
-    filmGrip.addEventListener('pointermove', move);
-    filmGrip.addEventListener('pointerup', end);
-    filmGrip.addEventListener('pointercancel', end);
-  });
-  filmGrip.addEventListener('dblclick', () => setFilmWidth(null));
-  filmGrip.addEventListener('keydown', (e) => {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    e.preventDefault();
-    e.stopPropagation();
-    setFilmWidth(film.offsetWidth + (e.key === 'ArrowRight' ? 24 : -24));
-  });
-  let filmSig = '';
-  let filmQueued = false;
-  // The smallest picture there is of a piece: its thumbnail, else what the board shows for it.
-  const stillOf = (it) => it.th || (it.type === 'video' ? it.poster : it.prev || it.src) || '';
-
-  function queueViewer() {
-    if (filmQueued) return;
-    filmQueued = true;
-    queueMicrotask(() => {
-      filmQueued = false;
-      if (!focusId) return;
-      syncFilmstrip();
-      syncComposer();
-      paintFocusWave();
-      syncClear();
-    });
-  }
-
-  // The phone's Clear takes back first what has been drawn for a comment not yet sent (it is nobody
-  // else's, and was likely drawn by mistake), and otherwise clears the drawings as the bar's button does.
-  function syncClear() {
-    const unsent = draft && draft.on === focusId ? drawnFor(draft.id).length : 0;
-    const loose = looseDrawings().length;
-    $('focusclear').disabled = !loose;
-    const b = $('toolbar').querySelector('[data-act="clear"]');
-    if (!b) return;
-    b.disabled = !unsent && !loose;
-    b.title = unsent ? 'Take back what you have drawn for your comment' : $('focusclear').title;
-  }
-
-  function clearOnPhone() {
-    if (draft && draft.on === focusId && discardDrawing()) toast('Your drawing was taken back', { ms: 2000 });
-    else clearDrawing();
-    syncClear();
-  }
-
-  // `jump` puts the open piece in view at once, as when the viewer opens; otherwise the strip glides to it.
-  const clock = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
-  function syncFilmstrip(jump = false, recentre = false) {
-    const list = mediaOrder();
-    const open = new Map();
-    if (canRead()) for (const c of comments.values()) if (!c.re && !c.done) open.set(c.on, (open.get(c.on) || 0) + 1);
-    const sig = list.map((it) => `${it.id} ${stillOf(it)} ${open.get(it.id) || 0} ${it.name || ''}`).join('|');
-    if (sig !== filmSig) {
-      filmSig = sig;
-      film.replaceChildren(...list.map((it, i) => {
-        const still = stillOf(it);
-        const n = open.get(it.id);
-        const kind = it.type === 'video' ? 'Video' : 'Image';
-        return el('button', { class: 'fs-item', 'data-id': it.id, title: it.name || kind, onclick: () => enterFocus(it.id) },
-          el('span', { class: 'fs-num', text: String(i + 1) }),
-          el('span', { class: 'fs-thumb', style: { aspectRatio: String(clamp(it.w / (it.h || 1), 0.6, 2.4)) } },
-            still && el('img', { src: still, alt: '', decoding: 'async', draggable: 'false' }),
-            it.type === 'video' && el('span', { class: 'fs-badge', html: ICON.play }),
-            n && el('span', { class: 'fs-count', text: String(n), title: n > 1 ? `${n} open comments` : '1 open comment' })),
-          el('span', { class: 'fs-label' },
-            el('span', { class: 'fs-name', text: it.name || kind }),
-            el('span', { class: 'fs-kind', text: it.type === 'video' && it.dur ? `${kind} · ${clock(it.dur)}` : kind })));
-      }));
-    }
-    const i = list.findIndex((it) => it.id === focusId);
-    $('focuspos').textContent = `${i + 1} / ${list.length}`;
-    // As wide as the last one needs, so the arrow after it stays put from 9 to 10.
-    $('focuspos').style.minWidth = `${String(list.length).length * 2 + 3}ch`;
-    $('focusprev').disabled = $('focusnext').disabled = list.length < 2;
-    for (const node of film.children) {
-      const current = node.dataset.id === focusId;
-      if (current === node.classList.contains('current') && !(current && recentre)) continue;
-      node.classList.toggle('current', current);
-      if (!current) {
-        node.removeAttribute('aria-current');
-        continue;
-      }
-      node.setAttribute('aria-current', 'true');
-      // Kept in the middle of the strip, so what comes next and what came before are both in sight.
-      film.scrollTo({ top: node.offsetTop - (film.clientHeight - node.offsetHeight) / 2, behavior: jump || calm.matches ? 'auto' : 'smooth' });
-    }
-  }
-
-  // ---- the picture and sound of a video, along its scrub bar
-  const WAVE_W = 480;
-  const WAVE_H = 80;
-  const STRIP_PICTURE = 0.85;
-
-  const toB64 = (bytes) => {
-    let out = '';
-    for (let i = 0; i < bytes.length; i += 8192) out += String.fromCharCode(...bytes.subarray(i, i + 8192));
-    return btoa(out);
-  };
-  const fromB64 = (text) => Uint8Array.from(atob(text), (ch) => ch.charCodeAt(0));
-
-  // The average colour of the top and of the bottom of a small copy of a frame.
-  function frameColours(ctx) {
-    const { data } = ctx.getImageData(0, 0, 16, 8);
-    const sum = [0, 0, 0, 0, 0, 0];
-    for (let p = 0; p < 128; p++) {
-      const half = p < 64 ? 0 : 3;
-      for (let c = 0; c < 3; c++) sum[half + c] += data[p * 4 + c];
-    }
-    return sum.map((v) => Math.round(v / 64));
-  }
-
-  // A strip with holes in it is worse than none: a missed moment takes its neighbour's colour, and if
-  // more than a few are missed there is no strip at all, to be tried again another time.
-  function closeHoles(cols) {
-    const missed = cols.filter((c) => !c).length;
-    if (missed > cols.length * 0.05) return null;
-    const out = new Uint8Array(cols.length * 6);
-    for (let i = 0; i < cols.length; i++) {
-      let c = cols[i];
-      for (let d = 1; !c && d < cols.length; d++) c = cols[i - d] || cols[i + d];
-      if (!c) return null;
-      out.set(c, i * 6);
-    }
-    return out;
-  }
-
-  // The picture at evenly spaced moments along the timeline, each column the frame that is on show at the
-  // middle of its stretch. The frames are decoded here by their timestamps, and each one's own timestamp is
-  // checked against the moment asked for, so a column can only ever hold the colour of its own moment.
-  // (Seeking a video element and copying what it shows is not that: the browser may report the seek done
-  // while the old frame is still on show, and the same colour then runs on for minutes.)
-  async function colourStrip(file, url, dur, report = () => {}, fallback = true) {
-    let input;
-    try {
-      const mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
-      input = new mb.Input({ source: new mb.BlobSource(file), formats: mb.ALL_FORMATS });
-      const track = await input.getPrimaryVideoTrack();
-      if (!track || !(await track.canDecode())) throw new Error('cannot decode');
-      const first = await track.getFirstTimestamp();
-      if (!(dur > 0)) dur = await input.computeDuration();
-      if (!(dur > 0)) return null;
-      const step = dur / WAVE_COLS;
-      const times = Array.from({ length: WAVE_COLS }, (_, i) => Math.max(first, step * (i + 0.5)));
-      const sink = new mb.CanvasSink(track, { width: 16, height: 8, fit: 'fill', poolSize: 1 });
-      const cols = [];
-      let before = -Infinity;
-      for await (const frame of sink.canvasesAtTimestamps(times)) {
-        // The frame on show at a moment starts at or before it, and never before the one for the moment earlier.
-        const right = frame && frame.timestamp <= times[cols.length] + 0.001 && frame.timestamp >= before;
-        if (right) before = frame.timestamp;
-        cols.push(right ? frameColours(frame.canvas.getContext('2d', { willReadFrequently: true })) : null);
-        report(cols.length / WAVE_COLS);
-      }
-      const colours = cols.length === WAVE_COLS ? closeHoles(cols) : null;
-      if (colours) return { colours, dur };
-    } catch {
-      // A browser that cannot decode it here still has its video element.
-    } finally {
-      if (input) input.dispose?.();
-    }
-    return fallback ? colourStripByElement(url, report) : null;
-  }
-
-  // The same from a video element, for a browser that cannot decode the file itself. Each seek is only
-  // believed once the element says which frame it has put on show.
-  async function colourStripByElement(url, report = () => {}) {
-    const video = el('video', { muted: '', playsinline: '', preload: 'auto' });
-    video.muted = true;
-    if (!video.requestVideoFrameCallback) return null;
-    const ready = new Promise((resolve, reject) => {
-      video.addEventListener('loadeddata', resolve, { once: true });
-      video.addEventListener('error', reject, { once: true });
-      setTimeout(reject, 20000);
-    });
-    video.src = url;
-    try {
-      await ready;
-      const dur = video.duration;
-      if (!(dur > 0) || !isFinite(dur)) return null;
-      const canvas = el('canvas', { width: 16, height: 8 });
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      const step = dur / WAVE_COLS;
-      const cols = [];
-      let missed = 0;
-      for (let i = 0; i < WAVE_COLS && missed <= WAVE_COLS * 0.05; i++) {
-        const t = step * (i + 0.5);
-        const shown = await new Promise((resolve) => {
-          const late = setTimeout(() => resolve(null), 3000);
-          video.requestVideoFrameCallback((now, meta) => { clearTimeout(late); resolve(meta.mediaTime); });
-          video.currentTime = t;
-        });
-        if (shown != null && Math.abs(shown - t) <= Math.max(1, step * 2)) {
-          ctx.drawImage(video, 0, 0, 16, 8);
-          cols.push(frameColours(ctx));
-        } else {
-          cols.push(null);
-          missed++;
-        }
-        report(cols.length / WAVE_COLS);
-      }
-      const colours = cols.length === WAVE_COLS ? closeHoles(cols) : null;
-      return colours ? { colours, dur } : null;
-    } catch {
-      return null;
-    } finally {
-      video.removeAttribute('src');
-      video.load();
-    }
-  }
-
-  // How loud the sound is, in even steps along the video; null where there is none.
-  async function soundPeaks(file, dur, report = () => {}) {
-    let input;
-    try {
-      const mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
-      input = new mb.Input({ source: new mb.BlobSource(file), formats: mb.ALL_FORMATS });
-      const track = await input.getPrimaryAudioTrack();
-      if (!track || !(await track.canDecode())) return null;
-      const peaks = new Float32Array(WAVE_BARS);
-      const sink = new mb.AudioSampleSink(track);
-      let told = 0;
-      for await (const sample of sink.samples()) {
-        if (sample.timestamp / dur - told >= 0.02) report((told = sample.timestamp / dur));
-        const data = new Float32Array(sample.numberOfFrames);
-        sample.copyTo(data, { planeIndex: 0, format: 'f32-planar' });
-        const rate = sample.sampleRate;
-        for (let j = 0; j < data.length; j++) {
-          const b = Math.min(WAVE_BARS - 1, Math.floor(((sample.timestamp + j / rate) / dur) * WAVE_BARS));
-          const v = Math.abs(data[j]);
-          if (b >= 0 && v > peaks[b]) peaks[b] = v;
-        }
-        sample.close();
-      }
-      const top = Math.max(...peaks);
-      if (!(top > 0.002)) return null;
-      return Uint8Array.from(peaks, (v) => Math.round(255 * Math.sqrt(v / top)));
-    } catch {
-      return null;
-    } finally {
-      if (input) input.dispose?.();
-    }
-  }
-
-  // The sound as a waveform on top, the picture as flat bands of colour beneath it. It is drawn at the size
-  // it is shown at, to the pixel, so no edge is ever stretched soft.
-  const waveOf = new WeakMap(); // canvas -> what it shows
-  const waveWatch = new ResizeObserver((entries) => { for (const e of entries) fitWave(e.target); });
-
-  function showWave(canvas, wf) {
-    if (!waveOf.has(canvas)) waveWatch.observe(canvas);
-    if (waveOf.get(canvas) === wf && canvas.dataset.drawn) return;
-    waveOf.set(canvas, wf);
-    delete canvas.dataset.drawn;
-    fitWave(canvas);
-  }
-
-  function fitWave(canvas) {
-    const wf = waveOf.get(canvas);
-    const box = canvas.getBoundingClientRect();
-    if (!wf || box.width < 8 || box.height < 8) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = Math.round(box.width * dpr);
-    const h = Math.round(box.height * dpr);
-    if (canvas.width === w && canvas.height === h && canvas.dataset.drawn) return;
-    canvas.width = w;
-    canvas.height = h;
-    canvas.dataset.drawn = '1';
-    drawWave(canvas, wf, dpr);
-  }
-
-  function drawWave(canvas, wf, dpr) {
-    const ctx = canvas.getContext('2d');
-    const { width: W, height: H } = canvas;
-    // Colours are read against what is around them, and on a white panel they wash out. So in the light
-    // theme the strip keeps a dark bed of its own, like a strip of film, and reads as it does in the dark one.
-    if (isLight()) {
-      ctx.fillStyle = '#161616';
-      ctx.fillRect(0, 0, W, H);
-    }
-    const stripTop = Math.round(H * 0.62);
-    const colours = fromB64(wf.c);
-    const cols = colours.length / 6;
-    const gap = Math.max(1, Math.round((W / cols) * 0.16));
-    for (let i = 0; i < cols; i++) {
-      const c = colours.subarray(i * 6, i * 6 + 6);
-      const x0 = Math.round((i * W) / cols);
-      const x1 = Math.round(((i + 1) * W) / cols);
-      ctx.fillStyle = `rgb(${(c[0] + c[3]) >> 1},${(c[1] + c[4]) >> 1},${(c[2] + c[5]) >> 1})`;
-      ctx.beginPath();
-      ctx.roundRect(x0, stripTop, Math.max(1, x1 - x0 - gap), H - stripTop, Math.max(0, Math.min(Math.round(1.5 * dpr), Math.floor((x1 - x0 - gap) / 2))));
-      ctx.fill();
-    }
-    const room = stripTop - Math.round(3 * dpr);
-    const mid = room / 2;
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.fillRect(0, 0, W, room);
-    if (!wf.p) return;
-    const peaks = fromB64(wf.p);
-    const n = peaks.length;
-    const at = (i) => Math.max(0.5 * dpr, (peaks[i] / 255) * (mid - dpr));
-    ctx.beginPath();
-    ctx.moveTo(0, mid - at(0));
-    for (let i = 1; i < n; i++) ctx.lineTo((i * W) / (n - 1), mid - at(i));
-    for (let i = n - 1; i >= 0; i--) ctx.lineTo((i * W) / (n - 1), mid + at(i));
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
-    ctx.fill();
-  }
-
-  function paintFocusWave() {
-    const it = focusId ? items.get(focusId) : null;
-    const wf = it && it.type === 'video' ? it.wf : null;
-    tlTrack.classList.toggle('wave', !!wf);
-    if (wf) showWave(tlWave, wf);
-  }
-
-  // The strip for a video file about to be uploaded; null if it cannot be made, and the bar stays plain.
-  // `report` hears how far along it is, from 0 to 1: the picture is most of the work, the sound the rest.
-  async function videoWave(file, url, dur, report = () => {}, fallback = true) {
-    try {
-      const strip = await colourStrip(file, url, dur, (k) => report(k * STRIP_PICTURE), fallback);
-      if (!strip) return null;
-      const peaks = await soundPeaks(file, strip.dur, (k) => report(STRIP_PICTURE + k * (1 - STRIP_PICTURE)));
-      return { c: toB64(strip.colours), p: peaks ? toB64(peaks) : '' };
-    } catch {
-      return null;
-    } finally {
-      report(1);
-    }
-  }
-
-  // ---- the timeline under an open video
-
-  // Not a slider: it never holds the keyboard, so the keys go on meaning what they mean everywhere else.
-  const timeline = $('timeline');
-  const tlPlay = el('button', { class: 'iconbtn', html: ICON.play, title: 'Play or pause (Space, or K)', onclick: () => toggleVideo(focusId) });
-  const tlSound = el('button', { class: 'iconbtn', html: ICON.muted, title: 'Sound on / off (M)', onclick: () => toggleSound(focusId) });
-  const tlTime = el('button', { class: 'tl-time', text: '0:00', title: 'Show minutes and seconds, frame number or timecode', onclick: cycleTimeMode });
-  const tlMarks = el('div', { class: 'tl-marks' });
-  const tlTip = el('span', { class: 'tl-tip', hidden: true });
-  const tlLoaded = el('i', { class: 'tl-loaded' });
-  const tlWave = el('canvas', { class: 'tl-wave', width: WAVE_W, height: WAVE_H });
-  window.addEventListener('wb:theme', () => {
-    delete tlWave.dataset.drawn;
-    fitWave(tlWave);
-  });
-  const tlTrack = el('div', { class: 'tl-track' }, tlWave, el('i', { class: 'tl-rail' }, tlLoaded, el('i', { class: 'tl-played' })), tlMarks, el('i', { class: 'tl-head' }), tlTip);
-  timeline.append(
-    tlPlay,
-    el('button', { class: 'iconbtn', html: ICON.frameBack, title: 'Back one frame ( , )   With Shift, one second', onclick: (e) => stepVideo(focusId, -1, e.shiftKey) }),
-    el('button', { class: 'iconbtn', html: ICON.frameFwd, title: 'Forward one frame ( . )   With Shift, one second', onclick: (e) => stepVideo(focusId, 1, e.shiftKey) }),
-    tlTime, tlTrack, tlSound);
-
-  // How much of the open video the browser has by now, drawn lighter along the track. Going to a moment
-  // it has is immediate; anywhere else it has to be fetched first, which is what makes a scrub drag.
-  // Once the video is held whole (see below) that is all of it.
-  function syncLoaded() {
-    const video = focusId ? videoOf(focusId) : null;
-    const dur = video ? video.duration : 0;
-    const parts = [];
-    const it = video ? items.get(focusId) : null;
-    const entry = it ? wholes.get(it.src) : null;
-    if (video && video.dataset.whole === it.src) {
-      // All of it is in memory.
-      parts.push(el('i', { style: { left: '0', width: '100%' } }));
-    } else if (dur > 0 && isFinite(dur)) {
-      for (let i = 0; i < video.buffered.length; i++) {
-        const from = video.buffered.start(i) / dur;
-        parts.push(el('i', { style: { left: `${from * 100}%`, width: `${(video.buffered.end(i) / dur - from) * 100}%` } }));
-      }
-      // On its way in whole: how far that has come.
-      if (entry && entry.total) parts.push(el('i', { class: 'coming', style: { left: '0', width: `${(entry.loaded / entry.total) * 100}%` } }));
-    }
-    tlLoaded.replaceChildren(...parts);
+    viewer.follow(id && items.has(id) ? id : null);
   }
 
   // ---- the open video, all of it
@@ -2595,220 +2018,32 @@
 
   // ---- the board's videos, kept on this machine
   //
-  // Over the internet the wait is for a video to arrive, and it is longest just when it is opened. So
-  // once a board is open its videos are fetched ahead, quietly, one at a time and in the order the
-  // viewer steps through them, and kept on this machine's disk. Opening one then finds it here: it
-  // comes from the disk at once, this time and every time after. A file's address is made from what is
-  // in it, so a copy kept here can never be out of date.
-  //
-  // What is opened never waits for this: it has the line to itself, and what was being fetched ahead
-  // gives way to it. Where the browser has nowhere to keep things (a plain http address that is not
-  // this machine) or has been asked to save data, nothing is fetched ahead and all is as it was.
-  const KEPT_MAX = WB.media.MAX; // how much is kept on disk across boards
-  const mediaCache = 'caches' in window ? caches.open(WB.media.CACHE).catch(() => null) : Promise.resolve(null);
-  const kept = store('wb:kept') || {};     // a video's address -> [its size, when it was last wanted]
-  const aheadFailed = new Set();
-  const onDisk = new Set();                // which of them are known to be there
-  let diskReady = false;
-  mediaCache.then((cache) => {
-    diskReady = !!cache;
-    paintKept();
-  });
-  let ahead = null;                        // what is being fetched ahead: { src, ctl, done, loaded, total }
+  // Once a board is open its videos are fetched ahead, quietly, one at a time and in the order the viewer
+  // steps through them, and kept on this computer (media.js, which keeps for every page). Opening one
+  // then finds it there, this time and every time after. What is on the open board is never made room for.
+  const media = WB.media;
+  const KEPT_MAX = media.MAX;
+
   let aheadTimer = 0;
-  let aheadRunning = false;
-  let aheadOff = !!(navigator.connection && navigator.connection.saveData) || !WB.media.ahead();
-
-  async function keepOnDisk(cache, src, blob) {
-    try {
-      await cache.put(src, new Response(blob, { headers: { 'Content-Type': blob.type || 'video/mp4', 'Content-Length': String(blob.size) } }));
-    } catch {
-      // No room, or no leave to keep things here: nothing more is fetched ahead this time.
-      aheadOff = true;
-      paintKept();
-      return;
-    }
-    kept[src] = [blob.size, Date.now()];
-    onDisk.add(src);
-    paintKept();
-    // What has gone longest unwanted makes room, though never what is on the board that is open.
-    const here = new Set([...items.values()].map((it) => it.src));
-    let total = Object.values(kept).reduce((sum, k) => sum + k[0], 0);
-    for (const [old, k] of Object.entries(kept).sort((a, b) => a[1][1] - b[1][1])) {
-      if (total <= KEPT_MAX) break;
-      if (here.has(old)) continue;
-      await cache.delete(old).catch(() => {});
-      delete kept[old];
-      onDisk.delete(old);
-      total -= k[0];
-    }
-    store('wb:kept', kept);
-  }
-
   function queueAhead() {
     paintKept();
-    if (aheadOff) return;
     clearTimeout(aheadTimer);
-    aheadTimer = setTimeout(fetchAhead, 2500);
+    aheadTimer = setTimeout(() => {
+      // From the piece that is open onwards, since the next one is the likeliest to be wanted next.
+      const order = mediaOrder().filter(wholeable);
+      const from = Math.max(0, order.findIndex((it) => it.id === openId));
+      media.want(`board:${boardId}`, [...order.slice(from), ...order.slice(0, from)].map((it) => it.src), { rank: media.RANK.board, kind: 'boards', hold: true });
+    }, 1000);
   }
 
-  async function fetchAhead() {
-    const cache = await mediaCache;
-    if (!cache || aheadRunning || aheadOff) return;
-    aheadRunning = true;
-    try {
-      for (;;) {
-        // What has been opened has the line to itself.
-        while ([...wholes.values()].some((e) => !e.url)) await new Promise((resolve) => setTimeout(resolve, 400));
-        if (aheadOff) break;
-        // From the piece that is open onwards, since the next one is the likeliest to be wanted next.
-        const order = mediaOrder().filter(wholeable);
-        const from = Math.max(0, order.findIndex((it) => it.id === focusId));
-        let next = null;
-        for (const it of [...order.slice(from), ...order.slice(0, from)]) {
-          if (aheadFailed.has(it.src) || onDisk.has(it.src)) continue;
-          if (await cache.match(it.src).catch(() => null)) onDisk.add(it.src);
-          else if (!next && !wholes.has(it.src)) next = it.src;
-        }
-        paintKept();
-        if (!next) break;
-        const ctl = new AbortController();
-        const job = (ahead = { src: next, ctl, loaded: 0, total: 0 });
-        job.done = (async () => {
-          const res = await fetch(next, { signal: ctl.signal });
-          job.total = Number(res.headers.get('content-length')) || 0;
-          if (!res.ok || !res.body || !job.total || job.total > WHOLE_MAX) throw new Error('not one to keep');
-          const reader = res.body.getReader();
-          const pieces = [];
-          let told = 0;
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            pieces.push(value);
-            job.loaded += value.length;
-            if (job.loaded - told > job.total / 50) {
-              told = job.loaded;
-              paintKept();
-            }
-          }
-          await keepOnDisk(cache, next, new Blob(pieces, { type: res.headers.get('content-type') || 'video/mp4' }));
-        })().catch(() => {
-          // Given up for something that was opened, it is tried again; anything else is left alone.
-          if (!ctl.signal.aborted) aheadFailed.add(next);
-        });
-        await job.done;
-        if (ahead === job) ahead = null;
-      }
-    } finally {
-      aheadRunning = false;
-      paintKept();
-    }
-  }
-
-  // The ring in the bar: how much of this board's video is on this computer already.
-  const keptRing = $('kept');
-  // A press opens a little card under it with the details: how much is kept, and what is on its way.
-  const keptPop = el('div', { class: 'menu kept-pop', id: 'keptpop', role: 'dialog', 'aria-label': 'Video cache', hidden: true });
-  document.body.append(keptPop);
-  keptRing.setAttribute('aria-haspopup', 'dialog');
-  keptRing.setAttribute('aria-expanded', 'false');
-  keptRing.addEventListener('click', () => toggleKeptPop());
-  function toggleKeptPop(show = keptPop.hidden) {
-    show = show && !keptRing.hidden;
-    keptPop.hidden = !show;
-    keptRing.classList.toggle('active', show);
-    keptRing.setAttribute('aria-expanded', String(show));
-    if (!show) return;
-    paintKeptPop();
-    placeKeptPop();
-  }
-  function placeKeptPop() {
-    const r = keptRing.getBoundingClientRect();
-    keptPop.style.top = `${r.bottom + 6}px`;
-    keptPop.style.left = `${clamp(r.left, 8, innerWidth - keptPop.offsetWidth - 8)}px`;
-  }
-  // Anywhere else puts it away.
-  document.addEventListener('pointerdown', (e) => {
-    if (!keptPop.hidden && !keptPop.contains(e.target) && !keptRing.contains(e.target)) toggleKeptPop(false);
-  }, true);
-  window.addEventListener('resize', () => { if (!keptPop.hidden) placeKeptPop(); });
-
-  const sizeLabel = (bytes) => {
-    if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-    const mb = bytes / 1048576;
-    return `${mb >= 10 || !bytes ? Math.round(mb).toLocaleString() : mb.toFixed(1)} MB`;
-  };
-
-  function paintKeptPop() {
-    const board = mediaOrder().filter((it) => it.type === 'video');
-    const srcs = [...new Set(board.filter(wholeable).map((it) => it.src))].filter((src) => !aheadFailed.has(src));
-    const here = srcs.filter((src) => onDisk.has(src));
-    const hereBytes = here.reduce((sum, src) => sum + (kept[src] ? kept[src][0] : 0), 0);
-    const allBytes = Object.values(kept).reduce((sum, k) => sum + k[0], 0);
-    // Too large to keep, or failed on the way: those play from the server, as they always did.
-    const remote = board.length - board.filter((it) => wholeable(it) && !aheadFailed.has(it.src)).length;
-    const nameOf = (src) => {
-      const it = board.find((one) => one.src === src);
-      return (it && it.name) || 'A video';
-    };
-    const coming = [];
-    if (ahead && ahead.total && !onDisk.has(ahead.src)) coming.push([ahead.src, ahead.loaded / ahead.total]);
-    for (const [src, e] of wholes) if (!e.url && e.total && !onDisk.has(src) && (!ahead || ahead.src !== src)) coming.push([src, e.loaded / e.total]);
-
-    const k = srcs.length ? here.length / srcs.length : 0;
-    const R = 2 * Math.PI * 17;
-    const ring = el('span', { class: `kp-ring${k >= 1 ? ' full' : ''}`, html: `<svg viewBox="0 0 40 40" aria-hidden="true"><circle class="track" cx="20" cy="20" r="17"/><circle class="arc" cx="20" cy="20" r="17" stroke-dasharray="${R}" stroke-dashoffset="${R * (1 - k)}"/></svg>` },
-      k >= 1 ? el('span', { class: 'kp-in', html: ICON.check }) : el('b', { class: 'kp-in', text: `${Math.floor(k * 100)}%` }));
-    const bar = (frac) => el('i', { class: 'kp-bar' }, el('i', { style: { width: `${clamp(frac, 0, 1) * 100}%` } }));
-    keptPop.replaceChildren(...[
-      el('div', { class: 'kp-head' }, ring,
-        el('div', { class: 'kp-title' }, el('b', { text: `${here.length} of ${srcs.length} ${srcs.length === 1 ? 'video' : 'videos'}` }), el('span', { text: 'cached from this board' })),
-        el('b', { class: 'kp-size', text: sizeLabel(hereBytes) })),
-      aheadOff && here.length < srcs.length && el('div', { class: 'kp-warn', title: 'The disk is full, or the browser is saving data' }, el('span', { html: ICON.pause }), 'Paused'),
-      coming.length > 0 && el('div', { class: 'kp-list' }, coming.map(([src, f]) => el('div', { class: 'kp-item' },
-        el('span', { class: 'kp-name', text: nameOf(src) }), el('span', { class: 'kp-pct', text: `${Math.floor(f * 100)}%` }), bar(f)))),
-      remote > 0 && el('div', { class: 'kp-line', title: 'Too large to cache, or could not be cached' },
-        el('span', { class: 'kp-ic', html: ICON.cloud }), el('span', { text: `${remote} from the server` })),
-      el('div', { class: 'kp-total' },
-        el('div', { class: 'kp-line' }, el('span', { class: 'kp-ic', html: ICON.kept }), el('span', { text: 'All boards' }),
-          el('span', { class: 'kp-of', text: `${sizeLabel(allBytes)} / ${sizeLabel(KEPT_MAX)}` })),
-        bar(allBytes / KEPT_MAX)),
-    ].filter(Boolean));
-  }
-
-  const KEPT_RING = 2 * Math.PI * 7;
-  keptRing.querySelector('.arc').style.strokeDasharray = KEPT_RING;
+  // The ring in the bar: how much of this board's video is on this computer already (media.js).
+  let keptRing = null;
+  keptRing = media.ring($('kept'), () => ({
+    label: 'this board',
+    items: mediaOrder().filter((it) => it.type === 'video').map((it) => ({ src: it.src, name: it.name })),
+  }));
   function paintKept() {
-    const srcs = new Set(mediaOrder().filter(wholeable).map((it) => it.src));
-    for (const src of aheadFailed) srcs.delete(src);
-    const total = srcs.size;
-    keptRing.hidden = !diskReady || !total;
-    if (keptRing.hidden) {
-      if (!keptPop.hidden) toggleKeptPop(false);
-      return;
-    }
-    const done = [...srcs].filter((src) => onDisk.has(src)).length;
-    // What is on its way counts for as much of itself as has arrived.
-    let coming = 0;
-    if (ahead && ahead.total && srcs.has(ahead.src) && !onDisk.has(ahead.src)) coming += ahead.loaded / ahead.total;
-    for (const [src, e] of wholes) if (!e.url && e.total && srcs.has(src) && !onDisk.has(src)) coming += e.loaded / e.total;
-    const k = clamp((done + coming) / total, 0, 1);
-    const full = done >= total;
-    const videos = total === 1 ? 'video' : 'videos';
-    keptRing.querySelector('.arc').style.strokeDashoffset = KEPT_RING * (1 - k);
-    keptRing.querySelector('.kept-label').textContent = full ? 'Cached' : `${done}/${total} cached`;
-    keptRing.classList.toggle('full', full);
-    keptRing.classList.toggle('off', aheadOff && !full);
-    const tip = full
-      ? `${total === 1 ? 'The video' : `All ${total} videos`} on this board ${total === 1 ? 'is' : 'are'} cached on this computer, so ${total === 1 ? 'it opens and scrubs' : 'they open and scrub'} instantly`
-      : aheadOff
-        ? `${done} of ${total} ${videos} cached on this computer. Caching has stopped: the disk is full, or the browser is saving data`
-        : `Caching this board's videos on this computer so they open and scrub instantly: ${done} of ${total} done`;
-    if (keptRing.dataset.tip !== tip) {
-      keptRing.dataset.tip = tip;
-      keptRing.setAttribute('aria-label', tip);
-    }
-    if (!keptPop.hidden) paintKeptPop();
+    if (keptRing) keptRing.paint();
   }
 
   function fetchWhole(src) {
@@ -2817,41 +2052,19 @@
     entry = { loaded: 0, total: 0, url: null, size: 0, ctl: new AbortController() };
     wholes.set(src, entry);
     entry.ready = (async () => {
-      const cache = await mediaCache;
-      // On its way in ahead already: that is the copy to wait for, not a second one beside it. Anything
-      // else being fetched ahead gives up the line.
-      if (ahead && ahead.src === src) await ahead.done;
-      else if (ahead) ahead.ctl.abort();
-      const hit = cache ? await cache.match(src).catch(() => null) : null;
-      let blob;
-      if (hit) {
-        blob = await hit.blob();
-        entry.total = entry.loaded = blob.size;
-        if (kept[src]) kept[src][1] = Date.now();
-        onDisk.add(src);
-      } else {
-        onDisk.delete(src);
-        const res = await fetch(src, { signal: entry.ctl.signal });
-        entry.total = Number(res.headers.get('content-length')) || 0;
-        if (!res.ok || !res.body || !entry.total || entry.total > WHOLE_MAX) throw new Error('not one to hold in memory');
-        const reader = res.body.getReader();
-        const pieces = [];
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          pieces.push(value);
-          entry.loaded += value.length;
-          if (focusId && items.get(focusId)?.src === src) syncLoaded();
+      // From the copy kept on this computer if there is one; kept there if not.
+      const blob = await media.get(src, {
+        signal: entry.ctl.signal,
+        onProgress: (loaded, total) => {
+          entry.loaded = loaded;
+          entry.total = total;
           paintKept();
-        }
-        blob = new Blob(pieces, { type: res.headers.get('content-type') || 'video/mp4' });
-        if (cache) keepOnDisk(cache, src, blob);
-      }
+        },
+      });
       // Stepped past while it was on its way.
       if (entry.ctl.signal.aborted || blob.size > WHOLE_MAX) throw new Error('not wanted any more');
       entry.size = blob.size;
       entry.url = URL.createObjectURL(blob);
-      if (focusId && items.get(focusId)?.src === src) syncLoaded();
       return entry.url;
     })().catch(() => {
       entry.ctl.abort();
@@ -2859,47 +2072,6 @@
       return null;
     });
     return entry;
-  }
-
-  // Puts a video on another source without a flash: the frame it shows is held over it until the same
-  // frame is back, and it carries on from where it was.
-  function switchSource(video, url) {
-    // Until it is there the video itself is back at its start. Where it is going is kept here, for the
-    // timeline to go on showing, and for a hand that moves it meanwhile to change.
-    const state = { at: whereOf(video) };
-    bound.delete(video);
-    changing.set(video, state);
-    const playing = !video.paused;
-    const hold = el('canvas', { class: 'vhold', width: video.videoWidth || 1, height: video.videoHeight || 1 });
-    try {
-      if (video.readyState >= 2 && video.videoWidth) {
-        hold.getContext('2d').drawImage(video, 0, 0);
-        video.after(hold);
-      }
-    } catch {
-      // without the still the change shows for a moment, that is all
-    }
-    const settle = () => {
-      clearTimeout(timer);
-      hold.remove();
-      video.removeEventListener('seeked', settle);
-      video.removeEventListener('error', settle);
-      if (changing.get(video) === state) changing.delete(video);
-    };
-    const timer = setTimeout(settle, 3000);
-    // It is about to be scrubbed through, stopped: every frame of it is wanted, not only what playing would fetch.
-    video.preload = 'auto';
-    video.addEventListener('error', settle);
-    video.addEventListener('loadeddata', () => {
-      if (playing) video.play().catch(() => {});
-      if (changing.get(video) === state && state.at > 0.001) {
-        video.addEventListener('seeked', settle);
-        video.currentTime = state.at;
-      } else {
-        settle();
-      }
-    }, { once: true });
-    video.src = url;
   }
 
   // Only what this server keeps: anything else may not let itself be fetched.
@@ -2913,13 +2085,12 @@
     entry.used = performance.now();
     const url = await entry.ready;
     // Not in the middle of a scrub, which would be thrown back to where it started.
-    while (scrub || boardScrub === id) await new Promise((resolve) => setTimeout(resolve, 120));
+    while (boardScrub === id) await new Promise((resolve) => setTimeout(resolve, 120));
     const video = videoOf(id);
     if (!url || !video || items.get(id)?.src !== src || video.dataset.whole === src) return;
     video.dataset.whole = src;
-    switchSource(video, url);
+    WBViewer.switchSource(video, url);
     mendStrip(id, url);
-    if (focusId === id) syncLoaded();
     // Memory is not for hoarding: the videos opened longest ago go back to playing from the server.
     let kept = 0;
     for (const e of wholes.values()) kept += e.size;
@@ -2929,7 +2100,7 @@
         const v = node.classList.contains('video') ? node.firstChild : null;
         if (!v || v.dataset.whole !== other) continue;
         delete v.dataset.whole;
-        switchSource(v, items.get(nid).src);
+        WBViewer.switchSource(v, items.get(nid).src);
       }
       URL.revokeObjectURL(e.url);
       wholes.delete(other);
@@ -2955,37 +2126,11 @@
 
   // Going on before a video has arrived whole lets go of the fetch, rather than have every video
   // stepped past arrive at once.
-  function dropWhole(id) {
-    const it = items.get(id);
-    const entry = it && wholes.get(it.src);
+  function dropWhole(src) {
+    const entry = wholes.get(src);
     if (!entry || entry.url) return;
     entry.ctl.abort();
-    wholes.delete(it.src);
-  }
-
-  // Shows where the open video is: the playhead, the time, and which way the buttons point.
-  function syncTimeline(at) {
-    const video = focusId ? videoOf(focusId) : null;
-    if (!video) return;
-    if (at == null) at = whereOf(video);
-    const dur = video.duration;
-    // On its way to another source it has no length for a moment: what is showing stays as it is.
-    if (changing.has(video) && !(dur > 0)) return;
-    const fps = fpsOf(focusId);
-    tlTrack.style.setProperty('--p', `${(dur > 0 && isFinite(dur) ? clamp(at / dur, 0, 1) : 0) * 100}%`);
-    const label = timeLabel(at, dur, fps);
-    if (tlTime.textContent !== label) tlTime.textContent = label;
-    const state = `${video.paused}${video.muted}`;
-    if (timeline.dataset.state !== state) {
-      timeline.dataset.state = state;
-      tlPlay.innerHTML = video.paused ? ICON.play : ICON.pause;
-      tlSound.innerHTML = video.muted ? ICON.muted : ICON.sound;
-    }
-    // The moment a comment written now would be about.
-    if (!panel.hidden && !momentChip.hidden && !(draft && draft.at != null)) {
-      const moment = fmtMoment(at, fps);
-      if (momentChip.lastChild.textContent !== moment) momentChip.lastChild.textContent = moment;
-    }
+    wholes.delete(src);
   }
 
   // Whether a video is on its last frame. Let go there, it stays there: to run on from the end is to be
@@ -2995,89 +2140,7 @@
     return !!video && video.duration - whereOf(video) < 1.5 / (fpsOf(id) || 24);
   }
 
-  let scrub = null;
   let boardScrub = null; // the video whose bar out on the board is being dragged
-  function trackMoment(e) {
-    const video = videoOf(focusId);
-    const r = tlTrack.getBoundingClientRect();
-    const k = clamp((e.clientX - r.left) / Math.max(1, r.width), 0, 1);
-    return { k, at: wholeFrame(focusId, k * video.duration) };
-  }
-  function scrubTo(e) {
-    const video = videoOf(focusId);
-    const { at } = trackMoment(e);
-    goTo(video, at);
-    syncTimeline(at);
-    sendMedia(focusId);
-  }
-  const scrubbable = () => {
-    const video = focusId ? videoOf(focusId) : null;
-    return video && video.duration > 0 && isFinite(video.duration) ? video : null;
-  };
-  function beginScrub(e, video) {
-    try {
-      tlTrack.setPointerCapture(e.pointerId);
-    } catch {
-      // capture is a nicety; the scrub still works while the pointer stays over the track
-    }
-    // Dragging through a playing video holds it still while the hand moves, and lets it run on after.
-    scrub = { pid: e.pointerId, resume: !video.paused };
-    video.pause();
-    scrubTo(e);
-  }
-  // A press on a mark picks its comment, unless the hand then moves. Picking a comment leaves the
-  // playhead right under that comment's mark, and taking hold of it there has to drag it like anywhere
-  // else on the track: otherwise the timeline seems to stop working the moment a comment has been read.
-  let markPress = null;
-  let dragFromMark = false;
-  tlTrack.addEventListener('pointerdown', (e) => {
-    const video = scrubbable();
-    if (!video || e.button !== 0) return;
-    dragFromMark = false;
-    // Taking hold of the timeline is working the video. A comment box left holding the keyboard would
-    // go on taking the keys that step and play it; what was typed in it stays where it is.
-    const held = document.activeElement;
-    if (held && held.tagName === 'TEXTAREA' && panel.contains(held)) held.blur();
-    if (e.target.closest('.tl-mark')) {
-      markPress = { pid: e.pointerId, x: e.clientX };
-      return;
-    }
-    e.preventDefault();
-    beginScrub(e, video);
-  });
-  tlTrack.addEventListener('pointermove', (e) => {
-    const video = scrubbable();
-    if (!video) return;
-    if (markPress && e.pointerId === markPress.pid && Math.abs(e.clientX - markPress.x) > 3) {
-      markPress = null;
-      dragFromMark = true;
-      beginScrub(e, video);
-    }
-    const { k, at } = trackMoment(e);
-    tlTip.hidden = false;
-    tlTip.textContent = fmtMoment(at, fpsOf(focusId));
-    tlTip.style.left = `${k * 100}%`;
-    if (scrub && e.pointerId === scrub.pid) scrubTo(e);
-  });
-  // The click that ends a drag begun on a mark is not a click on the mark.
-  tlTrack.addEventListener('click', (e) => {
-    if (!dragFromMark) return;
-    dragFromMark = false;
-    e.stopPropagation();
-    e.preventDefault();
-  }, true);
-  const endScrub = (e) => {
-    if (markPress && e.pointerId === markPress.pid) markPress = null;
-    if (!scrub || e.pointerId !== scrub.pid) return;
-    const video = scrubbable();
-    if (video && scrub.resume && !atEndOf(focusId)) video.play().catch(() => {});
-    scrub = null;
-    tlTip.hidden = !tlTrack.matches(':hover');
-    if (video) sendMedia(focusId);
-  };
-  tlTrack.addEventListener('pointerup', endScrub);
-  tlTrack.addEventListener('pointercancel', endScrub);
-  tlTrack.addEventListener('pointerleave', () => { if (!scrub) tlTip.hidden = true; });
 
   function setLevel(lvl) {
     const ops = [];
@@ -3177,75 +2240,12 @@
     return node && node.classList.contains('video') ? node.firstChild : null;
   }
 
-  // ---- going to a moment
-  //
-  // A video asked for a new moment while it is still finding the last one starts over. Firefox does so
-  // every time, and under a moving hand it finishes few of the seeks it begins: the picture follows in
-  // jumps. So a video is asked for one moment at a time. What is asked of it meanwhile waits, the latest
-  // taking the place of the one before, and is gone to once the frame it was finding has been shown.
-  const bound = new WeakMap(); // a video that is finding a moment -> { next: where to go after, if anywhere }
-  const changing = new WeakMap(); // a video on its way to another source -> { at: where it is to be once there }
-  function goTo(video, at) {
-    const moving = changing.get(video);
-    if (moving) {
-      moving.at = at;
-      return;
-    }
-    const busy = bound.get(video);
-    if (busy) {
-      busy.next = at;
-      return;
-    }
-    // A seek this short may land on the frame already showing, and then there is no new one to see.
-    const state = { next: null, seen: false, far: Math.abs(at - video.currentTime) > 0.1 };
-    bound.set(video, state);
-    if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(() => { state.seen = true; });
-    const arrived = () => {
-      clearTimeout(late);
-      video.removeEventListener('seeked', shown);
-      if (bound.get(video) !== state) return;
-      bound.delete(video);
-      setTimeout(() => checkShown(video, state), 250);
-      if (state.next != null) goTo(video, state.next);
-    };
-    // A beat later, not at once: the frame is put on show just after the seek is said to be done.
-    const shown = () => setTimeout(arrived, 0);
-    // A video that never says so (it failed, or was given another source) is not waited on for long.
-    const late = setTimeout(arrived, 500);
-    video.addEventListener('seeked', shown, { once: true });
-    video.currentTime = at;
-  }
-
-  // Safari now and then stops putting a stopped video's frames on screen: it goes on seeking, the
-  // playhead and the time move, and the picture stays where it was until the video is played. So once
-  // this browser is known to say when a stopped video shows a new frame, a seek that showed none is
-  // followed by what playing does, with the sound off and stopped again at once, back on its moment.
-  let seekShows = false;
-  const unsticking = new WeakSet();
-  function checkShown(video, state) {
-    if (state.seen) {
-      if (video.paused) seekShows = true;
-      return;
-    }
-    if (!seekShows || !state.far || document.hidden || !video.paused || video.readyState < 2 || changing.has(video) || unsticking.has(video)) return;
-    unsticking.add(video);
-    const want = whereOf(video);
-    const muted = video.muted;
-    video.muted = true;
-    const done = () => {
-      video.muted = muted;
-      // Long enough for the next stuck seek to be seen as one, not so often it could become a stutter.
-      setTimeout(() => unsticking.delete(video), 1000);
-    };
-    video.play().then(() => {
-      video.pause();
-      done();
-      goTo(video, bound.get(video)?.next ?? want);
-    }, done);
-  }
-
-  // Where a video is, or is about to be.
-  const whereOf = (video) => bound.get(video)?.next ?? changing.get(video)?.at ?? video.currentTime;
+  // Seeking, frames and how a moment is written are the player's (viewer.js); a video out on the board
+  // goes by the same.
+  const { goTo, whereOf, changing, frameTime, frameIndex, lastFrame, timeLabel, cycleTimeMode } = WBViewer;
+  window.addEventListener('wb:timemode', () => {
+    for (const node of els.values()) if (node.classList.contains('video')) node.firstChild.wbTick();
+  });
 
   // Only ever called when this hand plays, stops or moves a video, never when it follows someone else's.
   function sendMedia(id) {
@@ -3255,7 +2255,6 @@
     stopFollowing();
     const at = whereOf(video);
     wsSend({ t: 'media', id, playing: !video.paused, time: at });
-    // Kept in the presence too, so whoever starts following later lands on the same frame.
     sendP({ m: [id, Math.round(at * 1000) / 1000, video.paused ? 0 : 1] });
   }
 
@@ -3277,7 +2276,6 @@
       const f = clamp(frameIndex(whereOf(video), fps) + dir * (second ? Math.round(fps) : 1), 0, lastFrame(video, fps));
       goTo(video, frameTime(f, fps));
     } else {
-      // A video whose frame rate could not be read steps a 24th of a second.
       goTo(video, clamp(whereOf(video) + dir * (second ? 1 : 1 / 24), 0, video.duration || 0));
     }
     sendMedia(id);
@@ -3303,93 +2301,11 @@
     sendMedia(id);
   }
 
-  // Stops a video on the frame it is showing, so what is made on it next belongs to that frame.
-  function holdFrame(id) {
-    const video = videoOf(id);
-    if (!video) return;
-    const fps = fpsOf(id);
-    if (video.paused && !fps) return;
-    const at = fps ? frameTime(frameIndex(whereOf(video), fps), fps) : null;
-    // Already still on that frame, nothing moves: writing about what the person followed has open goes on following them.
-    if (video.paused && Math.abs(at - whereOf(video)) < 0.001) return;
-    video.pause();
-    if (at != null) goTo(video, at);
-    sendMedia(id);
-  }
-
-  // ------------------------------------------------------------- frames
-
-  // Rates as cameras and editors write them: a measured rate within 1.5% of one of them is the nearest.
-  const RATES = [23.976, 24, 25, 29.97, 30, 47.952, 48, 50, 59.94, 60, 100, 119.88, 120];
-  function snapRate(r) {
-    if (!(r > 0) || !isFinite(r)) return 0;
-    const near = RATES.reduce((a, b) => (Math.abs(b - r) < Math.abs(a - r) ? b : a));
-    return Math.abs(near - r) / near < 0.015 ? near : Math.round(r * 1000) / 1000;
-  }
   const fpsOf = (id) => items.get(id)?.fps || 0;
-  // A frame is on screen from its start until the next one's. Asking for its middle lands on it in every browser.
-  const frameTime = (f, fps) => (f + 0.5) / fps;
-  const frameIndex = (t, fps) => Math.max(0, Math.floor(t * fps + 1e-3));
-  // A length that runs a little past the last frame, as one rounded to the millisecond does, is not a frame more.
-  const lastFrame = (video, fps) => Math.max(0, Math.ceil((video.duration || 0) * fps - 0.25) - 1);
-  // The frame a video is stopped on; null while it plays or when its frame rate is not known.
-  function heldFrame(id) {
-    const video = videoOf(id);
-    const fps = fpsOf(id);
-    return video && fps && video.paused ? frameIndex(whereOf(video), fps) : null;
-  }
   // Where a comment on a video was left: on its frame when that is known, otherwise at its time.
   const momentOf = (c) => (c.fr != null && fpsOf(c.on) ? frameTime(c.fr, fpsOf(c.on)) : c.at);
 
-  // How many frames a second a video has, read from the file itself (a file, or the address of one).
-  async function readRate(source) {
-    let mb;
-    try {
-      mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
-    } catch {
-      return 0;
-    }
-    const input = new mb.Input({ source: typeof source === 'string' ? new mb.UrlSource(source) : new mb.BlobSource(source), formats: mb.ALL_FORMATS });
-    try {
-      const track = await input.getPrimaryVideoTrack();
-      if (!track) return 0;
-      return snapRate((await track.computePacketStats(120)).averagePacketRate);
-    } catch {
-      return 0;
-    } finally {
-      input.dispose();
-    }
-  }
-
-  // How a moment in a video is written: minutes and seconds, the frame number, or a timecode. Frames are
-  // counted from 1 the way editors show them; underneath they are counted from 0.
-  const TIME_MODES = ['time', 'frame', 'tc'];
-  let timeMode = TIME_MODES.includes(store('wb:timemode')) ? store('wb:timemode') : 'time';
-  function fmtMoment(t, fps) {
-    if (!isFinite(t)) t = 0;
-    if (!fps || timeMode === 'time') return fmtTime(t);
-    const f = frameIndex(t, fps);
-    if (timeMode === 'frame') return `${f + 1}`;
-    const base = Math.round(fps);
-    const s = Math.floor(f / base);
-    const two = (n) => String(n).padStart(2, '0');
-    return `${two(Math.floor(s / 3600))}:${two(Math.floor(s / 60) % 60)}:${two(s % 60)}:${two(f % base)}`;
-  }
-  function timeLabel(at, dur, fps) {
-    if (!fps || timeMode === 'time') return `${fmtTime(at)} / ${fmtTime(dur)}`;
-    if (timeMode === 'frame') return `${fmtMoment(at, fps)} / ${isFinite(dur) ? Math.round(dur * fps) : '–'}`;
-    return fmtMoment(at, fps);
-  }
-  function cycleTimeMode() {
-    timeMode = TIME_MODES[(TIME_MODES.indexOf(timeMode) + 1) % TIME_MODES.length];
-    store('wb:timemode', timeMode);
-    for (const node of els.values()) if (node.classList.contains('video')) node.firstChild.wbTick();
-    // The comments say when they are about, written the same way.
-    cmDirty = true;
-    afterChange();
-  }
-
-  // Marks on each video's timeline where its comments are; clicking one goes there.
+  // Marks on each video's scrub bar out on the board where its comments are; clicking one goes there.
   let marksQueued = false;
   function queueMarks() {
     if (marksQueued) return;
@@ -3399,45 +2315,24 @@
   function placeMarks() {
     marksQueued = false;
     const on = new Map();
-    const add = (id, mark) => (on.get(id) || on.set(id, []).get(id)).push(mark);
     if (canRead()) {
       for (const c of rootsInOrder()) {
         const at = momentOf(c);
-        if (at != null) add(c.on, { at, title: `${c.name}: ${c.text}`, c });
+        if (at != null) (on.get(c.on) || on.set(c.on, []).get(c.on)).push({ at, title: `${c.name}: ${c.text}` });
       }
     }
     for (const [id, node] of els) {
       if (!node.classList.contains('video')) continue;
-      const video = node.firstChild;
-      const dur = video.duration;
+      const dur = node.firstChild.duration;
       const seen = new Set();
       const kids = [];
-      const open = [];
-      const stacks = new Map(); // a moment -> the threads about it, on the open video
       for (const m of isFinite(dur) && dur > 0 ? on.get(id) || [] : []) {
-        const left = `${clamp(m.at / dur, 0, 1) * 100}%`;
         const moment = Math.round(m.at * 1000);
-        if (id === focusId) (stacks.get(moment) || stacks.set(moment, { left, threads: [] }).get(moment)).threads.push(m.c);
         if (seen.has(moment)) continue;
         seen.add(moment);
-        kids.push(el('button', { class: 'vmark', title: m.title, style: { left }, onclick: () => seekVideo(id, m.at) }));
+        kids.push(el('button', { class: 'vmark', title: m.title, style: { left: `${clamp(m.at / dur, 0, 1) * 100}%` }, onclick: () => seekVideo(id, m.at) }));
       }
       node.querySelector('.vmarks').replaceChildren(...kids);
-      // On the open video's timeline a comment has a mark in its writer's colour, and picking it picks
-      // its thread. Comments about the same moment would lie exactly on top of one another, so they
-      // share a mark that says how many they are, and each click on it goes to the next of them.
-      for (const { left, threads } of stacks.values()) {
-        const reading = threads.findIndex((c) => c.id === activeThread);
-        const shown = threads[Math.max(reading, 0)];
-        const many = threads.length > 1;
-        const title = many ? `${threads.length} comments at this moment. Click again for the next` : `${shown.name}: ${shown.text}`;
-        open.push(el('button', {
-          class: `tl-mark comment${threads.every((c) => c.done) ? ' done' : ''}${reading >= 0 ? ' active' : ''}`, title, 'aria-label': title,
-          style: { left, background: hexOk(shown.color) ? shown.color : '#8a8a8a' },
-          onclick: () => pickThread(threads[(reading + 1) % threads.length].id),
-        }, many && el('span', { class: 'tl-n', text: String(threads.length) })));
-      }
-      if (id === focusId) tlMarks.replaceChildren(...open);
     }
   }
 
@@ -3445,489 +2340,6 @@
     if (sel.size !== 1) return null;
     const it = items.get([...sel][0]);
     return it && it.type === 'video' ? it.id : null;
-  }
-
-  // ------------------------------------------------------------- adding media
-
-  function fileExt(file) {
-    const m = /\.[a-z0-9]+$/i.exec(file.name || '');
-    const ext = m ? m[0].toLowerCase() : '';
-    if (IMG_EXT.test(ext) || VID_EXT.test(ext)) return ext;
-    return EXT_BY_TYPE[file.type] || '';
-  }
-
-  // Files go up in pieces, in order. Hosting front ends cap the size of a request (Cloud Run allows
-  // about 32 MB), so nothing larger than a piece is ever sent at once; the server joins them when the
-  // last one lands. A dropped piece is retried instead of restarting the file.
-  const UPLOAD_PIECE = 8 * 1024 * 1024;
-
-  function sendPiece(piece, query, onSent) {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', `/api/upload?${query}`);
-      xhr.upload.onprogress = (e) => { if (e.lengthComputable) onSent(e.loaded); };
-      xhr.onload = () => {
-        let data = {};
-        try {
-          data = JSON.parse(xhr.responseText);
-        } catch {
-          // fall through to the generic error
-        }
-        if (xhr.status === 200) resolve(data);
-        else reject(Object.assign(new Error(data.error || 'Upload failed'), { fatal: xhr.status < 500 }));
-      };
-      xhr.onerror = () => reject(new Error('Upload failed'));
-      xhr.send(piece);
-    });
-  }
-
-  // `behind` is for a file nobody is waiting for (a video's original, see below): between its pieces it
-  // gives way to whatever the board is waiting for.
-  let awaited = 0;
-  async function upload(blob, ext, onProgress, behind = false) {
-    if (!behind) awaited++;
-    try {
-      return await sendWhole(blob, ext, onProgress, behind);
-    } finally {
-      if (!behind) awaited--;
-    }
-  }
-
-  async function sendWhole(blob, ext, onProgress, behind) {
-    const id = uid();
-    let offset = 0;
-    let result = {};
-    do {
-      while (behind && awaited > 0) await new Promise((resolve) => setTimeout(resolve, 400));
-      const end = Math.min(blob.size, offset + UPLOAD_PIECE);
-      const query = `name=file${ext}&uid=${id}&offset=${offset}&done=${end >= blob.size ? 1 : 0}`;
-      for (let attempt = 1; ; attempt++) {
-        try {
-          result = await sendPiece(blob.slice(offset, end), query, (sent) => {
-            if (onProgress) onProgress((offset + sent) / Math.max(1, blob.size));
-          });
-          break;
-        } catch (err) {
-          if (err.fatal || attempt >= 3) throw err;
-          await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
-        }
-      }
-      offset = end;
-    } while (offset < blob.size);
-    return result;
-  }
-
-  function loadImage(url) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error('This image could not be read'));
-      img.src = url;
-    });
-  }
-
-  function probeVideo(url) {
-    return new Promise((resolve, reject) => {
-      const video = document.createElement('video');
-      const fail = () => reject(new Error('This browser cannot play that video. Export H.264 MP4 or WebM instead'));
-      const timer = setTimeout(fail, 15000);
-      video.muted = true;
-      video.preload = 'metadata';
-      video.onloadedmetadata = () => {
-        clearTimeout(timer);
-        if (!video.videoWidth) return fail();
-        resolve({ w: video.videoWidth, h: video.videoHeight, video });
-      };
-      video.onerror = () => { clearTimeout(timer); fail(); };
-      video.src = url;
-    });
-  }
-
-  // A small still of an image or of a video frame, for the board list: opening the list should never
-  // mean fetching originals. Best effort; without one the list falls back to what it showed before.
-  async function makeThumb(source, w, h) {
-    try {
-      const k = Math.min(1, THUMB_MAX / Math.max(w, h));
-      const canvas = el('canvas', { width: Math.max(1, Math.round(w * k)), height: Math.max(1, Math.round(h * k)) });
-      canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
-      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.8));
-      return blob ? (await upload(blob, EXT_BY_TYPE[blob.type] || '.webp')).url : null;
-    } catch {
-      return null;
-    }
-  }
-
-  const seekFrame = (video, t) => new Promise((resolve, reject) => {
-    const timer = setTimeout(reject, 5000);
-    video.onseeked = () => { clearTimeout(timer); resolve(); };
-    video.onerror = () => { clearTimeout(timer); reject(); };
-    video.currentTime = t;
-  }).then(() => (video.requestVideoFrameCallback
-    ? new Promise((done) => { const late = setTimeout(done, 250); video.requestVideoFrameCallback(() => { clearTimeout(late); done(); }); })
-    : null));
-
-  // How bright the frame on show is, 0 to 255; a black or not yet painted frame is close to 0.
-  function brightness(video) {
-    try {
-      const canvas = el('canvas', { width: 32, height: 18 });
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      ctx.drawImage(video, 0, 0, 32, 18);
-      const { data } = ctx.getImageData(0, 0, 32, 18);
-      let sum = 0;
-      for (let i = 0; i < data.length; i += 4) sum += (data[i] + data[i + 1] + data[i + 2]) / 3;
-      return sum / (data.length / 4);
-    } catch {
-      return 255;
-    }
-  }
-
-  // Stops on a frame from a little way into the video, where there is more to see than on the first one,
-  // and moves on if that one is black: a fade in, a slate, a frame the browser had not painted yet.
-  // A video that is dark all through gets its brightest candidate.
-  async function pickFrame(video) {
-    const dur = video.duration || 0;
-    const first = Math.max(0.01, Math.min(1, dur / 3));
-    const times = [first, ...[0.1, 0.25, 0.5, 0.75, 0.9].map((k) => dur * k).filter((t) => t > 0.01 && t !== first)];
-    let best = { t: first, b: -1 };
-    for (const t of times) {
-      // One that has failed will not seek, and each try would wait out its full time.
-      if (video.error) break;
-      try {
-        await seekFrame(video, t);
-      } catch {
-        continue;
-      }
-      const b = brightness(video);
-      if (b >= 14) return true;
-      if (b > best.b) best = { t, b };
-    }
-    if (best.b < 0) return false;
-    await seekFrame(video, best.t).catch(() => {});
-    return true;
-  }
-
-  // Every video is turned into a review copy here, on the uploader's own machine, before it goes
-  // anywhere: H.264 in an MP4 that starts playing before it has all arrived (VP9 in WebM where the
-  // browser cannot encode H.264), at most 1080p, audio kept,
-  // and a key frame every quarter of a second. Browsers can only show a frame by decoding from the key frame
-  // before it, and renders and camera files often have one every few seconds, so stepping or scrubbing
-  // backwards through them stalls. With key frames this close together it is instant both ways.
-  // A browser that cannot encode video uploads the file as it is.
-  const VIDEO_BITRATE = 12e6;
-  const VIDEO_MIN_BITRATE = 3e6;
-  const VIDEO_KEY_INTERVAL = 0.25;
-  const VIDEO_LONG_SIDE = 1920;
-  const VIDEO_SHORT_SIDE = 1080;
-  let mediabunny;
-
-  // Whether the key frames, as far as the first two minutes show, are never much more than a second apart.
-  async function closeKeyFrames(mb, track, duration) {
-    try {
-      const sink = new mb.EncodedPacketSink(track);
-      let last = -1;
-      let keys = 0;
-      let widest = 0;
-      for await (const packet of sink.packets(undefined, undefined, { metadataOnly: true })) {
-        if (packet.timestamp > 120) break;
-        if (packet.type !== 'key') continue;
-        if (last >= 0) widest = Math.max(widest, packet.timestamp - last);
-        last = packet.timestamp;
-        keys++;
-      }
-      return keys >= 2 ? widest <= VIDEO_KEY_INTERVAL * 2.1 : keys === 1 && duration <= VIDEO_KEY_INTERVAL * 2;
-    } catch {
-      return false;
-    }
-  }
-
-  // ---- what a browser cannot do
-  //
-  // A video only belongs on a board as its review copy: without one it is the file as it came, many times
-  // the size, slow to scrub and with no strip for its timeline. Browsers differ in what they can read
-  // (Safari stops at frames that Chrome and Firefox take in their stride), so a video this browser cannot
-  // make a copy of is not added at all, and whoever brought it is told to bring it in another browser.
-  //
-  // The one exception is a browser with no way of making copies of anything: a plain http address, where
-  // browsers withhold that machinery, or a very old browser. There every video goes up as it is, as it
-  // always has, since refusing would mean no video at all.
-  const canCopyVideo = typeof VideoDecoder !== 'undefined' && typeof VideoEncoder !== 'undefined';
-  const OTHER_BROWSERS = /Firefox\//.test(navigator.userAgent) ? 'Chrome or Edge'
-    : /Safari\//.test(navigator.userAgent) && !/Chrom(e|ium)\//.test(navigator.userAgent) ? 'Chrome, Edge or Firefox'
-      : 'Firefox';
-  const refusal = (dims) => Object.assign(new Error('This browser cannot process this video'), { refused: true, dims });
-
-  // ---- what Firefox's H.264 encoder gets wrong
-  //
-  // Two things, and either one leaves a copy that will not play. It describes its stream with a header
-  // in which each parameter set starts with its first byte twice, and Chrome refuses a file that carries
-  // it. And once it puts frames out of order, as it does in every profile but the plainest, it stamps
-  // each with the moment it ends instead of the moment it begins: every frame then sits one late, and a
-  // first frame of an odd length lands after a frame that needs it, which Firefox itself will not play.
-  //
-  // So every browser is asked for the stream as it comes off the encoder, parameter sets and all, and
-  // what goes into the file is made from that here: a header holding the parameter sets, and frames
-  // holding only their picture. (Parameter sets left in the frames as well are no better: Firefox,
-  // going to a key frame that carries them, shows the frame after it.) And Firefox is asked for the
-  // plainest profile, which keeps its frames in order. Mediabunny gives no say in any of this when it
-  // converts a file, so it is done where the encoder is set up and where its frames come out.
-  const IN_ORDER_ONLY = /Firefox\//.test(navigator.userAgent);
-  const nalType = (nal) => nal[0] & 31;
-
-  // The units of a stream in which each follows a 00 00 01.
-  function nalUnits(data) {
-    const units = [];
-    let from = -1;
-    for (let i = 0; i + 2 < data.length; i++) {
-      if (data[i] || data[i + 1] || data[i + 2] !== 1) continue;
-      if (from >= 0) units.push(data.subarray(from, i));
-      from = i + 3;
-      i += 2;
-    }
-    if (from >= 0) units.push(data.subarray(from));
-    // Zeros before the next 00 00 01 belong to neither.
-    return units.map((u) => {
-      let end = u.length;
-      while (end > 0 && !u[end - 1]) end--;
-      return u.subarray(0, end);
-    }).filter((u) => u.length);
-  }
-
-  function avcHeader(sps, pps) {
-    const sets = (list) => list.flatMap((n) => [n.length >> 8, n.length & 255, ...n]);
-    // The High profile says its chroma and bit depth here as well: 4:2:0 at 8 bits, all it allows.
-    const high = sps[0][1] === 100 ? [0xfd, 0xf8, 0xf8, 0] : [];
-    return new Uint8Array([1, sps[0][1], sps[0][2], sps[0][3], 0xff, 0xe0 | sps.length, ...sets(sps), pps.length, ...sets(pps), ...high]);
-  }
-
-  // One frame off the encoder as it goes into the file, with the header it is to be read by.
-  function fileFrame(chunk, meta, state) {
-    const raw = new Uint8Array(chunk.byteLength);
-    chunk.copyTo(raw);
-    const units = nalUnits(raw);
-    const sps = units.filter((u) => nalType(u) === 7);
-    const pps = units.filter((u) => nalType(u) === 8);
-    if (sps.length && pps.length) state.header = avcHeader(sps, pps);
-    const picture = units.filter((u) => ![7, 8, 9].includes(nalType(u)));
-    const data = new Uint8Array(picture.reduce((sum, u) => sum + 4 + u.length, 0));
-    let at = 0;
-    for (const u of picture) {
-      new DataView(data.buffer).setUint32(at, u.length);
-      data.set(u, at + 4);
-      at += 4 + u.length;
-    }
-    const frame = new EncodedVideoChunk({ type: chunk.type, timestamp: chunk.timestamp, duration: chunk.duration ?? undefined, data });
-    const said = meta && meta.decoderConfig && state.header ? { ...meta, decoderConfig: { ...meta.decoderConfig, description: state.header } } : meta;
-    return [frame, said];
-  }
-
-  if (canCopyVideo) {
-    const Encoder = window.VideoEncoder;
-    window.VideoEncoder = class extends Encoder {
-      constructor(init) {
-        const state = { h264: false, header: null };
-        super({ ...init, output: (chunk, meta) => (state.h264 ? init.output(...fileFrame(chunk, meta, state)) : init.output(chunk, meta)) });
-        this.wbState = state;
-      }
-
-      configure(config) {
-        this.wbState.h264 = /^avc1\./i.test((config && config.codec) || '');
-        if (!this.wbState.h264) return super.configure(config);
-        return super.configure({
-          ...config,
-          avc: { format: 'annexb' },
-          ...(IN_ORDER_ONLY && { codec: config.codec.replace(/^avc1\.[0-9a-f]{4}/i, 'avc1.42e0') }),
-        });
-      }
-    };
-  }
-
-  // The size of a video's picture if this browser cannot read it to make a copy; otherwise nothing.
-  async function beyondThisBrowser(file) {
-    if (!canCopyVideo) return null;
-    let input;
-    try {
-      const mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
-      input = new mb.Input({ source: new mb.BlobSource(file), formats: mb.ALL_FORMATS });
-      const track = await input.getPrimaryVideoTrack();
-      if (!track || (await track.canDecode())) return null;
-      return `${track.displayWidth}×${track.displayHeight}`;
-    } catch {
-      return null;
-    } finally {
-      if (input) input.dispose();
-    }
-  }
-
-  function tellRefused(list) {
-    if (!list.length) return;
-    const one = list.length === 1;
-    WB.dialog({
-      title: one ? 'This video needs a different browser' : 'These videos need a different browser',
-      text: `${list.map((r) => (r.dims ? `${r.name} (${r.dims})` : r.name)).join(', ')} ${one ? 'is' : 'are'} more than this browser can process, so ${one ? 'it was' : 'they were'} not added. Add ${one ? 'it' : 'them'} from ${OTHER_BROWSERS} instead.`,
-      cancellable: false,
-    });
-  }
-
-  // Whether an H.264 file's header can be passed on as it is. One written by Firefox's encoder cannot (its
-  // parameter sets start with their first byte twice), so such a file gets a new encode, and a new header with it.
-  async function soundHeader(track) {
-    try {
-      const d = (await track.getDecoderConfig())?.description;
-      if (!d) return true;
-      const b = ArrayBuffer.isView(d) ? new Uint8Array(d.buffer, d.byteOffset, d.byteLength) : new Uint8Array(d);
-      return b.length > 9 && (b[4] & 0xfc) === 0xfc && (b[5] & 0xe0) === 0xe0 && b[8] !== b[9];
-    } catch {
-      return false;
-    }
-  }
-
-  // `plan` hears what is about to be done, before any of it is: 'wrap' or 'encode', how long the video is,
-  // and about how large the copy will be. It hears nothing when the file goes up as it is.
-  async function reviewCopy(file, report, plan = () => {}) {
-    let mb;
-    try {
-      mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
-    } catch {
-      return file;
-    }
-    const input = new mb.Input({ source: new mb.BlobSource(file), formats: mb.ALL_FORMATS });
-    try {
-      const track = await input.getPrimaryVideoTrack();
-      if (!track || !canCopyVideo) return file;
-      if (!(await track.canDecode())) throw refusal(`${track.displayWidth}×${track.displayHeight}`);
-      const w = track.displayWidth;
-      const h = track.displayHeight;
-      const duration = await input.computeDuration();
-      const bitrate = duration > 0 ? (file.size * 8) / duration : VIDEO_BITRATE;
-      // Fit inside 1920x1080 (or 1080x1920), keeping the shape; encoders want even sizes.
-      const k = Math.min(1, VIDEO_LONG_SIDE / Math.max(w, h), VIDEO_SHORT_SIDE / Math.min(w, h));
-      const width = Math.max(2, Math.round((w * k) / 2) * 2);
-      const height = Math.max(2, Math.round((h * k) / 2) * 2);
-      // A file that is already H.264 within 1080p with a key frame about every half second needs no new
-      // encode, only a new wrapper: seconds instead of minutes.
-      if (track.codec === 'avc' && k === 1 && (await soundHeader(track)) && (await closeKeyFrames(mb, track, duration))) {
-        const output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new mb.BufferTarget() });
-        const conversion = await mb.Conversion.init({ input, output });
-        if (conversion.isValid && !conversion.discardedTracks.some((d) => d.track.type === 'video')) {
-          plan('wrap', duration, file.size);
-          conversion.onProgress = (p) => report(p);
-          await conversion.execute();
-          return new File([output.target.buffer], `${file.name.replace(/\.[^.]+$/, '')}.mp4`, { type: 'video/mp4' });
-        }
-      }
-      // Close key frames cost bits, so a lean source gets some headroom rather than losing detail.
-      const target = Math.round(Math.min(VIDEO_BITRATE, Math.max(VIDEO_MIN_BITRATE, bitrate * 1.5)));
-      const codec = await mb.getFirstEncodableVideoCodec(['avc', 'vp9'], { width, height, bitrate: target });
-      if (!codec) throw refusal(`${w}×${h}`);
-      const mp4 = codec === 'avc';
-      plan('encode', duration, (target * duration) / 8);
-      const encode = async (hardwareAcceleration) => {
-        const format = mp4 ? new mb.Mp4OutputFormat({ fastStart: 'in-memory' }) : new mb.WebMOutputFormat();
-        const output = new mb.Output({ format, target: new mb.BufferTarget() });
-        const conversion = await mb.Conversion.init({
-          input, output,
-          video: { codec, width, height, fit: 'contain', bitrate: target, keyFrameInterval: VIDEO_KEY_INTERVAL, forceTranscode: true, hardwareAcceleration },
-        });
-        if (!conversion.isValid) return null;
-        conversion.onProgress = (p) => report(p);
-        await conversion.execute();
-        return output.target.buffer;
-      };
-      // The graphics card's encoder (NVENC, Quick Sync, AMD) is several times faster than the processor
-      // where the browser has one. Otherwise, or if it gives up part way, the processor does it.
-      let buffer = null;
-      if (await mb.canEncodeVideo(codec, { width, height, bitrate: target, hardwareAcceleration: 'prefer-hardware' }).catch(() => false)) {
-        try {
-          buffer = await encode('prefer-hardware');
-        } catch (err) {
-          console.warn('The hardware encoder failed, using the processor:', err);
-          report(0);
-        }
-      }
-      if (!buffer) buffer = await encode('no-preference');
-      if (!buffer) throw refusal(`${w}×${h}`);
-      const ext = mp4 ? 'mp4' : 'webm';
-      return new File([buffer], `${file.name.replace(/\.[^.]+$/, '')}.${ext}`, { type: `video/${ext}` });
-    } catch (err) {
-      if (err.refused) throw err;
-      // It read the file and then gave up part way: the same answer as not being able to read it.
-      console.warn('Could not make a review copy:', err);
-      throw refusal();
-    } finally {
-      input.dispose();
-    }
-  }
-
-  // The still a video shows until it is played: the frame its thumbnail is made from, large enough to fill the item.
-  async function videoPoster(video) {
-    const k = Math.min(1, POSTER_MAX / Math.max(video.videoWidth, video.videoHeight));
-    const canvas = el('canvas', { width: Math.round(video.videoWidth * k), height: Math.round(video.videoHeight * k) });
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.86));
-    return blob ? (await upload(blob, EXT_BY_TYPE[blob.type] || '.webp')).url : null;
-  }
-
-  async function ingest(file, onProgress, { onPhase = () => {}, onStrip = () => {}, onPlan = () => {} } = {}) {
-    const ext = fileExt(file);
-    const url = URL.createObjectURL(file);
-    try {
-      if (VID_EXT.test(ext)) {
-        let planned = false;
-        const prepared = await reviewCopy(file, onPhase, (...plan) => {
-          planned = true;
-          onPlan(...plan);
-        });
-        const preparedUrl = prepared === file ? url : URL.createObjectURL(prepared);
-        try {
-          // A copy made here that this browser then cannot show a frame of is a broken copy, and would be
-          // a black rectangle on the board for everyone. A file that went up as it came may still play elsewhere.
-          const made = prepared !== file;
-          const { w, h, video } = await probeVideo(preparedUrl).catch((err) => { throw made ? refusal() : err; });
-          const shows = await pickFrame(video).catch(() => false);
-          if (!shows && made) throw refusal(`${w}×${h}`);
-          const th = shows ? await makeThumb(video, video.videoWidth, video.videoHeight) : null;
-          const poster = shows ? await videoPoster(video).catch(() => null) : null;
-          // Read from the file as it came: a re-encoded copy keeps the rate, but not every container records it as exactly.
-          const fps = await readRate(file);
-          const dur = isFinite(video.duration) ? Math.round(video.duration * 1000) / 1000 : 0;
-          if (!planned) onPlan('none', dur, prepared.size);
-          onPhase(1);
-          onProgress(0);
-          // The strip is read from the copy here while it uploads, so it only costs a wait where the upload is the quicker of the two.
-          const [up, wf] = await Promise.all([upload(prepared, fileExt(prepared), onProgress), videoWave(prepared, preparedUrl, dur, onStrip)]);
-          // One that went up as it came is its own original.
-          return { type: 'video', src: up.url, ...(!made && { orig: up.url }), nw: w, nh: h, name: file.name, ...(th && { th }), ...(poster && { poster }), ...(fps && { fps }), ...(dur && { dur }), ...(wf && { wf }) };
-        } finally {
-          if (preparedUrl !== url) URL.revokeObjectURL(preparedUrl);
-        }
-      }
-      const img = await loadImage(url);
-      const nw = img.naturalWidth || 512;
-      const nh = img.naturalHeight || 512;
-      const out = { type: 'image', nw, nh, name: file.name };
-      if (Math.max(nw, nh) > PREVIEW_MAX * 1.25 && ext !== '.gif' && ext !== '.svg') {
-        try {
-          const k = PREVIEW_MAX / Math.max(nw, nh);
-          const canvas = el('canvas', { width: Math.round(nw * k), height: Math.round(nh * k) });
-          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-          const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.86));
-          if (blob) {
-            out.prev = (await upload(blob, EXT_BY_TYPE[blob.type] || '.webp')).url;
-            out.pw = canvas.width;
-          }
-        } catch {
-          // Without a preview the board just shows the original.
-        }
-      }
-      if (Math.max(nw, nh) > THUMB_MAX * 1.5) {
-        const th = await makeThumb(img, nw, nh);
-        if (th) out.th = th;
-      }
-      out.src = (await upload(file, ext, onProgress)).url;
-      return out;
-    } finally {
-      URL.revokeObjectURL(url);
-    }
   }
 
   // The size an image or video is given when it is added: a set width, unless that would make it too tall.
@@ -3974,7 +2386,7 @@
   }
 
   function placeMedia(made, at, centre = true) {
-    if (focusId) exitFocus();
+    viewer.close();
     let z = topZ();
     const rects = mediaRects(made, at, centre);
     const list = made.map((m, i) => ({ ...m, id: uid(), ...rects[i], z: ++z }));
@@ -3987,7 +2399,7 @@
   // closer in than it was; what is already in sight is left where it is.
   function bringIntoView(rects) {
     const r = rects.reduce((u, b) => union(u, b), null);
-    if (!r || focusId) return;
+    if (!r || openId) return;
     const i = insets();
     const seen = { x: cam.x + i.l / cam.z, y: cam.y + i.t / cam.z, w: (vp.clientWidth - i.l - i.r) / cam.z, h: (vp.clientHeight - i.t - i.b) / cam.z };
     if (contains(seen, r)) return;
@@ -4232,7 +2644,7 @@
       for (const message of errors.slice(0, 3)) toast(message, { ms: 9000 });
       return;
     }
-    if (focusId) exitFocus();
+    viewer.close();
     const rects = mediaRects(accepted, at, accepted.length === 1);
     const ghosts = await Promise.all(accepted.map((p, i) => standIn(p.file, rects[i], p.isVideo)));
     bringIntoView(rects);
@@ -4380,7 +2792,7 @@
     let box = null;
     for (const it of pieces) box = union(box, { x: it.x, y: it.y, w: it.w || 200, h: it.h || 100 });
     if (!box) return;
-    if (focusId) exitFocus();
+    viewer.close();
     const dx = at.x - (box.x + box.w / 2);
     const dy = at.y - (box.y + box.h / 2);
     let z = topZ();
@@ -4402,7 +2814,6 @@
     }
     const trimmed = text.trim();
     if (!trimmed) return;
-    if (focusId) return void typeComment(trimmed);
     if (/^https?:\/\/\S+$/.test(trimmed) && IMG_EXT.test(trimmed.split(/[?#]/)[0])) return addImageUrl(trimmed, at);
     createTextItem('note', at, trimmed.slice(0, 20000));
   }
@@ -4481,14 +2892,8 @@
     document.body.classList.add('panning');
   }
 
-  // With the hand, which is what somebody holding a link has in the viewer, a click on the open video
-  // that went nowhere plays or pauses it. (With the brush a press on it draws.)
-  function clickedOpenVideo(g, e) {
-    return !!g.onPiece && !!e && e.type === 'pointerup' && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) < 4 && !!focusId && !!videoOf(focusId);
-  }
-
   vp.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.vbar, a, .cchip')) return;
+    if (e.target.closest('.vbar, a, .cchip, .vchip')) return;
     // A hand on the board while Space is down is a pan, not a tap of the key.
     spaceTap = false;
     if (editing) {
@@ -4503,9 +2908,7 @@
     if (gesture) return;
     // Touching the board catches it.
     if (coasting) stopCamAnim();
-    // In the viewer the right button is for moving around, as it is with any other tool: a laptop has
-    // no middle button, and zoomed in there must be a way across the piece. The eraser is beside the brush's colours.
-    if (!viewOnly && ((e.button === 2 && !focusId && (tool === 'pen' || tool === 'arrow')) || (e.button === 0 && tool === 'eraser'))) {
+    if (!viewOnly && ((e.button === 2 && (tool === 'pen' || tool === 'arrow')) || (e.button === 0 && tool === 'eraser'))) {
       const g = { type: 'erase', last: p, hit: new Set(), touch: e.pointerType === 'touch' };
       begin(g, e);
       eraserRing.hidden = false;
@@ -4513,10 +2916,7 @@
       eraseSegment(g, p, p);
       return;
     }
-    if (pan) {
-      const hit = e.target.closest('.item');
-      return beginPan(e, { onPiece: e.button === 0 && !spaceDown && tool !== 'laser' && !!focusId && !!hit && hit.dataset.id === focusId });
-    }
+    if (pan) return beginPan(e);
     if (e.button !== 0) return;
 
     if (tool === 'select') {
@@ -4543,18 +2943,8 @@
     } else if (tool === 'frame' || tool === 'block') {
       begin({ type: 'frame', kind: tool, p0: p, p1: p }, e);
     } else if (tool === 'pen' || tool === 'arrow') {
-      if (focusId) {
-        // In the viewer the brush is for the piece. Off it, a finger swipes on to the next one and a
-        // mouse moves the view.
-        if (!onOpenPiece(e.clientX, e.clientY)) {
-          if (e.pointerType === 'touch') return begin({ type: 'swipe', sx: e.clientX, sy: e.clientY }, e);
-          return beginPan(e);
-        }
-        // Drawing on a video stops it, on the frame the drawing is about.
-        holdFrame(focusId);
-      }
       const arrow = tool === 'arrow';
-      const size = focusId ? viewerBrush() : pen.size;
+      const size = pen.size;
       const path = svgEl('path', arrow
         ? { fill: 'none', stroke: inkColor(pen.color), 'stroke-width': size, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }
         : { fill: inkColor(pen.color) });
@@ -4623,14 +3013,9 @@
     }
     if ((tool !== 'select' && tool !== 'pan') || e.target.closest('.handle')) return false;
     const play = !!e.target.closest('.vplay');
-    // In the viewer, with the hand, one finger swipes to the next piece, or moves around it once zoomed in.
     const node = e.target.closest('.item');
     const id = node ? node.dataset.id : null;
-    if (focusId && !focusZoomed()) {
-      begin({ type: 'swipe', sx: e.clientX, sy: e.clientY, onPiece: id === focusId }, e);
-      return true;
-    }
-    if (!focusId && id && sel.has(id) && !viewOnly && tool === 'select') return false;
+    if (id && sel.has(id) && !viewOnly && tool === 'select') return false;
     if (coasting) stopCamAnim();
     userMovedView();
     begin({ type: 'pan', touch: true, id, play, moved: false, sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, lx: e.clientX, ly: e.clientY, t: performance.now(), vx: 0, vy: 0 }, e);
@@ -4641,9 +3026,8 @@
   function touchTap(g) {
     let it = g.id && items.get(g.id);
     if (it && it.type === 'stroke' && it.pid) it = items.get(it.pid);
-    // Open, a tap anywhere on a video plays or pauses it; on the board, only its play button does.
-    if (it && it.type === 'video' && (g.play || it.id === focusId)) toggleVideo(it.id);
-    else if (focusId) return;
+    // Out on the board only a video's play button plays it; a tap anywhere else on it opens it.
+    if (it && it.type === 'video' && g.play) toggleVideo(it.id);
     else if (it && (it.type === 'image' || it.type === 'video')) enterFocus(it.id);
     else if (it && !viewOnly && selectable(it)) setSel([it.id]);
     else if (!viewOnly) setSel([]);
@@ -4667,7 +3051,7 @@
     pinch = null;
     // The finger still down after a pinch carries on moving the view, as a hand would. It never draws,
     // and lifting it is not a tap.
-    if (pinched && touches.size === 1 && !gesture && (!focusId || focusZoomed())) {
+    if (pinched && touches.size === 1 && !gesture && true) {
       const [[pointerId, at]] = [...touches];
       beginPan({ pointerId, clientX: at.x, clientY: at.y }, { touch: true, moved: true });
     }
@@ -4860,7 +3244,7 @@
       const r = { x: Math.min(g.p0.x, p.x), y: Math.min(g.p0.y, p.y), w: Math.abs(p.x - g.p0.x), h: Math.abs(p.y - g.p0.y) };
       const ids = new Set(g.base);
       for (const it of items.values()) {
-        if (!selectable(it) || it.id === focusId) continue;
+        if (!selectable(it)) continue;
         const b = bounds(it);
         if (it.type === 'frame' ? contains(r, b) : intersects(r, b)) ids.add(it.id);
       }
@@ -4926,15 +3310,9 @@
     } else if (g.type === 'pan') {
       if (g.touch && !g.moved) {
         if (e && e.type === 'pointerup') touchTap(g);
-      } else if (clickedOpenVideo(g, e)) toggleVideo(focusId);
+      }
       // Only if the hand was still moving when it let go: a pan brought to rest stays where it was put.
       else if (e && e.type === 'pointerup' && performance.now() - g.t < 60) coast(g.vx, g.vy);
-    } else if (g.type === 'swipe') {
-      // In the viewer a sideways swipe goes to the next or previous piece, and a tap on a video plays or pauses it.
-      const dx = e ? e.clientX - g.sx : 0;
-      const dy = e ? e.clientY - g.sy : 0;
-      if (e && e.type === 'pointerup' && Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) stepFocus(dx < 0 ? 1 : -1);
-      else if (e && e.type === 'pointerup' && g.onPiece && Math.hypot(dx, dy) < 8) toggleVideo(focusId);
     } else if (g.type === 'move') {
       clearGuides();
       if (!g.started) {
@@ -4947,7 +3325,7 @@
       } else {
         for (const id of g.moving) {
           const st = items.get(id);
-          if (st && st.type !== 'stroke' && st.pid && !focusId && !g.moving.includes(st.pid)) liveSet(id, { pid: null });
+          if (st && st.type !== 'stroke' && st.pid && !g.moving.includes(st.pid)) liveSet(id, { pid: null });
           if (!st || st.type !== 'stroke' || g.moving.includes(st.pid)) continue;
           const host = hostFor(st);
           const pid = host ? host.id : null;
@@ -4999,15 +3377,9 @@
           if (!g.line && ws.length > 4) [0.8, 0.6, 0.4].forEach((k, i) => { ws[ws.length - 1 - i] *= k; });
           item.ws = ws.map((v) => Math.round(v * 100) / 100);
         }
-        if (focusId) {
-          item.pid = focusId;
-          tagComment(item);
-        } else {
-          const host = hostFor(item);
-          item.pid = host ? host.id : null;
-        }
+        const host = hostFor(item);
+        item.pid = host ? host.id : null;
         exec(addOps([item]));
-        if (item.cid) drewForComment(e);
       }
     }
     updateOverlay();
@@ -5052,7 +3424,6 @@
     if (it && it.type === 'stroke' && it.pid) it = items.get(it.pid);
     if (!it) return;
     if ((viewOnly || tool === 'pan') && it.type !== 'video' && it.type !== 'image') return;
-    if (it.id === focusId) return;
     if (it.type === 'note' || it.type === 'text' || it.type === 'block') startEdit(it.id);
     else if (it.type === 'frame') { if (hit.closest('.frame-head')) startEdit(it.id); }
     else if (it.type === 'video' || it.type === 'image') enterFocus(it.id);
@@ -5062,7 +3433,7 @@
   if (viewOnly) {
     let down = null;
     vp.addEventListener('pointerdown', (e) => {
-      down = e.button === 0 ? { x: e.clientX, y: e.clientY, skip: !!e.target.closest('.vbar, a, .cchip'), play: !!e.target.closest('.vplay') } : null;
+      down = e.button === 0 ? { x: e.clientX, y: e.clientY, skip: !!e.target.closest('.vbar, a, .cchip, .vchip'), play: !!e.target.closest('.vplay') } : null;
     }, true);
     vp.addEventListener('pointerup', (e) => {
       const start = down;
@@ -5074,7 +3445,7 @@
       if (!it) return;
       // The big play button plays; anywhere else on an image or video opens it.
       if (it.type === 'video' && start.play) toggleVideo(it.id);
-      else if (!focusId && (it.type === 'image' || it.type === 'video')) enterFocus(it.id);
+      else if (it.type === 'image' || it.type === 'video') enterFocus(it.id);
     });
   }
 
@@ -5115,7 +3486,7 @@
 
   function copySel(e) {
     if (isTyping(e.target) || !sel.size) return false;
-    e.clipboardData.setData('text/plain', JSON.stringify({ wipboard: 1, items: [...withDependents(sel)].map((id) => items.get(id)).filter((it) => !commentOf(it)) }));
+    e.clipboardData.setData('text/plain', JSON.stringify({ wipboard: 1, items: [...withDependents(sel)].map((id) => items.get(id)).filter(Boolean) }));
     e.preventDefault();
     return true;
   }
@@ -5130,30 +3501,14 @@
   });
 
   // ------------------------------------------------------------- comments
-
-  // Comments are made in the viewer. An image or a video is opened, and what people say about it is
-  // kept in a panel beside it, the way a review tool does it. A comment belongs to the piece, and on a
-  // video to the frame it was written on. To point at something you circle it: in the viewer a press
-  // on the piece is a brush stroke, and a stroke belongs to the comment being written, starting one if
-  // none is. On a video, what was drawn for a comment shows on that comment's frame only.
-  // The first message starts a thread and replies hang off it. They are shared, saved and undone like
-  // everything else, but kept apart from the items so they never take part in layout, snapping or
-  // fitting.
   //
-  // Out on the board whatever has comments carries a chip in its corner, and the same panel lists every
-  // thread there is. Picking one opens what it is about.
+  // Comments are made in the viewer (viewer.js), on the image or video that is open there. They are
+  // shared, saved and undone like everything else, but kept apart from the items so they never take part
+  // in layout, snapping or fitting. Out on the board whatever has comments carries a chip in its corner,
+  // and Shift+C lists every thread on the board; picking one opens what it is about.
 
-  let hideDone = store('wb:hidedone') === true;
-  let activeThread = null;  // the thread picked in the panel, by the id of its first message
-  let toldThread = null;    // what the others were last told it is
-  let draft = null;         // { id, on, at, fr }: the comment being written, from the first stroke drawn for it
-  let drawnIds = new Set(); // the comments something has been drawn for
-  let timed = true;         // whether a new comment on a video is about the frame showing
   let boardPanel = false;   // the list of every thread, out on the board
-  // Beside the viewer the panel starts open, and afterwards stays as it was left.
-  let viewerPanel = store('wb:cpanel') !== false;
-  let sheetOpen = false;    // the same panel on a narrow screen, where it lies over the piece
-  const panel = $('commentpanel');
+  const panel = $('threadpanel');
 
   // Somebody holding a link reads the comments only if the link says so, and writes only if it says that too.
   const canRead = () => !viewOnly || guestReads();
@@ -5162,7 +3517,8 @@
   const rootsInOrder = () => [...comments.values()].filter((c) => !c.re).sort(byTime);
   const repliesOf = (id) => [...comments.values()].filter((c) => c.re === id).sort(byTime);
   const hexOk = (c) => /^#[0-9a-f]{6}$/i.test(c || '');
-  const drawnFor = (id) => [...items.values()].filter((it) => it.cid === id);
+  // A link opens a piece with one click; on the board itself, where a click selects, it takes two.
+  const openHow = viewOnly ? 'click' : 'double-click';
 
   function hostLabel(c) {
     const h = items.get(c.on);
@@ -5170,170 +3526,11 @@
     return h.name || (h.type === 'video' ? 'a video' : 'an image');
   }
 
-  // ---- what is drawn for a comment
-
-  // On a video a comment is about the frame showing: the exact frame when the rate is known, and the
-  // time either way. Unless it is about the video as a whole.
-  function stampMoment(c) {
-    delete c.at;
-    delete c.fr;
-    const video = videoOf(c.on);
-    if (!video || !timed) return;
-    holdFrame(c.on);
-    if (isFinite(whereOf(video))) c.at = Math.round(whereOf(video) * 100) / 100;
-    const fr = heldFrame(c.on);
-    if (fr !== null) c.fr = fr;
-  }
-
-  // A stroke on the open piece belongs to the comment being written, and starts one if none is. On a
-  // video that comment is about the frame its latest stroke was drawn on.
-  function tagComment(item) {
-    if (!draft || draft.on !== item.pid) {
-      draft = { id: uid(), on: item.pid };
-      // Writing a new one now, not reading that one.
-      activeThread = null;
-    }
-    stampMoment(draft);
-    item.cid = draft.id;
-  }
-
-  // After a stroke the panel is there with its box ready, so what the drawing is about can be typed at once.
-  function drewForComment(e) {
-    if (!panelShown() && !narrow()) togglePanel(true);
-    else syncComments();
-    // Not on a phone, where the keyboard would come up over the picture after every stroke.
-    if (!narrow() && !(e && e.pointerType === 'touch')) setTimeout(() => composer.focus({ preventScroll: true }), 0);
-  }
-
-  // The comment something on a piece was drawn for, while there is such a comment on that piece. There
-  // may not be: it was never sent, it is gone, or this is a copy of the piece, which takes the drawings
-  // along but not the comments. What is left then is an ordinary drawing.
-  function commentOf(it) {
-    if (!it.cid) return null;
-    const c = draft && draft.id === it.cid ? draft : comments.get(it.cid);
-    return c && c.on === it.pid ? c : null;
-  }
-
-  function annotationShows(it) {
-    const c = commentOf(it);
-    if (c) {
-      // What is drawn for a comment is part of the review, not of the board: it is there while its piece is open.
-      if (c.on !== focusId) return false;
-      // What is being drawn is in sight while it is drawn.
-      if (c === draft) return true;
-      // One thread at a time. Two comments about the same frame, or the same image, each with something
-      // drawn, would lie over one another: only what was drawn for the thread being read is there.
-      if (c.id !== activeThread) return false;
-      const video = videoOf(c.on);
-      const at = video ? momentOf(c) : null;
-      // On an image there is no other moment to be on, and a comment about the whole video is there with its thread.
-      if (at == null) return true;
-      return video.paused && Math.abs(whereOf(video) - at) < 0.6 / (fpsOf(c.on) || 24);
-    }
-    return true;
-  }
-
-  function markAnnotation(it, node) {
-    const shows = annotationShows(it);
-    node.classList.toggle('offframe', !shows);
-    if (shows && calling && calling.id === it.cid && !calling.done.has(it.id) && performance.now() < calling.until) {
-      calling.done.add(it.id);
-      glow(it, node);
-    }
-  }
-
-  // A comment that is picked calls attention to what was drawn for it: the drawing glows for a moment,
-  // once it is in sight (on a video that is when its frame has been found, which may take a little).
-  let calling = null; // { id: the thread, until: when to stop waiting for its drawing, done: the strokes that have glowed }
-  function callOut(threadId) {
-    calling = { id: threadId, until: performance.now() + 4000, done: new Set() };
-  }
-  // It swells quickly and dies away slowly, and both are transitions, so one that is called for again
-  // while it is still fading swells from wherever it had got to instead of starting over from nothing.
-  const glowing = new WeakMap(); // a drawing that glows -> the timer that lets it fade
-  function glow(it, node) {
-    node.style.setProperty('--glow', inkColor(it.color));
-    node.classList.add('callout');
-    clearTimeout(glowing.get(node));
-    glowing.set(node, setTimeout(() => node.classList.remove('callout'), 420));
-  }
-
-  function refreshAnnotations(hostId) {
-    for (const it of items.values()) {
-      if (!it.pid || (hostId && it.pid !== hostId) || !it.cid) continue;
-      const node = els.get(it.id);
-      if (node) markAnnotation(it, node);
-    }
-  }
-
-  // Takes back what was drawn for the comment being written. In the viewer a drawing only exists for a
-  // comment, so one whose comment was never sent goes with it, and undo cannot bring it back on its own.
-  function discardDrawing() {
-    if (!draft) return 0;
-    const ids = drawnFor(draft.id).map((it) => it.id);
-    draft = null;
-    if (ids.length) {
-      exec([{ t: 'del', ids }], false);
-      forgetHistory(new Set(ids));
-    }
-    syncComments();
-    return ids.length;
-  }
-
-  // Leaves out of undo and redo every step on these pieces, so none of them can come back.
-  function forgetHistory(ids) {
-    const touches = (op) => (op.t === 'add' ? ids.has(op.item.id) : op.t === 'set' ? ids.has(op.id) : false);
-    for (const stack of [undoStack, redoStack]) {
-      for (let i = stack.length - 1; i >= 0; i--) {
-        const ops = stack[i]
-          .filter((op) => !touches(op))
-          .map((op) => (op.t === 'del' ? { ...op, ids: op.ids.filter((id) => !ids.has(id)) } : op))
-          .filter((op) => op.t !== 'del' || op.ids.length);
-        if (ops.length) stack[i] = ops;
-        else stack.splice(i, 1);
-      }
-    }
-    syncHistory();
-  }
-
-  // Lets go of the comment being written, as when leaving the piece or going on to another. Nothing was
-  // sent, so what was drawn for it goes too.
-  function dropDraft() {
-    if (discardDrawing()) toast('The drawing was taken away: it had no comment', { ms: 3500 });
-  }
-
-  // Whether a screen point is on the open piece, or on something drawn or written on it.
-  // In the viewer the brush is as heavy as the piece is large: a set part of its longer side. What is
-  // drawn there is only ever seen there, on the piece filling the screen, so a line looks the same on
-  // every piece, whatever size the piece happens to have out on the board. It is fine, for pointing.
-  const VIEWER_BRUSH = 0.004;
-  function viewerBrush() {
-    const it = items.get(focusId);
-    return it ? Math.max(0.2, Math.max(it.w, it.h) * VIEWER_BRUSH) : pen.size;
-  }
-
-  function onOpenPiece(x, y) {
-    const t = document.elementFromPoint(x, y);
-    const node = t && t.closest ? t.closest('.item') : null;
-    const it = node ? items.get(node.dataset.id) : null;
-    return !!it && !!focusId && (it.id === focusId || it.pid === focusId);
-  }
-
   function syncComments() {
-    const roots = rootsInOrder();
-    if (activeThread && !comments.has(activeThread)) activeThread = null;
-    // Whoever follows reads the thread being read here, so what was drawn for it is on their screen too.
-    if (toldThread !== activeThread) sendP({ t: (toldThread = activeThread) });
-    // On the tab at the side of the viewer: how many threads on the open piece are still to be settled.
-    const open = roots.filter((c) => !c.done && c.on === focusId).length;
-    const badge = $('cptabcount');
-    badge.hidden = !open;
-    badge.textContent = String(open);
-    renderPanel();
-    refreshAnnotations();
     syncChips();
     queueMarks();
-    if (focusId) queueViewer();
+    renderPanel();
+    viewer.refresh();
   }
 
   // ---- out on the board: what has comments says so
@@ -5352,7 +3549,6 @@
       }
     }
     for (const [id, chip] of chips) {
-      // Gone with its comments, or left behind on a piece that has been drawn afresh.
       if (counts.has(id) && chip.isConnected) continue;
       chip.remove();
       chips.delete(id);
@@ -5376,569 +3572,52 @@
 
   function openComments(id) {
     enterFocus(id);
-    if (focusId === id && !panelShown()) togglePanel(true);
+    if (viewer.current() === id) viewer.togglePanel(true);
   }
 
-  // ---- the panel
+  // ---- every thread on the board, out on the board (Shift+C)
 
-  // Built once. After that only its list is drawn again, so what is being typed in it survives other
-  // people's comments arriving.
-  const cpTitle = el('h2');
-  const cpCount = el('span', { class: 'count', hidden: true });
   const cpList = el('div', { class: 'cp-list' });
-  // A click on the list between the threads lets go of the one picked.
-  cpList.addEventListener('click', (e) => {
-    if (!activeThread || e.target.closest('.cp-card, button, a, textarea, input')) return;
-    activeThread = null;
-    replyBox.value = '';
-    syncComments();
-  });
-  const cpFoot = el('div', { class: 'cp-foot' });
-  const composer = el('textarea', { rows: 1, maxlength: 2000, placeholder: 'Leave a comment…', 'aria-label': 'Comment' });
-  const replyBox = el('textarea', { rows: 1, maxlength: 2000, placeholder: 'Reply…', 'aria-label': 'Reply' });
-  const momentChip = el('button', {
-    class: 'tchip', onclick: () => {
-      timed = !timed;
-      if (draft) stampMoment(draft);
-      refreshAnnotations(focusId);
-      syncComposer();
-    },
-  }, el('span', { html: ICON.play }), el('b'));
-  // What has been drawn for the comment in the box, with a way to take it back.
-  const drawnChip = el('button', { class: 'tchip drawn', title: 'Take the drawing back', onclick: discardDrawing }, el('span', { html: ICON.scribble }), el('b'), el('span', { html: ICON.close }));
-  // The viewer has no tool strip, so what it draws with is here: the brush and its colours, and the
-  // eraser to take a stroke away again. Whichever is in hand is lit.
-  const cpInks = el('span', { class: 'cp-inks' });
-  const cpPen = el('button', { class: 'iconbtn mini', title: 'Brush: draw on the picture to point at what you mean', html: ICON.pen, onclick: () => setTool('pen') });
-  const cpEraser = el('button', { class: 'iconbtn mini', title: 'Eraser: drag over a drawing to remove it (E)', html: ICON.eraser, onclick: () => setTool(tool === 'eraser' ? 'pen' : 'eraser') });
-  const cpBrush = el('div', { class: 'cp-brush' }, cpPen, cpInks, cpEraser);
-  const cpCompose = el('div', { class: 'cp-compose' }, cpBrush, composer,
-    el('div', { class: 'cp-actions' }, momentChip, drawnChip, el('button', { class: 'btn small primary', text: 'Comment', title: 'Send (Enter)', onclick: submitComment })));
-  // A link opens a piece with one click; on the board itself, where a click selects, it takes two.
-  const openHow = viewOnly ? 'click' : 'double-click';
-  const cpHint = el('p', { class: 'cp-hint', text: `Comments are written where the work is looked at: ${openHow} an image or video to open it.` });
-
-  function buildInks() {
-    cpInks.replaceChildren(...INK.map((c) => el('button', {
-      class: `swatch${c === pen.color ? ' active' : ''}`, style: { background: swatchColor(c) }, title: 'Brush colour',
-      onclick: () => {
-        pen.color = c;
-        store('wb:pen', pen);
-        buildInks();
-        // Picking a colour is picking up the brush, wherever the hand or the eraser had been.
-        if (focusId && tool !== 'pen') setTool('pen');
-        else buildToolOptions();
-      },
-    })));
-  }
-
-  function autosize(input) {
-    input.style.height = 'auto';
-    input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
-  }
-  // Enter sends, Shift+Enter starts a new line, Esc lets go of the box and gives the keys back to the viewer
-  // (or, where there is something to call off, `cancel`s it). While names are offered after an @, the
-  // arrows, Enter, Tab and Esc are theirs.
-  function wireBox(input, send, cancel = () => input.blur()) {
-    input.addEventListener('keydown', (e) => {
-      if (mention && mention.input === input && !e.isComposing && mentionKey(e)) {
-        e.preventDefault();
-        e.stopPropagation();
-      } else if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-        e.preventDefault();
-        send();
-      } else if (e.key === 'Escape') {
-        e.stopPropagation();
-        cancel();
-      } else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'z' && !input.value) {
-        // Nothing typed to take back, so undo is for the board: the stroke just drawn, say.
-        e.preventDefault();
-        if (e.shiftKey) stepHistory(redoStack, undoStack);
-        else stepHistory(undoStack, redoStack);
-      }
-    });
-    input.addEventListener('input', () => {
-      autosize(input);
-      offerNames(input);
-    });
-    input.addEventListener('click', () => offerNames(input));
-    input.addEventListener('blur', () => { if (mention && mention.input === input) closeNames(); });
-  }
-
-  // ---- @mentions: names offered while typing, and marked in what was written
-  //
-  // Whoever is named with an @ hears about it (notifications.js matches the full name or the first one).
-  // Names are offered from the people on the board and those who have commented on it, so they are spelled
-  // the way the notifications will look for them.
-  const mentionMenu = el('div', { class: 'menu mention-menu', role: 'listbox', 'aria-label': 'People', hidden: true });
-  document.body.append(mentionMenu);
-  let mention = null; // { input, start, list, i }: the box, where its "@" is, the names offered, the one picked
-  const nameColors = new Map(); // a name -> the colour it goes by
-
-  function knownNames() {
-    const names = new Map();
-    const add = (n, color) => {
-      const name = String(n || '').trim();
-      if (!name || names.has(name.toLowerCase())) return;
-      names.set(name.toLowerCase(), name);
-      if (hexOk(color)) nameColors.set(name, color);
-    };
-    for (const peer of peers.values()) if (!peer.viewer) add(peer.name, peer.color);
-    for (const c of comments.values()) if (!c.guest) add(c.name, c.color);
-    return names;
-  }
-
-  function offerNames(input) {
-    const before = input.value.slice(0, input.selectionStart);
-    const m = /(^|\s)@([\p{L}\p{N}_.-]*)$/u.exec(before);
-    if (!m || input.selectionStart !== input.selectionEnd) return closeNames();
-    const q = m[2].toLowerCase();
-    const names = knownNames();
-    names.delete(me.name.trim().toLowerCase());
-    const list = [...names.values()].filter((n) => n.toLowerCase().split(/\s+/).some((w) => w.startsWith(q)))
-      .sort((a, b) => a.localeCompare(b)).slice(0, 6);
-    if (!list.length) return closeNames();
-    const keep = mention && mention.input === input ? list.indexOf(mention.list[mention.i]) : -1;
-    mention = { input, start: before.length - m[2].length - 1, list, i: Math.max(0, keep) };
-    paintNames();
-  }
-
-  function paintNames() {
-    const { input, list, i } = mention;
-    mentionMenu.replaceChildren(...list.map((name, n) => el('button', {
-      class: `menu-item${n === i ? ' active' : ''}`, role: 'option', 'aria-selected': String(n === i), type: 'button',
-      // Pressing a name must not take the keyboard from the box first.
-      onpointerdown: (e) => e.preventDefault(),
-      onclick: () => pickName(name),
-    }, el('span', { class: 'avatar sm', style: { background: nameColors.get(name) || '#8a8a8a' }, text: WB.initials(name) }), el('span', { text: name }))));
-    mentionMenu.hidden = false;
-    const r = input.getBoundingClientRect();
-    mentionMenu.style.left = `${Math.round(clamp(r.left, 8, innerWidth - mentionMenu.offsetWidth - 8))}px`;
-    mentionMenu.style.top = `${Math.round(Math.max(8, r.top - mentionMenu.offsetHeight - 6))}px`;
-  }
-
-  function closeNames() {
-    mention = null;
-    mentionMenu.hidden = true;
-  }
-
-  function pickName(name) {
-    const { input, start } = mention;
-    closeNames();
-    input.focus({ preventScroll: true });
-    input.setRangeText(`@${name} `, start, input.selectionStart, 'end');
-    autosize(input);
-  }
-
-  // Whether a key went to the list of names.
-  function mentionKey(e) {
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      mention.i = (mention.i + (e.key === 'ArrowDown' ? 1 : -1) + mention.list.length) % mention.list.length;
-      paintNames();
-      return true;
-    }
-    if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
-      pickName(mention.list[mention.i]);
-      return true;
-    }
-    if (e.key === 'Escape') {
-      closeNames();
-      return true;
-    }
-    return false;
-  }
-
-  // In what was written, the names of people on this board after an @ are marked; your own more strongly.
-  const escapeRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  function mentionPattern() {
-    const words = new Set();
-    for (const name of [...knownNames().values(), me.name]) {
-      words.add(name.trim());
-      words.add(name.trim().split(/\s+/)[0]);
-    }
-    const alts = [...words].filter((w) => w.length >= 2).sort((a, b) => b.length - a.length).map(escapeRe);
-    return alts.length ? new RegExp(`@(?:${alts.join('|')})(?![\\p{L}\\p{N}_])`, 'giu') : null;
-  }
-
-  function markMentions(node, re) {
-    if (!re) return;
-    const mine = new Set([me.name.trim().toLowerCase(), me.name.trim().split(/\s+/)[0].toLowerCase()]);
-    for (const t of [...node.childNodes]) {
-      if (t.nodeType !== Node.TEXT_NODE) continue;
-      const parts = [];
-      let last = 0;
-      re.lastIndex = 0;
-      for (let m = re.exec(t.data); m; m = re.exec(t.data)) {
-        if (m.index > last) parts.push(t.data.slice(last, m.index));
-        parts.push(el('span', { class: `mention${mine.has(m[0].slice(1).toLowerCase()) ? ' me' : ''}`, text: m[0] }));
-        last = m.index + m[0].length;
-      }
-      if (!parts.length) continue;
-      if (last < t.data.length) parts.push(t.data.slice(last));
-      t.replaceWith(...parts);
-    }
-  }
-
-  // ---- your own comment, reworded in place
-  //
-  // Like the reply box, the edit box is built once and moved into whichever comment is being edited, so what
-  // is typed in it survives other people's comments arriving.
-  const editBox = el('textarea', { rows: 1, maxlength: 2000, 'aria-label': 'Edit comment' });
-  let editingId = null;
-
-  function startCommentEdit(c) {
-    editingId = c.id;
-    editBox.value = c.text;
-    renderPanel();
-    editBox.focus({ preventScroll: true });
-    editBox.setSelectionRange(editBox.value.length, editBox.value.length);
-    autosize(editBox);
-  }
-
-  function endCommentEdit(save) {
-    const c = comments.get(editingId);
-    const text = editBox.value.trim().slice(0, 2000);
-    editingId = null;
-    editBox.blur();
-    if (save && c && text && text !== c.text) exec([{ t: 'set', id: c.id, patch: { text, edited: Date.now() } }]);
-    else renderPanel();
-  }
-
-  wireBox(composer, submitComment);
-  wireBox(replyBox, submitReply);
-  wireBox(editBox, () => endCommentEdit(true), () => endCommentEdit(false));
-
-  // What is half written in the comment box belongs to the piece it was written on: going on to another
-  // piece puts it aside, and coming back finds it there again. Nothing is posted on the wrong piece.
-  const typed = new Map(); // piece id -> what its comment box held
-  function switchTyped(next) {
-    if (focusId && composer.value.trim()) typed.set(focusId, composer.value);
-    else if (focusId) typed.delete(focusId);
-    composer.value = (next && typed.get(next)) || '';
-    autosize(composer);
-  }
-  // Starting to write about a video stops it, so the comment is about the frame that was showing.
-  composer.addEventListener('focus', () => {
-    if (focusId && timed) holdFrame(focusId);
-  });
-
-  const cpToggle = (label, title, checked, onchange) => {
-    const box = el('input', { type: 'checkbox' });
-    box.checked = checked;
-    box.addEventListener('change', () => onchange(box.checked));
-    return el('label', { class: 'cp-show', title }, box, label);
-  };
   panel.append(
-    el('div', { class: 'cp-head' }, cpTitle, cpCount,
+    el('div', { class: 'cp-head' }, el('h2', { text: 'All comments' }),
       el('button', { class: 'iconbtn', html: ICON.close, title: 'Hide the comments (Shift+C)', onclick: () => togglePanel(false) })),
-    el('div', { class: 'cp-opts' },
-      cpToggle('Hide resolved', 'Leave out threads that have been resolved', hideDone, (v) => {
-        hideDone = v;
-        store('wb:hidedone', v);
-        renderPanel();
-      })),
-    cpList, cpFoot);
-
-  // ---- how wide the panel is
-  //
-  // Its inner edge is a handle. Dragged, the panel stays as wide as it was left, beside the viewer and out
-  // on the board, in this browser; a double-click puts it back as it came. The sheet on a narrow screen is
-  // as wide as the screen and has no handle.
-  const CP_MIN = 260;
-  const CP_MAX = 720;
-  const cpGrip = el('div', {
-    class: 'cp-grip', role: 'separator', tabindex: '0', 'aria-orientation': 'vertical', 'aria-label': 'Width of the comments',
-    title: 'Drag to make the comments wider or narrower. Double-click to put them back',
-  });
-  panel.append(cpGrip);
-  function setPanelWidth(w, keep = true) {
-    if (w != null) w = Math.round(clamp(w, CP_MIN, CP_MAX));
-    if (w == null) document.body.style.removeProperty('--cpw');
-    else document.body.style.setProperty('--cpw', `${w}px`);
-    if (keep) store('wb:cpw', w);
-    // Beside the viewer the panel takes its room from the piece.
-    if (focusId) relayoutViewer();
-  }
-  if (Number.isFinite(store('wb:cpw'))) setPanelWidth(store('wb:cpw'), false);
-  cpGrip.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    try {
-      cpGrip.setPointerCapture(e.pointerId);
-    } catch {
-      // without it the drag lasts only while the pointer stays on the edge
-    }
-    cpGrip.classList.add('held');
-    const right = panel.getBoundingClientRect().right;
-    const move = (m) => setPanelWidth(right - m.clientX, false);
-    const end = () => {
-      cpGrip.classList.remove('held');
-      cpGrip.removeEventListener('pointermove', move);
-      cpGrip.removeEventListener('pointerup', end);
-      cpGrip.removeEventListener('pointercancel', end);
-      // As wide as it ended up, which on a small window is less than was asked for.
-      setPanelWidth(panel.offsetWidth);
-    };
-    cpGrip.addEventListener('pointermove', move);
-    cpGrip.addEventListener('pointerup', end);
-    cpGrip.addEventListener('pointercancel', end);
-  });
-  cpGrip.addEventListener('dblclick', () => setPanelWidth(null));
-  cpGrip.addEventListener('keydown', (e) => {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    e.preventDefault();
-    e.stopPropagation();
-    setPanelWidth(panel.offsetWidth + (e.key === 'ArrowLeft' ? 24 : -24));
-  });
-
-  // On a narrow screen there is no room beside the piece: the panel is a sheet over it, brought up when
-  // wanted and never open to begin with.
-  const narrow = () => vp.clientWidth < 700;
-  const panelShown = () => canRead() && (focusId ? (narrow() ? sheetOpen : viewerPanel) : boardPanel);
-
-  function togglePanel(show = !panelShown()) {
-    if (focusId && narrow()) {
-      sheetOpen = show;
-    } else if (focusId) {
-      viewerPanel = show;
-      store('wb:cpanel', show);
-    } else {
-      boardPanel = show;
-      if (show) closeHelp();
-    }
-    // Beside the viewer the panel takes room from the piece, which makes the most of what is left.
-    const fitted = !!focusId && !focusZoomed();
-    syncComments();
-    if (focusId) {
-      layoutViewer();
-      if (fitted) fitFocus(calm.matches ? 0 : 160);
-      else applyCam();
-    }
-  }
-
-  function syncComposer() {
-    const video = focusId ? videoOf(focusId) : null;
-    const strokes = draft && draft.on === focusId ? drawnFor(draft.id).length : 0;
-    momentChip.hidden = !video;
-    if (video) {
-      // Once something is drawn for it, the comment is about the frame that was drawn on.
-      const held = strokes && draft.at != null;
-      momentChip.classList.toggle('off', !timed);
-      momentChip.title = !timed ? 'The comment is about the whole video. Click to tie it to the frame showing'
-        : held ? 'The comment is about the frame that was drawn on. Click to make it about the whole video'
-          : 'The comment is about the frame showing. Click to make it about the whole video';
-      momentChip.lastChild.textContent = fmtMoment(held ? momentOf(draft) : whereOf(video), fpsOf(focusId));
-    }
-    drawnChip.hidden = !strokes;
-    drawnChip.children[1].textContent = strokes > 1 ? `Drawing · ${strokes}` : 'Drawing';
-    composer.placeholder = strokes ? 'Say what the drawing is about…' : 'Leave a comment…';
-    cpCompose.classList.toggle('drafting', strokes > 0);
-    syncClear();
-    // Somebody holding a link writes comments but cannot draw.
-    cpBrush.hidden = viewOnly;
-  }
-
-  function messageNode(c, root, showHost, mentions) {
-    const first = c === root;
-    const mine = (m) => m.name === me.name;
-    const canDelete = !viewOnly && mine(c) && (!first || repliesOf(c.id).every(mine));
-    const editing = c.id === editingId;
-    const text = editing
-      ? el('div', { class: 'msg-edit' }, editBox, el('div', { class: 'msg-edit-acts' },
-        el('button', { class: 'btn small ghost', text: 'Cancel', title: 'Keep it as it was (Esc)', onclick: () => endCommentEdit(false) }),
-        el('button', { class: 'btn small primary', text: 'Save', title: 'Save (Enter)', onclick: () => endCommentEdit(true) })))
-      : el('div', { class: 'msg-text' });
-    if (!editing) {
-      fillText(text, c.text);
-      markMentions(text, mentions);
-    }
-    const moment = first && videoOf(c.on) ? momentOf(c) : null;
-    return el('div', { class: `msg${first ? '' : ' reply'}` },
-      el('span', { class: 'avatar sm', style: { background: hexOk(c.color) ? c.color : '#8a8a8a' }, text: WB.initials(c.name) }),
-      el('div', { class: 'msg-main' },
-        el('div', { class: 'msg-top' },
-          el('strong', { text: c.name }),
-          c.guest && el('span', { class: 'notice-guest', text: 'Guest', title: 'Written by somebody holding a link, under a name they typed' }),
-          // The moment it is about sits on the same line as who wrote it, so a short comment is two lines, not three.
-          moment != null && el('button', { class: 'tchip', title: 'Go to this frame', onclick: () => pickThread(c.id) }, el('span', { html: ICON.play }), fmtMoment(moment, fpsOf(c.on))),
-          el('span', { class: 'msg-time', text: WB.ago(c.t), title: new Date(c.t).toLocaleString() }),
-          c.edited && el('span', { class: 'msg-edited', text: 'edited', title: `Edited ${new Date(c.edited).toLocaleString()}` }),
-          el('span', { class: 'msg-acts' },
-            !viewOnly && mine(c) && !editing && el('button', { class: 'iconbtn mini', html: ICON.pen, title: 'Edit', onclick: () => startCommentEdit(c) }),
-            first && !viewOnly && el('button', {
-              class: `iconbtn mini${c.done ? ' active' : ''}`, html: ICON.check, title: c.done ? 'Resolved. Click to open it again' : 'Mark as resolved',
-              onclick: () => exec([{ t: 'set', id: c.id, patch: { done: !c.done } }]),
-            }),
-            canDelete && el('button', { class: 'iconbtn mini', html: ICON.trash, title: first ? 'Delete the thread, and what was drawn for it' : 'Delete', onclick: () => removeComment(c) }))),
-        first && showHost && el('div', { class: 'msg-where' }, el('span', { class: 'msg-on', text: hostLabel(c) })),
-        text,
-        // Under what it says, so the line with the name keeps its room.
-        first && drawnIds.has(c.id) && el('span', { class: 'msg-drawn', title: 'Has a drawing on the picture. Pick the thread to see it' }, el('span', { html: ICON.scribble }), 'Drawing')));
-  }
-
-  function threadCard(root, showHost, mentions) {
-    const active = activeThread === root.id;
-    return el('div', {
-      class: `cp-card${active ? ' active' : ''}${root.done ? ' done' : ''}`, 'data-id': root.id,
-      onclick: (e) => {
-        if (!e.target.closest('button, a, textarea')) pickThread(root.id);
-      },
-    },
-    messageNode(root, root, showHost, mentions),
-    repliesOf(root.id).map((r) => messageNode(r, root, false, mentions)),
-    active && canWrite() && el('div', { class: 'cp-reply' }, replyBox, el('button', { class: 'btn small', text: 'Reply', onclick: submitReply })));
-  }
+    cpList,
+    el('div', { class: 'cp-foot' }, el('p', { class: 'cp-hint', text: `Comments are written where the work is looked at: ${openHow} an image or video to open it.` })));
 
   function renderPanel() {
-    const shown = panelShown();
+    const shown = boardPanel && canRead() && !openId;
     panel.hidden = !shown;
-    document.body.classList.toggle('cp-open', shown);
-    const tab = $('cptab');
-    tab.hidden = !canRead();
-    tab.title = `${shown ? 'Hide' : 'Show'} the comments (Shift+C)`;
-    tab.setAttribute('aria-expanded', String(shown));
-    // Open, the tab points the way the panel goes; shut, it says what is behind it.
-    const face = shown ? 'next' : 'comment';
-    if (tab.dataset.face !== face) {
-      tab.dataset.face = face;
-      $('cptabicon').innerHTML = ICON[face];
-    }
     if (!shown) return;
-    const host = focusId ? items.get(focusId) : null;
-    let roots = rootsInOrder().filter((c) => (host ? c.on === host.id : items.has(c.on)));
-    const any = roots.length > 0;
-    const open = roots.filter((c) => !c.done).length;
-    if (hideDone) roots = roots.filter((c) => !c.done);
-    // Beside a video the threads follow the film; anywhere else, the order they were started in.
-    if (host && host.type === 'video') roots.sort((a, b) => (momentOf(a) ?? -1) - (momentOf(b) ?? -1) || byTime(a, b));
-    cpTitle.textContent = host ? 'Comments' : 'All comments';
-    cpCount.hidden = !open;
-    cpCount.textContent = String(open);
-    const empty = any ? [ICON.check, 'All resolved'] : [ICON.comment, 'No comments yet'];
-    drawnIds = new Set();
-    for (const it of items.values()) if (it.cid) drawnIds.add(it.cid);
-    if (editingId && !comments.has(editingId)) editingId = null;
-    // A reply or an edit half written keeps the keyboard and its place while the list is drawn again around it.
-    const held = [replyBox, editBox].find((box) => document.activeElement === box);
-    const typing = held && [held.selectionStart, held.selectionEnd];
-    const top = cpList.scrollTop;
-    const mentions = mentionPattern();
-    cpList.replaceChildren(...(roots.length ? roots.map((c) => threadCard(c, !host, mentions)) : [el('p', { class: 'cp-empty' }, el('span', { html: empty[0] }), el('span', { text: empty[1] }))]));
-    cpList.scrollTop = top;
-    if (typing && held.isConnected) {
-      held.focus({ preventScroll: true });
-      held.setSelectionRange(typing[0], typing[1]);
-    }
-    const foot = !host ? cpHint : canWrite() ? cpCompose : null;
-    if (cpFoot.firstChild !== foot) cpFoot.replaceChildren(...(foot ? [foot] : []));
-    cpFoot.hidden = !foot || (foot === cpHint && !canWrite());
-    if (foot === cpCompose) buildInks();
-    syncComposer();
+    const roots = rootsInOrder().filter((c) => items.has(c.on));
+    cpList.replaceChildren(...(roots.length ? roots.map((c) => {
+      const replies = repliesOf(c.id).length;
+      const text = el('div', { class: 'msg-text' });
+      fillText(text, c.text);
+      return el('div', { class: `cp-card${c.done ? ' done' : ''}`, 'data-id': c.id, onclick: () => viewer.openComment(c.id) },
+        el('div', { class: 'msg' },
+          el('span', { class: 'avatar sm', style: { background: hexOk(c.color) ? c.color : '#8a8a8a' }, text: WB.initials(c.name || '?') }),
+          el('div', { class: 'msg-main' },
+            el('div', { class: 'msg-top' }, el('strong', { text: c.name }), el('span', { class: 'msg-time', text: WB.ago(c.t) }),
+              c.done && el('span', { class: 'msg-edited', text: 'resolved' })),
+            el('div', { class: 'msg-where' }, el('span', { class: 'msg-on', text: hostLabel(c) })),
+            text,
+            replies > 0 && el('span', { class: 'msg-edited', text: replies === 1 ? '1 reply' : `${replies} replies` }))));
+    }) : [el('p', { class: 'cp-empty' }, el('span', { html: ICON.comment }), el('span', { text: 'No comments yet' }))]));
   }
 
-  function revealCard(id) {
-    const card = [...cpList.children].find((node) => node.dataset.id === id);
-    if (card) card.scrollIntoView({ block: 'nearest' });
+  function togglePanel(show = !boardPanel) {
+    boardPanel = show;
+    if (show) closeHelp();
+    renderPanel();
   }
 
-  // Picks a thread: its card is raised and, on a video, the film goes to its frame, where what was drawn for it shows.
-  function pickThread(id) {
-    const c = comments.get(id);
-    if (!c) return;
-    if (c.on !== focusId) return goToComment(id);
-    if (activeThread !== id) replyBox.value = '';
-    activeThread = id;
-    callOut(id);
-    seekTo(c);
-    // Picked from its mark on the timeline with the comments folded away: they come out, or there is nothing to read.
-    if (panelShown()) syncComments();
-    else togglePanel(true);
-    revealCard(id);
-  }
-
-  // Goes to where a comment was left: what it is on opens in the viewer, on the comment's frame, with
-  // its thread picked in the panel.
-  function goToComment(id) {
-    const c = comments.get(comments.get(id)?.re || id);
-    const host = c && items.get(c.on);
-    if (!host || (host.type !== 'image' && host.type !== 'video')) return;
-    if (focusId !== host.id) enterFocus(host.id);
-    if (activeThread !== c.id) replyBox.value = '';
-    activeThread = c.id;
-    callOut(c.id);
-    seekTo(c);
-    if (panelShown()) syncComments();
-    else togglePanel(true);
-    revealCard(c.id);
-  }
-
-  // ---- writing, resolving, deleting
-
-  // C: to the comment box of what is open, opening what is selected first if need be.
+  // C: open what is selected, and go to its comment box.
   function startComment() {
     if (!canWrite()) return;
-    if (!focusId) {
-      const one = sel.size === 1 ? items.get([...sel][0]) : null;
-      if (!one || (one.type !== 'image' && one.type !== 'video')) return void toast(`Open an image or video to comment on it: ${openHow} it`, { ms: 3200 });
-      enterFocus(one.id);
-    }
-    if (!panelShown()) togglePanel(true);
-    composer.focus({ preventScroll: true });
-  }
-
-  // Text pasted or dropped while a piece is open is on its way into a comment.
-  function typeComment(text) {
-    if (!canWrite()) return;
-    if (!panelShown()) togglePanel(true);
-    composer.focus({ preventScroll: true });
-    composer.setRangeText(text.slice(0, 2000), composer.selectionStart, composer.selectionEnd, 'end');
-    autosize(composer);
-  }
-
-  // A new thread on what is open. With something drawn for it, it is the comment the drawing was
-  // waiting for, about the frame that was drawn on; otherwise it is about the frame showing.
-  function submitComment() {
-    const text = composer.value.trim();
-    const host = focusId && items.get(focusId);
-    if (!text || !host || !canWrite()) return;
-    const drawn = draft && draft.on === host.id && drawnFor(draft.id).length ? draft : null;
-    const item = { id: drawn ? drawn.id : uid(), type: 'comment', text: text.slice(0, 2000), name: me.name, color: me.color, t: Date.now(), done: false, on: host.id };
-    if (!drawn) stampMoment(item);
-    if (drawn && drawn.at != null) item.at = drawn.at;
-    if (drawn && drawn.fr != null) item.fr = drawn.fr;
-    composer.value = '';
-    autosize(composer);
-    typed.delete(host.id);
-    // Sent, the box lets go of the keyboard, so the keys work the viewer again. C, or a click, is back in it.
-    composer.blur();
-    draft = null;
-    activeThread = item.id;
-    replyBox.value = '';
-    exec([{ t: 'add', item }]);
-    // Back to the frame it is about, if the video has been moved since it was drawn on.
-    if (drawn) seekTo(item);
-    revealCard(item.id);
-  }
-
-  function submitReply() {
-    const root = comments.get(activeThread);
-    const text = replyBox.value.trim();
-    if (!root || !text || !canWrite()) return;
-    replyBox.value = '';
-    autosize(replyBox);
-    replyBox.blur();
-    exec([{ t: 'add', item: { id: uid(), type: 'comment', text: text.slice(0, 2000), name: me.name, color: me.color, t: Date.now(), done: false, re: root.id, on: root.on } }]);
-    revealCard(root.id);
-  }
-
-  // A thread goes with its replies and with what was drawn for it.
-  function removeComment(c) {
-    const ids = c.re ? [c.id] : [c.id, ...repliesOf(c.id).map((r) => r.id), ...drawnFor(c.id).filter((it) => it.pid === c.on).map((it) => it.id)];
-    exec([{ t: 'del', ids }]);
-  }
-
-  function seekTo(c) {
-    if (c.on) seekVideo(c.on, momentOf(c));
+    const one = sel.size === 1 ? items.get([...sel][0]) : null;
+    if (!one || (one.type !== 'image' && one.type !== 'video')) return void toast(`Open an image or video to comment on it: ${openHow} it`, { ms: 3200 });
+    enterFocus(one.id);
+    viewer.startComment();
   }
 
   // ------------------------------------------------------------- tools and keyboard
@@ -5969,7 +3648,6 @@
     ['more', 'More tools', ICON.more, 'phone', (e) => openToolMenu(e.currentTarget)],
     ['undo', 'Undo (Ctrl+Z)', ICON.undo, 'phone in-viewer', () => stepHistory(undoStack, redoStack)],
     ['redo', 'Redo (Ctrl+Shift+Z)', ICON.redo, 'phone in-viewer', () => stepHistory(redoStack, undoStack)],
-    ['clear', 'Clear the drawing', ICON.trash, 'phone v-only in-viewer', () => clearOnPhone()],
   ];
   // The tools a phone keeps under More, which stands in for whichever of them is in hand.
   const MORE_TOOLS = ['arrow', 'block', 'frame', 'laser'];
@@ -6021,7 +3699,6 @@
   $('toolbar').addEventListener('pointerdown', (e) => {
     const btn = e.target.closest('[data-tool]');
     if (!btn || e.button !== 0 || e.pointerType === 'touch' || !DRAGGABLE_TOOLS.has(btn.dataset.tool)) return;
-    if (focusId) return;
     toolDrag = { tool: btn.dataset.tool, x0: e.clientX, y0: e.clientY, ghost: null };
   });
   window.addEventListener('pointermove', (e) => {
@@ -6142,7 +3819,6 @@
     if (viewOnly && name !== 'laser') name = 'pan';
     // The viewer's tools: the brush for the piece, the eraser, the laser for pointing while talking, and
     // on a phone the hand for looking around.
-    else if (focusId && !['pen', 'eraser', 'laser', 'pan'].includes(name)) name = 'pen';
     tool = name;
     if (name === 'pen' || name === 'arrow') lastDraw = name;
     document.body.dataset.tool = name;
@@ -6150,14 +3826,12 @@
     // More stands in for the tool from under it that is in hand.
     const more = $('toolbar').querySelector('[data-act="more"]');
     if (more) {
-      const under = MORE_TOOLS.includes(name) && !focusId;
+      const under = MORE_TOOLS.includes(name);
       more.classList.toggle('active', under);
       more.firstElementChild.outerHTML = under ? ICON[name] : ICON.more;
       more.lastElementChild.textContent = under ? TOOL_LABELS[name] : TOOL_LABELS.more;
     }
     $('tooloptions').hidden = name !== 'pen' && name !== 'arrow' && name !== 'eraser' && name !== 'text';
-    cpPen.classList.toggle('active', name === 'pen');
-    cpEraser.classList.toggle('active', name === 'eraser');
     buildToolOptions();
     if (name !== 'select') setSel([]);
     sendP({ l: name === 'laser' ? 1 : 0 });
@@ -6167,7 +3841,7 @@
   const TOOL_KEYS = { v: 'select', h: 'pan', n: 'note', t: 'text', b: 'block', f: 'frame', p: 'pen', e: 'eraser', a: 'arrow', l: 'laser' };
 
   // The video the keys are for: the open one in the viewer, the selected one out on the board.
-  const keyVideo = () => (focusId ? (videoOf(focusId) ? focusId : null) : selectedVideo());
+  const keyVideo = () => selectedVideo();
 
   // Space held is the hand for moving around; tapped, it plays or pauses, as in any player.
   let spaceTap = false;
@@ -6179,6 +3853,8 @@
   //   Space, K    play or pause
   window.addEventListener('keydown', (e) => {
     if (isTyping(e.target)) return;
+    // With something open the keys are the viewer's, bar the shortcuts list.
+    if (viewer.isOpen() && e.key !== '?') return;
     // A dialog is open over the board: its keys are its own, and Delete must not reach what is selected behind it.
     if (document.querySelector('dialog[open]')) return;
     const k = e.key.toLowerCase();
@@ -6188,7 +3864,7 @@
     // Looking around is all a read-only link allows.
     if (viewOnly) {
       const plain = !e.shiftKey && !e.ctrlKey && !e.metaKey;
-      const look = e.code === 'Space' || k === 'escape' || k === 'home' || k === '?' || k === 'h' || (k === 'l' && plain) || (focusId && k.startsWith('arrow'))
+      const look = e.code === 'Space' || k === 'escape' || k === 'home' || k === '?' || k === 'h' || (k === 'l' && plain)
         || (e.shiftKey && e.code === 'Digit1') || ((e.ctrlKey || e.metaKey) && k === '0')
         || e.code === 'Comma' || e.code === 'Period' || k === 'k' || k === 'm' || (k === 'c' && plain && guestWrites()) || (k === 'c' && e.shiftKey && guestReads());
       if (!look) return;
@@ -6200,20 +3876,19 @@
         spaceAt = performance.now();
       }
       spaceDown = true;
-      document.body.classList.add('space');
+      document.body.classList.add('space-held');
       return;
     }
     const altGr = e.ctrlKey && e.altKey;
     if ((e.ctrlKey || e.metaKey) && !altGr) {
       if (k === 'z') e.shiftKey ? stepHistory(redoStack, undoStack) : stepHistory(undoStack, redoStack);
       else if (k === 'y') stepHistory(redoStack, undoStack);
-      else if (k === 'a' && focusId) return;
-      else if (k === 'a') { setTool('select'); setSel([...items.values()].filter((it) => selectable(it) && (focusId || !it.pid)).map((it) => it.id)); }
+      else if (k === 'a') { setTool('select'); setSel([...items.values()].filter((it) => selectable(it) && !it.pid).map((it) => it.id)); }
       else if (k === 'd') duplicate();
       else if (k === 'p') packSelection();
       else if (k === '0') {
-        if (focusId) zoomAt(vp.clientWidth / 2, vp.clientHeight / 2, actualSizeZ(items.get(focusId)) / cam.z);
-        else { userMovedView(); zoomAt(vp.clientWidth / 2, vp.clientHeight / 2, 1 / cam.z); }
+        userMovedView();
+        zoomAt(vp.clientWidth / 2, vp.clientHeight / 2, 1 / cam.z);
       }
       else return;
       e.preventDefault();
@@ -6221,32 +3896,24 @@
     }
     if (e.altKey && !altGr) return;
 
-    // With an image or video open the arrows go through the media, always: never a nudge, never a scrub.
-    if (focusId && k.startsWith('arrow')) {
-      e.preventDefault();
-      return void stepFocus(k === 'arrowright' || k === 'arrowdown' ? 1 : -1);
-    }
-
     const video = keyVideo();
-    if (focusId && ((e.shiftKey && (e.code === 'Digit1' || e.code === 'Digit2')) || k === 'home')) fitFocus();
-    else if (e.shiftKey && e.code === 'Digit1') { userMovedView(); fitAll(); }
+    if (e.shiftKey && e.code === 'Digit1') { userMovedView(); fitAll(); }
     else if (e.shiftKey && e.code === 'Digit2') { const r = selBounds(); if (r) { userMovedView(); fitRect(r); } }
     else if (k === 'home') { userMovedView(); fitAll(); }
     else if (k === '?') toggleHelp();
     else if (k === 's' && !e.shiftKey) toggleSnap();
-    else if (k === 'f' && e.shiftKey && focusId) toggleFilm();
     else if (k === 'f' && !e.shiftKey) activateFrame();
     else if (k === 'c' && e.shiftKey) togglePanel();
     else if (k === 'c') startComment();
+    else if (k === 'v' && e.shiftKey) fileSelection();
     else if (k === 'delete' || k === 'backspace') deleteSel();
     else if (k === 'escape') {
       // One thing at a time, the nearest first.
       if (!$('helppanel').hidden) toggleHelp();
       if (!$('actpanel').hidden) toggleActivity(false);
-      if (!keptPop.hidden) toggleKeptPop(false);
+      if (keptRing && keptRing.open) keptRing.close();
+      else if (!catPanel.hidden) toggleCatalogue(false);
       else if (!$('setpanel').hidden) toggleSettings(false);
-      else if (focusId && (tool === 'laser' || tool === 'eraser')) setTool('pen');
-      else if (focusId) exitFocus();
       else if (boardPanel) togglePanel(false);
       else if (tool !== 'select') setTool('select');
       else setSel([]);
@@ -6262,29 +3929,26 @@
     else if (video && e.code === 'Comma') stepVideo(video, -1, e.shiftKey);
     else if (video && e.code === 'Period') stepVideo(video, 1, e.shiftKey);
     else if (video && k === 'm') toggleSound(video);
-    // In the viewer there are no tools to change between, bar the laser, which L turns on and off.
-    else if (focusId && k === 'l' && !e.shiftKey) setTool(tool === 'laser' ? 'pen' : 'laser');
-    else if (focusId && k === 'e' && !e.shiftKey) setTool(tool === 'eraser' ? 'pen' : 'eraser');
-    else if (TOOL_KEYS[k] && !e.shiftKey && !focusId) setTool(TOOL_KEYS[k]);
+    else if (TOOL_KEYS[k] && !e.shiftKey) setTool(TOOL_KEYS[k]);
     else return;
     e.preventDefault();
   });
 
   window.addEventListener('keyup', (e) => {
-    if (e.code !== 'Space') return;
+    if (e.code !== 'Space' || (viewer.isOpen() && !spaceDown)) return;
     const tapped = spaceDown && spaceTap && performance.now() - spaceAt < 400;
     spaceDown = false;
     spaceTap = false;
-    document.body.classList.remove('space');
+    document.body.classList.remove('space-held');
     const video = tapped ? keyVideo() : null;
     if (video) toggleVideo(video);
   });
   window.addEventListener('blur', () => {
     spaceDown = false;
     spaceTap = false;
-    document.body.classList.remove('space');
+    document.body.classList.remove('space-held');
   });
-  window.addEventListener('resize', () => (unframed ? frameFirst() : focusId ? relayoutViewer() : applyCam()));
+  window.addEventListener('resize', () => (unframed ? frameFirst() : applyCam()));
 
   // The shortcuts, by what they are for, as keys rather than sentences. What wants explaining is in
   // the guide, the last tab, and nowhere else: the tools themselves stay quiet.
@@ -6321,6 +3985,7 @@
     { id: 'arrange', label: 'Arrange', icon: ICON.tidy, rows: [
       ['Duplicate', combo('mod', 'D'), '~or', combo('alt'), '~+ drag'],
       ['Tidy into a grid', combo('mod', 'P')],
+      ['File as a version', combo('shift', 'V')],
       ['Bring to front', ']'],
       ['Send to back', '['],
       ['Scale a note with its text', combo('shift'), '~+ drag a corner'],
@@ -6344,9 +4009,10 @@
       ['Time, frame or timecode', '~click the time'],
     ] },
     { id: 'guide', label: 'Guide', icon: ICON.help, guide: [
+      [ICON.stack, 'Versions', 'On a board in a project, select images or videos and file them as versions of an asset, set or shot (Shift+V). Their notes go with them, and show on every board the version is on. The catalogue button adds versions to the board.'],
       [ICON.comment, 'Comments with drawings', 'Draw on the open image or video while writing a comment, and the drawing belongs to it: it shows when the comment is read, on the frame it is about.'],
-      [ICON.kept, 'Video cache', `The videos on boards you open are saved on this computer, so they open and scrub at once. Up to ${KEPT_MAX / 1024 ** 3} GB across all boards; the ones opened longest ago make room.`],
-      [ICON.activity, 'Versions', 'Before each round of changes the board is kept as it was. Putting one back keeps what is there now as a version too, so nothing is lost.'],
+      [ICON.kept, 'Video cache', `The videos on boards you open, and the newest of your work, of what you are cc'd on and of what you pinned, are saved on this computer, so they open and scrub at once. Up to ${KEPT_MAX / 1024 ** 3} GB in all; the ones opened longest ago make room.`],
+      [ICON.activity, 'Snapshots', 'Before each round of changes the board is kept as it was. Putting one back keeps what is there now as a snapshot too, so nothing is lost. Notes and catalogue versions are not touched.'],
       [ICON.download, 'Originals', 'Video is made lighter on upload so it plays smoothly for review. The file it came from is kept, and is what is downloaded.'],
       [ICON.link, 'Sharing', 'A link lets people outside the team look, read the comments or comment, without signing in, until you turn it off or it runs out.'],
       [ICON.tag, 'File names', 'Board settings can show every image and video with its file name, for everyone on the board.'],
@@ -6389,9 +4055,10 @@
       paintHelp();
       toggleActivity(false);
       toggleSettings(false);
+      toggleCatalogue(false);
     }
     // Out on the board the two would sit on top of each other.
-    if (!help.hidden && boardPanel && !focusId) togglePanel(false);
+    if (!help.hidden && boardPanel) togglePanel(false);
   }
   $('help').addEventListener('click', toggleHelp);
   // A button left focused by a click would swallow Space and Enter, which are canvas shortcuts here, and
@@ -6402,7 +4069,6 @@
     if (control && e.detail) control.blur();
   });
   $('zoom').addEventListener('click', () => {
-    if (focusId) return fitFocus();
     userMovedView();
     fitAll();
   });
@@ -6417,7 +4083,7 @@
       followThread(peer.p.t);
       catchUp(peer);
     } else {
-      if (focusId) exitFocus();
+      viewer.close();
       if (peer && peer.p.v) followView(peer.p.v, 380);
     }
     updateFollowUI();
@@ -6428,24 +4094,16 @@
   // it has got to by now.
   function catchUp(peer) {
     const m = peer.p.m;
-    if (!Array.isArray(m) || m[0] !== focusId || !Number.isFinite(m[1])) return;
-    const video = videoOf(focusId);
-    if (!video) return;
+    if (!Array.isArray(m) || m[0] !== openId || !Number.isFinite(m[1])) return;
+    const it = items.get(openId);
     let at = m[1] + (m[2] ? (performance.now() - (peer.mAt || performance.now())) / 1000 : 0);
-    if (video.duration > 0 && isFinite(video.duration)) at %= video.duration;
-    goTo(video, at);
-    if (m[2]) video.play().catch(() => {});
-    else video.pause();
+    if (it && it.dur > 0) at %= it.dur;
+    viewer.followMedia(openId, !!m[2], at);
   }
 
   // Following someone means reading the thread they are reading: a drawing only shows with its thread.
   function followThread(id) {
-    const c = typeof id === 'string' ? comments.get(id) : null;
-    const next = c && !c.re && c.on === focusId ? c.id : null;
-    if (next === activeThread) return;
-    activeThread = next;
-    syncComments();
-    if (next) revealCard(next);
+    if (openId) viewer.follow(openId, { thread: typeof id === 'string' ? id : null });
   }
 
   // Shows at least everything the followed person can see, whatever our window shape.
@@ -6666,7 +4324,6 @@
   function setBoardName(name) {
     document.title = `${name} · Boards`;
     if (document.activeElement !== $('boardname')) $('boardname').value = name;
-    $('focusboard').textContent = name;
   }
 
   $('boardname').addEventListener('change', (e) => {
@@ -6696,6 +4353,11 @@
     }
     items.clear();
     comments.clear();
+    versionInfo.clear();
+    for (const v of msg.versions || []) versionInfo.set(v.id, v);
+    project = msg.project || null;
+    $('catalogue').hidden = !project || viewOnly;
+    if (!project && !catPanel.hidden) toggleCatalogue(false);
     for (const it of msg.items) {
       if (it.type === 'comment') {
         comments.set(it.id, it);
@@ -6708,7 +4370,6 @@
     setBoardName(msg.board.name);
     applySettings(msg.board.settings || {}, true);
     // What was open may have been deleted while this window was disconnected.
-    if (focusId && !items.has(focusId)) exitFocus();
 
     for (const id of [...peers.keys()]) dropPeer(id);
     for (const p of msg.peers) addPeer(p);
@@ -6733,7 +4394,7 @@
       const asked = /^#c=([\w-]+)$/.exec(location.hash);
       if (asked) {
         history.replaceState(null, '', location.pathname);
-        goToComment(asked[1]);
+        viewer.openComment(asked[1]);
       }
       if (viewOnly && [...items.values()].some((it) => it.type === 'image' || it.type === 'video')) {
         toast('Click an image or video to look closer', { ms: 7000 });
@@ -6741,7 +4402,7 @@
     } else {
       applyCam();
     }
-    sendP({ l: tool === 'laser' ? 1 : 0, f: focusId, t: (toldThread = activeThread) });
+    sendP({ l: tool === 'laser' ? 1 : 0, f: openId, t: openId ? viewer.thread() : null });
     // After a dropped connection the others have forgotten what is on its way in from here.
     if (standIns.size) shareStandIns();
     updateFollowUI();
@@ -6751,10 +4412,12 @@
     if (msg.t === 'init') {
       onInit(msg);
     } else if (msg.t === 'op') {
-      applyOps(msg.ops, true);
+      applyOps(msg.ops, msg.sync ? 'sync' : true);
       refreshPeerSel();
     } else if (msg.t === 'ack') {
       onAck();
+    } else if (msg.t === 'versions') {
+      learnVersions(msg.list);
     } else if (msg.t === 'join') {
       addPeer(msg.peer);
       updateFollowUI();
@@ -6781,9 +4444,12 @@
       if ('v' in msg.p && following === peer.id && !gesture) followView(peer.p.v);
     } else if (msg.t === 'laser') {
       const peer = peers.get(msg.id);
-      if (peer) addRemoteLaser(peer, msg.pts);
+      // Pointed at a piece open in the viewer, or somewhere on the board.
+      if (peer && msg.on) viewer.laser(peer.id, peer.color, msg.on, msg.pts);
+      else if (peer) addRemoteLaser(peer, msg.pts);
     } else if (msg.t === 'media') {
       if (following !== msg.from) return;
+      if (openId === msg.id) return void viewer.followMedia(msg.id, msg.playing, msg.time);
       const video = videoOf(msg.id);
       if (!video) return;
       // Stopped, it shows exactly the frame of the person followed; playing, small drift is left alone rather than stutter.
@@ -6823,8 +4489,6 @@
   // A page that is come back to that way joins again.
   let away = false;
   window.addEventListener('pagehide', () => {
-    // A drawing whose comment was never sent does not stay behind on the piece for everybody else.
-    discardDrawing();
     away = true;
     if (ws) ws.close();
   });
@@ -6862,8 +4526,9 @@
   } catch {
     return fatal(viewOnly ? 'This link is not shared any more.' : 'This board does not exist.');
   }
-  // Home opens on the workspace this board lives in.
+  // Home opens on the workspace this board lives in, and lists it among the boards opened lately.
   if (!viewOnly && meta.workspace) store('wb:workspace', meta.workspace);
+  if (!viewOnly) WB.remember({ kind: 'board', id: boardId });
   if (viewOnly) {
     setAccess(meta.access);
     $('boardname').readOnly = true;
@@ -6871,7 +4536,7 @@
     $('back').removeAttribute('href');
     $('back').removeAttribute('title');
   }
-  else $('back').href = meta.folderId ? `/#/f/${meta.folderId}` : '/';
+  else $('back').href = meta.folderId ? `/#/f/${meta.folderId}/boards` : '/';
 
   // ---- what this board is set to
   //
@@ -6912,7 +4577,7 @@
           el('span', { class: `set-chip${shared ? ' on' : ''}`, text: shared ? 'Link on' : 'Team only' }), () => openShare(meta)),
         go(ICON.download, 'Download originals',
           el('span', { class: 'set-value', text: files ? `${files} ${files === 1 ? 'file' : 'files'} · zip` : 'Nothing yet' }), downloadBoard, !files),
-        go(ICON.activity, 'Activity and versions', null, () => toggleActivity(true))));
+        go(ICON.activity, 'Activity and snapshots', null, () => toggleActivity(true))));
   }
 
   // A panel in the corner, like the shortcuts and the activity, and in their place: one of them at a time.
@@ -6922,8 +4587,290 @@
     if (!show) return;
     closeHelp();
     toggleActivity(false);
-    if (boardPanel && !focusId) togglePanel(false);
+    toggleCatalogue(false);
+    if (boardPanel) togglePanel(false);
     paintSettings();
+  }
+
+  // ------------------------------------------------------------- the catalogue
+  //
+  // A board in a project folder can file its images and videos as versions of the project's assets,
+  // sets and shots, and take versions from the catalogue onto itself. A piece that shows a version says
+  // which in its corner ("kilo-0010 anim v5"), and says so when a newer one has been filed since. What
+  // is said about a version is said about it on every board it is on (see the notes in server.js).
+  //
+  // Nothing has to be named for this: filing asks only which asset, set or shot it is (and the task, if
+  // the project uses them). What the file's name, the frame it is in, and the last choice made here say
+  // is filled in ahead.
+
+  const N = window.WBNaming;
+
+  function learnVersions(list) {
+    const ids = new Set();
+    for (const v of list || []) {
+      versionInfo.set(v.id, v);
+      ids.add(v.id);
+    }
+    for (const it of items.values()) {
+      if (!ids.has(it.ver)) continue;
+      const node = els.get(it.id);
+      if (node) paintVerChip(node, it);
+    }
+    viewer.refresh();
+    seltools.dataset.sig = '';
+    updateOverlay();
+  }
+
+
+  function paintVerChip(node, it) {
+    const v = it.ver ? versionInfo.get(it.ver) : null;
+    let chip = node.querySelector(':scope > .vchip');
+    node.classList.toggle('filed', !!v);
+    if (!v) {
+      if (chip) chip.remove();
+      return;
+    }
+    if (!chip) {
+      chip = el('button', { class: 'vchip', onclick: (e) => { e.stopPropagation(); verMenu(it.id, chip); } },
+        el('span', { class: 'vchip-label' }), el('span', { class: 'vchip-new' }));
+      node.append(chip);
+    }
+    chip.firstChild.textContent = v.label;
+    chip.lastChild.textContent = v.newest ? `v${v.newest.number}` : '';
+    chip.classList.toggle('stale', !!v.newest);
+    chip.title = v.newest
+      ? `${v.label}. Version ${v.newest.number} has been filed since. Click to swap it in`
+      : `${v.label}${v.artist ? `, by ${v.artist}` : ''}. Click for more`;
+  }
+
+  function closeMenus() {
+    for (const m of document.querySelectorAll('.menu.vmenu')) m.remove();
+  }
+  document.addEventListener('pointerdown', (e) => { if (!e.target.closest('.vmenu, .vchip')) closeMenus(); });
+
+  // What can be done from a version's chip: swap in the newer one, look it up in the catalogue.
+  function verMenu(id, anchor) {
+    closeMenus();
+    const it = items.get(id);
+    const v = it && versionInfo.get(it.ver);
+    if (!v) return;
+    const entries = [
+      el('div', { class: 'vmenu-head' }, el('b', { text: v.label }),
+        el('span', { text: [v.artist && `by ${v.artist}`, v.descriptor].filter(Boolean).join(' · ') || 'In the catalogue' })),
+      v.newest && !viewOnly && el('button', { class: 'menu-item', text: `Swap in v${v.newest.number}`, onclick: () => { closeMenus(); swapVersion(id, v.newest.id); } }),
+      !viewOnly && el('button', { class: 'menu-item', text: 'Look through all its versions', onclick: () => { closeMenus(); lookAtEntity(v.entityId, v.id); } }),
+      !viewOnly && el('button', { class: 'menu-item', text: 'Put another version on the board', onclick: () => { closeMenus(); toggleCatalogue(true, v.entityId); } }),
+      !viewOnly && el('a', { class: 'menu-item', href: `/#/f/${v.projectId}/catalogue/${v.entityId}`, text: 'Its page in the catalogue' }),
+    ];
+    const menu = el('div', { class: 'menu vmenu', role: 'menu' }, entries);
+    document.body.append(menu);
+    const r = anchor.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(r.left, innerWidth - menu.offsetWidth - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8))}px`;
+  }
+
+  // The piece shows another version of the same thing, in its place and at its width. One that is an
+  // image where the other was a video goes in beside it instead.
+  async function swapVersion(id, toId) {
+    let v;
+    try {
+      v = await WB.api('GET', `/api/versions/${toId}`);
+    } catch (err) {
+      return toast(err.message);
+    }
+    const it = items.get(id);
+    if (!it) return;
+    versionInfo.set(v.id, v);
+    if (v.look.type !== it.type) return placeMedia([{ ...v.look, ver: v.id }], { x: it.x + it.w + 40, y: it.y + it.h / 2 });
+    const patch = { ver: v.id };
+    for (const key of ['src', 'orig', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'wf', 'name']) patch[key] = v.look[key] ?? null;
+    if (v.look.nw && v.look.nh) patch.h = round(it.w * (v.look.nh / v.look.nw));
+    exec([{ t: 'set', id, patch }]);
+    toast(`Now ${v.label}`, { ms: 2500 });
+  }
+
+  // The images and videos among these that could be filed: on the server, and not a version already.
+  const fileable = (list) => list.filter((it) => onServer(it) && !(it.ver && versionInfo.has(it.ver)));
+
+  async function fileSelection() {
+    if (!project || viewOnly) return;
+    const list = fileable([...sel].map((id) => items.get(id)).filter(Boolean));
+    if (!list.length) return void toast(project ? 'Select images or videos to file them as versions' : 'Put this board in a project folder to file versions');
+    let cat;
+    try {
+      cat = await WB.api('GET', `/api/projects/${project.id}`);
+    } catch (err) {
+      return toast(err.message);
+    }
+    openFiling(list, cat);
+  }
+
+  // The dialog that files pieces as versions. Each piece says on its own row which asset, set or shot it
+  // is, and the task if any: filled in ahead from its name, else the frame it is in, else (for one piece)
+  // the last choice. Several pieces are never lumped together: each goes where its row says.
+  function openFiling(list, cat) {
+    const presetId = project.naming;
+    const remembered = store(`wb:file:${project.id}`) || {};
+    const known = (name) => !!name && (cat.entities.some((e) => e.name === name) || !!N.tierOf(name, presetId));
+    const tiers = N.preset(presetId).tiers;
+    const entityOptions = (typed) => N.suggest(cat.entities, typed, presetId);
+    const taskOptions = (typed) => WB.rank(cat.tasks, typed).map((t) => ({ value: t, label: t }));
+
+    const dlg = el('dialog', { class: `dlg file-dlg${list.length > 1 ? ' many' : ''}` });
+    const hint = el('p', { class: 'file-hint' });
+    const ok = el('button', { type: 'submit', class: 'btn primary', text: list.length > 1 ? `File ${list.length}` : 'File' });
+    const rows = list.map((it) => {
+      const parsed = N.parse(it.name || '', presetId);
+      const frame = frameOf(it);
+      const fromFrame = frame && known(N.tokenize(frame.title)) ? N.tokenize(frame.title) : null;
+      const ent = el('input', { type: 'text', value: parsed.entity || fromFrame || (list.length === 1 ? remembered.entity || '' : ''), placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': `What ${it.name || 'it'} is` });
+      const task = el('input', { type: 'text', value: parsed.task || (list.length === 1 && !parsed.entity ? remembered.task || '' : ''), placeholder: 'Task', spellcheck: 'false', 'aria-label': 'Task' });
+      const tier = el('select', { 'aria-label': 'What it is', title: 'A new one: what is it?' }, tiers.map((t) => el('option', { value: t.id, text: t.one })));
+      WB.combo(ent, entityOptions);
+      WB.combo(task, taskOptions);
+      const row = { it, ent, task, tier };
+      row.node = el('div', { class: 'file-row' },
+        el('img', { src: it.th || it.prev || (it.type === 'image' ? it.src : it.poster) || '', alt: '' }),
+        el('span', { class: 'file-name', text: it.name || (it.type === 'video' ? 'Video' : 'Image'), title: it.name || '' }),
+        el('span', { class: 'file-fields' }, ent, tier, task));
+      for (const input of [ent, task]) input.addEventListener('input', paint);
+      return row;
+    });
+    const nameOf = (row) => N.tokenize(row.ent.value);
+
+    // For several, one answer for them all, to start from.
+    const allEnt = el('input', { type: 'text', placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': 'Asset, set or shot for all' });
+    const allTask = el('input', { type: 'text', placeholder: 'Task', spellcheck: 'false', 'aria-label': 'Task for all' });
+    WB.combo(allEnt, entityOptions);
+    WB.combo(allTask, taskOptions);
+    const fill = el('div', { class: 'file-fill' }, el('span', { text: 'For all' }), allEnt, allTask,
+      el('button', { type: 'button', class: 'btn small', text: 'Fill in', onclick: () => {
+        for (const row of rows) {
+          if (allEnt.value.trim()) row.ent.value = allEnt.value.trim();
+          if (allTask.value.trim()) row.task.value = allTask.value.trim();
+        }
+        paint();
+      } }));
+
+    function paint() {
+      for (const row of rows) {
+        const name = nameOf(row);
+        row.tier.hidden = !name || known(name);
+      }
+      const missing = rows.filter((row) => !nameOf(row)).length;
+      ok.disabled = missing > 0;
+      const made = [...new Set(rows.map(nameOf).filter((n) => n && !cat.entities.some((e) => e.name === n)))];
+      hint.textContent = missing ? (list.length === 1 ? 'Which asset, set or shot is it? Type a name, or pick one.' : `${missing === rows.length ? 'Say' : `${missing} still need to say`} which asset, set or shot ${missing === 1 ? 'it is' : 'each is'}.`)
+        : made.length ? `New in the catalogue: ${made.join(', ')}.` : `Each is filed as the next version of what its row says.`;
+    }
+
+    let confirmed = false;
+    dlg.append(el('form', { method: 'dialog', onsubmit: () => { confirmed = true; } },
+      el('h2', { text: list.length > 1 ? `File ${list.length} pieces as versions` : 'File as a version' }),
+      list.length > 1 && fill,
+      el('div', { class: 'file-rows' }, rows.map((row) => row.node)),
+      hint,
+      el('div', { class: 'dlg-actions' },
+        el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }), ok)));
+    dlg.addEventListener('close', async () => {
+      dlg.remove();
+      if (!confirmed) return;
+      const files = rows.map((row) => {
+        const name = nameOf(row);
+        const have = cat.entities.find((e) => e.name === name);
+        return { board: boardId, item: row.it.id, entity: have ? have.id : { name, tier: N.tierOf(name, presetId) || row.tier.value }, task: N.tokenize(row.task.value) || null };
+      });
+      try {
+        const res = await WB.api('POST', `/api/projects/${project.id}/versions`, { files, by: me.name });
+        const last = rows[rows.length - 1];
+        store(`wb:file:${project.id}`, { entity: nameOf(last), task: N.tokenize(last.task.value) || null });
+        learnVersions(res.versions);
+        toast(res.versions.length === 1 ? `Filed as ${res.versions[0].label}` : `Filed ${res.versions.length} versions: ${res.versions.map((v) => v.label).join(', ')}`, { ms: 5000 });
+      } catch (err) {
+        toast(err.message, { ms: 6000 });
+      }
+    });
+    paint();
+    document.body.append(dlg);
+    dlg.showModal();
+    const first = rows.find((row) => !nameOf(row));
+    (first ? first.ent : rows.length === 1 ? rows[0].task : ok).focus();
+  }
+
+  // ---- the catalogue beside the board: the project's assets, sets and shots, and their versions, to
+  // put on the board with a click
+
+  const catPanel = $('catpanel');
+  let catSeen = null;     // what the project's catalogue was when last asked
+  let catEntity = null;   // the entity open in the panel, by id
+  let catQuery = '';
+  const catBody = el('div', { class: 'cat-body' });
+  const catSearch = el('input', { type: 'search', placeholder: 'Find an asset, set or shot', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Find' });
+  catSearch.addEventListener('input', () => { catQuery = catSearch.value.trim().toLowerCase(); paintCatalogue(); });
+  const catTitle = el('h2');
+  catPanel.append(
+    el('div', { class: 'act-head' }, catTitle,
+      el('button', { class: 'iconbtn', html: ICON.close, title: 'Close (Esc)', onclick: () => toggleCatalogue(false) })),
+    el('label', { class: 'cat-search' }, el('span', { html: ICON.search }), catSearch),
+    catBody);
+
+  const thumbOf = (src) => (src ? el('img', { src, alt: '', loading: 'lazy', draggable: 'false' }) : el('span', { class: 'cat-nothumb', html: ICON.stack }));
+
+  async function paintCatalogue() {
+    if (!project) return;
+    catTitle.textContent = project.name;
+    if (catEntity) return paintCatEntity();
+    if (!catSeen) {
+      try {
+        catSeen = await WB.api('GET', `/api/projects/${project.id}`);
+      } catch (err) {
+        return catBody.replaceChildren(el('p', { class: 'act-none', text: err.message }));
+      }
+    }
+    const shown = catSeen.entities.filter((e) => !catQuery || e.name.includes(catQuery));
+    const groups = catSeen.preset.tiers.map((t) => [t, shown.filter((e) => e.tier === t.id)]).filter(([, list]) => list.length);
+    catBody.replaceChildren(...(groups.length ? groups.map(([t, list]) => el('section', { class: 'cat-group' },
+      el('h3', {}, t.label, el('span', { class: 'tally', text: String(list.length) })),
+      el('div', { class: 'cat-grid' }, list.map((e) => el('button', { type: 'button', class: 'cat-tile', title: `${e.name}: ${e.versions} ${e.versions === 1 ? 'version' : 'versions'}`, onclick: () => { catEntity = e.id; paintCatalogue(); } },
+        thumbOf(e.thumb), el('span', { class: 'cat-name', text: e.name }), el('span', { class: 'cat-meta', text: e.versions ? `${e.versions} ${e.versions === 1 ? 'version' : 'versions'}` : 'Nothing filed' }))))))
+      : [el('p', { class: 'act-none' }, el('span', { html: ICON.stack }), el('span', { text: catQuery ? 'Nothing by that name' : 'Nothing filed in this project yet. Select images or videos on the board and file them (Shift+V).' }))]));
+  }
+
+  async function paintCatEntity() {
+    let page;
+    try {
+      page = await WB.api('GET', `/api/entities/${catEntity}`);
+    } catch (err) {
+      catEntity = null;
+      return paintCatalogue();
+    }
+    const here = new Set([...items.values()].map((it) => it.ver).filter(Boolean));
+    const shown = page.versions.filter((v) => !v.hidden);
+    catBody.replaceChildren(
+      el('button', { type: 'button', class: 'cat-back', onclick: () => { catEntity = null; paintCatalogue(); } }, el('span', { html: ICON.prev }), 'All of the project'),
+      el('div', { class: 'cat-ent' }, el('b', { text: page.entity.name }), el('span', { text: `${page.entity.tier} · ${shown.length} ${shown.length === 1 ? 'version' : 'versions'}` })),
+      shown.length ? el('div', { class: 'cat-versions' }, shown.map((v) => el('div', { class: `cat-ver${here.has(v.id) ? ' here' : ''}` },
+        el('button', {
+          type: 'button', class: 'cat-put', title: here.has(v.id) ? `${v.label} is on this board. Click to put it on again` : `Put ${v.label} on the board`,
+          onclick: () => placeMedia([{ ...v.look, ver: v.id }], viewCenter()),
+        }, thumbOf(v.thumb), el('span', { class: 'cat-name', text: v.label }),
+        el('span', { class: 'cat-meta', text: [v.artist, WB.ago(v.createdAt)].filter(Boolean).join(' · ') })),
+        here.has(v.id) && el('span', { class: 'cat-here', text: 'On the board' }),
+        el('button', { type: 'button', class: 'iconbtn mini cat-look', html: ICON.focus, title: 'Open it, to look, comment and draw', onclick: () => { toggleCatalogue(false); lookAtEntity(page.entity.id, v.id); } }))))
+        : el('p', { class: 'act-none', text: 'No versions yet' }));
+  }
+
+  function toggleCatalogue(show = catPanel.hidden, entityId) {
+    catPanel.hidden = !show;
+    $('catalogue').classList.toggle('active', show);
+    if (!show) return;
+    closeHelp();
+    toggleActivity(false);
+    toggleSettings(false);
+    if (boardPanel) togglePanel(false);
+    catSeen = null;
+    if (entityId !== undefined) catEntity = entityId;
+    paintCatalogue();
   }
 
   // ---- what has happened on this board
@@ -6936,7 +4883,8 @@
     link: [ICON.link, () => 'looked through the link'],
     edit: [ICON.pen, (n) => (n === 1 ? '1 change' : `${n} changes`)],
     comment: [ICON.comment, () => 'commented'],
-    restore: [ICON.restore, () => 'put back a version'],
+    file: [ICON.file, () => 'filed a version'],
+    restore: [ICON.restore, () => 'put back a snapshot'],
   };
   const whenExactly = (at) => new Date(at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
   // Today and yesterday by name, the time to the minute.
@@ -6965,12 +4913,12 @@
   async function putBack(v) {
     const sure = await WB.dialog({
       title: 'Put the board back?',
-      text: `Everything goes back to ${whenExactly(v.at)}, for everyone. What is there now is kept as a version too.`,
+      text: `Everything on it goes back to ${whenExactly(v.at)}, for everyone. What is there now is kept as a snapshot too. Notes and versions stay as they are.`,
       ok: 'Put it back',
     });
     if (!sure) return;
     try {
-      await WB.api('POST', `/api/boards/${boardId}/versions/${v.at}/restore`, { by: me.name });
+      await WB.api('POST', `/api/boards/${boardId}/snapshots/${v.at}/restore`, { by: me.name });
       toast(`The board is as it was on ${whenExactly(v.at)}.`, { ms: 7000 });
       paintActivity();
     } catch (err) {
@@ -6979,8 +4927,8 @@
   }
 
   function paintActTabs() {
-    const n = actSeen ? actSeen.versions.length : 0;
-    actTabs.replaceChildren(...[['events', ICON.activity, 'Activity'], ['versions', ICON.restore, n ? `Versions · ${n}` : 'Versions']].map(([id, ic, label]) => el('button', {
+    const n = actSeen ? actSeen.snapshots.length : 0;
+    actTabs.replaceChildren(...[['events', ICON.activity, 'Activity'], ['snapshots', ICON.restore, n ? `Snapshots · ${n}` : 'Snapshots']].map(([id, ic, label]) => el('button', {
       class: `seg-btn${actTab === id ? ' on' : ''}`, role: 'tab', 'aria-selected': String(actTab === id),
       onclick: () => { actTab = id; paintActTabs(); paintActBody(); },
     }, el('span', { class: 'seg-ic', html: ic }), el('span', { text: label }))));
@@ -6998,14 +4946,14 @@
           el('time', { text: WB.ago(e.at), title: whenExactly(e.at) }))))
         : el('p', { class: 'act-none' }, el('span', { html: ICON.activity }), el('span', { text: 'Nothing yet' })));
     }
-    const versions = actSeen.versions;
-    actBody.replaceChildren(versions.length
-      ? el('ol', { class: 'act-list versions' }, versions.map((v) => el('li', {},
+    const snaps = actSeen.snapshots;
+    actBody.replaceChildren(snaps.length
+      ? el('ol', { class: 'act-list versions' }, snaps.map((v) => el('li', {},
         el('i', { class: 'ver-dot' }),
         el('span', { class: 'act-what' }, el('b', { text: whenShort(v.at), title: whenExactly(v.at) }),
           el('span', { class: 'act-did', text: `${v.count} ${v.count === 1 ? 'item' : 'items'}${v.who ? ` · before ${v.who}` : ''}` })),
         el('button', { type: 'button', class: 'iconbtn', html: ICON.restore, title: 'Put the board back to this', onclick: () => putBack(v) }))))
-      : el('p', { class: 'act-none' }, el('span', { html: ICON.restore }), el('span', { text: 'No versions yet' })));
+      : el('p', { class: 'act-none' }, el('span', { html: ICON.restore }), el('span', { text: 'No snapshots yet' })));
   }
 
   async function paintActivity() {
@@ -7025,7 +4973,8 @@
     if (!show) return;
     closeHelp();
     toggleSettings(false);
-    if (boardPanel && !focusId) togglePanel(false);
+    toggleCatalogue(false);
+    if (boardPanel) togglePanel(false);
     paintActTabs();
     paintActivity();
   }
@@ -7127,25 +5076,18 @@
     updateOverlay();
     syncComments();
   });
-  $('cptab').addEventListener('click', () => togglePanel());
-  $('focusboard').addEventListener('click', exitFocus);
   $('snap').innerHTML = ICON.snap;
   $('snap').classList.toggle('active', snapOn);
   $('snap').addEventListener('click', toggleSnap);
-  $('focusdone').addEventListener('click', exitFocus);
   if (!viewOnly) {
-    for (const [id, run, ic] of [['focusdl', () => downloadPiece(focusId), ICON.download], ['boardmenu', () => toggleSettings(), ICON.settings], ['activity', () => toggleActivity(), ICON.activity]]) {
+    for (const [id, run, ic] of [['boardmenu', () => toggleSettings(), ICON.settings], ['activity', () => toggleActivity(), ICON.activity]]) {
       $(id).innerHTML = ic;
       $(id).hidden = false;
       $(id).addEventListener('click', run);
     }
+    $('catalogue').innerHTML = ICON.stack;
+    $('catalogue').addEventListener('click', () => toggleCatalogue());
   }
-  $('focusprev').innerHTML = ICON.prev;
-  $('focusnext').innerHTML = ICON.next;
-  $('focusprev').addEventListener('click', () => stepFocus(-1));
-  $('focusnext').addEventListener('click', () => stepFocus(1));
-  $('focusclear').addEventListener('click', clearDrawing);
-  $('focuszoom').addEventListener('click', () => toggleFocusZoom());
   buildToolbar();
   setTool('select');
   applyCam();

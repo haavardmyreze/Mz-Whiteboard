@@ -87,6 +87,14 @@
   --r-2: 5px;
   --r-3: 8px;
   --r-4: 12px;
+  /* The layers that float over every page, lowest first. Stacking inside a part (the board's chrome, the
+     player) uses small numbers of its own. */
+  --z-menu: 50;
+  --z-toast: 60;
+  --z-mention: 70;
+  --z-tip: 100;
+  --z-popover: 200;
+  --z-splash: 2000;
 
   --h: 32px;
   --h-sm: 28px;
@@ -336,7 +344,7 @@ input[type="text"]:focus-visible, input[type="search"]:focus-visible, textarea:f
 
 .menu {
   position: fixed;
-  z-index: 50;
+  z-index: var(--z-menu);
   min-width: 176px;
   padding: 4px;
   display: flex;
@@ -355,7 +363,7 @@ input[type="text"]:focus-visible, input[type="search"]:focus-visible, textarea:f
 
 #tip {
   position: fixed;
-  z-index: 100;
+  z-index: var(--z-tip);
   left: 0;
   top: 0;
   display: flex;
@@ -584,7 +592,7 @@ body.home:not(.admin) .appbar .wordmark { color: var(--text); }
 /* Notifications: a bell in the header with an unread count, opening a list beneath it. */
 .bellwrap { position: relative; }
 #bell { position: relative; }
-.bell-count { position: absolute; top: 2px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger); color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
+.bell-count { position: absolute; top: 2px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--r-3); background: var(--danger); color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
 .notices { position: absolute; top: calc(100% + 8px); right: -8px; z-index: 40; display: flex; flex-direction: column; width: min(400px, calc(100vw - 24px)); max-height: min(560px, calc(100vh - 96px)); border: 1px solid var(--line-strong); border-radius: var(--r-3); background: var(--surface-1); box-shadow: var(--shadow-pop); animation: rise 0.16s var(--ease); }
 .notices[hidden] { display: none; }
 .notices-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 48px; padding: 6px 8px 6px 16px; border-bottom: 1px solid var(--line); }
@@ -826,7 +834,7 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport, body[data-
   align-items: center;
   justify-content: center;
   padding: 0 0.5em;
-  border-radius: 8px;
+  border-radius: var(--r-3);
   box-shadow: 0 0 0 calc(1px * var(--inv)) var(--ring-c), 0 2px 4px color-mix(in srgb, var(--lift-c) 60%, transparent), 0 14px 26px -14px var(--lift-c);
   font-weight: 700;
   line-height: 1.1;
@@ -882,7 +890,7 @@ body.focus #viewport { background-image: none; background-color: var(--viewer-bg
 .handle.side { display: none; width: auto; height: auto; border: 0; background: transparent; box-shadow: none; }
 #selbox.sides .handle.side, #selbox.sides-x .handle.side:is(.e, .w) { display: block; }
 .handle.side::after { inset: 0; }
-.handle.side::before { content: ""; position: absolute; left: 50%; top: 50%; border: 1.5px solid var(--accent); border-radius: 3px; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); transform: translate(-50%, -50%); }
+.handle.side::before { content: ""; position: absolute; left: 50%; top: 50%; border: 1.5px solid var(--accent); border-radius: var(--r-1); background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); transform: translate(-50%, -50%); }
 .handle.side:is(.e, .w) { top: 12px; bottom: 12px; width: 12px; cursor: ew-resize; }
 .handle.side:is(.n, .s) { left: 12px; right: 12px; height: 12px; cursor: ns-resize; }
 .handle.side:is(.e, .w)::before { width: 6px; height: 18px; }
@@ -1072,7 +1080,7 @@ body.dragging-tool, body.dragging-tool * { cursor: grabbing !important; }
   position: fixed;
   left: 0;
   top: 0;
-  z-index: 200;
+  z-index: var(--z-popover);
   display: grid;
   place-items: center;
   border: 1.5px dashed var(--accent);
@@ -1129,7 +1137,7 @@ kbd { display: inline-grid; place-items: center; min-width: 24px; height: 24px; 
 #helppanel dt { padding-right: 24px; color: var(--text-2); }
 #helppanel dd { justify-content: flex-end; margin: 0; color: var(--text); font-weight: 500; text-align: right; }
 
-#toasts { position: fixed; left: 50%; bottom: 84px; z-index: 60; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+#toasts { position: fixed; left: 50%; bottom: 84px; z-index: var(--z-toast); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
 .toast { position: relative; max-width: min(520px, calc(100vw - 32px)); padding: 8px 14px; border-color: var(--tip-line); background: var(--tip-bg); box-shadow: var(--shadow-pop); color: var(--tip-fg); font-weight: 500; animation: rise 0.18s var(--ease); }
 
 .fatal { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; height: 100%; }
@@ -1257,7 +1265,7 @@ body.focus .vchip { display: none; }
 body.viewonly .vchip { top: auto; bottom: 0.7em; }
 /* Its file name, when the board shows names, goes to the bottom so the two do not meet. */
 body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::before { top: auto; bottom: 0; border-radius: 0 calc(6px * var(--inv)) 0 0; }
-.vmenu { position: fixed; z-index: 60; min-width: 220px; }
+.vmenu { position: fixed; z-index: calc(var(--z-menu) + 10); min-width: 220px; }
 .vmenu-head { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 8px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
 .vmenu-head b { font-size: 13px; font-weight: 650; }
 .vmenu-head span { color: var(--muted); font-size: 12px; }
@@ -1298,7 +1306,7 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
 .cat-nothumb svg { width: 20px; height: 20px; opacity: 0.6; }
 .cat-name { padding: 0 8px; overflow: hidden; font-size: 12.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .cat-meta { padding: 0 8px; overflow: hidden; color: var(--muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
-.cat-here { position: absolute; top: 6px; left: 6px; padding: 2px 6px; border-radius: 8px; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 10.5px; font-weight: 600; }
+.cat-here { position: absolute; top: 6px; left: 6px; padding: 2px 6px; border-radius: var(--r-3); background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 10.5px; font-weight: 600; }
 .cat-back { display: inline-flex; align-items: center; gap: 4px; height: var(--h-sm); margin: 0 0 6px -6px; padding: 0 8px 0 4px; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
 .cat-back:hover { background: var(--hover); color: var(--text); }
 .cat-back svg { width: 15px; height: 15px; }
@@ -1381,9 +1389,9 @@ body.focus .v-panel { right: 0; bottom: 0; top: var(--bar); width: var(--side); 
 .msg-edit-acts { display: flex; justify-content: flex-end; gap: 6px; }
 /* People named with an @; yourself more strongly. */
 .mention { color: var(--accent); font-weight: 600; }
-.mention.me { padding: 0 2px; border-radius: 3px; background: var(--accent-soft); }
+.mention.me { padding: 0 2px; border-radius: var(--r-1); background: var(--accent-soft); }
 /* The names offered after an @, just above the box being typed in. */
-.mention-menu { z-index: 70; min-width: 200px; max-width: 280px; }
+.mention-menu { z-index: var(--z-mention); min-width: 200px; max-width: 280px; }
 .mention-menu .menu-item { display: flex; align-items: center; gap: 8px; }
 .mention-menu .menu-item.active { background: var(--hover); }
 .msg-on { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1445,7 +1453,7 @@ body.viewonly:not(.focus) .item.image:hover::after, body.viewonly:not(.focus) .i
 
 /* Myreze logo: the welcome when the app opens, and the idle state while the server is unreachable. */
 #splash {
-  position: fixed; inset: 0; z-index: 2000;
+  position: fixed; inset: 0; z-index: var(--z-splash);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
   color: var(--text);
   transition: opacity 0.4s var(--ease);
@@ -1705,7 +1713,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .tl-wave { display: none; }
 .tl-track.wave .tl-rail { display: none; }
 .tl-track.wave .tl-wave { display: block; position: absolute; top: 50%; height: 40px; margin-top: -20px; }
-.tl-track.wave .tl-wave { left: 0; width: 100%; border-radius: 5px; }
+.tl-track.wave .tl-wave { left: 0; width: 100%; border-radius: var(--r-2); }
 .tl-track.wave .tl-head { width: 3px; height: 44px; margin: -22px 0 0 -1.5px; border-radius: 2px; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); }
 
 /* ---------------------------------------------------------------- admin
@@ -1915,7 +1923,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .card.ver .card-thumbs { position: relative; width: 100%; padding: 0; border: 0; font: inherit; cursor: zoom-in; }
 .card.ver .card-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card.ver.hidden-ver { opacity: 0.55; }
-.ver-kind { position: absolute; left: 8px; bottom: 8px; padding: 2px 7px; border-radius: 8px; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 11px; font-weight: 600; }
+.ver-kind { position: absolute; left: 8px; bottom: 8px; padding: 2px 7px; border-radius: var(--r-3); background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 11px; font-weight: 600; }
 .ver-boards { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 
 /* Compact: every card a row, a small still beside its name, many more to a screen (the button in the bar). */
@@ -1964,7 +1972,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .ent-thread { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); }
 .ent-thread.done { opacity: 0.6; }
 .ent-thread-ver { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--muted); font-size: 11.5px; font-weight: 600; }
-.ent-done { padding: 1px 7px; border-radius: 8px; background: var(--surface-2); font-weight: 500; }
+.ent-done { padding: 1px 7px; border-radius: var(--r-3); background: var(--surface-2); font-weight: 500; }
 .ent-msg { display: flex; gap: 10px; }
 .ent-msg.reply { margin: 10px 0 0 34px; }
 .ent-msg-main { flex: 1; min-width: 0; }
@@ -2071,12 +2079,12 @@ button.imp-row:hover { background: var(--hover); }
 @media (max-width: 700px) { .cat-hint { display: none; } }
 
 /* Suggestions under a text box (WB.combo). */
-.combo-list { position: fixed; z-index: 200; display: flex; flex-direction: column; max-width: min(420px, calc(100vw - 16px)); max-height: 320px; overflow: auto; padding: 4px; border: 1px solid var(--line-strong); border-radius: var(--r-3); background: var(--surface-1); box-shadow: var(--shadow-pop); }
+.combo-list { position: fixed; z-index: var(--z-popover); display: flex; flex-direction: column; max-width: min(420px, calc(100vw - 16px)); max-height: 320px; overflow: auto; padding: 4px; border: 1px solid var(--line-strong); border-radius: var(--r-3); background: var(--surface-1); box-shadow: var(--shadow-pop); }
 .combo-list[hidden] { display: none; }
 .combo-opt { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 4px 8px; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
 .combo-opt.at, .combo-opt:hover { background: var(--hover); }
 .combo-opt.make .combo-label { color: var(--accent); }
-.combo-thumb { flex: none; display: block; width: 36px; height: 22px; overflow: hidden; border-radius: 3px; background: var(--surface-3); }
+.combo-thumb { flex: none; display: block; width: 36px; height: 22px; overflow: hidden; border-radius: var(--r-1); background: var(--surface-3); }
 .combo-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .combo-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .combo-hint { flex: none; color: var(--muted); font-size: 11.5px; }
@@ -2162,7 +2170,7 @@ button.imp-row:hover { background: var(--hover); }
 .v-runcap b { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
 .v-runcap span { color: #cfcfcf; font-size: 14px; }
 .v-runcap span.none { color: #9a9a9a; font-style: italic; }
-.tl-seqname { position: absolute; z-index: 1; top: 2px; left: 3px; padding: 0 4px; border-radius: 3px; background: rgba(0, 0, 0, 0.65); color: #fff; font-size: 9.5px; font-weight: 700; line-height: 14px; letter-spacing: 0.06em; text-transform: uppercase; }
+.tl-seqname { position: absolute; z-index: 1; top: 2px; left: 3px; padding: 0 4px; border-radius: var(--r-1); background: rgba(0, 0, 0, 0.65); color: #fff; font-size: 9.5px; font-weight: 700; line-height: 14px; letter-spacing: 0.06em; text-transform: uppercase; }
 .viewer.run .tl-head { top: 3px; bottom: 3px; width: 2px; height: auto; margin: 0 0 0 -1px; border-radius: 1px; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }
 .viewer.run .tl-mark.comment { top: -3px; z-index: 2; }
 .v-timeline.still .iconbtn.tl-step { opacity: 0.35; pointer-events: none; }
@@ -2177,7 +2185,7 @@ button.imp-row:hover { background: var(--hover); }
 /* Picking assets, sets and shots to change together, and the bar that says how many. */
 .pick-toggle.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
 .pick-box { display: none; }
-body.picking .card.ent .pick-box { position: absolute; z-index: 2; top: 8px; left: 8px; display: grid; place-items: center; width: 20px; height: 20px; border: 1.5px solid rgba(255, 255, 255, 0.85); border-radius: 5px; background: rgba(0, 0, 0, 0.45); }
+body.picking .card.ent .pick-box { position: absolute; z-index: 2; top: 8px; left: 8px; display: grid; place-items: center; width: 20px; height: 20px; border: 1.5px solid rgba(255, 255, 255, 0.85); border-radius: var(--r-2); background: rgba(0, 0, 0, 0.45); }
 body.picking .card.ent { cursor: pointer; }
 body.picking .card.ent .play-latest { display: none; }
 body.picking .card.ent.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
@@ -2250,7 +2258,7 @@ body.picking main { padding-bottom: 120px; }
 .vl-boards { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; max-width: 320px; }
 .vl-more { color: var(--muted); font-size: 11.5px; }
 .vl-time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
-.vl-box { flex: none; position: relative; width: 18px; height: 18px; padding: 0; border: 1.5px solid var(--line-strong); border-radius: 5px; background: transparent; cursor: pointer; }
+.vl-box { flex: none; position: relative; width: 18px; height: 18px; padding: 0; border: 1.5px solid var(--line-strong); border-radius: var(--r-2); background: transparent; cursor: pointer; }
 .vl-box:hover { border-color: var(--muted); }
 .vl-box.on, .vl-box.some { border-color: var(--accent); background: var(--accent); }
 .vl-box.on::after { content: ""; position: absolute; left: 4px; top: 2px; width: 7px; height: 4px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg); }
@@ -2267,7 +2275,7 @@ body.vpicking main { padding-bottom: 120px; }
 .ent-thread-open:hover { color: var(--text); text-decoration: underline; }
 
 /* The box drawn by dragging on empty space in the catalogue or a project's Versions. */
-.marquee { position: fixed; z-index: 50; border: 1px solid var(--accent); border-radius: 2px; background: color-mix(in srgb, var(--accent) 14%, transparent); pointer-events: none; }
+.marquee { position: fixed; z-index: var(--z-menu); border: 1px solid var(--accent); border-radius: 2px; background: color-mix(in srgb, var(--accent) 14%, transparent); pointer-events: none; }
 body.marqueeing, body.marqueeing * { user-select: none !important; -webkit-user-select: none !important; cursor: crosshair; }
 
 /* Boards, folders and versions picked by a box. */

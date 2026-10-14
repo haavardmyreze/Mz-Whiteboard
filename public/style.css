@@ -2199,3 +2199,8 @@ body.home.tl-mode main { max-width: none; padding: 8px 20px 16px; }
   .tl-lane { height: 120px; }
   .tl-clips { height: 84px; }
 }
+
+/* The version an imported file is to be. */
+.imp-v { display: inline-flex; align-items: center; gap: 2px; color: var(--muted); font-size: 12.5px; }
+.imp-fields input.imp-num { width: 58px; padding: 0 4px 0 6px; }
+@media (max-width: 760px) { .imp-fields input.imp-num { flex: 0 0 58px; } }

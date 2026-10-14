@@ -679,7 +679,14 @@ function openStore(dataDir) {
     const { src, poster, th, dur, fps, nw, nh } = v.look;
     return { id: v.id, task: v.task, number: v.number, kind: v.kind, at: v.createdAt, look: { type: v.look.type, src, poster, th, dur, fps, nw, nh } };
   };
-  const entities = (projectId) => readEntities.all(projectId).map((r) => ({ ...entityOf(r), versions: r.n, latestAt: r.latest || null, thumb: r.thumb || null, newest: glance(r.newest) }));
+  // The highest number each task of each entity has reached (deleted versions too: their numbers are
+  // not given out again), so the next one can be said ahead: { task (or '' for none): number }.
+  const readTops = db.prepare('SELECT v.entity_id, v.task, max(v.number) AS top FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ? GROUP BY v.entity_id, v.task');
+  const entities = (projectId) => {
+    const tops = new Map();
+    for (const t of readTops.all(projectId)) (tops.get(t.entity_id) || tops.set(t.entity_id, {}).get(t.entity_id))[t.task ?? ''] = t.top;
+    return readEntities.all(projectId).map((r) => ({ ...entityOf(r), versions: r.n, latestAt: r.latest || null, thumb: r.thumb || null, newest: glance(r.newest), tops: tops.get(r.id) || {} }));
+  };
   // The newest version of each entity, of one task or of any; for a project's timeline.
   const readNewestOfTask = db.prepare('SELECT id FROM versions WHERE entity_id = ? AND task IS ? AND hidden = 0 AND deleted_at IS NULL ORDER BY number DESC LIMIT 1');
   const newestOfTask = (entityId, task) => glance((readNewestOfTask.get(entityId, task) || {}).id);
@@ -761,9 +768,15 @@ function openStore(dataDir) {
   };
   // Files a piece of media as the next version of an entity (and task). The number is counted here:
   // one more than the last of that entity and task, in the order they were filed.
-  function addVersion({ id, entityId, task = null, descriptor = null, artist = null, hip = null, media = null, thumb = null, kind, originalName = null, look, boardId = null, by = null, at = Date.now() }) {
+  // `number`, when given, is the one it is to have; a number another version of that entity and task has
+  // (or had, before it was deleted) is refused with that version.
+  function addVersion({ id, entityId, task = null, number: asked = null, descriptor = null, artist = null, hip = null, media = null, thumb = null, kind, originalName = null, look, boardId = null, by = null, at = Date.now() }) {
     return transaction(() => {
-      const number = nextNumber.get(entityId, task).n;
+      if (asked != null) {
+        const holder = readHolder.get(entityId, task, asked);
+        if (holder) throw Object.assign(new Error('That number is taken'), { taken: versionOf(holder) });
+      }
+      const number = asked ?? nextNumber.get(entityId, task).n;
       putVersion.run(id, entityId, task, number, descriptor, artist, hip, media, thumb, kind, originalName, JSON.stringify(look), boardId, at, by);
       return version(id);
     });

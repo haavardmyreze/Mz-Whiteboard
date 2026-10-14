@@ -315,7 +315,10 @@ filed in it.
   filled in ahead from its name (on an asset, set or shot's own page, from that one), with the same
   suggestions as filing on a board. Nothing is filed until you say: File on a row, Enter in its boxes,
   or "File all" for every row that says where it goes (one still on its way in is filed when it
-  arrives). "For all" fills every row at once. Nothing goes on a board. Click a filed one to open it in
+  arrives). "For all" fills every row at once. Each row has its version number too, filled in as the
+  next one (one past the last of that asset, set or shot and task, and past the rows above it going to
+  the same); type another to use it instead, and the rows below count on from it. A number that is
+  taken is refused, with what has it. Nothing goes on a board. Click a filed one to open it in
   the player.
 - **Looking without choosing.** Move the pointer across a video's picture in the catalogue and it
   scrubs through it, as if the pointer were dragging its playhead. An asset, set or shot's picture
@@ -402,7 +405,8 @@ A project's catalogue has its own: `GET /api/projects/<folder>` (its assets, set
 `GET /api/entities/<id>` (one of them, every version and every note), `GET`, `PATCH` and `DELETE
 /api/versions/<id>` (`PATCH` takes `entity`, `task`, `number`, `artist`, `descriptor`, `hidden`, or
 `{ "deleted": false }` to bring a deleted one back), and `POST /api/projects/<folder>/versions` to file
-versions (each file may say its own `entity` and `task`). `POST /api/projects/<folder>/entities` takes
+versions (each file may say its own `entity`, `task` and `number`; the catalogue's `tops` says the
+highest number each task of each entity has reached). `POST /api/projects/<folder>/entities` takes
 `{ "names": [...], "tier" }` to set many up at once; `PATCH /api/entities/<id>` takes `name`, `tier`,
 `artists` and `cc`. `GET /api/people` lists the names the app knows, and `GET /api/feed?name=` is
 Home's For you. `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest

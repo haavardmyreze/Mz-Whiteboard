@@ -1398,8 +1398,8 @@
           if (r.status === 'filed' || r.status === 'filing') continue;
           if (allEnt.value.trim()) r.fields.ent.value = allEnt.value.trim();
           if (allTask.value.trim()) r.fields.task.value = allTask.value.trim();
-          r.fields.sync();
         }
+        resyncAll();
       },
     }, el('span', { text: 'For all:' }), allEnt, allTask, el('button', { type: 'submit', class: 'btn small', text: 'Fill in' }));
     const head = el('div', { class: 'imp-head' }, title, fillAll, el('span', { class: 'imp-gap' }), clearBtn, fileAll);
@@ -1414,31 +1414,54 @@
 
     const PHASE = { enc: 'Preparing', up: 'Uploading', strip: 'Building timeline', orig: 'Keeping the original' };
     const choiceOf = (r) => ({ name: N.tokenize(r.fields.ent.value), task: N.tokenize(r.fields.task.value) || null });
+    // The next number for a row: one past the highest its asset, set or shot and task has, counting the
+    // rows above it still to be filed to the same.
+    function nextNumber(r) {
+      const { name, task } = choiceOf(r);
+      const have = known(name);
+      let n = (have && have.tops ? have.tops[task || ''] || 0 : 0) + 1;
+      for (const o of rows) {
+        if (o === r) break;
+        if (o.status === 'filed' || !o.fields) continue;
+        const c = choiceOf(o);
+        if (c.name === name && c.task === task) n = Math.max(n, (Number(o.fields.num.value) || n) + 1);
+      }
+      return n;
+    }
+    const resyncAll = () => { for (const o of rows) if (o.fields) o.fields.sync(); };
     const canFile = (r) => (r.status === 'ready' || r.status === 'uploading' || r.status === 'queued' || (r.status === 'failed' && r.look)) && !r.fileWhenReady && !!choiceOf(r).name;
 
     function makeRow(r) {
       const ent = el('input', { type: 'text', value: r.entity ? r.entity.name : r.parsed.entity || '', placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': `What ${r.file.name} is` });
       const task = el('input', { type: 'text', value: r.parsed.task || '', placeholder: 'Task', spellcheck: 'false', 'aria-label': 'Task' });
+      // The version it is to be: the next of that asset, set or shot and task (after any rows above going
+      // to the same), unless another is typed.
+      const num = el('input', { type: 'number', min: '1', step: '1', class: 'imp-num', 'aria-label': 'Version', title: 'Version: the next one, unless you say another' });
+      num.addEventListener('input', () => { r.numTouched = num.value !== ''; resyncAll(); });
       const tier = el('select', { 'aria-label': 'What it is', title: 'A new one: what is it?' }, tiers().map((t) => el('option', { value: t.id, text: t.one })));
       const go = el('button', { type: 'button', class: 'btn small', text: 'File', onclick: () => fileRow(r) });
       const status = el('span', { class: 'imp-status' });
       const bar = el('i', { class: 'imp-bar' }, el('i'));
       const thumb = el('span', { class: 'imp-thumb' });
       const said = el('button', { type: 'button', class: 'imp-filed', hidden: true, title: 'Open it, to look, comment and draw', onclick: () => r.version && lookAt(r.version.entityId, r.version.id) });
-      const fields = el('span', { class: 'imp-fields' }, ent, tier, task, go);
+      const fields = el('span', { class: 'imp-fields' }, ent, tier, task, el('span', { class: 'imp-v' }, el('span', { text: 'v' }), num), go);
       WB.combo(ent, entitySource(() => cat, presetId));
       WB.combo(task, taskSource(tasks));
       const sync = () => {
         const { name } = choiceOf(r);
         const shape = name && N.tierOf(name, presetId);
         tier.hidden = !name || !!known(name) || !!shape;
+        if (!r.numTouched && r.status !== 'filed') {
+          const next = name ? nextNumber(r) : '';
+          if (num.value !== String(next)) num.value = String(next);
+        }
         go.disabled = !canFile(r);
         paintHead();
       };
-      ent.addEventListener('input', sync);
-      task.addEventListener('input', sync);
-      for (const input of [ent, task]) input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented && canFile(r)) fileRow(r); });
-      r.fields = { ent, task, tier, go, status, bar, thumb, said, box: fields, sync };
+      ent.addEventListener('input', resyncAll);
+      task.addEventListener('input', resyncAll);
+      for (const input of [ent, task, num]) input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented && canFile(r)) fileRow(r); });
+      r.fields = { ent, task, num, tier, go, status, bar, thumb, said, box: fields, sync };
       r.node = el('div', { class: 'imp-row' }, thumb, el('span', { class: 'imp-file' }, el('span', { class: 'imp-name', text: r.file.name, title: r.file.name }), bar), fields, said, status);
       sync();
       return r.node;
@@ -1494,17 +1517,18 @@
       const { name, task } = choiceOf(r);
       const have = known(name);
       const entity = have ? have.id : { name, tier: N.tierOf(name, presetId) || r.fields.tier.value };
+      const number = Number(r.fields.num.value);
       r.status = 'filing';
       paintRow(r);
       try {
-        const res = await api('POST', `/api/projects/${project.id}/versions`, { files: [{ look: r.look, entity, task }], by: me.name });
+        const res = await api('POST', `/api/projects/${project.id}/versions`, { files: [{ look: r.look, entity, task, ...(Number.isSafeInteger(number) && number >= 1 && { number }) }], by: me.name });
         const v = res.versions[0];
         Object.assign(r, { status: 'filed', label: v.label, version: v });
         store(`wb:file:${project.id}`, { entity: name, task });
-        if (!have) {
-          cat = null;
-          await catalogue().catch(() => {});
-        }
+        // What is filed now has its number: the rows still to go count on from it.
+        cat = null;
+        await catalogue().catch(() => {});
+        resyncAll();
         showFiled();
       } catch (err) {
         Object.assign(r, { status: 'failed', error: err.message });

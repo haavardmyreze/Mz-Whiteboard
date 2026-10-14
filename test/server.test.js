@@ -1820,3 +1820,28 @@ test('a project\'s timeline is every shot in order with its newest version, and 
   assert.equal(k10.newest.look.type, 'video');
   assert.equal(cat.entities.find((e) => e.name === 'char-robot').newest, null);
 });
+
+test('a file brought in can ask for its version number, and the catalogue says what the next one is', async (t) => {
+  const s = start(4843);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const up = async () => (await (await fetch(`${s.base}/api/upload?name=a.png`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
+  const file = async (task, number) => call('POST', `/api/projects/${project.id}/versions`, { entity: { name: 'kilo-0010' }, files: [{ task, number, look: { type: 'image', src: await up(), name: 'a.png' } }] });
+  assert.equal((await file('anim')).body.versions[0].label, 'kilo-0010 anim v1');
+  assert.equal((await file('anim', 7)).body.versions[0].label, 'kilo-0010 anim v7');
+  assert.equal((await file('anim')).body.versions[0].label, 'kilo-0010 anim v8');
+  const clash = await file('anim', 7);
+  assert.equal(clash.status, 409);
+  assert.match(clash.body.error, /kilo-0010 anim v7 already/);
+  assert.equal((await file('anim', 0)).status, 400);
+  assert.equal((await file(null, 3)).body.versions[0].label, 'kilo-0010 v3');
+  const e = (await call('GET', `/api/projects/${project.id}`)).body.entities[0];
+  assert.deepEqual(e.tops, { anim: 8, '': 3 });
+});

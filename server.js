@@ -844,10 +844,20 @@ async function fileVersions(req, project, body) {
     const artist = pick('artist') !== undefined ? tokenOrNull(pick('artist')) : p.parsed.artist;
     const media = uploadName(p.look.src);
     const thumb = p.look.th || (p.look.type === 'image' ? p.look.prev || p.look.src : p.look.poster) || null;
-    const v = store.addVersion({
-      id: newId(), entityId: entity.id, task, descriptor, artist,
-      media, thumb, kind: p.look.type, originalName: p.look.name || null, look: p.look, boardId: p.board ? p.board.id : null, by,
-    });
+    // A number may be asked for (one a file says on its own); otherwise it is the next.
+    const asked = p.f.number ?? null;
+    if (asked != null && !(Number.isSafeInteger(asked) && asked >= 1 && asked <= 99999)) throw refusal(400, 'A version number is a whole number from 1');
+    let v;
+    try {
+      v = store.addVersion({
+        id: newId(), entityId: entity.id, task, number: asked, descriptor, artist,
+        media, thumb, kind: p.look.type, originalName: p.look.name || null, look: p.look, boardId: p.board ? p.board.id : null, by,
+      });
+    } catch (err) {
+      if (!err.taken) throw err;
+      const name = naming.label(entity.name, task, asked);
+      throw refusal(409, err.taken.deletedAt ? `${name} was given to a version since deleted, so it can't be used again` : `There is a ${name} already`);
+    }
     entitiesTouched.add(entity.id);
     if (p.board) {
       // What was said about the piece goes with it: from now on it is said about the version.

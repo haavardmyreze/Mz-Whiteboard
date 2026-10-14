@@ -1121,7 +1121,8 @@
         el('div', { class: 'vl-meta', text: [tierName(v.tier), v.artist && v.artist !== (v.createdBy || '').toLowerCase() && `by ${v.artist}`].filter(Boolean).join(' · ') })),
       el('div', { class: 'vl-boards' }, v.boards.slice(0, 3).map((b) => el('a', { class: 'ver-board', href: WB.href.board(b.id), text: b.name, onclick: (e) => e.stopPropagation() })),
         v.boards.length > 3 && el('span', { class: 'vl-more', text: `+${v.boards.length - 3}` })),
-      el('div', { class: 'vl-time', text: clock(v.createdAt), title: new Date(v.createdAt).toLocaleString() }));
+      el('div', { class: 'vl-time', text: clock(v.createdAt), title: new Date(v.createdAt).toLocaleString() }),
+      menuButton(versionActions(project, { id: v.entityId, name: v.entity, tier: v.tier }, v)));
     };
     const out = [];
     for (const d of days) {
@@ -2049,11 +2050,18 @@
         el('div', { class: 'card-name', text: e.name }),
         el('div', { class: 'card-meta', text: e.versions == null ? (N.TIERS.includes(e.tier) ? e.tier : '') : e.versions ? `${plural(e.versions, 'version')} · last ${ago(e.latestAt)}` : 'Nothing filed yet' }),
         e.artists && e.artists.length > 0 && el('div', { class: 'card-meta ent-artists', title: `Artists: ${e.artists.join(', ')}` },
-          e.artists.slice(0, 4).map((n) => WB.avatar(n, null, { size: 'xs' })), el('span', { text: e.artists.join(', ') }))));
+          e.artists.slice(0, 4).map((n) => WB.avatar(n, null, { size: 'xs' })), el('span', { text: e.artists.join(', ') }))),
+      // The same menu as every other card: what can be done with it, Pin among it (so a pin on Home can
+      // be taken off from Home).
+      menuButton([
+        newest && ['Play the latest', () => lookAt(e.id, newest.id)],
+        ['Open its page', () => { location.hash = WB.href.catalogue(project.id, { entity: e.id }); }],
+        [isPinned('entity', e.id) ? 'Unpin from Home' : 'Pin to Home', () => togglePin({ kind: 'entity', id: e.id, name: e.name, projectId: project.id, tier: e.tier, thumb: e.thumb || null })],
+      ].filter(Boolean)));
   }
 
   function catalogueView(project, cat, view = {}) {
-    const q = $('q').value.trim().toLowerCase();
+    const q = WBNaming.tokenize($('q').value);
     const list = cat.entities.filter((e) => (!q || e.name.includes(q))
       && (!view.tier || e.tier === view.tier) && (!view.seq || (e.tier === 'shot' && N.seqOf(e.name) === view.seq)));
     const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
@@ -2173,6 +2181,24 @@
     ent.select();
   }
 
+  // What can be done to a version, the same from its card on its asset's page and from its row in the
+  // project's Versions: open it, change what it is filed as, archive it, download it, delete it.
+  async function archiveVersion(v, hide) {
+    await api('PATCH', `/api/versions/${v.id}`, { hidden: hide });
+    versionLists.clear();
+    render();
+    if (hide) undoable(`${v.label} archived`, async () => { await api('PATCH', `/api/versions/${v.id}`, { hidden: false }); versionLists.clear(); render(); });
+  }
+  function versionActions(project, entity, v) {
+    return [
+      ['Open', () => lookAt(entity.id, v.id)],
+      ['Edit…', () => editVersion(project, entity, v)],
+      [v.hidden ? 'Bring back from the archive' : 'Archive', () => archiveVersion(v, !v.hidden)],
+      v.look && ['Download', () => { location.href = v.look.orig || v.look.src; }],
+      ['Delete…', () => deleteVersion(v), true],
+    ].filter(Boolean);
+  }
+
   async function deleteVersion(v) {
     if (v.boards.length) {
       await WB.dialog({ title: `${v.label} is on ${v.boards.length === 1 ? 'a board' : `${v.boards.length} boards`}`, text: `Take it off ${v.boards.map((b) => `“${b.name}”`).join(', ')} first, or archive it instead: archived, it is out of the way but still there.`, ok: 'OK', cancellable: false });
@@ -2190,6 +2216,7 @@
     } catch (err) {
       return fail(err);
     }
+    versionLists.clear();
     render();
     undoable(`${v.label} deleted`, async () => {
       await api('PATCH', `/api/versions/${v.id}`, { deleted: false });
@@ -2272,11 +2299,6 @@
     const hidden = page.versions.filter((v) => v.hidden).length;
     const versions = page.versions.filter((v) => showHidden || !v.hidden);
     const byVersion = new Map(page.versions.map((v) => [v.id, v]));
-    const archive = async (v, hide) => {
-      await api('PATCH', `/api/versions/${v.id}`, { hidden: hide });
-      render();
-      if (hide) undoable(`${v.label} archived`, async () => { await api('PATCH', `/api/versions/${v.id}`, { hidden: false }); render(); });
-    };
     const card = (v) => el('div', { class: `card ver${v.hidden ? ' hidden-ver' : ''}${vpick.ids.has(v.id) ? ' picked' : ''}`, 'data-id': v.id },
       scrubber(el('button', { type: 'button', class: `card-thumbs n${v.thumb ? 1 : 0}`, title: 'Open it, to look, comment and draw', onclick: () => lookAt(entity.id, v.id) },
         v.thumb && el('img', { src: v.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
@@ -2286,12 +2308,7 @@
         el('div', { class: 'card-meta', text: [v.artist, v.descriptor].filter(Boolean).join(' · ') || v.originalName || '' }),
         el('div', { class: 'card-meta', text: `Filed ${ago(v.createdAt)}${v.createdBy ? ` by ${v.createdBy}` : ''}${v.hidden ? ' · archived' : ''}` }),
         v.boards.length > 0 && el('div', { class: 'ver-boards' }, v.boards.map((b) => el('a', { class: 'ver-board', href: WB.href.board(b.id), text: b.name })))),
-      menuButton([
-        ['Edit…', () => editVersion(project, entity, v)],
-        [v.hidden ? 'Bring back from the archive' : 'Archive', () => archive(v, !v.hidden)],
-        ['Download', () => { location.href = v.look.orig || v.look.src; }],
-        ['Delete…', () => deleteVersion(v), true],
-      ]));
+      menuButton(versionActions(project, entity, v)));
     // What was said, by thread, newest version first.
     const roots = page.notes.filter((n) => !n.re);
     const replies = (id) => page.notes.filter((n) => n.re === id).sort((a, b) => a.t - b.t);

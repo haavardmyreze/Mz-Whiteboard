@@ -2899,8 +2899,29 @@
     if (id && sel.has(id) && !viewOnly && tool === 'select') return false;
     if (coasting) stopCamAnim();
     userMovedView();
-    begin({ type: 'pan', touch: true, id, play, moved: false, sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, lx: e.clientX, ly: e.clientY, t: performance.now(), vx: 0, vy: 0 }, e);
+    const g = { type: 'pan', touch: true, id, play, moved: false, sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y, lx: e.clientX, ly: e.clientY, t: performance.now(), vx: 0, vy: 0 };
+    begin(g, e);
+    // A finger held still selects, as Shift and a click do: held on a piece it is added to what is
+    // selected (or taken out), held on empty board it draws a box that adds what it touches.
+    if (!viewOnly && tool === 'select') g.hold = setTimeout(() => longPress(g, e.clientX, e.clientY), 450);
     return true;
+  }
+  function longPress(g, x, y) {
+    if (gesture !== g || g.moved || touches.size !== 1) return;
+    if (navigator.vibrate) navigator.vibrate(12);
+    let it = g.id && items.get(g.id);
+    if (it && it.type === 'stroke' && it.pid) it = items.get(it.pid);
+    if (it && selectable(it)) {
+      const next = new Set(sel);
+      if (next.has(it.id)) next.delete(it.id);
+      else next.add(it.id);
+      setSel([...next]);
+      gesture = null;
+      return;
+    }
+    const p0 = s2w(x, y);
+    gesture = { type: 'marquee', p0, base: new Set(sel), pid: g.pid, touch: true };
+    showMarquee(p0, p0);
   }
 
   // A tap: an image or video opens (its play button plays it), anything else is selected.
@@ -3103,7 +3124,10 @@
       }
       eraserRing.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
     } else if (g.type === 'pan') {
-      if (g.touch && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) > 8) g.moved = true;
+      if (g.touch && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) > 8) {
+        g.moved = true;
+        clearTimeout(g.hold);
+      }
       setCam(g.cx - (e.clientX - g.sx) / cam.z, g.cy - (e.clientY - g.sy) / cam.z, cam.z);
       // How fast the hand is moving, smoothed over the last few moves so one jittery sample does not decide it.
       const now = performance.now();
@@ -3189,6 +3213,7 @@
       // Everything the stroke touched goes in one undo step.
       else if (g.hit.size) exec(delOps([...g.hit]));
     } else if (g.type === 'pan') {
+      clearTimeout(g.hold);
       if (g.touch && !g.moved) {
         if (e && e.type === 'pointerup') touchTap(g);
       }
@@ -4503,7 +4528,9 @@
           el('span', { class: `set-chip${shared ? ' on' : ''}`, text: shared ? 'Link on' : 'Team only' }), () => openShare(meta)),
         go(ICON.download, 'Download originals',
           el('span', { class: 'set-value', text: files ? `${files} ${files === 1 ? 'file' : 'files'} · zip` : 'Nothing yet' }), downloadBoard, !files),
-        go(ICON.activity, 'Activity and snapshots', null, () => toggleActivity(true))));
+        go(ICON.activity, 'Activity and snapshots', null, () => toggleActivity(true)),
+        // Here too, for a phone, where the bar has no room for its own button.
+        go(ICON.help, 'Guide and shortcuts', null, () => toggleHelp())));
   }
 
   // A panel in the corner, like the shortcuts and the activity, and in their place: one of them at a time.

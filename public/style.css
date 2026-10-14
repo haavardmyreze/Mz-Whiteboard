@@ -2383,3 +2383,11 @@ body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
 /* An empty board says how to add to it, except to someone looking through a link. */
 #hint .hint-guest, body.viewonly #hint .hint-edit { display: none; }
 body.viewonly #hint .hint-guest { display: inline; }
+/* A row's menu sits at its end, shown on hover or focus like a card's. */
+.vl-row { position: relative; }
+.vl-row .card-menu { position: static; flex: none; transform: none; border-color: transparent; background: transparent; box-shadow: none; }
+.vl-row:hover .card-menu, .vl-row:focus-within .card-menu { opacity: 1; }
+/* A phone's board bar: Activity and Share live in Board settings, beside the guide. */
+@media (max-width: 640px) {
+  #activity, #share { display: none !important; }
+}

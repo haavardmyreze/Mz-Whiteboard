@@ -85,7 +85,13 @@ function createAdmin({ store, adminEmails, newId, readJson, sendJson, cleanName,
     }
     const me = isAdmin(req.user) ? req.user : { email: null };
     if (req.method !== 'GET' && !sameOrigin(req)) return sendJson(res, 403, { error: 'Not from this site' });
-    const [kind, id, sub, subId] = parts.map((p) => decodeURIComponent(p));
+    let decoded;
+    try {
+      decoded = parts.map((p) => decodeURIComponent(p));
+    } catch {
+      return sendJson(res, 400, { error: 'Bad address' });
+    }
+    const [kind, id, sub, subId] = decoded;
     const done = () => sendJson(res, 200, overview(me));
 
     if (!kind && req.method === 'GET') return done();

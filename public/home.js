@@ -430,7 +430,7 @@
     const subs = childrenOf(folder.id).length;
     const boards = boardsIn(folder.id).length;
     const meta = [folder.project && 'Project', boards && plural(boards, 'board'), subs && plural(subs, 'folder')].filter(Boolean).join(' · ') || 'Empty';
-    const card = el('a', { class: `card folder${folder.project ? ' project' : ''}`, href: `#/f/${folder.id}` },
+    const card = el('a', { class: `card folder${folder.project ? ' project' : ''}${bpick.has(`folder:${folder.id}`) ? ' picked' : ''}`, href: `#/f/${folder.id}`, 'data-pick': `folder:${folder.id}` },
       el('div', { class: 'folder-icon', html: folder.project ? ICON_PROJECT : ICON_FOLDER }),
       el('div', { class: 'card-body' },
         el('div', { class: 'card-name', text: folder.name }),
@@ -453,7 +453,7 @@
   function boardCard(board) {
     const thumbs = el('div', { class: `card-thumbs n${Math.min(board.thumbs.length, 4)}` },
       board.thumbs.map((src) => el('img', { src, alt: '', loading: 'lazy', draggable: 'false' })));
-    const card = el('a', { class: 'card', href: `/b/${board.id}` },
+    const card = el('a', { class: `card${bpick.has(`board:${board.id}`) ? ' picked' : ''}`, href: `/b/${board.id}`, 'data-pick': `board:${board.id}` },
       thumbs,
       el('div', { class: 'card-body' },
         el('div', { class: 'card-name', text: board.name }),
@@ -958,7 +958,7 @@
   }
 
   function paintVersionPick(project) {
-    for (const node of document.querySelectorAll('.vl-row[data-id]')) node.classList.toggle('picked', vpick.ids.has(node.dataset.id));
+    for (const node of document.querySelectorAll('.vl-row[data-id], .card.ver[data-id]')) node.classList.toggle('picked', vpick.ids.has(node.dataset.id));
     for (const b of document.querySelectorAll('.vl-box[data-ids]')) {
       const ids = b.dataset.ids.split(' ');
       const n = ids.filter((id) => vpick.ids.has(id)).length;
@@ -1021,6 +1021,55 @@
     }
   }
 
+  // ------------------------------------------------------------- boards and folders, many at once
+  //
+  // Boxed in a folder or a workspace: moved together to another folder, or (boards) deleted together.
+  const bpick = new Set(); // 'board:<id>' | 'folder:<id>'
+  function dropBoardPick() {
+    bpick.clear();
+    $('bpickbar')?.remove();
+    for (const n of document.querySelectorAll('.card[data-pick].picked')) n.classList.remove('picked');
+  }
+  function paintBoardPick() {
+    for (const n of document.querySelectorAll('.card[data-pick]')) n.classList.toggle('picked', bpick.has(n.dataset.pick));
+    const n = bpick.size;
+    let bar = $('bpickbar');
+    if (!n) return void bar?.remove();
+    if (!bar) {
+      bar = el('div', { id: 'bpickbar', class: 'pick-bar', role: 'toolbar', 'aria-label': 'Selected boards and folders' },
+        el('span', { class: 'pick-count' }),
+        el('button', { type: 'button', class: 'btn small ghost', text: 'Clear', onclick: dropBoardPick }),
+        el('span', { class: 'pick-gap' }),
+        el('button', { type: 'button', class: 'btn small pick-del', text: 'Delete…', onclick: () => deletePicked().catch(fail) }),
+        el('button', { type: 'button', class: 'btn small primary', text: 'Move to…', onclick: () => movePicked().catch(fail) }));
+      document.body.append(bar);
+    }
+    const boardsN = [...bpick].filter((k) => k.startsWith('board:')).length;
+    const foldersN = n - boardsN;
+    bar.querySelector('.pick-count').textContent = [boardsN && plural(boardsN, 'board'), foldersN && plural(foldersN, 'folder')].filter(Boolean).join(' and ') + ' selected';
+    bar.querySelector('.pick-del').hidden = !boardsN;
+  }
+  async function movePicked() {
+    const ids = [...bpick].map((k) => k.split(':'));
+    const target = await pickFolder({ title: `Move ${plural(ids.length, 'item')} to`, exclude: ids.length === 1 && ids[0][0] === 'folder' ? ids[0][1] : null, current: currentFolder() });
+    if (target === undefined) return;
+    for (const [kind, id] of ids) {
+      if (kind === 'folder' && (id === target || (target && isWithin(target, id)))) continue;
+      if (kind === 'board') await api('PATCH', `/api/boards/${id}`, { folderId: target });
+      else await api('PATCH', `/api/folders/${id}`, { parentId: target });
+    }
+    dropBoardPick();
+    refresh();
+  }
+  async function deletePicked() {
+    const ids = [...bpick].filter((k) => k.startsWith('board:')).map((k) => k.slice(6));
+    const sure = await WB.dialog({ title: `Delete ${plural(ids.length, 'board')}?`, text: 'They disappear for everyone. The server keeps them hidden, so whoever runs the server can still restore them. Folders are left as they are.', ok: 'Delete', danger: true });
+    if (!sure) return;
+    for (const id of ids) await api('DELETE', `/api/boards/${id}`);
+    dropBoardPick();
+    refresh();
+  }
+
   // ------------------------------------------------------------- box select
   //
   // In the catalogue and in a project's Versions, a drag that starts on empty space draws a box, and
@@ -1028,22 +1077,27 @@
   // with Shift, Ctrl or Cmd. In the catalogue it starts selecting, as the Select button does.
   function boxTargets() {
     const rt = route();
+    if (rt.kind === 'space') return { sel: '.card[data-pick]', kind: 'items' };
     const f = rt.kind === 'folder' && folderById(rt.id);
-    if (!f || !f.project) return null;
-    const v = currentView();
-    if (v.page === 'catalogue' && !v.entity) return { project: f, sel: '.card.ent[data-id]', kind: 'ents' };
+    if (!f) return null;
+    const v = f.project ? currentView() : { page: 'boards' };
+    if (v.page === 'boards') return { project: f, sel: '.card[data-pick]', kind: 'items' };
+    if (v.page === 'catalogue' && v.entity) return { project: f, sel: '.card.ver[data-id]', kind: 'vers' };
+    if (v.page === 'catalogue') return { project: f, sel: '.card.ent[data-id]', kind: 'ents' };
     if (v.page === 'versions') return { project: f, sel: '.vl-row[data-id]', kind: 'vers' };
     return null;
   }
   let marquee = null;
   document.querySelector('main').addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || e.pointerType === 'touch') return;
-    if (e.target.closest('a, button, input, select, textarea, label, .card, .vl-row, .imp, .cat-tools, .ent-people, .pick-bar, #crumbs')) return;
+    if (e.target.closest('a, button, input, select, textarea, label, .card, .vl-row, .imp, .cat-tools, .ent-people, .pick-bar, #crumbs, dialog')) return;
+    // What people wrote can still be selected, to copy it; dragging anywhere else never selects text.
+    if (e.target.closest('.ent-msg-text, .feed-text, .msg-text')) return;
+    e.preventDefault();
     const t = boxTargets();
     if (!t) return;
-    e.preventDefault();
-    const base = e.shiftKey || e.ctrlKey || e.metaKey
-      ? new Set(t.kind === 'ents' ? (pickingIn(t.project) ? picking.ids : []) : vpick.ids) : new Set();
+    const add = e.shiftKey || e.ctrlKey || e.metaKey;
+    const base = !add ? new Set() : new Set(t.kind === 'ents' ? (pickingIn(t.project) ? picking.ids : []) : t.kind === 'items' ? bpick : vpick.ids);
     marquee = { ...t, x: e.clientX, y: e.clientY + scrollY, base, box: null, pid: e.pointerId };
   });
   window.addEventListener('pointermove', (e) => {
@@ -1065,11 +1119,15 @@
     const hit = new Set(m.base);
     for (const node of document.querySelectorAll(m.sel)) {
       const b = node.getBoundingClientRect();
-      if (b.right > r.l && b.left < r.r && b.bottom > r.t && b.top < r.b) hit.add(node.dataset.id);
+      if (b.right > r.l && b.left < r.r && b.bottom > r.t && b.top < r.b) hit.add(node.dataset.pick || node.dataset.id);
     }
     if (m.kind === 'ents') {
       picking.ids = hit;
       paintPicked();
+    } else if (m.kind === 'items') {
+      bpick.clear();
+      for (const k of hit) bpick.add(k);
+      paintBoardPick();
     } else {
       vpick.ids = hit;
       paintVersionPick(m.project);
@@ -1167,7 +1225,8 @@
 
   function render() {
     const rt = route();
-    if (vpick.project && (rt.kind !== 'folder' || rt.id !== vpick.project || currentView().page !== 'versions')) dropVersionPick();
+    if (vpick.project && (rt.kind !== 'folder' || rt.id !== vpick.project || !(currentView().page === 'versions' || currentView().entity))) dropVersionPick();
+    if (bpick.size && (rt.kind === 'home' || (rt.kind === 'folder' && currentView().page !== 'boards'))) dropBoardPick();
     if (picking.on && (rt.kind !== 'folder' || rt.id !== picking.project || currentView().page !== 'catalogue' || currentView().entity)) {
       const f = folderById(picking.project);
       if (f) setPicking(f, false);
@@ -1789,7 +1848,7 @@
       render();
       if (hide) undoable(`${v.label} archived`, async () => { await api('PATCH', `/api/versions/${v.id}`, { hidden: false }); render(); });
     };
-    const card = (v) => el('div', { class: `card ver${v.hidden ? ' hidden-ver' : ''}` },
+    const card = (v) => el('div', { class: `card ver${v.hidden ? ' hidden-ver' : ''}${vpick.ids.has(v.id) ? ' picked' : ''}`, 'data-id': v.id },
       scrubber(el('button', { type: 'button', class: `card-thumbs n${v.thumb ? 1 : 0}`, title: 'Open it, to look, comment and draw', onclick: () => lookAt(entity.id, v.id) },
         v.thumb && el('img', { src: v.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
         v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })), v.look),
@@ -1822,6 +1881,11 @@
       msg(n, true), replies(n.id).map((r) => msg(r, false))));
     const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
     const latest = page.versions.find((v) => !v.hidden);
+    if (vpick.project !== project.id) {
+      dropVersionPick();
+      vpick.project = project.id;
+    }
+    vpick.order = versions.map((v) => v.id);
     return el('div', { class: 'ent-page' },
       el('div', { class: 'ent-top' },
         latest && el('button', { type: 'button', class: 'btn primary', html: `${ICON_PLAY}<span>Play latest</span>`, title: `Open ${latest.label}, with every other version beside it`, onclick: () => lookAt(entity.id, latest.id) }),

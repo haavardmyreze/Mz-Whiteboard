@@ -2293,3 +2293,7 @@ body.vpicking main { padding-bottom: 120px; }
 /* The box drawn by dragging on empty space in the catalogue or a project's Versions. */
 .marquee { position: fixed; z-index: 50; border: 1px solid var(--accent); border-radius: 2px; background: color-mix(in srgb, var(--accent) 14%, transparent); pointer-events: none; }
 body.marqueeing, body.marqueeing * { user-select: none !important; -webkit-user-select: none !important; cursor: crosshair; }
+
+/* Boards, folders and versions picked by a box. */
+.card[data-pick].picked, .card.ver.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface-1)); }
+.pick-bar .btn[hidden] { display: none; }

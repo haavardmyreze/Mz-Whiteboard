@@ -354,7 +354,8 @@ filed in it.
   Either way they are those versions, with their notes.
 - **Changing many at once.** Select, above the catalogue, picks assets, sets and shots with a click
   (Shift and a click for every one between), or drag on empty space to draw a box over them, as in a
-  file manager (with Shift, Ctrl or Cmd it adds to what is picked; the Versions list works the same); the bar at the foot has Select all, Clear and Edit. Edit
+  file manager (with Shift, Ctrl or Cmd it adds to what is picked; the Versions list and an asset's
+  versions work the same, and in a folder a box picks boards and folders to move or delete together); the bar at the foot has Select all, Clear and Edit. Edit
   changes them together: artists and people cc'd added, taken off or set outright, and what they are
   (assets, sets or shots), showing who each field has now. What is left alone stays as each has it, and
   all of them change or none do. Esc, or Done, stops selecting.

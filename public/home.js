@@ -1021,6 +1021,69 @@
     }
   }
 
+  // ------------------------------------------------------------- box select
+  //
+  // In the catalogue and in a project's Versions, a drag that starts on empty space draws a box, and
+  // what it touches is selected, as in a file manager: afresh, or added to what is selected already
+  // with Shift, Ctrl or Cmd. In the catalogue it starts selecting, as the Select button does.
+  function boxTargets() {
+    const rt = route();
+    const f = rt.kind === 'folder' && folderById(rt.id);
+    if (!f || !f.project) return null;
+    const v = currentView();
+    if (v.page === 'catalogue' && !v.entity) return { project: f, sel: '.card.ent[data-id]', kind: 'ents' };
+    if (v.page === 'versions') return { project: f, sel: '.vl-row[data-id]', kind: 'vers' };
+    return null;
+  }
+  let marquee = null;
+  document.querySelector('main').addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.pointerType === 'touch') return;
+    if (e.target.closest('a, button, input, select, textarea, label, .card, .vl-row, .imp, .cat-tools, .ent-people, .pick-bar, #crumbs')) return;
+    const t = boxTargets();
+    if (!t) return;
+    e.preventDefault();
+    const base = e.shiftKey || e.ctrlKey || e.metaKey
+      ? new Set(t.kind === 'ents' ? (pickingIn(t.project) ? picking.ids : []) : vpick.ids) : new Set();
+    marquee = { ...t, x: e.clientX, y: e.clientY + scrollY, base, box: null, pid: e.pointerId };
+  });
+  window.addEventListener('pointermove', (e) => {
+    const m = marquee;
+    if (!m || e.pointerId !== m.pid) return;
+    const y = e.clientY + scrollY;
+    if (!m.box) {
+      if (Math.hypot(e.clientX - m.x, y - m.y) < 5) return;
+      m.box = el('div', { class: 'marquee' });
+      document.body.append(m.box);
+      document.body.classList.add('marqueeing');
+      if (m.kind === 'ents' && !pickingIn(m.project)) setPicking(m.project, true);
+    }
+    // Near the top or the foot of the window, the page scrolls on.
+    if (e.clientY > innerHeight - 40) scrollBy(0, 14);
+    else if (e.clientY < 40) scrollBy(0, -14);
+    const r = { l: Math.min(m.x, e.clientX), r: Math.max(m.x, e.clientX), t: Math.min(m.y, y) - scrollY, b: Math.max(m.y, y) - scrollY };
+    Object.assign(m.box.style, { left: `${r.l}px`, top: `${r.t}px`, width: `${r.r - r.l}px`, height: `${r.b - r.t}px` });
+    const hit = new Set(m.base);
+    for (const node of document.querySelectorAll(m.sel)) {
+      const b = node.getBoundingClientRect();
+      if (b.right > r.l && b.left < r.r && b.bottom > r.t && b.top < r.b) hit.add(node.dataset.id);
+    }
+    if (m.kind === 'ents') {
+      picking.ids = hit;
+      paintPicked();
+    } else {
+      vpick.ids = hit;
+      paintVersionPick(m.project);
+    }
+  });
+  const endMarquee = (e) => {
+    if (!marquee || (e && e.pointerId !== marquee.pid)) return;
+    marquee.box?.remove();
+    document.body.classList.remove('marqueeing');
+    marquee = null;
+  };
+  window.addEventListener('pointerup', endMarquee);
+  window.addEventListener('pointercancel', endMarquee);
+
   // A project's timeline: its shots played through in the player, as an edit (viewer.js, openRun): the
   // newest version of each, of one task or any, all sequences or one, chosen in the player's bar.
   let runOf = null;

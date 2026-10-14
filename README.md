@@ -353,7 +353,8 @@ filed in it.
   the project's boards, below what is there, or "New board" makes one in the project with them on it.
   Either way they are those versions, with their notes.
 - **Changing many at once.** Select, above the catalogue, picks assets, sets and shots with a click
-  (Shift and a click for every one between); the bar at the foot has Select all, Clear and Edit. Edit
+  (Shift and a click for every one between), or drag on empty space to draw a box over them, as in a
+  file manager (with Shift, Ctrl or Cmd it adds to what is picked; the Versions list works the same); the bar at the foot has Select all, Clear and Edit. Edit
   changes them together: artists and people cc'd added, taken off or set outright, and what they are
   (assets, sets or shots), showing who each field has now. What is left alone stays as each has it, and
   all of them change or none do. Esc, or Done, stops selecting.

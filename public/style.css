@@ -2289,3 +2289,7 @@ body.vpicking main { padding-bottom: 120px; }
 
 .ent-thread-open { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .ent-thread-open:hover { color: var(--text); text-decoration: underline; }
+
+/* The box drawn by dragging on empty space in the catalogue or a project's Versions. */
+.marquee { position: fixed; z-index: 50; border: 1px solid var(--accent); border-radius: 2px; background: color-mix(in srgb, var(--accent) 14%, transparent); pointer-events: none; }
+body.marqueeing, body.marqueeing * { user-select: none !important; -webkit-user-select: none !important; cursor: crosshair; }

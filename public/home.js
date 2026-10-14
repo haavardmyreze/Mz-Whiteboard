@@ -1088,8 +1088,12 @@
     return null;
   }
   let marquee = null;
-  document.querySelector('main').addEventListener('pointerdown', (e) => {
+  // Anywhere on the page counts, the margins and the space under the content too: all but the bars, the
+  // sidebar, dialogs, menus and the player.
+  document.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || e.pointerType === 'touch') return;
+    if (!(e.target instanceof Element) || e.target.closest('.home-bar, .side, .side-scrim, .viewer, .menu, .combo-list, .undo-toast, .notices')) return;
+    if (document.querySelector('dialog[open]') || (document.querySelector('.viewer') && !document.querySelector('.viewer').hidden)) return;
     if (e.target.closest('a, button, input, select, textarea, label, .card, .vl-row, .imp, .cat-tools, .ent-people, .pick-bar, #crumbs, dialog')) return;
     // What people wrote can still be selected, to copy it; dragging anywhere else never selects text.
     if (e.target.closest('.ent-msg-text, .feed-text, .msg-text')) return;

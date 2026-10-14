@@ -909,12 +909,20 @@ const WBViewer = (() => {
     let pad = { t: 72, r: 40, b: 32, l: 132 };
     // Whether something fixed in place is on screen (offsetParent says nothing about those).
     const shown = (node) => !node.hidden && node.getClientRects().length > 0;
+    // Docked (`host.dock`), the player leaves the page's own bar and sidebar showing: it keeps the
+    // whole window to work in, and is cut away, seen and touched, where they are.
+    const dockedBy = () => {
+      if (!root.classList.contains('docked')) return { l: 0, t: 0 };
+      const cs = getComputedStyle(root);
+      return { l: parseFloat(cs.getPropertyValue('--dock-l')) || 0, t: parseFloat(cs.getPropertyValue('--dock-t')) || 0 };
+    };
     function layout() {
       const below = timeline.hidden ? 0 : timeline.offsetHeight + 12;
       const top = bar.offsetHeight || 48;
+      const d = dockedBy();
       pad = narrow()
-        ? { t: top + 16, r: 12, b: bottomChrome() + 12, l: 12 }
-        : { t: top + 24, r: (panel.hidden ? 0 : panel.offsetWidth) + 40, b: 32 + below, l: (filmOff || !shown(film) ? 0 : film.offsetWidth) + 40 };
+        ? { t: d.t + top + 16, r: 12, b: bottomChrome() + 12, l: d.l + 12 }
+        : { t: d.t + top + 24, r: (panel.hidden ? 0 : panel.offsetWidth) + 40, b: 32 + below, l: d.l + (filmOff || !shown(film) ? 0 : film.offsetWidth) + 40 };
     }
     function bottomChrome() {
       const tops = [timeline, tools].filter(shown).map((n) => n.getBoundingClientRect().top);
@@ -2377,6 +2385,7 @@ const WBViewer = (() => {
         close();
         setHost(next);
         root.classList.toggle('run', runMode());
+        root.classList.toggle('docked', !!next.dock);
       },
       host: () => opts,
       refresh,
@@ -2549,7 +2558,7 @@ const WBViewer = (() => {
   // any), in order, sequence by sequence, played one into the next. What is said is about the shot under
   // the playhead, live, through its room. A shot with nothing filed may come as a slate (`empty`): it is
   // seen and held like a still, and nothing is written or drawn on it, as it has no version to be on.
-  async function openRun(viewer, { load, me, title, choices, onClose = () => {} }) {
+  async function openRun(viewer, { load, me, title, choices, dock = false, onClose = () => {} }) {
     let pieces = await load();
     if (!pieces.length) throw new Error('There are no shots to play yet');
     const onSlate = () => !!(pieces.find((x) => x.id === viewer.current()) || {}).empty;
@@ -2574,6 +2583,7 @@ const WBViewer = (() => {
     };
     viewer.use({
       run: true,
+      dock,
       me: () => me,
       title,
       media: () => pieces,

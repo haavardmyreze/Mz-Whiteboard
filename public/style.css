@@ -2304,3 +2304,22 @@ body:not(.vpicking) .vl-row { grid-template-columns: 96px minmax(0, 1fr) auto au
 @media (max-width: 760px) {
   body:not(.vpicking) .vl-row { grid-template-columns: 72px minmax(0, 1fr) auto; }
 }
+
+/* The player docked in the page (the timeline): the page's bar and sidebar stay, seen and usable. */
+.viewer.docked { --dock-l: 252px; --dock-t: 48px; clip-path: inset(var(--dock-t) 0 0 var(--dock-l)); }
+.viewer.docked .v-bar { top: var(--dock-t); left: var(--dock-l); }
+.viewer.docked .v-bar .brand, .viewer.docked .v-bar .brand + .bar-slash { display: none; }
+.viewer.docked #timeline { left: calc(var(--dock-l) + 12px); }
+.viewer.docked #commentpanel { top: calc(var(--bar) + var(--dock-t)); }
+.viewer.docked #cptab { top: calc(50% + (var(--bar) + var(--dock-t)) / 2); }
+.viewer.docked .v-runcap { top: calc(var(--bar) + var(--dock-t) + 14px); left: calc(var(--dock-l) + 24px); }
+@media (max-width: 900px) {
+  .viewer.docked { --dock-l: 0px; }
+}
+/* Over a docked player the page's bar (and its menus) and the sidebar drawer stay on top. */
+body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
+@media (max-width: 900px) {
+  body:has(.viewer.docked:not([hidden])) .side { z-index: 42; }
+  body:has(.viewer.docked:not([hidden])).side-open .side-scrim { z-index: 41; }
+}
+.viewer.docked .v-bar .themebtn { display: none; }

@@ -1220,7 +1220,7 @@
     };
     try {
       await WBViewer.openRun(thePlayer(), {
-        load, me,
+        load, me, dock: true,
         title: () => `${project.name} · Timeline`,
         choices: (reload) => {
           const seqs = [...new Set(data.shots.map((x) => x.seq).filter(Boolean))];
@@ -1243,6 +1243,11 @@
 
   function render() {
     const rt = route();
+    // The timeline is docked beside the sidebar: going elsewhere from it (the sidebar, the bar) closes it.
+    if (runOf && !(rt.kind === 'folder' && rt.id === runOf && currentView().page === 'timeline') && thePlayer().isOpen()) {
+      runOf = null;
+      thePlayer().close();
+    }
     if (vpick.project && (rt.kind !== 'folder' || rt.id !== vpick.project || !(currentView().page === 'versions' || currentView().entity))) dropVersionPick();
     if (bpick.size && (rt.kind === 'home' || (rt.kind === 'folder' && currentView().page !== 'boards'))) dropBoardPick();
     if (picking.on && (rt.kind !== 'folder' || rt.id !== picking.project || currentView().page !== 'catalogue' || currentView().entity)) {

@@ -328,7 +328,8 @@ filed in it.
   scrubs through it, as if the pointer were dragging its playhead. An asset, set or shot's picture
   plays its newest version at once ("Latest"); its name goes to its page, which has Play latest too.
 - **The timeline.** A project's Timeline (in the sidebar, or above the catalogue) plays every shot in
-  order, sequence by sequence, in the player, as an edit: the newest version of each (of any task, or
+  order, sequence by sequence, in the player, as an edit, beside the sidebar and under the page's bar,
+  which stay in reach (going elsewhere from either closes the timeline): the newest version of each (of any task, or
   of one), one into the next. The next shot is loaded while one plays, so the cut to it is clean. In
   place of the side strip, the bar under the picture holds every shot as a clip as long as it lasts,
   with its still and where each sequence begins; dragging along it moves through the whole run, and the

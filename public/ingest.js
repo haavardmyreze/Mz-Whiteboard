@@ -186,11 +186,16 @@ const WBIngest = (() => {
 
   // The strip for a video file about to be uploaded; null if it cannot be made, and the bar stays plain.
   // `report` hears how far along it is, from 0 to 1: the picture is most of the work, the sound the rest.
-  async function videoWave(file, url, dur, report = () => {}, fallback = true) {
+  // `signal` stops the reading part way (what it was read for went away); it then gives nothing.
+  async function videoWave(file, url, dur, report = () => {}, fallback = true, signal = null) {
+    const going = (k) => {
+      if (signal && signal.aborted) throw aborted();
+      return k;
+    };
     try {
-      const strip = await colourStrip(file, url, dur, (k) => report(k * STRIP_PICTURE), fallback);
-      if (!strip) return null;
-      const peaks = await soundPeaks(file, strip.dur, (k) => report(STRIP_PICTURE + k * (1 - STRIP_PICTURE)));
+      const strip = await colourStrip(file, url, dur, (k) => report(going(k) * STRIP_PICTURE), fallback);
+      if (!strip || (signal && signal.aborted)) return null;
+      const peaks = await soundPeaks(file, strip.dur, (k) => report(STRIP_PICTURE + going(k) * (1 - STRIP_PICTURE)));
       return { c: toB64(strip.colours), p: peaks ? toB64(peaks) : '' };
     } catch {
       return null;
@@ -244,9 +249,12 @@ const WBIngest = (() => {
   // last one lands. A dropped piece is retried instead of restarting the file.
   const UPLOAD_PIECE = 8 * 1024 * 1024;
 
-  function sendPiece(piece, query, onSent) {
+  function sendPiece(piece, query, onSent, signal) {
     return new Promise((resolve, reject) => {
+      if (signal && signal.aborted) return reject(aborted());
       const xhr = new XMLHttpRequest();
+      if (signal) signal.addEventListener('abort', () => xhr.abort(), { once: true });
+      xhr.onabort = () => reject(aborted());
       xhr.open('POST', `/api/upload?${query}`);
       xhr.setRequestHeader('X-WB', '1'); // from the app's own pages (see WB.api)
       xhr.upload.onprogress = (e) => { if (e.lengthComputable) onSent(e.loaded); };
@@ -268,16 +276,16 @@ const WBIngest = (() => {
   // `behind` is for a file nobody is waiting for (a video's original, see below): between its pieces it
   // gives way to whatever the board is waiting for.
   let awaited = 0;
-  async function upload(blob, ext, onProgress, behind = false) {
+  async function upload(blob, ext, onProgress, behind = false, signal = null) {
     if (!behind) awaited++;
     try {
-      return await sendWhole(blob, ext, onProgress, behind);
+      return await sendWhole(blob, ext, onProgress, behind, signal);
     } finally {
       if (!behind) awaited--;
     }
   }
 
-  async function sendWhole(blob, ext, onProgress, behind) {
+  async function sendWhole(blob, ext, onProgress, behind, signal) {
     const id = uid();
     let offset = 0;
     let result = {};
@@ -289,10 +297,10 @@ const WBIngest = (() => {
         try {
           result = await sendPiece(blob.slice(offset, end), query, (sent) => {
             if (onProgress) onProgress((offset + sent) / Math.max(1, blob.size));
-          });
+          }, signal);
           break;
         } catch (err) {
-          if (err.fatal || attempt >= 3) throw err;
+          if (err.fatal || err.name === 'AbortError' || attempt >= 3) throw err;
           await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
         }
       }
@@ -313,7 +321,11 @@ const WBIngest = (() => {
   function probeVideo(url) {
     return new Promise((resolve, reject) => {
       const video = document.createElement('video');
-      const fail = () => reject(new Error('This browser cannot play that video. Export H.264 MP4 or WebM instead'));
+      const fail = () => {
+        video.removeAttribute('src');
+        video.load();
+        reject(new Error('This browser cannot play that video. Export H.264 MP4 or WebM instead'));
+      };
       const timer = setTimeout(fail, 15000);
       video.muted = true;
       video.preload = 'metadata';
@@ -438,6 +450,11 @@ const WBIngest = (() => {
     : /Safari\//.test(navigator.userAgent) && !/Chrom(e|ium)\//.test(navigator.userAgent) ? 'Chrome, Edge or Firefox'
       : 'Firefox';
   const refusal = (dims) => Object.assign(new Error('This browser cannot process this video'), { refused: true, dims });
+  // A review copy is made in memory: past this it would not fit, in any browser. Said as it is, not as
+  // "use another browser".
+  const COPY_MAX = 1.5 * 1024 ** 3;
+  const tooLarge = (bytes) => Object.assign(new Error(`It is too long to make a review copy of here (about ${WB.bytes(bytes)}). Export a shorter or lighter version and add that.`), { tooLarge: true });
+  const aborted = () => new DOMException('Stopped', 'AbortError');
 
   // ---- what Firefox's H.264 encoder gets wrong
   //
@@ -566,7 +583,7 @@ const WBIngest = (() => {
 
   // `plan` hears what is about to be done, before any of it is: 'wrap' or 'encode', how long the video is,
   // and about how large the copy will be. It hears nothing when the file goes up as it is.
-  async function reviewCopy(file, report, plan = () => {}) {
+  async function reviewCopy(file, report, plan = () => {}, signal = null) {
     let mb;
     try {
       mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
@@ -574,6 +591,18 @@ const WBIngest = (() => {
       return file;
     }
     const input = new mb.Input({ source: new mb.BlobSource(file), formats: mb.ALL_FORMATS });
+    // A conversion run to its end, or cancelled when the person stops the import.
+    const run = async (conversion) => {
+      if (signal && signal.aborted) throw aborted();
+      const stop = () => conversion.cancel();
+      if (signal) signal.addEventListener('abort', stop, { once: true });
+      try {
+        await conversion.execute();
+      } finally {
+        if (signal) signal.removeEventListener('abort', stop);
+      }
+      if (signal && signal.aborted) throw aborted();
+    };
     try {
       const track = await input.getPrimaryVideoTrack();
       if (!track || !canCopyVideo) return file;
@@ -592,9 +621,10 @@ const WBIngest = (() => {
         const output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new mb.BufferTarget() });
         const conversion = await mb.Conversion.init({ input, output });
         if (conversion.isValid && !conversion.discardedTracks.some((d) => d.track.type === 'video')) {
+          if (file.size > COPY_MAX) throw tooLarge(file.size);
           plan('wrap', duration, file.size);
           conversion.onProgress = (p) => report(p);
-          await conversion.execute();
+          await run(conversion);
           return new File([output.target.buffer], `${file.name.replace(/\.[^.]+$/, '')}.mp4`, { type: 'video/mp4' });
         }
       }
@@ -603,6 +633,7 @@ const WBIngest = (() => {
       const codec = await mb.getFirstEncodableVideoCodec(['avc', 'vp9'], { width, height, bitrate: target });
       if (!codec) throw refusal(`${w}×${h}`);
       const mp4 = codec === 'avc';
+      if ((target * duration) / 8 > COPY_MAX) throw tooLarge((target * duration) / 8);
       plan('encode', duration, (target * duration) / 8);
       const encode = async (hardwareAcceleration) => {
         const format = mp4 ? new mb.Mp4OutputFormat({ fastStart: 'in-memory' }) : new mb.WebMOutputFormat();
@@ -613,7 +644,7 @@ const WBIngest = (() => {
         });
         if (!conversion.isValid) return null;
         conversion.onProgress = (p) => report(p);
-        await conversion.execute();
+        await run(conversion);
         return output.target.buffer;
       };
       // The graphics card's encoder (NVENC, Quick Sync, AMD) is several times faster than the processor
@@ -623,6 +654,7 @@ const WBIngest = (() => {
         try {
           buffer = await encode('prefer-hardware');
         } catch (err) {
+          if (signal && signal.aborted) throw aborted();
           console.warn('The hardware encoder failed, using the processor:', err);
           report(0);
         }
@@ -632,7 +664,8 @@ const WBIngest = (() => {
       const ext = mp4 ? 'mp4' : 'webm';
       return new File([buffer], `${file.name.replace(/\.[^.]+$/, '')}.${ext}`, { type: `video/${ext}` });
     } catch (err) {
-      if (err.refused) throw err;
+      if (err.refused || err.tooLarge) throw err;
+      if (signal && signal.aborted) throw aborted();
       // It read the file and then gave up part way: the same answer as not being able to read it.
       console.warn('Could not make a review copy:', err);
       throw refusal();
@@ -650,7 +683,9 @@ const WBIngest = (() => {
     return blob ? (await upload(blob, EXT_BY_TYPE[blob.type] || '.webp')).url : null;
   }
 
-  async function ingest(file, onProgress, { onPhase = () => {}, onStrip = () => {}, onPlan = () => {} } = {}) {
+  // `signal` stops it part way (the person took the file back): the copy being made, the upload, and the
+  // strip being read all stop, and it rejects with an AbortError.
+  async function ingest(file, onProgress, { onPhase = () => {}, onStrip = () => {}, onPlan = () => {}, signal = null } = {}) {
     const ext = fileExt(file);
     const url = URL.createObjectURL(file);
     try {
@@ -659,7 +694,7 @@ const WBIngest = (() => {
         const prepared = await reviewCopy(file, onPhase, (...plan) => {
           planned = true;
           onPlan(...plan);
-        });
+        }, signal);
         const preparedUrl = prepared === file ? url : URL.createObjectURL(prepared);
         try {
           // A copy made here that this browser then cannot show a frame of is a broken copy, and would be
@@ -677,7 +712,13 @@ const WBIngest = (() => {
           onPhase(1);
           onProgress(0);
           // The strip is read from the copy here while it uploads, so it only costs a wait where the upload is the quicker of the two.
-          const [up, wf] = await Promise.all([upload(prepared, fileExt(prepared), onProgress), videoWave(prepared, preparedUrl, dur, onStrip)]);
+          // If the upload fails, or is stopped, the strip stops being read too.
+          const strip = new AbortController();
+          if (signal) signal.addEventListener('abort', () => strip.abort(), { once: true });
+          const [up, wf] = await Promise.all([
+            upload(prepared, fileExt(prepared), onProgress, false, signal).catch((err) => { strip.abort(); throw err; }),
+            videoWave(prepared, preparedUrl, dur, onStrip, true, strip.signal),
+          ]);
           // One that went up as it came is its own original.
           return { type: 'video', src: up.url, ...(!made && { orig: up.url }), nw: w, nh: h, name: file.name, ...(th && { th }), ...(poster && { poster }), ...(fps && { fps }), ...(dur && { dur }), ...(wf && { wf }) };
         } finally {
@@ -706,7 +747,7 @@ const WBIngest = (() => {
         const th = await makeThumb(img, nw, nh);
         if (th) out.th = th;
       }
-      out.src = (await upload(file, ext, onProgress)).url;
+      out.src = (await upload(file, ext, onProgress, false, signal)).url;
       return out;
     } finally {
       URL.revokeObjectURL(url);

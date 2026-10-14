@@ -371,6 +371,7 @@ const WBViewer = (() => {
     let runClips = [];     // { id, start, dur, piece }
     let runTotal = 0;
     let runPlaying = false;
+    let runErrors = 0; // shots in a row that would not play
     let spare = null;      // { id, video }: the next shot, loaded
     let stillAt = 0;       // how long a still has been showing, in a run
     let stillRaf = 0;
@@ -389,6 +390,10 @@ const WBViewer = (() => {
         if (p.type !== 'video' || p.dur > 0 || measured.has(p.id)) continue;
         measured.set(p.id, 4);
         const probe = el('video', { preload: 'metadata', src: p.src });
+        probe.addEventListener('error', () => {
+          probe.removeAttribute('src');
+          probe.load();
+        });
         probe.addEventListener('loadedmetadata', () => {
           if (probe.duration > 0 && isFinite(probe.duration)) measured.set(p.id, probe.duration);
           probe.removeAttribute('src');
@@ -454,7 +459,15 @@ const WBViewer = (() => {
     function playOpen() {
       const video = videoOpen();
       cancelAnimationFrame(stillRaf);
-      if (video) return void video.play().catch(() => {});
+      // A browser that will not play it (no sound allowed yet, say) stops the run rather than leaving
+      // it saying it plays.
+      if (video) {
+        return void video.play().catch(() => {
+          if (videoOpen() !== video) return;
+          runPlaying = false;
+          syncTimeline();
+        });
+      }
       let last = performance.now();
       const tick = (now) => {
         if (!runPlaying || !open || videoOpen()) return;
@@ -531,6 +544,7 @@ const WBViewer = (() => {
       open = null;
       activeThread = null;
       if (media) media.remove();
+      unload(media);
       media = null;
       pieceBox.replaceChildren();
       runPlaying = false;
@@ -554,7 +568,15 @@ const WBViewer = (() => {
     }
 
     let wholeTimer = 0;
+    // A video put away lets go of its decoder and its connection now, not whenever it is collected.
+    const unload = (v) => {
+      if (!v || v.tagName !== 'VIDEO') return;
+      v.pause();
+      v.removeAttribute('src');
+      v.load();
+    };
     function mount(piece) {
+      const old = media;
       W = piece.nw || 1000;
       H = piece.nh || W * 0.5625;
       pieceBox.style.width = `${W}px`;
@@ -568,13 +590,15 @@ const WBViewer = (() => {
         } else video = makeVideo(piece);
         media = video;
         // Open, it is scrubbed and stepped through: worth having all of it. Held back a moment so stepping
-        // quickly past videos does not start fetching every one of them.
-        wholeTimer = setTimeout(() => holdWhole(piece), 300);
+        // quickly past videos does not start fetching every one of them. A run playing through is not
+        // switched over mid-shot (that would jump back a moment at each cut): it is had whole once paused.
+        if (!(runMode() && runPlaying)) wholeTimer = setTimeout(() => holdWhole(piece), 300);
       } else {
         media = el('img', { alt: piece.name || '', draggable: 'false', decoding: 'async', src: piece.prev || piece.src });
       }
       ink.setAttribute('viewBox', `0 0 ${UNITS} ${(UNITS * H) / W}`);
       pieceBox.replaceChildren(media, ink);
+      if (old !== media) unload(old);
     }
 
     function makeVideo(piece) {
@@ -588,6 +612,19 @@ const WBViewer = (() => {
       for (const type of ['progress', 'suspend']) video.addEventListener(type, () => { if (mine()) syncLoaded(); });
       for (const type of ['play', 'pause', 'volumechange']) video.addEventListener(type, () => { if (!mine()) return; syncTimeline(); paintInk(); });
       video.addEventListener('ended', () => { if (mine()) runOn(); });
+      // A shot that cannot be played (gone, not allowed, a format this browser lacks) is passed over in a
+      // run playing through, as long as some shot still plays.
+      video.addEventListener('error', () => {
+        if (!mine() || !runMode() || !runPlaying) return;
+        if (++runErrors >= runClips.length) {
+          runErrors = 0;
+          runPlaying = false;
+          syncTimeline();
+          return;
+        }
+        runOn();
+      });
+      video.addEventListener('playing', () => { runErrors = 0; });
       const onFrame = (now, meta) => {
         if (!mine()) return;
         syncTimeline(video.duration > 0 && isFinite(video.duration) ? meta.mediaTime % video.duration : meta.mediaTime);
@@ -1017,6 +1054,7 @@ const WBViewer = (() => {
         } else {
           if (video) video.pause();
           cancelAnimationFrame(stillRaf);
+          if (video) holdWhole(open);
         }
         syncTimeline();
         told();
@@ -1058,7 +1096,17 @@ const WBViewer = (() => {
       told();
     }
     // Stops the video on the frame it is showing, so what is made on it next belongs to that frame.
+    // A run stopped where it is: drawing or writing on a shot stays on that shot, still or video.
+    function stopRun() {
+      if (!runMode() || !runPlaying) return;
+      runPlaying = false;
+      cancelAnimationFrame(stillRaf);
+      const video = videoOpen();
+      if (video) video.pause();
+      syncTimeline();
+    }
     function holdFrame() {
+      stopRun();
       const video = videoOpen();
       if (!video) return;
       const fps = fpsOf(open.id);
@@ -1851,7 +1899,11 @@ const WBViewer = (() => {
       autosize(composer);
     }
     // Starting to write about a video stops it, so the comment is about the frame that was showing.
-    composer.addEventListener('focus', () => { if (open && timed) holdFrame(); });
+    composer.addEventListener('focus', () => {
+      if (!open) return;
+      stopRun();
+      if (timed) holdFrame();
+    });
 
     const cpToggle = (label, title, checked, onchange) => {
       const box = el('input', { type: 'checkbox' });
@@ -2095,6 +2147,8 @@ const WBViewer = (() => {
     const { isTyping } = WB;
     window.addEventListener('keydown', (e) => {
       if (!open || isTyping(e.target) || document.querySelector('dialog[open]')) return;
+      // Docked beside the page's own sidebar and bar, what has the keyboard there keeps its keys.
+      if (root.classList.contains('docked') && e.target instanceof Element && e.target !== document.body && !root.contains(e.target)) return;
       const k = e.key.toLowerCase();
       // Enter works a button that has the keyboard; Space always plays and pauses, even when a button
       // clicked a moment ago still has it.

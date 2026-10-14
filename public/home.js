@@ -2146,10 +2146,11 @@
       r.phase = part;
       paint();
     };
-    const look = await ingest(r.file, (k) => tell('up', k), isVideo ? { onPhase: (k) => tell('enc', k), onStrip: (k) => tell('strip', k) } : {});
+    const signal = r.ctl.signal;
+    const look = await ingest(r.file, (k) => tell('up', k), isVideo ? { onPhase: (k) => tell('enc', k), onStrip: (k) => tell('strip', k), signal } : { signal });
     if (isVideo && !look.orig) {
       const max = WB.info().maxUpload;
-      if (!max || r.file.size <= max) look.orig = (await upload(r.file, fileExt(r.file), (k) => tell('orig', k))).url;
+      if (!max || r.file.size <= max) look.orig = (await upload(r.file, fileExt(r.file), (k) => tell('orig', k), false, signal)).url;
       else r.note = `The original is ${megabytes(r.file.size)}, more than is kept here, so only its review copy is`;
     }
     return look;
@@ -2266,7 +2267,19 @@
       task.addEventListener('input', resyncAll);
       for (const input of [ent, task, num]) input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented && canFile(r)) fileRow(r); });
       r.fields = { ent, task, num, tier, go, status, bar, thumb, said, box: fields, sync };
-      r.node = el('div', { class: 'imp-row' }, thumb, el('span', { class: 'imp-file' }, el('span', { class: 'imp-name', text: r.file.name, title: r.file.name }), bar), fields, said, status);
+      // Taken back: whatever is under way for it stops, and the row goes.
+      const drop = el('button', {
+        type: 'button', class: 'iconbtn imp-x', html: icon('close', 14), title: `Take ${r.file.name} back`,
+        onclick: () => {
+          r.ctl.abort();
+          const i = rows.indexOf(r);
+          if (i >= 0) rows.splice(i, 1);
+          r.node.remove();
+          paintHead();
+        },
+      });
+      r.fields.drop = drop;
+      r.node = el('div', { class: 'imp-row' }, thumb, el('span', { class: 'imp-file' }, el('span', { class: 'imp-name', text: r.file.name, title: r.file.name }), bar), fields, said, status, drop);
       sync();
       return r.node;
     }
@@ -2285,6 +2298,7 @@
       f.said.hidden = r.status !== 'filed';
       f.said.textContent = r.label ? `Filed as ${r.label}` : '';
       f.go.textContent = r.status === 'filing' ? 'Filing…' : 'File';
+      f.drop.hidden = r.status === 'filed' || r.status === 'filing';
       f.sync();
     }
 
@@ -2361,6 +2375,8 @@
             fileRow(r);
           }
         } catch (err) {
+          // Taken back while it was coming in: the row has gone already.
+          if (err.name === 'AbortError') continue;
           r.status = 'failed';
           r.fileWhenReady = false;
           r.error = err.refused ? `This browser cannot process this video. Import it from ${WBIngest.OTHER_BROWSERS} instead` : err.message;
@@ -2375,7 +2391,7 @@
       let n = 0;
       for (const file of files) {
         if (!/^(image|video)\//.test(file.type) && !/\.(png|jpe?g|gif|webp|avif|bmp|svg|mp4|m4v|webm|mov)$/i.test(file.name)) continue;
-        const r = { file, entity, status: 'queued', progress: 0, parsed: N.parse(file.name, presetId), look: null, preview: null };
+        const r = { file, entity, status: 'queued', progress: 0, parsed: N.parse(file.name, presetId), look: null, preview: null, ctl: new AbortController() };
         rows.push(r);
         list.append(makeRow(r));
         paintRow(r);

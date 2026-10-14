@@ -162,7 +162,8 @@
   let online = false;
   let myId = null;
   let firstInit = true;
-  let booted = false;            // the board's panels and tools exist: until then the keys do nothing
+  let booted = false;
+  let orderDirty = true;         // the pieces' reading order (mediaOrder) needs working out again            // the board's panels and tools exist: until then the keys do nothing
   let retry = 500;
   let tool = 'select';
   let gesture = null;
@@ -256,6 +257,38 @@
     sendP({ v: [round(v.x), round(v.y), round(v.w), round(v.h)] });
     scheduleSettle();
     if (laserActive()) requestLaser();
+    scheduleCull();
+  }
+
+  // Browsers allow a page only so many video players (a phone very few), so a video far off screen lets
+  // go of its player and shows its still; coming back into view, it takes one again. One that is
+  // playing keeps it.
+  let cullTimer = 0;
+  function scheduleCull() {
+    clearTimeout(cullTimer);
+    cullTimer = setTimeout(cull, 300);
+  }
+  function cull() {
+    const v = viewRect();
+    const m = Math.max(v.w, v.h) * 0.5;
+    const near = { x: v.x - m, y: v.y - m, w: v.w + 2 * m, h: v.h + 2 * m };
+    for (const it of items.values()) {
+      if (it.type !== 'video') continue;
+      const node = els.get(it.id);
+      const video = node && node.firstChild;
+      if (!video || video.tagName !== 'VIDEO') continue;
+      const close = intersects(near, it);
+      if (!close && !video.dataset.parked && video.paused) {
+        video.dataset.parked = '1';
+        delete video.dataset.whole;
+        video.removeAttribute('src');
+        video.load();
+        node.classList.remove('started');
+      } else if (close && video.dataset.parked) {
+        delete video.dataset.parked;
+        video.src = video.dataset.src;
+      }
+    }
   }
 
   let settleTimer = 0;
@@ -584,8 +617,10 @@
       if (video.dataset.src !== it.src) {
         video.dataset.src = it.src;
         delete video.dataset.whole;
+        delete video.dataset.parked;
         video.src = it.src;
         queueAhead();
+        scheduleCull();
       }
     } else if (it.type === 'upload') {
       st.width = `${it.w}px`;
@@ -756,19 +791,29 @@
         if (op.patch.settings) applySettings(op.patch.settings);
       }
     }
-    afterChange();
+    afterChange(ops);
   }
 
-  function afterChange() {
+  // Keys that only move or size a piece: a peer dragging something changes nothing else, and its many
+  // small ops a second should not recount frames, rebuild the marks on every video or the open viewer.
+  const GEOMETRY = new Set(['x', 'y', 'w', 'h', 'z', 'auto']);
+  const onlyGeometry = (ops) => !!ops && ops.every((op) => op.t === 'set' && !comments.has(op.id) && Object.keys(op.patch || {}).every((k) => GEOMETRY.has(k)));
+  // Whether the ops change which piece is in which frame (or what pieces there are).
+  const reframes = (ops) => !ops || ops.some((op) => op.t !== 'set' || 'fid' in (op.patch || {}) || 'type' in (op.patch || {}));
+
+  // After the document changed: `ops` when it is known what changed, to do only what that needs.
+  function afterChange(ops) {
     $('hint').hidden = items.size > 0;
+    const marksToo = cmDirty || !ops || ops.some((op) => op.t !== 'set' || 'dur' in (op.patch || {}) || 'src' in (op.patch || {}));
     if (cmDirty) {
       cmDirty = false;
       syncComments();
     }
-    updateFrameCounts();
+    if (reframes(ops)) updateFrameCounts();
     updateOverlay();
-    queueMarks();
-    viewer.refresh();
+    if (marksToo) queueMarks();
+    if (!onlyGeometry(ops) && viewer.isOpen()) viewer.refresh();
+    orderDirty = true;
     scheduleSettle();
   }
 
@@ -818,6 +863,13 @@
   }
 
   function stepHistory(from, to) {
+    // A nudge still being made is a step of its own first.
+    if (nudging) {
+      clearTimeout(nudging.timer);
+      const done = nudging;
+      nudging = null;
+      recordSince(done.snap);
+    }
     finishEdit();
     flushLive();
     const ops = from.pop();
@@ -1303,13 +1355,24 @@
     return patch;
   }
 
+  // Nudges a moment apart are one move: one undo step, and sent together, however long the key is held.
+  let nudging = null; // { snap, timer }
   function nudge(dx, dy) {
-    const ops = [];
-    for (const id of movingIds()) {
+    const ids = movingIds();
+    if (!nudging) nudging = { snap: snapshot(ids) };
+    for (const id of ids) {
       const it = items.get(id);
-      ops.push({ t: 'set', id, patch: { x: round(it.x + dx), y: round(it.y + dy) } });
+      if (!it) continue;
+      if (!nudging.snap.has(id)) nudging.snap.set(id, { ...it });
+      liveSet(id, { x: round(it.x + dx), y: round(it.y + dy) });
     }
-    exec(ops);
+    updateOverlay();
+    clearTimeout(nudging.timer);
+    nudging.timer = setTimeout(() => {
+      const done = nudging;
+      nudging = null;
+      recordSince(done.snap);
+    }, 600);
   }
 
   // ------------------------------------------------------------- frames, drawings, snapping
@@ -1893,6 +1956,8 @@
   let aheadTimer = 0;
   function queueAhead() {
     paintKept();
+    // Somebody looking through a link is not given gigabytes they did not ask for: what they open is kept.
+    if (viewOnly) return;
     clearTimeout(aheadTimer);
     aheadTimer = setTimeout(() => {
       // From the piece that is open onwards, since the next one is the likeliest to be wanted next.
@@ -1904,10 +1969,15 @@
 
   // The ring in the bar: how much of this board's video is on this computer already (media.js).
   let keptRing = null;
-  keptRing = media.ring($('kept'), () => ({
-    label: 'this board',
-    items: mediaOrder().filter((it) => it.type === 'video').map((it) => ({ src: it.src, name: it.name })),
-  }));
+  // The ring is painted on every progress tick: what it measures is worked out again only when the board changed.
+  let ringItems = [];
+  keptRing = media.ring($('kept'), () => {
+    if (orderDirty) {
+      orderDirty = false;
+      ringItems = mediaOrder().filter((it) => it.type === 'video').map((it) => ({ src: it.src, name: it.name }));
+    }
+    return { label: 'this board', items: ringItems };
+  });
   function paintKept() {
     if (keptRing) keptRing.paint();
   }
@@ -3213,11 +3283,27 @@
     vp.scrollTop = 0;
   });
 
+  // A mouse wheel zooms, as it always has. Two fingers on a trackpad pan, sideways too, and a pinch
+  // (which the browser sends as a wheel with Ctrl held) zooms. A trackpad is told by its fine, sideways
+  // or fractional steps, and once told is remembered for the rest of that gesture.
+  let padUntil = 0;
   vp.addEventListener('wheel', (e) => {
     e.preventDefault();
-    const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+    const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? vp.clientHeight : 1;
+    const dx = e.deltaX * unit;
+    const dy = e.deltaY * unit;
     userMovedView();
-    zoomAt(e.clientX, e.clientY, Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)));
+    if (e.ctrlKey) return void zoomAt(e.clientX, e.clientY, Math.exp(-dy * 0.01));
+    const now = performance.now();
+    if (e.deltaMode === 0 && (dx !== 0 || !Number.isInteger(e.deltaY) || Math.abs(dy) < 40)) padUntil = now + 400;
+    if (now < padUntil) {
+      padUntil = now + 400;
+      cam.x += dx / cam.z;
+      cam.y += dy / cam.z;
+      applyCam();
+      return;
+    }
+    zoomAt(e.clientX, e.clientY, Math.exp(-dy * 0.0015));
   }, { passive: false });
 
   // The canvas holds the pointer while a button is down, so the event's target is the canvas
@@ -4623,6 +4709,19 @@
   const catBody = el('div', { class: 'cat-body' });
   const catSearch = el('input', { type: 'search', placeholder: 'Find an asset, set or shot', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Find' });
   catSearch.addEventListener('input', () => { catQuery = catSearch.value.trim().toLowerCase(); paintCatalogue(); });
+  // Escape in the search clears it, and once it is clear puts the panel away.
+  catSearch.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    if (catSearch.value) {
+      catSearch.value = '';
+      catQuery = '';
+      paintCatalogue();
+    } else {
+      catSearch.blur();
+      toggleCatalogue(false);
+    }
+  });
   const catTitle = el('h2');
   catPanel.append(
     el('div', { class: 'act-head' }, catTitle,
@@ -4632,18 +4731,25 @@
 
   const thumbOf = (src) => (src ? el('img', { src, alt: '', loading: 'lazy', draggable: 'false' }) : el('span', { class: 'cat-nothumb', html: ICON.stack }));
 
+  // Each paint is numbered: a slow answer for a view already left (a quick click on, then back) is dropped.
+  let catPaint = 0;
   async function paintCatalogue() {
     if (!project) return;
     catTitle.textContent = project.name;
     if (catEntity) return paintCatEntity();
+    const ticket = ++catPaint;
     if (!catSeen) {
       try {
         catSeen = await WB.api('GET', `/api/projects/${project.id}`);
       } catch (err) {
-        return catBody.replaceChildren(el('p', { class: 'act-none', text: err.message }));
+        if (ticket === catPaint) catBody.replaceChildren(el('p', { class: 'act-none', text: err.message }));
+        return;
       }
+      if (ticket !== catPaint) return;
     }
-    const shown = catSeen.entities.filter((e) => !catQuery || e.name.includes(catQuery));
+    // Typed as it is spoken ("kilo 0010") or as it is written (kilo-0010), it finds the same.
+    const q = catQuery ? WBNaming.tokenize(catQuery) : '';
+    const shown = catSeen.entities.filter((e) => !q || e.name.includes(q));
     const groups = catSeen.preset.tiers.map((t) => [t, shown.filter((e) => e.tier === t.id)]).filter(([, list]) => list.length);
     catBody.replaceChildren(...(groups.length ? groups.map(([t, list]) => el('section', { class: 'cat-group' },
       el('h3', {}, t.label, el('span', { class: 'tally', text: String(list.length) })),
@@ -4653,13 +4759,16 @@
   }
 
   async function paintCatEntity() {
+    const ticket = ++catPaint;
     let page;
     try {
       page = await WB.api('GET', `/api/entities/${catEntity}`);
     } catch (err) {
+      if (ticket !== catPaint) return;
       catEntity = null;
       return paintCatalogue();
     }
+    if (ticket !== catPaint) return;
     const here = new Set([...items.values()].map((it) => it.ver).filter(Boolean));
     const shown = page.versions.filter((v) => !v.hidden);
     catBody.replaceChildren(
@@ -4668,7 +4777,11 @@
       shown.length ? el('div', { class: 'cat-versions' }, shown.map((v) => el('div', { class: `cat-ver${here.has(v.id) ? ' here' : ''}` },
         el('button', {
           type: 'button', class: 'cat-put', title: here.has(v.id) ? `${v.label} is on this board. Click to put it on again` : `Put ${v.label} on the board`,
-          onclick: () => placeMedia([{ ...v.look, ver: v.id }], viewCenter()),
+          onclick: () => {
+            placeMedia([{ ...v.look, ver: v.id }], viewCenter());
+            // Now on the board: the list says so.
+            setTimeout(() => { if (catEntity === page.entity.id && !catPanel.hidden) paintCatEntity(); }, 0);
+          },
         }, thumbOf(v.thumb), el('span', { class: 'cat-name', text: v.label }),
         el('span', { class: 'cat-meta', text: [v.artist, WB.ago(v.createdAt)].filter(Boolean).join(' · ') })),
         here.has(v.id) && el('span', { class: 'cat-here', text: 'On the board' }),

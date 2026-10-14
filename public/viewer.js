@@ -514,7 +514,9 @@ const WBViewer = (() => {
     const pieceBox = el('div', { class: 'v-piece' });
     const ink = svgEl('svg', { class: 'v-ink' });
     const laserCanvas = el('canvas', { class: 'v-laser' });
-    const stage = el('div', { class: 'v-stage' }, pieceBox, laserCanvas);
+    // In a run: which shot is on screen, and which version of it, over the picture.
+    const runCap = el('div', { class: 'v-runcap', hidden: true });
+    const stage = el('div', { class: 'v-stage' }, pieceBox, laserCanvas, runCap);
     const nameEl = el('span', { class: 'v-name' });
     const posEl = el('span', { class: 'v-pos' });
     const prevBtn = el('button', { class: 'iconbtn', html: ICON.prev, title: 'Previous (←)', onclick: () => step(-1) });
@@ -870,9 +872,14 @@ const WBViewer = (() => {
       });
     }
 
+    // A run's shot is its name; its version is the rest of its label ("anim v3"), or that it has none.
+    const versionPart = (p) => (p.empty ? 'nothing filed yet' : (p.label || '').startsWith(`${p.name} `) ? p.label.slice(p.name.length + 1) : p.label || '');
     function paintAll() {
       if (!open) return;
-      nameEl.textContent = open.label ? `${open.label} · ${open.name || ''}`.replace(/ · $/, '') : open.name || (open.type === 'video' ? 'Video' : 'Image');
+      nameEl.textContent = runMode() && open.name ? [open.name, versionPart(open)].filter(Boolean).join(' · ')
+        : open.label ? `${open.label} · ${open.name || ''}`.replace(/ · $/, '') : open.name || (open.type === 'video' ? 'Video' : 'Image');
+      runCap.hidden = !runMode();
+      if (runMode()) runCap.replaceChildren(el('b', { text: open.name || '' }), el('span', { class: open.empty ? 'none' : '', text: versionPart(open) }));
       crumb.textContent = opts.title ? opts.title() : '';
       dlBtn.hidden = !opts.download || !/^\/uploads\//.test(open.src || '');
       clearBtn.hidden = !opts.clear || !can.member();
@@ -1107,9 +1114,10 @@ const WBViewer = (() => {
           const starts = c.piece.seq && c.piece.seq !== seq;
           seq = c.piece.seq;
           return el('i', {
-            class: `tl-clip${starts ? ' seq-start' : ''}`, 'data-id': c.id, title: c.piece.label || c.piece.name || '',
-            style: { left: `${(c.start / runTotal) * 100}%`, width: `${(c.dur / runTotal) * 100}%`, ...(still && { backgroundImage: `url("${still}")` }) },
-          }, starts && el('b', { class: 'tl-seqname', text: c.piece.seq }));
+            class: `tl-clip${starts ? ' seq-start' : ''}${c.piece.empty ? ' empty' : ''}`, 'data-id': c.id, title: c.piece.label || c.piece.name || '',
+            style: { left: `${(c.start / runTotal) * 100}%`, width: `${(c.dur / runTotal) * 100}%`, ...(still && !c.piece.empty && { backgroundImage: `url("${still}")` }) },
+          }, starts && el('b', { class: 'tl-seqname', text: c.piece.seq }),
+          el('span', { class: 'tl-clipname' }, el('b', { text: c.piece.name || '' }), !c.piece.empty && el('span', { text: versionPart(c.piece) })));
         }));
       }
       for (const n of tlRun.children) n.classList.toggle('at', n.dataset.id === (open && open.id));
@@ -2534,10 +2542,12 @@ const WBViewer = (() => {
   //
   // Opens the shots of a project in a player as an edit: the newest version of each (of `task`, or of
   // any), in order, sequence by sequence, played one into the next. What is said is about the shot under
-  // the playhead, live, through its room. Shots with nothing filed are left out.
+  // the playhead, live, through its room. A shot with nothing filed may come as a slate (`empty`): it is
+  // seen and held like a still, and nothing is written or drawn on it, as it has no version to be on.
   async function openRun(viewer, { load, me, title, choices, onClose = () => {} }) {
     let pieces = await load();
-    if (!pieces.length) throw new Error('No shot has anything filed yet');
+    if (!pieces.length) throw new Error('There are no shots to play yet');
+    const onSlate = () => !!(pieces.find((x) => x.id === viewer.current()) || {}).empty;
     let notes = [];
     let room = null;
     let roomOf = null;
@@ -2563,7 +2573,7 @@ const WBViewer = (() => {
       title,
       media: () => pieces,
       notes: () => notes,
-      can: { member: () => true },
+      can: { member: () => true, write: () => !onSlate(), draw: () => !onSlate() },
       ...roomNotes(viewer, () => room, () => notes, (next) => { notes = next; }),
       onOpen: follow,
       onClose: () => {

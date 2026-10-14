@@ -117,8 +117,10 @@ private networks, otherwise only the host machine can connect.
   time is the run's, in seconds, frames or timecode as everywhere else. The player's bar picks all
   sequences or one, and the task; both are remembered. The arrows step from shot to shot, Space plays
   and pauses, loop goes round to the first shot, and what is written is about the shot under the
-  playhead, on its version, like any other comment. Stills hold for three seconds; shots with nothing
-  filed are left out.
+  playhead, on its version, like any other comment. Stills hold for three seconds. The shot on screen
+  and its version are written over the picture and in the bar, and each clip in the strip says its
+  shot. Shots with nothing filed (of the task chosen) are there as a slate, held like a still, with no
+  comments, as they have no version to be on; "Filed shots only" leaves them out.
 - **Setting a project up.** "Add assets, sets & shots" above the catalogue takes names, typed or pasted
   one a line, each an asset, a set or a shot by its shape (or all of one kind, as chosen), and a run of
   shots from a sequence and its numbers (kilo, 10 to 200 by 10). They are in the catalogue and the

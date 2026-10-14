@@ -779,17 +779,53 @@
   // A project's timeline: its shots played through in the player, as an edit (viewer.js, openRun): the
   // newest version of each, of one task or any, all sequences or one, chosen in the player's bar.
   let runOf = null;
+  // The card that stands in for a shot with nothing filed: its name, and that it has nothing yet.
+  const slates = new Map();
+  function slate(name, task) {
+    const key = `${name}|${task}`;
+    if (slates.has(key)) return slates.get(key);
+    const c = document.createElement('canvas');
+    c.width = 1280;
+    c.height = 720;
+    const g = c.getContext('2d');
+    g.fillStyle = '#111';
+    g.fillRect(0, 0, 1280, 720);
+    g.strokeStyle = '#191919';
+    g.lineWidth = 14;
+    for (let x = -720; x < 1280; x += 40) {
+      g.beginPath();
+      g.moveTo(x, 720);
+      g.lineTo(x + 720, 0);
+      g.stroke();
+    }
+    g.textAlign = 'center';
+    g.fillStyle = '#e8e8e8';
+    g.font = '600 64px Inter, system-ui, sans-serif';
+    g.fillText(name, 640, 360);
+    g.fillStyle = '#8a8a8a';
+    g.font = '400 30px Inter, system-ui, sans-serif';
+    g.fillText(task ? `No ${task} filed yet` : 'Nothing filed yet', 640, 416);
+    const url = c.toDataURL('image/png');
+    slates.set(key, url);
+    return url;
+  }
   async function openTimeline(project) {
     runOf = project.id;
     const key = project.id;
     let seq = store(`wb:tl:seq:${key}`) || '';
     let task = store('wb:tl:task') || '';
+    let withEmpty = store('wb:tl:empty') !== false;
     let data = null;
     const load = async () => {
       data = await api('GET', `/api/projects/${project.id}/timeline${task ? `?task=${encodeURIComponent(task)}` : ''}`);
       if (seq && !data.shots.some((x) => x.seq === seq)) seq = '';
-      return data.shots.filter((x) => x.version && (!seq || x.seq === seq)).map((x) => ({
+      if (!data.shots.length) return [];
+      return data.shots.filter((x) => (x.version || withEmpty) && (!seq || x.seq === seq)).map((x) => (x.version ? {
         ...x.version.look, id: x.version.id, type: x.version.look.type, label: x.version.label, name: x.name, seq: x.seq, entityId: x.id,
+      } : {
+        // A shot with nothing filed (of that task): a slate in its place, held like a still.
+        type: 'image', id: `empty-${x.id}`, src: slate(x.name, task), nw: 1280, nh: 720, empty: true,
+        label: `${x.name} · nothing filed yet`, name: x.name, seq: x.seq, entityId: x.id,
       }));
     };
     const pick = (label, value, options, set) => {
@@ -807,6 +843,7 @@
           return [
             pick('Which sequence', seq, [['', 'All sequences'], ...seqs.map((x) => [x, x])], (v) => { seq = v; store(`wb:tl:seq:${key}`, v); reload(); }),
             pick('Latest of which task', task, [['', 'Latest of any task'], ...data.tasks.map((x) => [x, `Latest ${x}`])], (v) => { task = v; store('wb:tl:task', v); reload(); }),
+            pick('Which shots', withEmpty ? 'all' : 'filed', [['all', 'All shots'], ['filed', 'Filed shots only']], (v) => { withEmpty = v === 'all'; store('wb:tl:empty', withEmpty); reload(); }),
           ];
         },
         onClose: () => {

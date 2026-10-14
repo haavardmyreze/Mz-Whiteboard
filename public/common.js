@@ -1,6 +1,9 @@
 'use strict';
 
-// Shared helpers for the board list and the board itself.
+// Shared helpers for every page: the home page (home.js), a board (board.js), the admin page.
+// Scripts load in this order, each using those before it: common.js (WB), icons.js (WB.icon), media.js
+// (WB.media), naming.js (WBNaming), ingest.js (WBIngest), ink.js (WBInk), viewer.js (WBViewer), then the
+// page's own script.
 const WB = (() => {
   const USER_COLORS = ['#e88a86', '#e8a875', '#e4c978', '#82c79b', '#74c2b9', '#8bb6e8', '#aa9ce6', '#e090b8'];
 
@@ -42,9 +45,9 @@ const WB = (() => {
     return u;
   }
 
-  function saveUser(name) {
+  function saveUser(name, color) {
     const prev = user();
-    const u = { name: name.trim().slice(0, 32), color: prev ? prev.color : anyColor() };
+    const u = { name: String(name).trim().slice(0, 32), color: hexOk(color) ? color : prev ? prev.color : anyColor() };
     store('wb:user', u);
     return u;
   }
@@ -210,16 +213,13 @@ const WB = (() => {
   installTips();
 
   // ---- theme: dark by default, remembered per browser
-  const SUN = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6L7 7M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"/></svg>';
-  const MOON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>';
-
   const theme = () => (document.documentElement.dataset.theme === 'light' ? 'light' : 'dark');
 
   function setTheme(t) {
     document.documentElement.dataset.theme = t;
     store('wb:theme', t);
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.content = t === 'light' ? '#f7f7f7' : '#0f0f0f';
+    if (meta) meta.content = t === 'light' ? '#f0f0f0' : '#090909'; // style.css --bg
     window.dispatchEvent(new Event('wb:theme'));
   }
 
@@ -227,7 +227,7 @@ const WB = (() => {
     const btn = el('button', { class: 'iconbtn themebtn' });
     const paint = () => {
       const dark = theme() === 'dark';
-      btn.innerHTML = dark ? SUN : MOON;
+      btn.innerHTML = WB.icon(dark ? 'sun' : 'moon', 18);
       btn.dataset.tip = dark ? 'Switch to the light theme' : 'Switch to the dark theme';
     };
     btn.addEventListener('click', () => setTheme(theme() === 'dark' ? 'light' : 'dark'));
@@ -416,6 +416,135 @@ const WB = (() => {
     return [...starts, ...holds].slice(0, max);
   }
 
+  // ---- small things every page needs, said once
+
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  // crypto.randomUUID needs HTTPS; boards are often served over plain HTTP on the LAN.
+  const uid = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => (b % 36).toString(36)).join('');
+  const hexOk = (c) => /^#[0-9a-f]{6}$/i.test(c || '');
+  // Somewhere text goes. A slider or a tick box is not: clicking one must not take the keyboard away.
+  const isTyping = (t) => !!t && (t.isContentEditable || /^(TEXTAREA|SELECT)$/.test(t.tagName)
+    || (t.tagName === 'INPUT' && !/^(range|checkbox|radio|button|submit)$/.test(t.type)));
+
+  // A size on disk: megabytes below a gigabyte (with a decimal under ten), gigabytes above.
+  function bytes(n) {
+    n = Number(n) || 0;
+    if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`;
+    const mb = n / 1048576;
+    return `${mb >= 10 || !n ? Math.round(mb).toLocaleString() : mb.toFixed(1)} MB`;
+  }
+  // "1 version", "3 versions"; `many` for a word that does not just take an s.
+  const plural = (n, one, many = `${one}s`) => `${Number(n).toLocaleString()} ${n === 1 ? one : many}`;
+
+  // A person's round badge: their initials on their colour, or on the page's quiet grey when the app
+  // does not know their colour.
+  function avatar(name, color, { size = 'sm', title } = {}) {
+    return el('span', { class: `avatar${size ? ` ${size}` : ''}`, style: hexOk(color) ? { background: color } : null, text: initials(name || '?'), title });
+  }
+
+  // ---- menus: a list of things to do, under the button that opened it
+  //
+  // entries: [label, run, danger] (run may return a promise; its error is shown), an { href, label }
+  // link, or a node (a heading). The arrows walk it, Escape closes it and hands the keyboard back, and
+  // a click anywhere else closes it. One menu at a time.
+  function closeMenus() {
+    for (const m of document.querySelectorAll('.menu.wb-menu')) m.remove();
+  }
+  function menu(anchor, entries, { cls = '', align = 'right', onError } = {}) {
+    closeMenus();
+    const failed = onError || ((err) => toast(err.message || String(err)));
+    const node = el('div', { class: `menu wb-menu${cls ? ` ${cls}` : ''}`, role: 'menu' }, entries.filter(Boolean).map((x) => {
+      if (x instanceof Node) return x;
+      if (!Array.isArray(x)) return el('a', { class: 'menu-item', role: 'menuitem', href: x.href, text: x.label, onclick: () => closeMenus() });
+      const [label, run, danger] = x;
+      return el('button', {
+        type: 'button', class: `menu-item${danger ? ' danger' : ''}`, role: 'menuitem', text: label,
+        onclick: (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          closeMenus();
+          Promise.resolve().then(run).catch(failed);
+        },
+      });
+    }));
+    node.addEventListener('keydown', (e) => {
+      const list = [...node.querySelectorAll('.menu-item')];
+      const at = list.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') list[(at + 1) % list.length]?.focus();
+      else if (e.key === 'ArrowUp') list[(at - 1 + list.length) % list.length]?.focus();
+      else if (e.key === 'Escape') {
+        closeMenus();
+        anchor.focus();
+      } else return;
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    node.addEventListener('click', (e) => e.stopPropagation());
+    document.body.append(node);
+    const r = anchor.getBoundingClientRect();
+    const left = align === 'left' ? r.left : r.right - node.offsetWidth;
+    node.style.left = `${clamp(left, 8, innerWidth - node.offsetWidth - 8)}px`;
+    node.style.top = `${clamp(r.bottom + 4, 8, innerHeight - node.offsetHeight - 8)}px`;
+    node.querySelector('.menu-item')?.focus({ preventScroll: true });
+    return node;
+  }
+  document.addEventListener('pointerdown', (e) => {
+    if (!(e.target instanceof Element) || !e.target.closest('.wb-menu, [aria-haspopup="menu"]')) closeMenus();
+  });
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenus(); });
+
+  // ---- toasts: a line at the foot of the page, for a moment, with something to do about it if there is
+  // anything (Undo, Open). `key` replaces the last toast of that key rather than piling up.
+  function toast(text, { action, ms = 4000, sticky = false, key } = {}) {
+    let box = document.getElementById('toasts');
+    if (!box) {
+      box = el('div', { id: 'toasts', role: 'status', 'aria-live': 'polite' });
+      document.body.append(box);
+    }
+    if (key) box.querySelector(`.toast[data-key="${key}"]`)?.remove();
+    const label = el('span', { text });
+    const node = el('div', { class: 'toast', 'data-key': key || null }, label);
+    const close = () => node.remove();
+    if (action) {
+      node.classList.add('has-action');
+      node.append(action.href
+        ? el('a', { class: 'toast-act', href: action.href, text: action.label, onclick: close })
+        : el('button', { type: 'button', class: 'toast-act', text: action.label, onclick: async () => { close(); try { await action.run(); } catch (err) { toast(err.message || String(err)); } } }));
+    }
+    box.append(node);
+    if (!sticky) setTimeout(close, action ? Math.max(ms, 8000) : ms);
+    return { set: (t) => { label.textContent = t; }, close, node };
+  }
+
+  // ---- where things are: every address in the app is made here, so they read the same everywhere.
+  // On the home page they are hash routes; from a board, `abs` puts them under / as well.
+  const href = {
+    home: () => '#/',
+    space: (ws) => `#/w/${ws}`,
+    folder: (id) => `#/f/${id}`,
+    boards: (id) => `#/f/${id}/boards`,
+    catalogue: (id, { tier, seq, entity } = {}) => `#/f/${id}/catalogue${entity ? `/${entity}` : seq ? `/s/${encodeURIComponent(seq)}` : tier ? `/t/${tier}` : ''}`,
+    versions: (id) => `#/f/${id}/versions`,
+    timeline: (id) => `#/f/${id}/timeline`,
+    board: (id) => `/b/${id}`,
+    abs: (h) => (h.startsWith('#') ? `/${h}` : h),
+  };
+
+  // ---- what this browser remembers (localStorage, through store()), so every key is written down once
+  const KEYS = {
+    user: 'wb:user',           // { name, color } where nobody signs in
+    theme: 'wb:theme',         // 'dark' | 'light'
+    density: 'wb:density',     // 'normal' | 'compact'
+    workspace: 'wb:workspace', // the workspace last shown
+    pins: 'wb:pins',           // what is pinned to Home
+    recent: 'wb:recent',       // what was opened lately
+    feedSeen: 'wb:feed:seen',  // when Updates were last marked read
+    feedShow: 'wb:feed:show',  // which of Updates shows
+    loop: 'wb:loop',           // the player loops videos
+    noAhead: 'wb:noahead',     // videos are not cached ahead
+    mediaKinds: 'wb:media:kinds', // which kinds are cached ahead
+  };
+
   // What was opened lately, newest first, for Home: { kind: 'board' | 'entity', id, … }.
   function remember(entry) {
     const list = (Array.isArray(store('wb:recent')) ? store('wb:recent') : []).filter((x) => !(x.kind === entry.kind && x.id === entry.id));
@@ -423,5 +552,8 @@ const WB = (() => {
     store('wb:recent', list.slice(0, 40));
   }
 
-  return { el, store, remember, combo, rank, user, dialog, askName, info, offline, watchServer, initials, ago, api, theme, setTheme, themeButton, media: null, colors: USER_COLORS, saveUser };
+  return {
+    el, store, remember, combo, rank, user, dialog, askName, info, offline, watchServer, initials, ago, api, theme, setTheme, themeButton,
+    media: null, colors: USER_COLORS, saveUser, clamp, uid, hexOk, isTyping, bytes, plural, avatar, menu, closeMenus, toast, href, KEYS,
+  };
 })();

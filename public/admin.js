@@ -6,24 +6,11 @@
 (async () => {
   const { el, api, ago, dialog, initials } = WB;
   const $ = (id) => document.getElementById(id);
-  const svg = (d, size = 16) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-  const PEOPLE = '<circle cx="9" cy="8" r="3.2"/><path d="M3 19c0-3 2.7-5 6-5s6 2 6 5"/><path d="M16 5.2a3.2 3.2 0 0 1 0 5.6M17.5 14.3c2.1.6 3.5 2.3 3.5 4.7"/>';
+  const I = (name, size = 16) => WB.icon(name, size); // icons.js
   const ICON = {
-    person: svg('<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/>'),
-    people: svg(PEOPLE),
-    peopleLg: svg(PEOPLE, 20),
-    key: svg('<circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M15.5 7.5L18 10M18 5l2 2"/>'),
-    keyLg: svg('<circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M15.5 7.5L18 10M18 5l2 2"/>', 20),
-    folder: svg('<path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
-    board: svg('<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M7.5 9h4v3.5h-4zM14 12.5h2.5V15H14z"/>'),
-    plus: svg('<path d="M12 5v14M5 12h14"/>'),
-    pen: svg('<path d="M4 20l1-4L16 5l3 3L8 19z"/><path d="M14 7l3 3"/>'),
-    trash: svg('<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5"/>'),
-    close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
-    search: svg('<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>'),
-    lock: svg('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', 14),
+    person: I('person'), people: I('people'), peopleLg: I('people', 20), key: I('key'), keyLg: I('key', 20), folder: I('folder'),
+    board: I('board'), plus: I('plus'), pen: I('pen'), trash: I('trash'), close: I('close'), search: I('search'), lock: I('lock', 14),
   };
-
   const TABS = { people: ['People', ICON.person], groups: ['Groups', ICON.people], permissions: ['Permissions', ICON.key] };
   // What each role is for, in the words the role picker uses.
   const ROLES = { viewer: 'Can look', commenter: 'Can look and comment', editor: 'Can add to and change boards', manager: 'Can also share, move and delete' };
@@ -69,7 +56,7 @@
 
   const enc = encodeURIComponent;
   const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-  const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const count = WB.plural;
   const userName = (email) => {
     const u = data.users.find((x) => x.email === email);
     return u && u.name ? u.name : email;

@@ -3,13 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0f0f0f">
-  <script>try { document.documentElement.dataset.theme = JSON.parse(localStorage.getItem('wb:theme')) || 'dark'; } catch (e) { document.documentElement.dataset.theme = 'dark'; }</script>
+  <meta name="theme-color" content="#090909">
+  <script src="/boot.js"></script>
   <title>Sign in · Boards</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="/fonts/rift-demi.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="/fonts/rift-light.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body class="login">
@@ -62,7 +60,7 @@
           const data = await res.json().catch(() => ({}));
           if (!res.ok) throw new Error(data.error || 'Sign-in did not work. Please try again.');
           // Remembered so the name is already filled in next time.
-          try { localStorage.setItem('wb:user', JSON.stringify({ ...JSON.parse(localStorage.getItem('wb:user')), name: $('name').value.trim() })); } catch (err) { /* storage is a convenience */ }
+          try { localStorage.setItem('wb:user', JSON.stringify({ ...JSON.parse(localStorage.getItem('wb:user')), name: $('name').value.trim().slice(0, 32) })); } catch (err) { /* storage is a convenience */ }
           location.replace(next);
         } catch (err) {
           say(err.message, true);

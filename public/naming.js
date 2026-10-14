@@ -45,8 +45,9 @@
     return t ? t.id : null;
   }
 
-  // The sequence a shot is in: "kilo" for kilo-0010.
-  const seqOf = (name) => (/^([a-z]+)-\d+$/.exec(name || '') || [])[1] || null;
+  // The sequence a shot is in: "kilo" for kilo-0010. Asked only of shots, so it is looser than the
+  // preset's test for one: a shot named by hand (ab-12) still has a sequence, the part before its number.
+  const seqOf = (name) => (/^([a-z][a-z0-9]*)-\d+$/.exec(name || '') || [])[1] || null;
 
   // Whatever can be read from a file name: { entity, tier, task, descriptor, artist, hip }, each null
   // when the name does not say. `hip` is the number after v; nothing is made of it, since the catalogue

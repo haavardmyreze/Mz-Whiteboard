@@ -8,35 +8,34 @@
 // address is made from what is in it, so a copy kept here can never be out of date.
 //
 //   get(src)              a video, whole: from the disk if it is kept, else fetched (and kept). What is
-//                         opened never waits: what was being fetched ahead gives way to it.
+//                         opened never waits: what was being fetched ahead gives way to it. A video
+//                         already on its way (ahead, or opened elsewhere on the page) is waited for, not
+//                         fetched twice.
 //   want(key, srcs, opt)  what a page would like kept, in order; each page (key) says it again as it
 //                         changes. opt.rank orders the lists (lower first), opt.kind is what the
-//                         settings call it (boards, work, cc, pinned; others are always on), and
-//                         opt.hold keeps them from being made room for while they are wanted.
+//                         settings call it (boards, work, cc, pinned), and opt.hold keeps them from
+//                         being made room for while they are wanted, in this tab or any other.
+//   whole(src)            a video held whole in memory, as an object URL, for scrubbing without waiting.
+//                         Up to WHOLE_HELD is held; the longest unused are let go (onEvict says which).
 //
 // What is kept is listed in IndexedDB, one record a video, so pages in several tabs never write over
-// each other's list; a lock for each address keeps two tabs from fetching the same one. Up to MAX is
-// kept, and what was wanted longest ago makes room, never what a page is holding. A service worker
-// (sw.js) answers the page's own <video> elements from the kept copies too, scrubbing included.
+// each other's list; a lock for each address keeps two tabs from fetching the same one, and room is made
+// under one lock for all tabs. Up to MAX is kept (less if the browser allows less), and what was wanted
+// longest ago makes room, never what a page is holding. A service worker (sw.js) answers the page's own
+// <video> elements from the kept copies too, scrubbing included.
 //
 // Where the browser has nowhere to keep things (a plain http address that is not this machine), or has
 // been asked to save data, nothing is fetched ahead and everything plays from the server as before.
 (function () {
-  const CACHE = 'wb-media-1';
+  const CACHE = 'wb-media-1'; // sw.js reads the same cache: keep the two names together
   const MAX = 4 * 1024 * 1024 * 1024;  // kept across everything
   const ITEM_MAX = 400 * 1024 * 1024;   // larger than this stays on the server
+  const WHOLE_HELD = 1024 * 1024 * 1024; // held in memory across videos
   const KINDS = ['boards', 'work', 'cc', 'pinned'];
   const usable = 'caches' in window && 'indexedDB' in window && window.isSecureContext !== false;
-
-  const store = (key, value) => {
-    try {
-      if (value === undefined) return JSON.parse(localStorage.getItem(key));
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      // storage blocked: the choice lasts as long as the page
-    }
-    return undefined;
-  };
+  const keepable = (src) => typeof src === 'string' && /^\/uploads\//.test(src);
+  const { store, KEYS } = WB;
+  const tab = WB.uid();
 
   // ---- the list of what is kept (IndexedDB 'wb-media', store 'kept': { src, size, used })
   const index = new Map();
@@ -70,22 +69,44 @@
   const putRow = (row) => idb('readwrite', (s) => s.put(row)).catch(() => {});
   const delRow = (src) => idb('readwrite', (s) => s.delete(src)).catch(() => {});
 
-  // Other tabs say when they have kept or let go of something.
-  const channel = 'BroadcastChannel' in window ? new BroadcastChannel('wb-media') : null;
-  const tellOthers = () => channel && channel.postMessage('changed');
-  if (channel) channel.onmessage = () => loadIndex().then(changed, () => {});
-
   let cachep = null;
   const cache = () => {
     if (!cachep) cachep = usable ? caches.open(CACHE).catch(() => null) : Promise.resolve(null);
     return cachep;
   };
 
+  // ---- other tabs: what they kept or let go of, that one of them cleared everything, and what each
+  // is holding (so no tab makes room by throwing out what another is playing).
+  const channel = 'BroadcastChannel' in window ? new BroadcastChannel('wb-media') : null;
+  const tell = (msg) => channel && channel.postMessage(msg);
+  const tellOthers = () => tell({ t: 'changed' });
+  const othersHold = new Map(); // tab -> { srcs: Set, at }
+  if (channel) {
+    channel.onmessage = ({ data }) => {
+      const msg = typeof data === 'string' ? { t: data } : data || {};
+      if (msg.t === 'cleared') forget();
+      else if (msg.t === 'hold') {
+        if (msg.srcs.length) othersHold.set(msg.tab, { srcs: new Set(msg.srcs), at: Date.now() });
+        else othersHold.delete(msg.tab);
+        return;
+      } else if (msg.t === 'who') {
+        tellHolds();
+        return;
+      }
+      loadIndex().then(changed, () => {});
+    };
+  }
+  function tellHolds() {
+    tell({ t: 'hold', tab, srcs: [...held(true)] });
+  }
+  setInterval(tellHolds, 20000);
+  window.addEventListener('pagehide', () => tell({ t: 'hold', tab, srcs: [] }));
+
   const ready = (async () => {
     if (!usable) return false;
     try {
       await loadIndex();
-      // What the boards kept before this list was in IndexedDB.
+      // What the boards kept before this list was in IndexedDB (a browser that had the older app).
       const old = store('wb:kept');
       if (old && typeof old === 'object') {
         for (const [src, k] of Object.entries(old)) {
@@ -96,6 +117,8 @@
         }
         try { localStorage.removeItem('wb:kept'); } catch { /* left as it is */ }
       }
+      tell({ t: 'who' });
+      await measureQuota();
       return !!(await cache());
     } catch {
       return false;
@@ -104,7 +127,7 @@
   let available = false;
   ready.then((ok) => { available = ok; changed(); });
 
-  // ---- listeners: a board's ring, the settings
+  // ---- listeners: a page's ring, the badges, the settings
   const listeners = new Set();
   let paintQueued = false;
   function changed() {
@@ -119,38 +142,70 @@
   }
 
   // ---- settings, this browser's
-  const ahead = () => store('wb:noahead') !== true;
-  const kinds = () => ({ boards: true, work: true, cc: true, pinned: true, ...(store('wb:media:kinds') || {}) });
+  const ahead = () => store(KEYS.noAhead) !== true;
+  const kinds = () => ({ boards: true, work: true, cc: true, pinned: true, ...(store(KEYS.mediaKinds) || {}) });
   const saveData = () => !!(navigator.connection && navigator.connection.saveData);
+
+  // ---- how much may be kept: MAX, or less where the browser gives this site less room
+  let limit = MAX;
+  async function measureQuota() {
+    try {
+      const est = navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate() : null;
+      if (!est || !est.quota) return;
+      const ours = total();
+      const others = Math.max(0, (est.usage || 0) - ours);
+      limit = Math.max(0, Math.min(MAX, Math.floor((est.quota - others) * 0.9)));
+    } catch {
+      // not said: MAX it is
+    }
+  }
 
   // ---- keeping, and making room
   const wants = new Map(); // key -> { srcs, rank, kind, hold }
-  const held = () => {
+  function held(ownOnly = false) {
     const out = new Set();
     for (const w of wants.values()) if (w.hold) for (const s of w.srcs) out.add(s);
+    // Whatever is held whole in memory here is being looked at.
+    for (const src of wholes.keys()) out.add(src);
+    if (!ownOnly) {
+      const now = Date.now();
+      for (const [t, h] of othersHold) {
+        if (now - h.at > 60000) othersHold.delete(t);
+        else for (const s of h.srcs) out.add(s);
+      }
+    }
     return out;
-  };
+  }
   const total = () => {
     let n = 0;
     for (const r of index.values()) n += r.size || 0;
     return n;
   };
+  // Nothing more fits, even after making room: fetching ahead waits until what is wanted changes.
   let full = false;
 
+  // Room is made under one lock for every tab, from the list as it is now in IndexedDB.
+  const roomLock = (fn) => (navigator.locks ? navigator.locks.request('wb-media:room', fn) : fn());
   async function makeRoom(size, keepSrc) {
-    const keep = held();
-    let used = total();
-    if (used + size <= MAX) return true;
-    const c = await cache();
-    for (const r of [...index.values()].sort((a, b) => a.used - b.used)) {
-      if (used + size <= MAX) break;
-      if (keep.has(r.src) || r.src === keepSrc) continue;
-      await c.delete(r.src).catch(() => {});
-      index.delete(r.src);
-      await delRow(r.src);
-      used -= r.size || 0;
-    }
-    return used + size <= MAX;
+    return roomLock(async () => {
+      await loadIndex().catch(() => {});
+      const keep = held();
+      let used = total();
+      if (used + size <= limit) return true;
+      const c = await cache();
+      let gone = false;
+      for (const r of [...index.values()].sort((a, b) => a.used - b.used)) {
+        if (used + size <= limit) break;
+        if (keep.has(r.src) || r.src === keepSrc) continue;
+        await c.delete(r.src).catch(() => {});
+        index.delete(r.src);
+        await delRow(r.src);
+        used -= r.size || 0;
+        gone = true;
+      }
+      if (gone) tellOthers();
+      return used + size <= limit;
+    });
   }
 
   let persisted = false;
@@ -161,10 +216,18 @@
       changed();
       return false;
     }
-    try {
-      await c.put(src, new Response(blob, { headers: { 'Content-Type': blob.type || 'video/mp4', 'Content-Length': String(blob.size) } }));
-    } catch {
-      // No room after all, or no leave to keep things here.
+    let put = false;
+    for (let tries = 0; tries < 2 && !put; tries++) {
+      try {
+        await c.put(src, new Response(blob, { headers: { 'Content-Type': blob.type || 'video/mp4', 'Content-Length': String(blob.size) } }));
+        put = true;
+      } catch {
+        // The browser has less room than it said: measure again, make room for twice as much, try once more.
+        await measureQuota();
+        if (tries || !(await makeRoom(blob.size * 2, src))) break;
+      }
+    }
+    if (!put) {
       full = true;
       changed();
       return false;
@@ -182,18 +245,31 @@
     return true;
   }
 
+  // Wanted again: the last to make room. A video played through the service worker says so too.
   function touch(src) {
     const row = index.get(src);
     if (!row || Date.now() - row.used < 60000) return;
     row.used = Date.now();
     putRow(row);
   }
+  if (usable && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (e.data && e.data.t === 'used' && typeof e.data.src === 'string') touch(e.data.src);
+    });
+  }
 
-  // Fetches a video whole, with how far it has come, into a Blob.
-  async function download(src, signal, onProgress) {
+  // Fetches a video whole, with how far it has come, into a Blob. `room(size)` is asked once the size is
+  // known, before anything is read: no room, and nothing more is fetched.
+  async function download(src, signal, onProgress, room) {
     const res = await fetch(src, { signal });
     const size = Number(res.headers.get('content-length')) || 0;
-    if (!res.ok || !res.body || !size || size > ITEM_MAX) throw Object.assign(new Error('not one to keep'), { keepable: false });
+    const refuse = (why, permanent) => {
+      if (res.body) res.body.cancel().catch(() => {});
+      throw Object.assign(new Error(why), { permanent });
+    };
+    if (!res.ok) refuse(`not there (${res.status})`, res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429);
+    if (!res.body || !size || size > ITEM_MAX) refuse('not one to keep', true);
+    if (room && !(await room(size))) refuse('no room', false);
     const reader = res.body.getReader();
     const pieces = [];
     let loaded = 0;
@@ -209,17 +285,65 @@
 
   const withLock = (src, fn) => (navigator.locks ? navigator.locks.request(`wb-media:${src}`, fn) : fn());
 
-  // ---- opening: what is opened has the line to itself
-  const opening = new Map(); // src -> { loaded, total }
-  let current = null;        // what is being fetched ahead: { src, ctl, done, loaded, total }
+  // ---- videos on their way: one fetch each, however many want it (a page that opened it, the fetching
+  // ahead). `background` is the one being fetched ahead; the rest were opened.
+  const inflight = new Map(); // src -> { src, ctl, loaded, total, background, waiters, promise }
+  // Fetched and not kept: for good (not there, too large), or for now (offline), tried again later.
   const failed = new Set();
+  const retryAt = new Map(); // src -> when it may be tried again
+  window.addEventListener('online', () => {
+    retryAt.clear();
+    schedule(500);
+  });
+  const isFailed = (src) => failed.has(src) || (retryAt.has(src) && retryAt.get(src) > Date.now());
+  function didFail(src, err) {
+    if (err && err.permanent) failed.add(src);
+    else {
+      const was = retryAt.get(src);
+      retryAt.set(src, Date.now() + (was ? 5 * 60000 : 30000));
+    }
+  }
+
+  function start(src, background) {
+    const ctl = new AbortController();
+    const job = { src, ctl, loaded: 0, total: 0, background, waiters: 0 };
+    job.promise = (async () => {
+      try {
+        const blob = await download(src, ctl.signal, (loaded, size) => {
+          job.loaded = loaded;
+          job.total = size;
+          changed();
+        }, background ? (size) => makeRoom(size, src) : null);
+        if (keepable(src)) job.kept = keep(src, blob);
+        return blob;
+      } finally {
+        if (inflight.get(src) === job) inflight.delete(src);
+        changed();
+        schedule();
+      }
+    })();
+    job.promise.catch(() => {});
+    inflight.set(src, job);
+    changed();
+    return job;
+  }
+  const backgroundJob = () => [...inflight.values()].find((j) => j.background) || null;
+  const anyOpening = () => [...inflight.values()].some((j) => !j.background);
+
+  // Waits for a promise, or for the signal to give up on it.
+  const orAbort = (promise, signal) => (!signal ? promise : new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(new DOMException('Aborted', 'AbortError'));
+    const stop = () => reject(new DOMException('Aborted', 'AbortError'));
+    signal.addEventListener('abort', stop, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', stop));
+  }));
 
   async function get(src, { signal, onProgress } = {}) {
-    await ready;
+    await orAbort(ready, signal);
     const c = await cache();
     const hit = c ? await c.match(src).catch(() => null) : null;
     if (hit) {
-      const blob = await hit.blob();
+      const blob = await orAbort(hit.blob(), signal);
       if (!index.has(src)) {
         // Kept by another tab before this one heard.
         index.set(src, { src, size: blob.size, used: Date.now() });
@@ -229,38 +353,37 @@
       if (onProgress) onProgress(blob.size, blob.size);
       return blob;
     }
-    // On its way in ahead already: that is the copy to wait for. Anything else ahead gives way.
-    if (current && current.src === src) {
-      await current.done;
-      if (index.has(src)) return get(src, { signal, onProgress });
-    } else if (current) current.ctl.abort();
-    const state = { loaded: 0, total: 0 };
-    opening.set(src, state);
-    changed();
+    // What is opened has the line to itself: anything else being fetched ahead gives way.
+    let job = inflight.get(src);
+    const bg = backgroundJob();
+    if (bg && bg !== job) bg.ctl.abort();
+    if (!job) job = start(src, false);
+    else job.background = false; // opened now, so it is no longer only ahead
+    job.waiters++;
+    const tick = setInterval(() => { if (onProgress && job.total) onProgress(job.loaded, job.total); }, 200);
     try {
-      const blob = await download(src, signal, (loaded, size) => {
-        state.loaded = loaded;
-        state.total = size;
-        if (onProgress) onProgress(loaded, size);
-        changed();
-      });
-      if (c && /^\/uploads\//.test(src)) keep(src, blob);
-      return blob;
+      return await orAbort(job.promise, signal);
     } finally {
-      opening.delete(src);
-      changed();
-      schedule();
+      clearInterval(tick);
+      job.waiters--;
+      // Nobody wants it any more: let go of the fetch (stepped past before it arrived).
+      if (signal && signal.aborted && job.waiters <= 0 && inflight.get(src) === job) job.ctl.abort();
     }
   }
 
   // ---- fetching ahead
   const RANK = { run: 1, timeline: 1.5, board: 2, page: 3, work: 4, cc: 5, pinned: 6 };
+  let clearedQuiet = false; // just cleared: nothing is fetched again until a page says what it wants
   function want(key, srcs, { rank = 5, kind = null, hold = false } = {}) {
-    const list = [...new Set((srcs || []).filter((s) => typeof s === 'string' && /^\/uploads\//.test(s)))];
+    const list = [...new Set((srcs || []).filter(keepable))];
     const was = wants.get(key);
     if (was && was.rank === rank && was.kind === kind && was.hold === hold && was.srcs.join('\n') === list.join('\n')) return;
     if (!list.length) wants.delete(key);
     else wants.set(key, { srcs: list, rank, kind, hold });
+    // What is wanted has changed: there may be room for it now.
+    full = false;
+    clearedQuiet = false;
+    if (hold || (was && was.hold)) tellHolds();
     changed();
     schedule();
   }
@@ -277,7 +400,7 @@
     const on = kinds();
     for (const w of [...wants.values()].sort((a, b) => a.rank - b.rank)) {
       if (w.kind && on[w.kind] === false) continue;
-      for (const src of w.srcs) if (!index.has(src) && !failed.has(src) && !opening.has(src)) return src;
+      for (const src of w.srcs) if (!index.has(src) && !isFailed(src) && !inflight.has(src)) return src;
     }
     return null;
   }
@@ -289,21 +412,18 @@
     timer = setTimeout(run, ms);
   }
   async function run() {
-    if (running || !(await ready) || paused()) return;
+    if (running || !(await ready) || paused() || clearedQuiet) return;
     running = true;
     try {
       for (;;) {
-        while (opening.size) await new Promise((resolve) => setTimeout(resolve, 400));
-        if (paused()) break;
+        while (anyOpening()) await new Promise((resolve) => setTimeout(resolve, 400));
+        if (paused() || clearedQuiet) break;
         const src = nextWanted();
         if (!src) break;
-        const ctl = new AbortController();
-        const job = (current = { src, ctl, loaded: 0, total: 0 });
-        changed();
-        job.done = withLock(src, async () => {
+        await withLock(src, async () => {
           const c = await cache();
           // Kept by another tab while this one waited for the lock.
-          const hit = await c.match(src).catch(() => null);
+          const hit = c && await c.match(src).catch(() => null);
           if (hit) {
             await loadIndex();
             if (!index.has(src)) {
@@ -313,25 +433,78 @@
             }
             return;
           }
-          const blob = await download(src, ctl.signal, (loaded, size) => {
-            job.loaded = loaded;
-            job.total = size;
-            changed();
-          });
-          await keep(src, blob);
-        }).catch(() => {
-          // Given up for something that was opened, it is tried again; anything else is left alone.
-          if (!ctl.signal.aborted) failed.add(src);
+          const job = inflight.get(src) || start(src, true);
+          try {
+            await job.promise;
+            await job.kept;
+          } catch (err) {
+            // Given up for something that was opened, it is tried again; no room stops the fetching ahead.
+            if (job.ctl.signal.aborted) return;
+            if (err && err.message === 'no room') full = true;
+            else didFail(src, err);
+          }
         });
-        await job.done;
-        if (current === job) current = null;
         changed();
       }
     } finally {
       running = false;
-      current = null;
       changed();
     }
+  }
+
+  // ---- held whole in memory, to scrub through without waiting for any of it
+  const wholes = new Map(); // src -> { loaded, total, url, size, used, ctl, ready }
+  const evictListeners = new Set();
+  function whole(src) {
+    let entry = wholes.get(src);
+    if (entry) {
+      entry.used = performance.now();
+      return entry;
+    }
+    entry = { loaded: 0, total: 0, url: null, size: 0, used: performance.now(), ctl: new AbortController() };
+    wholes.set(src, entry);
+    entry.ready = (async () => {
+      const blob = await get(src, {
+        signal: entry.ctl.signal,
+        onProgress: (loaded, size) => { entry.loaded = loaded; entry.total = size; },
+      });
+      // Let go of while it was on its way: no object URL to be forgotten.
+      if (entry.ctl.signal.aborted || wholes.get(src) !== entry) throw new Error('not wanted any more');
+      entry.size = blob.size;
+      entry.loaded = entry.total = blob.size;
+      entry.url = URL.createObjectURL(blob);
+      trimWholes(src);
+      changed();
+      return entry.url;
+    })().catch(() => {
+      entry.ctl.abort();
+      if (wholes.get(src) === entry) wholes.delete(src);
+      return null;
+    });
+    return entry;
+  }
+  // Memory is not for hoarding: the videos opened longest ago go back to playing from where they came.
+  function trimWholes(keepSrc) {
+    let heldBytes = 0;
+    for (const e of wholes.values()) heldBytes += e.size;
+    for (const [other, e] of [...wholes].sort((a, b) => a[1].used - b[1].used)) {
+      if (heldBytes <= WHOLE_HELD) break;
+      if (other === keepSrc || !e.url) continue;
+      for (const fn of evictListeners) {
+        try { fn(other, e.url); } catch { /* the page's trouble */ }
+      }
+      URL.revokeObjectURL(e.url);
+      wholes.delete(other);
+      heldBytes -= e.size;
+    }
+  }
+  // Going on before a video has arrived whole lets go of the fetch, rather than have every video stepped
+  // past arrive at once.
+  function releaseWhole(src) {
+    const entry = wholes.get(src);
+    if (!entry || entry.url) return;
+    entry.ctl.abort();
+    wholes.delete(src);
   }
 
   // ---- what the settings show
@@ -339,34 +512,47 @@
     await ready;
     let bytes = 0;
     for (const r of index.values()) bytes += r.size || 0;
-    return { count: index.size, bytes, last: Math.max(0, ...[...index.values()].map((r) => r.used || 0)) };
+    return { count: index.size, bytes, last: Math.max(0, ...[...index.values()].map((r) => r.used || 0)), limit };
   }
 
+  // Everything kept here is gone, in every tab: nothing being fetched goes on, and nothing is fetched
+  // again until a page says what it wants (so Clear does not fill straight back up).
+  function forget() {
+    cachep = null;
+    index.clear();
+    failed.clear();
+    retryAt.clear();
+    full = false;
+    clearedQuiet = true;
+    for (const job of inflight.values()) if (job.background) job.ctl.abort();
+    changed();
+  }
   async function clear() {
+    forget();
     try {
       if ('caches' in window) await caches.delete(CACHE);
     } catch {
       // nothing kept, or no leave to say so
     }
-    cachep = null;
-    index.clear();
-    failed.clear();
-    full = false;
     await idb('readwrite', (s) => s.clear()).catch(() => {});
     try { localStorage.removeItem('wb:kept'); } catch { /* nothing there */ }
-    tellOthers();
+    tell({ t: 'cleared' });
     changed();
   }
 
   // Changing the settings starts or stops what is fetched ahead.
   function setAhead(on) {
-    store('wb:noahead', !on);
+    store(KEYS.noAhead, !on);
     full = false;
+    clearedQuiet = false;
+    if (!on) for (const job of inflight.values()) if (job.background) job.ctl.abort();
     changed();
     schedule(0);
   }
   function setKind(kind, on) {
-    store('wb:media:kinds', { ...kinds(), [kind]: !!on });
+    store(KEYS.mediaKinds, { ...kinds(), [kind]: !!on });
+    full = false;
+    clearedQuiet = false;
     changed();
     schedule(0);
   }
@@ -381,32 +567,20 @@
   // ring(button, scope): the button fills as what the page is about is cached, with a count beside it,
   // and turns to a tick and "Cached" once all of it is; pressed, it opens a little card with the details.
   // scope() says what the page is about: { label: 'this board', items: [{ src, name }] }, or null.
-  const SVG = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-  const ICON = {
-    check: SVG('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
-    pause: SVG('<path d="M7 4v16M17 4v16" stroke-width="3.5"/>'),
-    cloud: SVG('<path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 9.5 4.3 4.3 0 0 1 17.5 18z"/>'),
-    kept: SVG('<path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>'),
-  };
+  const ICON = WB.iconSet(20); // icons.js
   const RING = '<svg viewBox="0 0 20 20" aria-hidden="true"><circle class="track" cx="10" cy="10" r="7"/><circle class="arc" cx="10" cy="10" r="7"/><path class="tick" d="M6.6 10.3l2.3 2.3 4.6-5"/></svg><span class="kept-label"></span>';
-  const sizeLabel = (bytes) => {
-    if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-    const mb = bytes / 1048576;
-    return `${mb >= 10 || !bytes ? Math.round(mb).toLocaleString() : mb.toFixed(1)} MB`;
-  };
-  const keepable = (src) => typeof src === 'string' && /^\/uploads\//.test(src);
+  const sizeLabel = WB.bytes;
   // How far a video has come: 1 kept, a fraction on its way (ahead, or opened), 0 not here.
   function progressOf(src) {
     if (index.has(src)) return 1;
-    if (current && current.src === src && current.total) return current.loaded / current.total;
-    const o = opening.get(src);
-    return o && o.total ? o.loaded / o.total : 0;
+    const job = inflight.get(src);
+    return job && job.total ? job.loaded / job.total : 0;
   }
-  const coming = (src) => !index.has(src) && ((current && current.src === src) || opening.has(src));
+  const coming = (src) => !index.has(src) && inflight.has(src);
 
   function ring(button, scope) {
     const el = WB.el;
-    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const { clamp } = WB;
     button.classList.add('kept-ring');
     if (!button.querySelector('.arc')) button.innerHTML = RING;
     button.type = 'button';
@@ -541,7 +715,12 @@
     total,
     failed: (src) => failed.has(src),
     keepable,
-    status: () => ({ current: current && { src: current.src, loaded: current.loaded, total: current.total }, opening, paused: paused() }),
+    status: () => {
+      const bg = backgroundJob();
+      return { current: bg && { src: bg.src, loaded: bg.loaded, total: bg.total }, opening: new Map([...inflight].filter(([, j]) => !j.background)), paused: paused() };
+    },
+    whole, releaseWhole, wholeEntry: (src) => wholes.get(src), onEvict: (fn) => { evictListeners.add(fn); return () => evictListeners.delete(fn); },
+    WHOLE_HELD,
     ring, badge, sizeLabel,
     get, want, on: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
     stats, clear, ahead, setAhead, kinds, setKind,

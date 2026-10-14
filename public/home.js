@@ -4,13 +4,11 @@
   const { el, api, ago, store } = WB;
   const $ = (id) => document.getElementById(id);
 
-  const svg = (d, size = 20) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
-  const FOLDER = '<path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>';
-  const ICON_FOLDER = svg(FOLDER, 20);
-  const ICON_FOLDER_SM = svg(FOLDER, 16);
-  const STACK = '<path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5"/>';
-  const ICON_PROJECT = svg(STACK, 20);
-  const ICON_MORE = svg('<circle cx="5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/>', 18);
+  const icon = WB.icon; // icons.js
+  const ICON_FOLDER = icon('folder', 20);
+  const ICON_FOLDER_SM = icon('folder', 16);
+  const ICON_PROJECT = icon('project', 20);
+  const ICON_MORE = icon('more', 18);
 
   let everything = { folders: [], boards: [] }; // all you may see, in every workspace
   let lib = { folders: [], boards: [] };       // the workspace being shown
@@ -20,8 +18,8 @@
 
   $('themeslot').replaceWith(WB.themeButton());
   // Normal cards, or compact rows: a small still beside the name, many more to a screen. Remembered here.
-  const ICON_ROWS = svg('<path d="M4 6h16M4 12h16M4 18h16"/>', 18);
-  const ICON_CARDS = svg('<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>', 18);
+  const ICON_ROWS = icon('rows', 18);
+  const ICON_CARDS = icon('boards', 18);
   function paintDensity() {
     const compact = document.documentElement.dataset.density === 'compact';
     $('density').innerHTML = compact ? ICON_CARDS : ICON_ROWS;
@@ -33,7 +31,7 @@
     const compact = document.documentElement.dataset.density !== 'compact';
     if (compact) document.documentElement.dataset.density = 'compact';
     else delete document.documentElement.dataset.density;
-    try { localStorage.setItem('wb:density', JSON.stringify(compact ? 'compact' : 'normal')); } catch { /* remembered for now only */ }
+    store(WB.KEYS.density, compact ? 'compact' : 'normal');
     paintDensity();
   });
   paintDensity();
@@ -44,23 +42,15 @@
   $('adminlink').hidden = !WB.info().admin;
   if (hasPersonal && store('wb:workspace') === 'personal') space = 'personal';
   const paintMe = () => $('me').replaceChildren(
-    el('span', { class: 'avatar sm', style: { background: me.color }, text: WB.initials(me.name) }),
+    WB.avatar(me.name, me.color),
     el('span', { text: me.name }));
   paintMe();
   $('me').title = 'Your account';
   $('me').addEventListener('click', () => openAccount());
 
   // ---- your account: who you are here, how the app looks, and what this computer keeps
-  const ICON = {
-    pen: svg('<path d="M4 20l1-4L16 5l3 3L8 19z"/><path d="M14 7l3 3"/>', 16),
-    moon: svg('<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>', 16),
-    sun: svg('<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6L7 7M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"/>', 16),
-    disk: svg('<path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>', 18),
-    out: svg('<path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h11"/>', 16),
-    shield: svg('<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/>', 16),
-    close: svg('<path d="M6 6l12 12M18 6L6 18"/>', 18),
-  };
-  const size = (bytes) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.round(bytes / 1048576).toLocaleString()} MB`);
+  const ICON = { pen: icon('pen', 16), moon: icon('moon', 16), sun: icon('sun', 16), disk: icon('disk', 18), out: icon('out', 16), shield: icon('shield', 16), close: icon('close', 18) };
+  const size = WB.bytes;
 
   function openAccount() {
     const managed = !!WB.info().user;
@@ -98,7 +88,7 @@
           !managed && el('button', { type: 'button', class: 'iconbtn', html: ICON.pen, title: 'Change your name', onclick: async () => { me = await WB.askName(true); paintMe(); paint(); } })),
         !managed && el('div', { class: 'acct-colors', role: 'radiogroup', 'aria-label': 'Your colour' }, WB.colors.map((c) => el('button', {
           type: 'button', class: `acct-color${c === me.color ? ' on' : ''}`, style: { background: c }, role: 'radio', 'aria-checked': String(c === me.color), title: 'Your colour on the boards',
-          onclick: () => { me = { ...me, color: c }; store('wb:user', me); paintMe(); paint(); },
+          onclick: () => { me = WB.saveUser(me.name, c); paintMe(); paint(); },
         }))),
         section('Appearance', el('div', { class: 'seg' }, [['dark', ICON.moon, 'Dark'], ['light', ICON.sun, 'Light']].map(([t, ic, label]) => el('button', {
           type: 'button', class: `seg-btn${theme === t ? ' on' : ''}`, onclick: () => { WB.setTheme(t); paint(); },
@@ -106,7 +96,7 @@
         section('Video cache',
           el('div', { class: 'acct-cache' },
             el('span', { class: 'acct-cache-ic', html: ICON.disk }),
-            el('div', { class: 'acct-cache-num' }, el('b', { text: size(stats.bytes) }), el('span', { text: `of ${size(WB.media.MAX)} · ${stats.count} ${stats.count === 1 ? 'video' : 'videos'}` })),
+            el('div', { class: 'acct-cache-num' }, el('b', { text: size(stats.bytes) }), el('span', { text: `of ${size(WB.media.MAX)} · ${WB.plural(stats.count, 'video')}` })),
             el('button', {
               type: 'button', class: 'btn small', text: 'Clear', disabled: !stats.count,
               onclick: async () => {
@@ -278,46 +268,11 @@
 
   // ------------------------------------------------------------- menus and dialogs
 
-  function closeMenu() {
-    for (const m of document.querySelectorAll('.menu:not(.kept-pop)')) m.remove();
-  }
-
-  function openMenu(anchor, entries) {
-    closeMenu();
-    const menu = el('div', { class: 'menu', role: 'menu' }, entries.map(([label, run, danger]) => el('button', {
-      class: `menu-item${danger ? ' danger' : ''}`, role: 'menuitem', text: label,
-      onclick: (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        closeMenu();
-        Promise.resolve(run()).catch(fail);
-      },
-    })));
-    // The arrow keys walk the menu, and Escape hands the keyboard back to the button that opened it.
-    menu.addEventListener('keydown', (e) => {
-      const list = [...menu.children];
-      const at = list.indexOf(document.activeElement);
-      if (e.key === 'ArrowDown') list[(at + 1) % list.length].focus();
-      else if (e.key === 'ArrowUp') list[(at - 1 + list.length) % list.length].focus();
-      else if (e.key === 'Escape') {
-        closeMenu();
-        anchor.focus();
-      } else return;
-      e.preventDefault();
-      e.stopPropagation();
-    });
-    document.body.append(menu);
-    const r = anchor.getBoundingClientRect();
-    menu.style.left = `${Math.max(8, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8))}px`;
-    menu.style.top = `${Math.max(8, Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8))}px`;
-    menu.firstChild.focus({ preventScroll: true });
-  }
-  // A click anywhere else closes it. The buttons that open a menu, and its own entries, keep their clicks to themselves.
-  document.addEventListener('click', closeMenu);
+  const openMenu = (anchor, entries) => WB.menu(anchor, entries, { onError: fail });
 
   function menuButton(entries) {
     return el('button', {
-      class: 'iconbtn card-menu', title: 'More', html: ICON_MORE,
+      class: 'iconbtn card-menu', title: 'More', html: ICON_MORE, 'aria-haspopup': 'menu',
       onclick: (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -326,7 +281,6 @@
     });
   }
 
-  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
 
   // Resolves with a folder id, null for the top level, or undefined if dismissed.
   function pickFolder({ title, exclude, current }) {
@@ -418,9 +372,7 @@
 
   // ------------------------------------------------------------- rendering
 
-  function plural(n, word) {
-    return `${n} ${word}${n === 1 ? '' : 's'}`;
-  }
+  const { plural } = WB;
 
   // A project is never inside another, nor around one.
   const inProject = (id) => trailTo(id).some((f) => f.project);
@@ -437,14 +389,14 @@
     }
     await api('PATCH', `/api/folders/${folder.id}`, { project: on });
     await refresh();
-    if (on) location.hash = `#/f/${folder.id}/catalogue`;
+    if (on) location.hash = WB.href.catalogue(folder.id);
   }
 
   function folderCard(folder) {
     const subs = childrenOf(folder.id).length;
     const boards = boardsIn(folder.id).length;
     const meta = [folder.project && 'Project', boards && plural(boards, 'board'), subs && plural(subs, 'folder')].filter(Boolean).join(' · ') || 'Empty';
-    const card = el('a', { class: `card folder${folder.project ? ' project' : ''}${bpick.has(`folder:${folder.id}`) ? ' picked' : ''}`, href: `#/f/${folder.id}`, 'data-pick': `folder:${folder.id}` },
+    const card = el('a', { class: `card folder${folder.project ? ' project' : ''}${bpick.has(`folder:${folder.id}`) ? ' picked' : ''}`, href: WB.href.folder(folder.id), 'data-pick': `folder:${folder.id}` },
       el('div', { class: 'folder-icon', html: folder.project ? ICON_PROJECT : ICON_FOLDER }),
       el('div', { class: 'card-body' },
         el('div', { class: 'card-name', text: folder.name }),
@@ -455,7 +407,7 @@
         [isPinned('folder', folder.id) ? 'Unpin from Home' : 'Pin to Home', () => togglePin({ kind: 'folder', id: folder.id })],
         hasPersonal && [`Move to ${SPACES[otherSpace(folder.workspace)]} workspace`, () => moveSpace('folder', folder)],
         !folder.project && !inProject(folder.id) && !holdsProject(folder.id) && ['Make it a project', () => setProject(folder, true)],
-        folder.project && ['Open the catalogue', () => { location.hash = `#/f/${folder.id}/catalogue`; }],
+        folder.project && ['Open the catalogue', () => { location.hash = WB.href.catalogue(folder.id); }],
         folder.project && ['Make it a plain folder', () => setProject(folder, false)],
         !folder.project && ['Delete folder', () => removeFolder(folder), true],
       ].filter(Boolean)));
@@ -467,7 +419,7 @@
   function boardCard(board) {
     const thumbs = el('div', { class: `card-thumbs n${Math.min(board.thumbs.length, 4)}` },
       board.thumbs.map((src) => el('img', { src, alt: '', loading: 'lazy', draggable: 'false' })));
-    const card = el('a', { class: `card${bpick.has(`board:${board.id}`) ? ' picked' : ''}`, href: `/b/${board.id}`, 'data-pick': `board:${board.id}` },
+    const card = el('a', { class: `card${bpick.has(`board:${board.id}`) ? ' picked' : ''}`, href: WB.href.board(board.id), 'data-pick': `board:${board.id}` },
       thumbs,
       el('div', { class: 'card-body' },
         el('div', { class: 'card-name', text: board.name }),
@@ -489,7 +441,7 @@
   // card (picture area, then a name and a line) so it is exactly the same size in any folder.
   function newBoardTile() {
     return el('button', { class: 'card new', onclick: newBoard },
-      el('span', { class: 'new-thumb' }, el('span', { class: 'plus', html: svg('<path d="M12 5v14M5 12h14"/>', 18) })),
+      el('span', { class: 'new-thumb' }, el('span', { class: 'plus', html: icon('plus', 18) })),
       el('span', { class: 'card-body' },
         el('span', { class: 'card-name', text: 'New board' }),
         el('span', { class: 'card-meta', text: 'Start from a blank canvas' })));
@@ -518,16 +470,16 @@
   // folders as a tree, with what you pinned between. A project opens to its boards and its catalogue, and
   // the catalogue to its assets, sets and shots, the shots by sequence. Only what you are in is open.
 
-  const ICON_HOME = svg('<path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5"/>', 16);
-  const ICON_BOARDS = svg('<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>', 16);
-  const ICON_CAT = svg('<path d="M5 4h4v16H5zM10 4h4v16h-4z"/><path d="M15.5 4.6l3.8-1 3.7 15.5-3.8 1z"/>', 16);
-  const ICON_LIST = svg('<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1" fill="currentColor"/><circle cx="4.5" cy="12" r="1" fill="currentColor"/><circle cx="4.5" cy="18" r="1" fill="currentColor"/>', 16);
-  const ICON_FILM = svg('<rect x="3" y="6" width="18" height="12" rx="1.5"/><path d="M8 6v12M16 6v12M3 10h5M3 14h5M16 10h5M16 14h5"/>', 16);
-  const ICON_DOT = svg('<circle cx="12" cy="12" r="2" fill="currentColor"/>', 16);
-  const ICON_CHEVRON = svg('<path d="M9 6l6 6-6 6"/>', 14);
-  const ICON_STAR = svg('<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9z"/>', 16);
-  const FOLDER_SM = svg(FOLDER, 16);
-  const PROJECT_SM = svg(STACK, 16);
+  const ICON_HOME = icon('home', 16);
+  const ICON_BOARDS = icon('boards', 16);
+  const ICON_CAT = icon('catalogue', 16);
+  const ICON_LIST = icon('list', 16);
+  const ICON_FILM = icon('film', 16);
+  const ICON_DOT = icon('dot', 16);
+  const ICON_CHEVRON = icon('chevron', 14);
+  const ICON_STAR = icon('star', 16);
+  const FOLDER_SM = icon('folder', 16);
+  const PROJECT_SM = icon('project', 16);
 
   // Only what you are in is open: going somewhere closes the rest. A twist opens a row for a look,
   // until you go somewhere.
@@ -599,7 +551,7 @@
     const subs = () => childrenOf(f.id).flatMap((c) => folderRows(c, depth + 1, ws, hereK));
     const drop = (row) => dropTarget(row, f.id, ws);
     if (!f.project) {
-      return sideRow({ key: `f:${f.id}`, depth, icon: FOLDER_SM, label: f.name, href: `#/f/${f.id}`, kids: childrenOf(f.id).length ? subs : null, drop, hereK });
+      return sideRow({ key: `f:${f.id}`, depth, icon: FOLDER_SM, label: f.name, href: WB.href.folder(f.id), kids: childrenOf(f.id).length ? subs : null, drop, hereK });
     }
     // A project: its boards (and folders), and its catalogue.
     const cat = catalogues.get(f.id);
@@ -612,19 +564,19 @@
         const of = cat.entities.filter((e) => e.tier === t.id);
         const seqs = t.id === 'shot' ? [...new Set(of.map((e) => N.seqOf(e.name)).filter(Boolean))].sort() : [];
         return sideRow({
-          key: `t:${f.id}:${t.id}`, depth: depth + 2, icon: ICON_DOT, label: t.label, href: `#/f/${f.id}/catalogue/t/${t.id}`, count: of.length, hereK,
-          kids: seqs.length ? () => seqs.flatMap((q) => sideRow({ key: `s:${f.id}:${q}`, depth: depth + 3, icon: ICON_DOT, label: q, href: `#/f/${f.id}/catalogue/s/${q}`, count: of.filter((e) => N.seqOf(e.name) === q).length, hereK })) : null,
+          key: `t:${f.id}:${t.id}`, depth: depth + 2, icon: ICON_DOT, label: t.label, href: WB.href.catalogue(f.id, { tier: t.id }), count: of.length, hereK,
+          kids: seqs.length ? () => seqs.flatMap((q) => sideRow({ key: `s:${f.id}:${q}`, depth: depth + 3, icon: ICON_DOT, label: q, href: WB.href.catalogue(f.id, { seq: q }), count: of.filter((e) => N.seqOf(e.name) === q).length, hereK })) : null,
         });
       });
     };
     const kids = () => [
-      ...sideRow({ key: `p:${f.id}`, depth: depth + 1, icon: ICON_BOARDS, label: 'Boards', href: `#/f/${f.id}/boards`, count: boardsIn(f.id).length, drop, hereK }),
-      ...sideRow({ key: `c:${f.id}`, depth: depth + 1, icon: ICON_CAT, label: 'Catalogue', href: `#/f/${f.id}/catalogue`, kids: tierRows, hereK }),
-      ...sideRow({ key: `vl:${f.id}`, depth: depth + 1, icon: ICON_LIST, label: 'Versions', href: `#/f/${f.id}/versions`, hereK }),
-      ...sideRow({ key: `tl:${f.id}`, depth: depth + 1, icon: ICON_FILM, label: 'Timeline', href: `#/f/${f.id}/timeline`, hereK }),
+      ...sideRow({ key: `p:${f.id}`, depth: depth + 1, icon: ICON_BOARDS, label: 'Boards', href: WB.href.boards(f.id), count: boardsIn(f.id).length, drop, hereK }),
+      ...sideRow({ key: `c:${f.id}`, depth: depth + 1, icon: ICON_CAT, label: 'Catalogue', href: WB.href.catalogue(f.id), kids: tierRows, hereK }),
+      ...sideRow({ key: `vl:${f.id}`, depth: depth + 1, icon: ICON_LIST, label: 'Versions', href: WB.href.versions(f.id), hereK }),
+      ...sideRow({ key: `tl:${f.id}`, depth: depth + 1, icon: ICON_FILM, label: 'Timeline', href: WB.href.timeline(f.id), hereK }),
       ...subs(),
     ];
-    return sideRow({ key: `f:${f.id}`, depth, icon: PROJECT_SM, label: f.name, href: `#/f/${f.id}`, kids, drop, hereK, cls: 'project' });
+    return sideRow({ key: `f:${f.id}`, depth, icon: PROJECT_SM, label: f.name, href: WB.href.folder(f.id), kids, drop, hereK, cls: 'project' });
   }
 
   const loading = new Set();
@@ -648,15 +600,15 @@
     const rows = pins().map((p) => {
       if (p.kind === 'board') {
         const b = everything.boards.find((x) => x.id === p.id);
-        return b && { key: `pin:b:${b.id}`, icon: ICON_BOARDS, label: b.name, href: `/b/${b.id}` };
+        return b && { key: `pin:b:${b.id}`, icon: ICON_BOARDS, label: b.name, href: WB.href.board(b.id) };
       }
       if (p.kind === 'folder') {
         const f = folderById(p.id);
-        return f && { key: `f:${f.id}`, icon: f.project ? PROJECT_SM : FOLDER_SM, label: f.name, href: `#/f/${f.id}` };
+        return f && { key: `f:${f.id}`, icon: f.project ? PROJECT_SM : FOLDER_SM, label: f.name, href: WB.href.folder(f.id) };
       }
       const project = folderById(p.projectId);
       if (!project) return null;
-      if (p.kind === 'entity') return { key: `pin:e:${p.id}`, icon: ICON_DOT, label: p.name, href: `#/f/${project.id}/catalogue/${p.id}`, title: project.name };
+      if (p.kind === 'entity') return { key: `pin:e:${p.id}`, icon: ICON_DOT, label: p.name, href: WB.href.catalogue(project.id, { entity: p.id }), title: project.name };
       if (p.kind === 'place') {
         const icon = { sequence: ICON_FILM, timeline: ICON_FILM, versions: ICON_LIST }[p.what] || ICON_CAT;
         const label = p.what === 'sequence' || p.what === 'tier' ? p.name : `${project.name} ${p.name.toLowerCase()}`;
@@ -717,28 +669,28 @@
       const trail = trailTo(rt.id);
       const ws = trail.length ? trail[0].workspace : space;
       parts.push([spaceName(ws), spaceHref(ws), null, ws]);
-      for (const f of trail) parts.push([f.name, `#/f/${f.id}`, f.id, ws]);
+      for (const f of trail) parts.push([f.name, WB.href.folder(f.id), f.id, ws]);
       const f = trail[trail.length - 1];
       pin = f && { kind: 'folder', id: f.id };
       if (f && f.project) {
         const v = currentView();
         if (v.page === 'catalogue') {
-          parts.push(['Catalogue', `#/f/${f.id}/catalogue`]);
+          parts.push(['Catalogue', WB.href.catalogue(f.id)]);
           const cat = catalogues.get(f.id);
           const e = v.entity && cat && cat.entities.find((x) => x.id === v.entity);
           const tier = v.tier || (v.seq && 'shot') || (e && e.tier);
           const t = tier && cat && cat.preset.tiers.find((x) => x.id === tier);
-          if (t) parts.push([t.label, `#/f/${f.id}/catalogue/t/${t.id}`]);
+          if (t) parts.push([t.label, WB.href.catalogue(f.id, { tier: t.id })]);
           const seq = v.seq || (e && e.tier === 'shot' && N.seqOf(e.name));
-          if (seq) parts.push([seq, `#/f/${f.id}/catalogue/s/${seq}`]);
+          if (seq) parts.push([seq, WB.href.catalogue(f.id, { seq: seq })]);
           if (v.entity) {
             const name = e ? e.name : shownEntity && shownEntity.id === v.entity ? shownEntity.name : '…';
-            parts.push([name, `#/f/${f.id}/catalogue/${v.entity}`]);
+            parts.push([name, WB.href.catalogue(f.id, { entity: v.entity })]);
             pin = e || (shownEntity && shownEntity.id === v.entity) ? { kind: 'entity', id: v.entity, name, projectId: f.id, tier: (e || shownEntity).tier, thumb: (e && e.thumb) || null } : null;
           }
-        } else if (v.page === 'timeline') parts.push(['Timeline', `#/f/${f.id}/timeline`]);
-        else if (v.page === 'versions') parts.push(['Versions', `#/f/${f.id}/versions`]);
-        else if (v.page === 'boards') parts.push(['Boards', `#/f/${f.id}/boards`]);
+        } else if (v.page === 'timeline') parts.push(['Timeline', WB.href.timeline(f.id)]);
+        else if (v.page === 'versions') parts.push(['Versions', WB.href.versions(f.id)]);
+        else if (v.page === 'boards') parts.push(['Boards', WB.href.boards(f.id)]);
         // The star pins what is here, not the project around it: a sequence, a tier, the catalogue,
         // the timeline or the versions are pinned as that place (an asset, set or shot as itself).
         if (v.page !== 'boards' && v.page !== 'home' && !v.entity) {
@@ -863,7 +815,7 @@
     },
     item.kind === 'version'
       ? el('span', { class: 'feed-thumb' }, item.version.thumb && el('img', { src: item.version.thumb, alt: '', loading: 'lazy' }))
-      : el('span', { class: 'avatar sm', style: { background: /^#[0-9a-f]{6}$/i.test(item.color || '') ? item.color : '#8a8a8a' }, text: WB.initials(item.by || '?') }),
+      : WB.avatar(item.by, item.color),
     el('span', { class: 'feed-body' },
       el('span', { class: 'feed-what' }, ...what),
       item.note && el('span', { class: 'feed-text', text: item.note.text }),
@@ -1051,9 +1003,9 @@
       box([v.id], `Select ${v.label}`),
       thumb,
       el('div', { class: 'vl-main' },
-        el('div', { class: 'vl-label' }, el('a', { href: `#/f/${project.id}/catalogue/${v.entityId}`, text: v.entity, title: `${v.entity}: its page` }), el('span', { text: v.label.slice(v.entity.length) })),
+        el('div', { class: 'vl-label' }, el('a', { href: WB.href.catalogue(project.id, { entity: v.entityId }), text: v.entity, title: `${v.entity}: its page` }), el('span', { text: v.label.slice(v.entity.length) })),
         el('div', { class: 'vl-meta', text: [v.tier, v.artist && v.artist !== (v.createdBy || '').toLowerCase() && `by ${v.artist}`].filter(Boolean).join(' · ') })),
-      el('div', { class: 'vl-boards' }, v.boards.slice(0, 3).map((b) => el('a', { class: 'ver-board', href: `/b/${b.id}`, text: b.name, onclick: (e) => e.stopPropagation() })),
+      el('div', { class: 'vl-boards' }, v.boards.slice(0, 3).map((b) => el('a', { class: 'ver-board', href: WB.href.board(b.id), text: b.name, onclick: (e) => e.stopPropagation() })),
         v.boards.length > 3 && el('span', { class: 'vl-more', text: `+${v.boards.length - 3}` })),
       el('div', { class: 'vl-time', text: clock(v.createdAt), title: new Date(v.createdAt).toLocaleString() }));
     };
@@ -1066,7 +1018,7 @@
         const span = r.list.length > 1 ? `${clock(r.list[r.list.length - 1].createdAt)} – ${clock(r.list[0].createdAt)}` : clock(r.list[0].createdAt);
         out.push(el('div', { class: 'vl-run' },
           el('div', { class: 'vl-runhead' }, box(runIds, `Select what ${r.by || 'somebody'} filed then`),
-            el('span', { class: 'avatar sm', text: WB.initials(r.by || '?') }),
+            WB.avatar(r.by),
             el('b', { text: r.by || 'Somebody' }), el('span', { text: `${plural(r.list.length, 'version')} · ${span}` })),
           el('div', { class: 'vl-list' }, r.list.map(row))));
       }
@@ -1121,9 +1073,7 @@
     versionLists.delete(project.id);
     shownProject = '';
     render();
-    undoable(`${plural(res.placed.length, 'version')} put on ${board.name}`, null);
-    const toast = document.querySelector('.undo-toast');
-    if (toast) toast.append(el('a', { class: 'btn small ghost', href: `/b/${board.id}`, text: 'Open board' }));
+    undoable(`${plural(res.placed.length, 'version')} put on ${board.name}`, null, { label: 'Open board', href: WB.href.board(board.id) });
   }
 
   async function newBoardWith(project) {
@@ -1135,7 +1085,7 @@
       const board = await api('POST', '/api/boards', { name, folderId: project.id, workspace: project.workspace, by: me.name });
       // A new board starts laid out as the edit is: a column for each sequence, its shots going down.
       await api('POST', `/api/projects/${project.id}/place`, { board: board.id, versions: ids, layout: 'sequences', by: me.name });
-      location.href = `/b/${board.id}`;
+      location.href = WB.href.board(board.id);
     } catch (err) {
       fail(err);
     }
@@ -1225,7 +1175,7 @@
   // sidebar, dialogs, menus and the player.
   document.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || e.pointerType === 'touch') return;
-    if (!(e.target instanceof Element) || e.target.closest('.home-bar, .side, .side-scrim, .viewer, .menu, .combo-list, .undo-toast, .notices')) return;
+    if (!(e.target instanceof Element) || e.target.closest('.home-bar, .side, .side-scrim, .viewer, .menu, .combo-list, #toasts, .notices')) return;
     if (document.querySelector('dialog[open]') || (document.querySelector('.viewer') && !document.querySelector('.viewer').hidden)) return;
     if (e.target.closest('a, button, input, select, textarea, label, .card, .vl-row, .imp, .cat-tools, .ent-people, .pick-bar, #crumbs, dialog')) return;
     // What people wrote can still be selected, to copy it; dragging anywhere else never selects text.
@@ -1371,7 +1321,7 @@
           tlScope = null;
           WB.media.want('timeline', []);
           cacheRing.paint();
-          if (currentView().page === 'timeline' && currentFolder() === project.id) location.hash = `#/f/${project.id}`;
+          if (currentView().page === 'timeline' && currentFolder() === project.id) location.hash = WB.href.folder(project.id);
         },
       });
     } catch (err) {
@@ -1523,16 +1473,16 @@
     const cat = catalogues.get(project.id);
     const act = activities.get(project.id);
     const boards = boardsIn(project.id).slice().sort((a, b) => b.updatedAt - a.updatedAt);
-    const counts = cat ? cat.preset.tiers.map((t) => plural(cat.entities.filter((e) => e.tier === t.id).length, t.label.toLowerCase().replace(/s$/, ''))).join(' · ') : '…';
+    const counts = cat ? cat.preset.tiers.map((t) => plural(cat.entities.filter((e) => e.tier === t.id).length, t.one)).join(' · ') : '…';
     const filed = cat ? cat.entities.filter((e) => e.latestAt) : [];
     const part = (icon, name, meta, href) => el('a', { class: 'card folder place', href },
       el('div', { class: 'folder-icon', html: icon }),
       el('div', { class: 'card-body' }, el('div', { class: 'card-name', text: name }), el('div', { class: 'card-meta', text: meta })));
     const parts = el('div', { class: 'folder-grid ph-parts' },
-      part(ICON_CAT, 'Catalogue', counts, `#/f/${project.id}/catalogue`),
-      part(ICON_BOARDS, 'Boards', plural(boards.length, 'board'), `#/f/${project.id}/boards`),
-      part(ICON_LIST, 'Versions', cat ? plural(cat.entities.reduce((n, e) => n + (e.versions || 0), 0), 'version') : '…', `#/f/${project.id}/versions`),
-      part(ICON_FILM, 'Timeline', 'Every shot, played through', `#/f/${project.id}/timeline`));
+      part(ICON_CAT, 'Catalogue', counts, WB.href.catalogue(project.id)),
+      part(ICON_BOARDS, 'Boards', plural(boards.length, 'board'), WB.href.boards(project.id)),
+      part(ICON_LIST, 'Versions', cat ? plural(cat.entities.reduce((n, e) => n + (e.versions || 0), 0), 'version') : '…', WB.href.versions(project.id)),
+      part(ICON_FILM, 'Timeline', 'Every shot, played through', WB.href.timeline(project.id)));
     const items = act ? act.items : null;
     const activity = el('section', { class: 'home-main' },
       label('Activity', null),
@@ -1541,26 +1491,26 @@
           : el('p', { class: 'home-quiet', text: 'Nothing in the last two weeks. Versions filed and comments written in the project come here.' }));
     const latest = filed.sort((a, b) => b.latestAt - a.latestAt).slice(0, 6).map((e) => entityTile(project, e));
     const side = el('aside', { class: 'home-side' },
-      label('Latest filed', null, el('span', { class: 'label-gap' }), el('a', { class: 'btn small ghost', href: `#/f/${project.id}/versions`, text: 'All versions' })),
+      label('Latest filed', null, el('span', { class: 'label-gap' }), el('a', { class: 'btn small ghost', href: WB.href.versions(project.id), text: 'All versions' })),
       !cat ? el('p', { class: 'home-quiet', text: 'Loading…' })
         : latest.length ? el('div', { class: 'board-grid ent-grid home-work' }, latest)
           : el('p', { class: 'home-quiet', text: 'Nothing is filed yet. Drop images and videos on the catalogue to file them.' }),
-      label('Recent boards', null, el('span', { class: 'label-gap' }), el('a', { class: 'btn small ghost', href: `#/f/${project.id}/boards`, text: 'All boards' })),
+      label('Recent boards', null, el('span', { class: 'label-gap' }), el('a', { class: 'btn small ghost', href: WB.href.boards(project.id), text: 'All boards' })),
       boards.length ? el('div', { class: 'board-grid home-work' }, boards.slice(0, 4).map(boardCard))
         : el('p', { class: 'home-quiet', text: 'No boards yet.' }));
     return [parts, el('div', { class: 'home-cols' }, activity, side)];
   }
 
-  const ICON_CHECKS = svg('<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><path d="M5.5 7l1.3 1.3L9 6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M5.5 17l1.3 1.3L9 16"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>', 16);
-  const ICON_IMPORT = svg('<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 14v5h14v-5"/>', 16);
-  const ICON_PLUS = svg('<path d="M12 5v14M5 12h14"/>', 18);
+  const ICON_CHECKS = icon('checks', 16);
+  const ICON_IMPORT = icon('import', 16);
+  const ICON_PLUS = icon('plus', 18);
 
   // Above the catalogue: the way to bring files in. Whatever a file's name says files it; the rest are asked about.
   function catTools(project) {
     return el('div', { class: 'cat-tools' },
       el('span', { class: 'cat-hint', text: 'Drop images and videos anywhere here to add them' }),
       el('button', { type: 'button', class: `btn pick-toggle${pickingIn(project) ? ' on' : ''}`, html: `${ICON_CHECKS}<span>Select</span>`, title: 'Select assets, sets and shots to change them together', onclick: () => setPicking(project, !pickingIn(project)) }),
-      el('a', { class: 'btn', href: `#/f/${project.id}/timeline`, html: `${ICON_PLAY}<span>Timeline</span>`, title: 'Every shot in order, played through' }),
+      el('a', { class: 'btn', href: WB.href.timeline(project.id), html: `${ICON_PLAY}<span>Timeline</span>`, title: 'Every shot in order, played through' }),
       el('button', { type: 'button', class: 'btn', html: `${ICON_PLUS}<span>Add assets, sets &amp; shots</span>`, title: 'Set up what the project has, before anything is filed of it', onclick: () => addEntities(project) }),
       el('button', { type: 'button', class: 'btn', html: `${ICON_IMPORT}<span>Import</span>`, title: 'Bring images and videos into the catalogue', onclick: () => importer(project).pick() }));
   }
@@ -1615,7 +1565,7 @@
             dlg.close();
             shownProject = '';
             render();
-            undoable(`Changed ${plural(chosen.length, 'asset, set or shot').replace('asset, set or shots', 'assets, sets and shots')}`, null);
+            undoable(`Changed ${plural(chosen.length, 'asset, set or shot', 'assets, sets and shots')}`, null);
           } catch (err) {
             error.textContent = err.message;
             error.hidden = false;
@@ -1690,7 +1640,7 @@
             dlg.close();
             shownProject = '';
             render();
-            undoable(`Added ${plural(res.made.length, 'asset, set or shot').replace('asset, set or shots', 'assets, sets and shots')}`, null);
+            undoable(`Added ${plural(res.made.length, 'asset, set or shot', 'assets, sets and shots')}`, null);
           } catch (err) {
             error.textContent = err.message;
             error.hidden = false;
@@ -1770,7 +1720,7 @@
     return box;
   }
 
-  const ICON_PLAY = svg('<path d="M8 5.5v13l11-6.5z" fill="currentColor" stroke="none"/>', 14);
+  const ICON_PLAY = icon('playSolid', 14);
 
   // An asset, set or shot's card: its picture plays the newest version at once (scrubbing through it
   // under the pointer); its name goes to its page.
@@ -1839,7 +1789,7 @@
       });
     }
     return el('a', {
-      class: `card ent${picking.ids.has(e.id) && pickingIn(project) ? ' picked' : ''}`, href: `#/f/${project.id}/catalogue/${e.id}`, 'data-id': e.id,
+      class: `card ent${picking.ids.has(e.id) && pickingIn(project) ? ' picked' : ''}`, href: WB.href.catalogue(project.id, { entity: e.id }), 'data-id': e.id,
       onclick: (ev) => {
         if (!pickingIn(project)) return;
         ev.preventDefault();
@@ -1852,7 +1802,7 @@
         el('div', { class: 'card-name', text: e.name }),
         el('div', { class: 'card-meta', text: e.versions == null ? (N.TIERS.includes(e.tier) ? e.tier : '') : e.versions ? `${plural(e.versions, 'version')} · last ${ago(e.latestAt)}` : 'Nothing filed yet' }),
         e.artists && e.artists.length > 0 && el('div', { class: 'card-meta ent-artists', title: `Artists: ${e.artists.join(', ')}` },
-          e.artists.slice(0, 4).map((n) => el('span', { class: 'avatar xs', text: WB.initials(n) })), el('span', { text: e.artists.join(', ') }))));
+          e.artists.slice(0, 4).map((n) => WB.avatar(n, null, { size: 'xs' })), el('span', { text: e.artists.join(', ') }))));
   }
 
   function catalogueView(project, cat, view = {}) {
@@ -1945,7 +1895,7 @@
             const done = await api('PATCH', `/api/versions/${v.id}`, body);
             catalogues.delete(project.id);
             dlg.close();
-            if (done.entityId !== entity.id) location.hash = `#/f/${project.id}/catalogue/${done.entityId}`;
+            if (done.entityId !== entity.id) location.hash = WB.href.catalogue(project.id, { entity: done.entityId });
             else render();
           } catch (err) {
             error.textContent = err.message;
@@ -1997,15 +1947,9 @@
   }
 
   // A note at the bottom of the page for a few seconds, with a way to take back what was just done.
-  let undoNode = null;
-  function undoable(text, undo) {
-    if (undoNode) undoNode.remove();
-    const node = el('div', { class: 'undo-toast', role: 'status' },
-      el('span', { text }),
-      undo && el('button', { type: 'button', class: 'btn small ghost', text: 'Undo', onclick: async () => { node.remove(); try { await undo(); } catch (err) { fail(err); } } }));
-    undoNode = node;
-    document.body.append(node);
-    setTimeout(() => node.remove(), 8000);
+  // A change just made, said at the foot of the page, with a way to take it back when there is one.
+  function undoable(text, undo, more) {
+    WB.toast(text, { key: 'undo', ms: 8000, action: undo ? { label: 'Undo', run: async () => { try { await undo(); } catch (err) { fail(err); } } } : more });
   }
 
   // Everyone the app knows by name, for picking artists and people to cc.
@@ -2026,8 +1970,8 @@
     const wrap = el('span', { class: 'pf' }, chips, input);
     let list = [...names];
     const paint = () => chips.replaceChildren(...list.map((n) => el('span', { class: 'pf-chip' },
-      el('span', { class: 'avatar sm', text: WB.initials(n) }), el('span', { text: n }),
-      el('button', { type: 'button', class: 'pf-x', title: `Take ${n} off`, 'aria-label': `Take ${n} off`, html: svg('<path d="M7 7l10 10M17 7L7 17"/>', 12), onclick: () => set(list.filter((x) => x !== n)) }))));
+      WB.avatar(n), el('span', { text: n }),
+      el('button', { type: 'button', class: 'pf-x', title: `Take ${n} off`, 'aria-label': `Take ${n} off`, html: icon('close', 12), onclick: () => set(list.filter((x) => x !== n)) }))));
     const set = (next) => {
       list = next;
       paint();
@@ -2090,7 +2034,7 @@
         el('div', { class: 'card-name', text: v.label }),
         el('div', { class: 'card-meta', text: [v.artist, v.descriptor].filter(Boolean).join(' · ') || v.originalName || '' }),
         el('div', { class: 'card-meta', text: `Filed ${ago(v.createdAt)}${v.createdBy ? ` by ${v.createdBy}` : ''}${v.hidden ? ' · archived' : ''}` }),
-        v.boards.length > 0 && el('div', { class: 'ver-boards' }, v.boards.map((b) => el('a', { class: 'ver-board', href: `/b/${b.id}`, text: b.name })))),
+        v.boards.length > 0 && el('div', { class: 'ver-boards' }, v.boards.map((b) => el('a', { class: 'ver-board', href: WB.href.board(b.id), text: b.name })))),
       menuButton([
         ['Edit…', () => editVersion(project, entity, v)],
         [v.hidden ? 'Bring back from the archive' : 'Archive', () => archive(v, !v.hidden)],
@@ -2103,7 +2047,7 @@
     const order = new Map(page.versions.map((v, i) => [v.id, i]));
     roots.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0) || a.t - b.t);
     const msg = (n, first) => el('div', { class: `ent-msg${first ? '' : ' reply'}` },
-      el('span', { class: 'avatar sm', style: { background: /^#[0-9a-f]{6}$/i.test(n.color || '') ? n.color : '#8a8a8a' }, text: WB.initials(n.name || '?') }),
+      WB.avatar(n.name, n.color),
       el('div', { class: 'ent-msg-main' },
         el('div', { class: 'ent-msg-top' }, el('strong', { text: n.name }), el('span', { text: ago(n.t) })),
         el('div', { class: 'ent-msg-text', text: n.text })));
@@ -2138,7 +2082,7 @@
   // ---- importing: many files at once, straight into the catalogue
 
   const imports = new Map(); // project id -> { rows, node }
-  const megabytes = (bytes) => `${Math.round(bytes / 1048576).toLocaleString()} MB`;
+  const megabytes = WB.bytes;
 
   // A file brought in here goes through what a file dropped on a board does (ingest.js): a video is made
   // into its review copy, with its timeline strip, stills and frame rate, and the file it was made from is
@@ -2459,7 +2403,7 @@
     if (!name) return;
     try {
       const board = await api('POST', '/api/boards', { name, folderId: currentFolder(), workspace: space, by: me.name });
-      location.href = `/b/${board.id}`;
+      location.href = WB.href.board(board.id);
     } catch (err) {
       fail(err);
     }
@@ -2516,7 +2460,7 @@
       href: `/b/${n.board.id}#c=${n.id}`,
       onclick: () => { if (!n.read) markNotices({ ids: [n.id] }); },
     },
-    el('span', { class: 'avatar sm', style: { background: /^#[0-9a-f]{6}$/i.test(n.color || '') ? n.color : '#8a8a8a' }, text: WB.initials(n.author) }),
+    WB.avatar(n.author, n.color),
     el('span', { class: 'notice-body' },
       el('span', { class: 'notice-what' }, el('strong', { text: n.author }), n.guest && el('span', { class: 'notice-guest', text: 'guest' }), ` ${NOTICE_TEXT[n.kind](n)}`),
       el('span', { class: 'notice-text', text: n.text }),

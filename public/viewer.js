@@ -21,7 +21,6 @@
 //     can: { read, write, draw, member }  functions: read comments, write them, draw, act as one of the team
 //     add(comment), set(id, patch), remove(ids)      what is said, done (the host keeps and shares it)
 //     undo(), redo(), erase(ids), clear(id), download(piece)               all optional
-//     whole(src) -> { ready: Promise<url|null>, loaded, total }, release(src)   how a video is had whole, optional
 //     names: () => [{ name, color }]      who may be named with an @, besides those who have commented
 //     onOpen(id), onClose(), onMedia(id, playing, time), onThread(id), onLaser(id, pts), onInteract(), onWhole(id, url)
 //   })
@@ -31,177 +30,16 @@
 // `size`), and its colour.
 const WBViewer = (() => {
   const { el, store } = WB;
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-  const uid = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => (b % 36).toString(36)).join('');
-  const isLight = () => document.documentElement.dataset.theme === 'light';
-  const inkColor = (c) => (c === 'ink' ? (isLight() ? '#171717' : '#ededed') : c);
-  const hexOk = (c) => /^#[0-9a-f]{6}$/i.test(c || '');
+  const { clamp, uid } = WB;
+  const { hexOk } = WB;
   const calm = matchMedia('(prefers-reduced-motion: reduce)');
-  const INK = ['ink', '#e5484d', '#f59e0b', '#16a34a', '#2f7df6', '#8b5cf6'];
-  const LASER_LIFE = 450;
+  const { INK, LASER_LIFE, inkColor, isLight } = WBInk;
   const UNITS = 1000;
 
-  const icon = (d) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
-  const ICON = {
-    pan: icon('<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>'),
-    pen: icon('<path d="M4 20l1-4L16 5l3 3L8 19z"/><path d="M14 7l3 3"/>'),
-    scribble: icon('<path d="M3 16c2.5-5 4.5-8 6.5-8 2.5 0-1 9 2 9 2.5 0 3.5-7 6-7 1.5 0 2 2 3.5 3"/>'),
-    laser: icon('<circle cx="12" cy="12" r="3" fill="currentColor"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2 2M16.4 16.4l2 2M5.6 18.4l2-2M16.4 7.6l2-2"/>'),
-    prev: icon('<path d="M15 5l-7 7 7 7"/>'),
-    next: icon('<path d="M9 5l7 7-7 7"/>'),
-    trash: icon('<path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v5M14 11v5"/>'),
-    play: icon('<path d="M7 4l13 8-13 8z" fill="currentColor"/>'),
-    pause: icon('<path d="M7 4v16M17 4v16" stroke-width="3.5"/>'),
-    muted: icon('<path d="M4 9v6h4l5 4V5L8 9zM17 9l5 6M22 9l-5 6"/>'),
-    loop: icon('<path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/>'),
-    sound: icon('<path d="M4 9v6h4l5 4V5L8 9zM17 8a5 5 0 0 1 0 8"/>'),
-    comment: icon('<path d="M4 5h16v11H11l-5 4v-4H4z"/>'),
-    check: icon('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
-    close: icon('<path d="M6 6l12 12M18 6L6 18"/>'),
-    download: icon('<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>'),
-    frameBack: icon('<path d="M18 5.5l-9 6.5 9 6.5z" fill="currentColor"/><path d="M6 5v14"/>'),
-    frameFwd: icon('<path d="M6 5.5l9 6.5-9 6.5z" fill="currentColor"/><path d="M18 5v14"/>'),
-    undo: icon('<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>'),
-    redo: icon('<path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>'),
-    eraser: icon('<path d="M9 20h11M4.6 15.4l9.8-9.8a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L11 19H8.2a2 2 0 0 1-1.4-.6l-2.2-2.2a2 2 0 0 1 0-2.8z"/><path d="M9 11l5 5"/>'),
-  };
+  const ICON = WB.iconSet(20); // icons.js
 
-  function svgEl(tag, attrs) {
-    const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
-    for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, v);
-    return node;
-  }
-
-  const URL_RE = /(https?:\/\/[^\s<>"']+)/g;
-  function fillText(node, text) {
-    node.replaceChildren();
-    if (!text) return;
-    text.split(URL_RE).forEach((part, i) => {
-      if (!part) return;
-      node.append(i % 2 ? el('a', { href: part, target: '_blank', rel: 'noopener noreferrer', text: part }) : part);
-    });
-  }
-
-  // ---------------------------------------------------------------- ink: the shape of a line
-
-  function pathData(pts, sx, sy, arrow, size) {
-    const n = pts.length / 2;
-    const X = (i) => pts[i * 2] * sx;
-    const Y = (i) => pts[i * 2 + 1] * sy;
-    const f = (v) => v.toFixed(1);
-    let d = `M${f(X(0))} ${f(Y(0))}`;
-    if (n === 1) return `${d}h0.01`;
-    if (n === 2) {
-      d += `L${f(X(1))} ${f(Y(1))}`;
-    } else {
-      for (let i = 1; i < n - 1; i++) {
-        d += `Q${f(X(i))} ${f(Y(i))} ${f((X(i) + X(i + 1)) / 2)} ${f((Y(i) + Y(i + 1)) / 2)}`;
-      }
-      d += `L${f(X(n - 1))} ${f(Y(n - 1))}`;
-    }
-    if (arrow) {
-      const tx = X(n - 1);
-      const ty = Y(n - 1);
-      const ang = Math.atan2(ty - Y(0), tx - X(0));
-      const len = size * 4.5;
-      d += `M${f(tx - len * Math.cos(ang - 0.45))} ${f(ty - len * Math.sin(ang - 0.45))}L${f(tx)} ${f(ty)}`;
-      d += `L${f(tx - len * Math.cos(ang + 0.45))} ${f(ty - len * Math.sin(ang + 0.45))}`;
-    }
-    return d;
-  }
-
-  // Outline of a brush stroke whose width follows `ws` (a 0..1 multiplier of `size` per point).
-  function outlinePath(pts, ws, sx, sy, size) {
-    const n = pts.length / 2;
-    if (!n) return '';
-    const f = (v) => v.toFixed(2);
-    const P = [];
-    const R = [];
-    for (let i = 0; i < n; i++) {
-      P.push([pts[i * 2] * sx, pts[i * 2 + 1] * sy]);
-      R.push(Math.max(0.15, size * (ws[i] ?? 1)) / 2);
-    }
-    if (n === 1) {
-      const [x, y] = P[0];
-      return `M${f(x - R[0])} ${f(y)}a${f(R[0])} ${f(R[0])} 0 1 0 ${f(2 * R[0])} 0a${f(R[0])} ${f(R[0])} 0 1 0 ${f(-2 * R[0])} 0z`;
-    }
-    const A = [];
-    const B = [];
-    let tx = 1;
-    let ty = 0;
-    for (let i = 0; i < n; i++) {
-      const a = P[Math.max(0, i - 1)];
-      const b = P[Math.min(n - 1, i + 1)];
-      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-      if (len > 1e-6) {
-        tx = (b[0] - a[0]) / len;
-        ty = (b[1] - a[1]) / len;
-      }
-      A.push([P[i][0] - ty * R[i], P[i][1] + tx * R[i]]);
-      B.push([P[i][0] + ty * R[i], P[i][1] - tx * R[i]]);
-    }
-    const side = (S) => {
-      let d = '';
-      for (let i = 1; i < S.length - 1; i++) {
-        d += `Q${f(S[i][0])} ${f(S[i][1])} ${f((S[i][0] + S[i + 1][0]) / 2)} ${f((S[i][1] + S[i + 1][1]) / 2)}`;
-      }
-      return `${d}L${f(S[S.length - 1][0])} ${f(S[S.length - 1][1])}`;
-    };
-    const last = n - 1;
-    let d = `M${f(A[0][0])} ${f(A[0][1])}${side(A)}`;
-    d += `A${f(R[last])} ${f(R[last])} 0 0 0 ${f(B[last][0])} ${f(B[last][1])}`;
-    d += side(B.slice().reverse());
-    d += `A${f(R[0])} ${f(R[0])} 0 0 0 ${f(A[0][0])} ${f(A[0][1])}Z`;
-    return d;
-  }
-
-  // A stroke drawn as SVG, in whatever units its numbers are in.
-  function strokeNode(s) {
-    const g = svgEl('g', { transform: `translate(${s.x} ${s.y})` });
-    const color = inkColor(s.color);
-    if (s.ws && !s.arrow) {
-      g.append(svgEl('path', { d: outlinePath(s.pts, s.ws, s.w, s.h, s.size), fill: color }));
-    } else {
-      g.append(svgEl('path', { d: pathData(s.pts, s.w, s.h, !!s.arrow, s.size), fill: 'none', stroke: color, 'stroke-width': s.size, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
-    }
-    return g;
-  }
-
-  // A line as it was drawn (absolute points and widths) made into a stroke: its box, and its points within it.
-  function makeStroke(pts, ws, size, color, arrow) {
-    let x0 = Infinity;
-    let y0 = Infinity;
-    let x1 = -Infinity;
-    let y1 = -Infinity;
-    for (let i = 0; i < pts.length; i += 2) {
-      x0 = Math.min(x0, pts[i]);
-      x1 = Math.max(x1, pts[i]);
-      y0 = Math.min(y0, pts[i + 1]);
-      y1 = Math.max(y1, pts[i + 1]);
-    }
-    const w = Math.max(x1 - x0, 0.01);
-    const h = Math.max(y1 - y0, 0.01);
-    const r = (v, k = 100) => Math.round(v * k) / k;
-    const stroke = { x: r(x0), y: r(y0), w: r(w), h: r(h), pts: pts.map((v, i) => r(i % 2 ? (v - y0) / h : (v - x0) / w, 10000)), size: r(size), color };
-    if (arrow) stroke.arrow = true;
-    else stroke.ws = ws.map((v) => r(v));
-    return stroke;
-  }
-
-  // Where along a stroke its points are, absolutely.
-  function strokePoints(s) {
-    const out = [];
-    for (let i = 0; i < s.pts.length; i += 2) out.push({ x: s.x + s.pts[i] * s.w, y: s.y + s.pts[i + 1] * s.h });
-    return out;
-  }
-
-  function pointSegDist(p, a, b) {
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const len = dx * dx + dy * dy;
-    const k = len ? clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / len, 0, 1) : 0;
-    return Math.hypot(p.x - (a.x + k * dx), p.y - (a.y + k * dy));
-  }
+  // Drawing: see ink.js.
+  const { svgEl, fillText, pathData, outlinePath, strokeNode, makeStroke, strokePoints, pointSegDist } = WBInk;
 
   // ---------------------------------------------------------------- time: frames and how a moment is written
 
@@ -424,48 +262,10 @@ const WBViewer = (() => {
   //
   // A browser keeps only a little of a paused video in hand and fetches the rest as it is asked for, so a
   // scrub keeps landing on moments it has not got and drags until the hand has been over the whole length
-  // once. A video that is opened is therefore fetched whole, in one go, and played from memory. It comes
-  // from the copy kept on this computer if there is one, and is kept there if not (media.js). A host may
-  // do this itself (a board does); otherwise this is how.
-  const WHOLE_KEPT = 1024 * 1024 * 1024;
-  const wholes = new Map(); // address -> { loaded, total, url, size, used, ctl, ready }
-
-  function fetchWhole(src) {
-    let entry = wholes.get(src);
-    if (entry) return entry;
-    entry = { loaded: 0, total: 0, url: null, size: 0, used: performance.now(), ctl: new AbortController() };
-    wholes.set(src, entry);
-    entry.ready = (async () => {
-      const blob = await WB.media.get(src, {
-        signal: entry.ctl.signal,
-        onProgress: (loaded, total) => { entry.loaded = loaded; entry.total = total; },
-      });
-      entry.size = blob.size;
-      entry.url = URL.createObjectURL(blob);
-      // Memory is not for hoarding: the videos opened longest ago are let go of.
-      let held = 0;
-      for (const e of wholes.values()) held += e.size;
-      for (const [other, e] of [...wholes].sort((a, b) => a[1].used - b[1].used)) {
-        if (held <= WHOLE_KEPT || other === src || !e.url) continue;
-        URL.revokeObjectURL(e.url);
-        wholes.delete(other);
-        held -= e.size;
-      }
-      return entry.url;
-    })().catch(() => {
-      entry.ctl.abort();
-      if (wholes.get(src) === entry) wholes.delete(src);
-      return null;
-    });
-    return entry;
-  }
-
-  function releaseWhole(src) {
-    const entry = wholes.get(src);
-    if (!entry || entry.url) return;
-    entry.ctl.abort();
-    wholes.delete(src);
-  }
+  // once. A video that is opened is therefore had whole, in one go, and played from memory: media.js holds
+  // it (from the copy kept on this computer if there is one) and lets the longest unused go.
+  const fetchWhole = (src) => WB.media.whole(src);
+  const releaseWhole = (src) => WB.media.releaseWhole(src);
 
   // ---------------------------------------------------------------- the viewer itself
 
@@ -747,7 +547,7 @@ const WBViewer = (() => {
       const video = videoOpen();
       if (video) video.pause();
       clearTimeout(wholeTimer);
-      if (piece.type === 'video' && piece.src) (opts.release || releaseWhole)(piece.src);
+      if (piece.type === 'video' && piece.src) releaseWhole(piece.src);
       if (draft && draft.strokes.length) toast('The drawing was taken away: it had no comment', { ms: 3500 });
       draft = null;
       unstroked.length = 0;
@@ -798,8 +598,8 @@ const WBViewer = (() => {
     }
 
     async function holdWhole(piece) {
-      if (!/^\/uploads\//.test(piece.src || '')) return;
-      const entry = (opts.whole || fetchWhole)(piece.src);
+      if (!WB.media.keepable(piece.src)) return;
+      const entry = fetchWhole(piece.src);
       if (!entry) return;
       entry.used = performance.now();
       const poll = setInterval(syncLoaded, 250);
@@ -814,6 +614,15 @@ const WBViewer = (() => {
       syncLoaded();
       if (opts.onWhole) opts.onWhole(piece.id, url);
     }
+
+    // A video let go of from memory while it is open goes back to playing from where it came.
+    WB.media.onEvict((src) => {
+      const video = videoOpen();
+      if (video && video.dataset.whole === src && open) {
+        delete video.dataset.whole;
+        switchSource(video, open.src);
+      }
+    });
 
     // Moves on to the next or previous piece, going round at the ends. Steps pile up while a frame is
     // being drawn and are made together, so a held key skips ahead.
@@ -871,7 +680,7 @@ const WBViewer = (() => {
       // Shown whenever the host downloads, and only greyed out for what has no file (a run's slate), so
       // the bar does not shift as the pieces change.
       dlBtn.hidden = !opts.download;
-      dlBtn.disabled = !/^\/uploads\//.test(open.src || '');
+      dlBtn.disabled = !WB.media.keepable(open.src);
       dlBtn.title = dlBtn.disabled ? 'Nothing to download: nothing is filed yet' : 'Download the original media';
       clearBtn.hidden = !opts.clear || !can.member();
       clearBtn.disabled = !plainDrawings().length;
@@ -1184,7 +993,7 @@ const WBViewer = (() => {
           const from = video.buffered.start(i) / dur;
           parts.push(el('i', { style: { left: `${from * 100}%`, width: `${(video.buffered.end(i) / dur - from) * 100}%` } }));
         }
-        const entry = (opts.wholeEntry ? opts.wholeEntry(open.src) : wholes.get(open.src));
+        const entry = WB.media.wholeEntry(open.src);
         if (entry && entry.total) parts.push(el('i', { class: 'coming', style: { left: '0', width: `${(entry.loaded / entry.total) * 100}%` } }));
       }
       tlLoaded.replaceChildren(...parts);
@@ -1951,7 +1760,7 @@ const WBViewer = (() => {
         class: `menu-item${n === i ? ' active' : ''}`, role: 'option', 'aria-selected': String(n === i), type: 'button',
         onpointerdown: (e) => e.preventDefault(),
         onclick: () => pickName(name),
-      }, el('span', { class: 'avatar sm', style: { background: nameColors.get(name) || '#8a8a8a' }, text: WB.initials(name) }), el('span', { text: name }))));
+      }, WB.avatar(name, nameColors.get(name)), el('span', { text: name }))));
       mentionMenu.hidden = false;
       const r = input.getBoundingClientRect();
       mentionMenu.style.left = `${Math.round(clamp(r.left, 8, innerWidth - mentionMenu.offsetWidth - 8))}px`;
@@ -2126,7 +1935,7 @@ const WBViewer = (() => {
         if (moment != null) text.prepend(el('button', { class: 'tchip', title: 'Go to this frame', onclick: () => pickThread(c.id) }, el('span', { html: ICON.play }), fmtMoment(moment, fpsOf(c.on))));
       }
       return el('div', { class: `msg${first ? '' : ' reply'}` },
-        el('span', { class: 'avatar sm', style: { background: hexOk(c.color) ? c.color : '#8a8a8a' }, text: WB.initials(c.name || '?') }),
+        WB.avatar(c.name, c.color),
         el('div', { class: 'msg-main' },
           el('div', { class: 'msg-top' },
             el('strong', { text: c.name }),
@@ -2283,7 +2092,7 @@ const WBViewer = (() => {
     // In the viewer each key means one thing: the arrows go to the next or previous piece, `,` and `.` step
     // a frame (with Shift, a second), Space or K plays and pauses, M is the sound. Keys the viewer has no
     // use for are left to the page.
-    const isTyping = (t) => t && (t.isContentEditable || /^(TEXTAREA|SELECT)$/.test(t.tagName) || (t.tagName === 'INPUT' && !/^(range|checkbox|radio|button)$/.test(t.type)));
+    const { isTyping } = WB;
     window.addEventListener('keydown', (e) => {
       if (!open || isTyping(e.target) || document.querySelector('dialog[open]')) return;
       const k = e.key.toLowerCase();
@@ -2599,7 +2408,7 @@ const WBViewer = (() => {
 
   return {
     create, openEntity, openRun, entityRoom, ICON, INK, inkColor, pathData, outlinePath, strokeNode, fmtTime, fmtMoment, timeLabel, cycleTimeMode,
-    frameTime, frameIndex, lastFrame, goTo, whereOf, changing, switchSource, fetchWhole, releaseWhole, wholes, showWave,
+    frameTime, frameIndex, lastFrame, goTo, whereOf, changing, switchSource, fetchWhole, releaseWhole, showWave,
     timeMode: () => timeMode,
   };
 })();

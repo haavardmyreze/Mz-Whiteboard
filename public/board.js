@@ -31,12 +31,10 @@
 
   const MIN_Z = 0.02;
   const MAX_Z = 16;
-  const LASER_LIFE = 450;
-  const INK = ['ink', '#e5484d', '#f59e0b', '#16a34a', '#2f7df6', '#8b5cf6'];
+  // Ink colours, and the shape of a drawn line: see ink.js, shared with the player.
+  const { INK, LASER_LIFE, isLight, inkColor, svgEl, fillText, pathData, outlinePath, pointSegDist } = WBInk;
   const NOTE_FILLS = ['note', '#fff2a8', '#ffd3d1', '#d4f1d2', '#d0e6ff', '#e7dbff'];
   // 'ink' and 'note' stand for the theme's own text and note colours, so a board reads well in either theme.
-  const isLight = () => document.documentElement.dataset.theme === 'light';
-  const inkColor = (c) => (c === 'ink' ? (isLight() ? '#171717' : '#ededed') : c);
   const isPlainNote = (c) => c === 'note';
   const noteColor = (c) => (isPlainNote(c) ? (isLight() ? '#ffffff' : '#2a2a2a') : c);
   const NOTE_INK = { light: '#1a1a1a', dark: '#f0f0f0' };
@@ -137,59 +135,7 @@
   const levelSize = (lvl) => (TEXT_LEVELS.find((l) => l.lvl === lvl) || TEXT_LEVELS[1]).size;
   const COLORABLE = new Set(['note', 'text', 'frame', 'block', 'stroke']);
   const ITEM_TYPES = new Set(['image', 'video', 'note', 'text', 'frame', 'block', 'stroke']);
-  const icon = (d) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
-  const ICON = {
-    select: icon('<path d="M5 3l5.5 16 2.5-6.5L19.5 10z"/>'),
-    pan: icon('<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>'),
-    upload: icon('<rect x="3" y="5" width="18" height="14"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 15l-5-5-8 9"/>'),
-    note: icon('<path d="M5 4h14v10l-5 6H5z"/><path d="M14 20v-6h5"/>'),
-    text: icon('<path d="M5 7V4h14v3M12 4v16M9 20h6"/>'),
-    frame: icon('<path d="M7 3v18M17 3v18M3 7h18M3 17h18"/>'),
-    pen: icon('<path d="M4 20l1-4L16 5l3 3L8 19z"/><path d="M14 7l3 3"/>'),
-    scribble: icon('<path d="M3 16c2.5-5 4.5-8 6.5-8 2.5 0-1 9 2 9 2.5 0 3.5-7 6-7 1.5 0 2 2 3.5 3"/>'),
-    arrow: icon('<path d="M5 19L19 5M9 5h10v10"/>'),
-    laser: icon('<circle cx="12" cy="12" r="3" fill="currentColor"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2 2M16.4 16.4l2 2M5.6 18.4l2-2M16.4 7.6l2-2"/>'),
-    prev: icon('<path d="M15 5l-7 7 7 7"/>'),
-    next: icon('<path d="M9 5l7 7-7 7"/>'),
-    front: icon('<rect x="8" y="8" width="12" height="12" fill="currentColor"/><path d="M4 14V5a1 1 0 0 1 1-1h9"/>'),
-    back: icon('<rect x="4" y="4" width="12" height="12"/><path d="M20 10v9a1 1 0 0 1-1 1h-9" stroke-dasharray="2 3"/>'),
-    tidy: icon('<rect x="3" y="4" width="8" height="7"/><rect x="13" y="4" width="8" height="7"/><rect x="3" y="13" width="5" height="7"/><rect x="10" y="13" width="11" height="7"/>'),
-    dup: icon('<rect x="8" y="8" width="12" height="12"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>'),
-    trash: icon('<path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v5M14 11v5"/>'),
-    play: icon('<path d="M7 4l13 8-13 8z" fill="currentColor"/>'),
-    pause: icon('<path d="M7 4v16M17 4v16" stroke-width="3.5"/>'),
-    muted: icon('<path d="M4 9v6h4l5 4V5L8 9zM17 9l5 6M22 9l-5 6"/>'),
-    sound: icon('<path d="M4 9v6h4l5 4V5L8 9zM17 8a5 5 0 0 1 0 8"/>'),
-    focus: icon('<path d="M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4"/><circle cx="12" cy="12" r="2.5"/>'),
-    block: icon('<rect x="3" y="7" width="18" height="10"/><path d="M8 12h8"/>'),
-    alignL: icon('<path d="M4 6h16M4 10h10M4 14h16M4 18h10"/>'),
-    alignC: icon('<path d="M4 6h16M7 10h10M4 14h16M7 18h10"/>'),
-    snap: icon('<path d="M6 3v8a6 6 0 0 0 12 0V3h-4v8a2 2 0 0 1-4 0V3z"/><path d="M6 7h4M14 7h4"/>'),
-    comment: icon('<path d="M4 5h16v11H11l-5 4v-4H4z"/>'),
-    check: icon('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
-    close: icon('<path d="M6 6l12 12M18 6L6 18"/>'),
-    download: icon('<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>'),
-    settings: icon('<path d="M4 7h9M19 7h1M4 17h3M13 17h7"/><circle cx="16" cy="7" r="2.5"/><circle cx="10" cy="17" r="2.5"/>'),
-    activity: icon('<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/>'),
-    fit: icon('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><rect x="9" y="9" width="6" height="6"/>'),
-    frameBack: icon('<path d="M18 5.5l-9 6.5 9 6.5z" fill="currentColor"/><path d="M6 5v14"/>'),
-    frameFwd: icon('<path d="M6 5.5l9 6.5-9 6.5z" fill="currentColor"/><path d="M18 5v14"/>'),
-    undo: icon('<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>'),
-    redo: icon('<path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>'),
-    eraser: icon('<path d="M9 20h11M4.6 15.4l9.8-9.8a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L11 19H8.2a2 2 0 0 1-1.4-.6l-2.2-2.2a2 2 0 0 1 0-2.8z"/><path d="M9 11l5 5"/>'),
-    help: icon('<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.8"/><circle cx="12" cy="17" r="0.6" fill="currentColor"/>'),
-    kept: icon('<path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>'),
-    link: icon('<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>'),
-    tag: icon('<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/>'),
-    eye: icon('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
-    chevron: icon('<path d="M9 6l6 6-6 6"/>'),
-    restore: icon('<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/><path d="M12 8v4l3 2"/>'),
-    cloud: icon('<path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 9.5 4.3 4.3 0 0 1 17.5 18z"/>'),
-    more: icon('<circle cx="5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/>'),
-    stack: icon('<path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5"/>'),
-    file: icon('<path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 3-1.5M17 18h5M19.5 15.5v5"/>'),
-    search: icon('<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4-4"/>'),
-  };
+  const ICON = WB.iconSet(20); // icons.js
   const CURSOR_SVG = '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M1 1l4.5 13 2.2-5.3L13 6.5z" fill="var(--c)" stroke="#fff" stroke-width="1"/></svg>';
 
   // ------------------------------------------------------------- state
@@ -236,22 +182,8 @@
     ? Promise.race([document.fonts.load('16px Inter'), new Promise((resolve) => setTimeout(resolve, 2000))]).catch(() => {})
     : Promise.resolve();
 
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const { clamp, uid, isTyping } = WB;
   const round = (v) => Math.round(v * 10) / 10;
-  // Somewhere text goes. A slider or a tick box is not: clicking one must not take the keyboard away from the board.
-  const isTyping = (t) => t && (t.isContentEditable || /^(TEXTAREA|SELECT)$/.test(t.tagName)
-    || (t.tagName === 'INPUT' && !/^(range|checkbox|radio|button)$/.test(t.type)));
-
-  // crypto.randomUUID needs HTTPS; boards are usually served over plain HTTP on the LAN.
-  function uid() {
-    return Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => (b % 36).toString(36)).join('');
-  }
-
-  function svgEl(tag, attrs) {
-    const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
-    for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, v);
-    return node;
-  }
 
   function s2w(sx, sy) {
     return { x: sx / cam.z + cam.x, y: sy / cam.z + cam.y };
@@ -300,13 +232,7 @@
     return z;
   }
 
-  function toast(text, { sticky = false, ms = 4000 } = {}) {
-    const node = el('div', { class: 'toast', text });
-    $('toasts').append(node);
-    const close = () => node.remove();
-    if (!sticky) setTimeout(close, ms);
-    return { set: (t) => { node.textContent = t; }, close };
-  }
+  const toast = WB.toast;
 
   // ------------------------------------------------------------- camera
 
@@ -499,87 +425,6 @@
   }
 
   // ------------------------------------------------------------- rendering
-
-  const URL_RE = /(https?:\/\/[^\s<>"']+)/g;
-
-  function fillText(node, text) {
-    node.replaceChildren();
-    if (!text) return;
-    text.split(URL_RE).forEach((part, i) => {
-      if (!part) return;
-      node.append(i % 2 ? el('a', { href: part, target: '_blank', rel: 'noopener noreferrer', text: part }) : part);
-    });
-  }
-
-  function pathData(pts, sx, sy, arrow, size) {
-    const n = pts.length / 2;
-    const X = (i) => pts[i * 2] * sx;
-    const Y = (i) => pts[i * 2 + 1] * sy;
-    const f = (v) => v.toFixed(1);
-    let d = `M${f(X(0))} ${f(Y(0))}`;
-    if (n === 1) return `${d}h0.01`;
-    if (n === 2) {
-      d += `L${f(X(1))} ${f(Y(1))}`;
-    } else {
-      for (let i = 1; i < n - 1; i++) {
-        d += `Q${f(X(i))} ${f(Y(i))} ${f((X(i) + X(i + 1)) / 2)} ${f((Y(i) + Y(i + 1)) / 2)}`;
-      }
-      d += `L${f(X(n - 1))} ${f(Y(n - 1))}`;
-    }
-    if (arrow) {
-      const tx = X(n - 1);
-      const ty = Y(n - 1);
-      const ang = Math.atan2(ty - Y(0), tx - X(0));
-      const len = size * 4.5;
-      d += `M${f(tx - len * Math.cos(ang - 0.45))} ${f(ty - len * Math.sin(ang - 0.45))}L${f(tx)} ${f(ty)}`;
-      d += `L${f(tx - len * Math.cos(ang + 0.45))} ${f(ty - len * Math.sin(ang + 0.45))}`;
-    }
-    return d;
-  }
-
-  // Outline of a brush stroke whose width follows `ws` (a 0..1 multiplier of `size` per point).
-  function outlinePath(pts, ws, sx, sy, size) {
-    const n = pts.length / 2;
-    const f = (v) => v.toFixed(2);
-    const P = [];
-    const R = [];
-    for (let i = 0; i < n; i++) {
-      P.push([pts[i * 2] * sx, pts[i * 2 + 1] * sy]);
-      R.push(Math.max(0.15, size * (ws[i] ?? 1)) / 2);
-    }
-    if (n === 1) {
-      const [x, y] = P[0];
-      return `M${f(x - R[0])} ${f(y)}a${f(R[0])} ${f(R[0])} 0 1 0 ${f(2 * R[0])} 0a${f(R[0])} ${f(R[0])} 0 1 0 ${f(-2 * R[0])} 0z`;
-    }
-    const A = [];
-    const B = [];
-    let tx = 1;
-    let ty = 0;
-    for (let i = 0; i < n; i++) {
-      const a = P[Math.max(0, i - 1)];
-      const b = P[Math.min(n - 1, i + 1)];
-      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-      if (len > 1e-6) {
-        tx = (b[0] - a[0]) / len;
-        ty = (b[1] - a[1]) / len;
-      }
-      A.push([P[i][0] - ty * R[i], P[i][1] + tx * R[i]]);
-      B.push([P[i][0] + ty * R[i], P[i][1] - tx * R[i]]);
-    }
-    const side = (S) => {
-      let d = '';
-      for (let i = 1; i < S.length - 1; i++) {
-        d += `Q${f(S[i][0])} ${f(S[i][1])} ${f((S[i][0] + S[i + 1][0]) / 2)} ${f((S[i][1] + S[i + 1][1]) / 2)}`;
-      }
-      return `${d}L${f(S[S.length - 1][0])} ${f(S[S.length - 1][1])}`;
-    };
-    const last = n - 1;
-    let d = `M${f(A[0][0])} ${f(A[0][1])}${side(A)}`;
-    d += `A${f(R[last])} ${f(R[last])} 0 0 0 ${f(B[last][0])} ${f(B[last][1])}`;
-    d += side(B.slice().reverse());
-    d += `A${f(R[0])} ${f(R[0])} 0 0 0 ${f(A[0][0])} ${f(A[0][1])}Z`;
-    return d;
-  }
 
   function buildVideo(it, node) {
     const video = el('video', { playsinline: true, loop: true, preload: 'metadata' });
@@ -1950,9 +1795,6 @@
     erase: (ids) => exec(delOps(ids)),
     clear: (id) => exec([{ t: 'del', ids: [...items.values()].filter((it) => it.type === 'stroke' && it.pid === id).map((it) => it.id) }]),
     download: viewOnly ? null : (p) => downloadPiece(p.id),
-    whole: (src) => fetchWhole(src),
-    wholeEntry: (src) => wholes.get(src),
-    release: (src) => dropWhole(src),
     names: () => [...peers.values()].filter((p) => !p.viewer).map((p) => ({ name: p.name, color: p.color })),
     toast,
     onOpen: (id) => {
@@ -2012,9 +1854,8 @@
   // hand has been over the whole length once. So a video that is opened is fetched whole, in one go,
   // and then played from memory: every moment of it is there at once. Until it has arrived the video
   // plays from the server as before.
-  const WHOLE_MAX = 400 * 1024 * 1024;   // larger than this stays on the server
-  const WHOLE_KEPT = 1024 * 1024 * 1024; // how much is held in memory across videos
-  const wholes = new Map();              // a video's address -> { loaded, total, url, size, ctl, ready }
+  // media.js holds them, for the board and the player alike, and lets the longest unused go: a video on
+  // the board let go of goes back to playing from where it came.
 
   // ---- the board's videos, kept on this machine
   //
@@ -2046,44 +1887,22 @@
     if (keptRing) keptRing.paint();
   }
 
-  function fetchWhole(src) {
-    let entry = wholes.get(src);
-    if (entry) return entry;
-    entry = { loaded: 0, total: 0, url: null, size: 0, ctl: new AbortController() };
-    wholes.set(src, entry);
-    entry.ready = (async () => {
-      // From the copy kept on this computer if there is one; kept there if not.
-      const blob = await media.get(src, {
-        signal: entry.ctl.signal,
-        onProgress: (loaded, total) => {
-          entry.loaded = loaded;
-          entry.total = total;
-          paintKept();
-        },
-      });
-      // Stepped past while it was on its way.
-      if (entry.ctl.signal.aborted || blob.size > WHOLE_MAX) throw new Error('not wanted any more');
-      entry.size = blob.size;
-      entry.url = URL.createObjectURL(blob);
-      return entry.url;
-    })().catch(() => {
-      entry.ctl.abort();
-      if (wholes.get(src) === entry) wholes.delete(src);
-      return null;
-    });
-    return entry;
-  }
-
   // Only what this server keeps: anything else may not let itself be fetched.
-  const wholeable = (it) => !!it && it.type === 'video' && /^\/uploads\//.test(it.src || '');
+  const wholeable = (it) => !!it && it.type === 'video' && media.keepable(it.src);
+  media.onEvict((src) => {
+    for (const [nid, node] of els) {
+      const v = node.classList.contains('video') ? node.firstChild : null;
+      if (!v || v.dataset.whole !== src) continue;
+      delete v.dataset.whole;
+      WBViewer.switchSource(v, items.get(nid).src);
+    }
+  });
 
   async function holdWhole(id) {
     const it = items.get(id);
     if (!wholeable(it)) return;
     const src = it.src;
-    const entry = fetchWhole(src);
-    entry.used = performance.now();
-    const url = await entry.ready;
+    const url = await media.whole(src).ready;
     // Not in the middle of a scrub, which would be thrown back to where it started.
     while (boardScrub === id) await new Promise((resolve) => setTimeout(resolve, 120));
     const video = videoOf(id);
@@ -2091,21 +1910,6 @@
     video.dataset.whole = src;
     WBViewer.switchSource(video, url);
     mendStrip(id, url);
-    // Memory is not for hoarding: the videos opened longest ago go back to playing from the server.
-    let kept = 0;
-    for (const e of wholes.values()) kept += e.size;
-    for (const [other, e] of [...wholes].sort((a, b) => a[1].used - b[1].used)) {
-      if (kept <= WHOLE_KEPT || other === src || !e.url) continue;
-      for (const [nid, node] of els) {
-        const v = node.classList.contains('video') ? node.firstChild : null;
-        if (!v || v.dataset.whole !== other) continue;
-        delete v.dataset.whole;
-        WBViewer.switchSource(v, items.get(nid).src);
-      }
-      URL.revokeObjectURL(e.url);
-      wholes.delete(other);
-      kept -= e.size;
-    }
   }
 
   // A video that came in without the strip for its timeline, because the browser it was added from could
@@ -2122,15 +1926,6 @@
     } catch {
       // it stays plain
     }
-  }
-
-  // Going on before a video has arrived whole lets go of the fetch, rather than have every video
-  // stepped past arrive at once.
-  function dropWhole(src) {
-    const entry = wholes.get(src);
-    if (!entry || entry.url) return;
-    entry.ctl.abort();
-    wholes.delete(src);
   }
 
   // Whether a video is on its last frame. Let go there, it stays there: to run on from the end is to be
@@ -2682,7 +2477,7 @@
   const originals = [];       // waiting to go up: { id, file }
   let keepingNow = false;
   const keeping = () => keepingNow || originals.length > 0;
-  const megabytes = (bytes) => `${Math.round(bytes / 1048576).toLocaleString()} MB`;
+  const megabytes = WB.bytes;
 
   function showKeeping(id, k) {
     const node = els.get(id);
@@ -2739,7 +2534,7 @@
   // A piece comes down as it was uploaded: a picture is its own original, a video is the file it was made
   // from where that was kept, and otherwise the copy the board plays. All of a board's come down as one
   // zip, put together by the server. Whoever holds a link to the board is offered neither.
-  const onServer = (it) => !!it && (it.type === 'image' || it.type === 'video') && /^\/uploads\//.test(it.src || '');
+  const onServer = (it) => !!it && (it.type === 'image' || it.type === 'video') && WB.media.keepable(it.src);
   const waitingToBeKept = (id) => originals.some((o) => o.id === id);
 
   function saveAs(url, name) {
@@ -2824,14 +2619,6 @@
 
   const eraserRing = $('eraser');
   const ERASER_R = 12; // screen pixels
-
-  function pointSegDist(p, a, b) {
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const l2 = dx * dx + dy * dy;
-    const t = l2 ? clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / l2, 0, 1) : 0;
-    return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
-  }
 
   function segmentsCross(a, b, c, d) {
     const side = (p, q, r) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
@@ -3516,7 +3303,6 @@
   const byTime = (a, b) => (a.t || 0) - (b.t || 0) || (a.id < b.id ? -1 : 1);
   const rootsInOrder = () => [...comments.values()].filter((c) => !c.re).sort(byTime);
   const repliesOf = (id) => [...comments.values()].filter((c) => c.re === id).sort(byTime);
-  const hexOk = (c) => /^#[0-9a-f]{6}$/i.test(c || '');
   // A link opens a piece with one click; on the board itself, where a click selects, it takes two.
   const openHow = viewOnly ? 'click' : 'double-click';
 
@@ -3595,7 +3381,7 @@
       fillText(text, c.text);
       return el('div', { class: `cp-card${c.done ? ' done' : ''}`, 'data-id': c.id, onclick: () => viewer.openComment(c.id) },
         el('div', { class: 'msg' },
-          el('span', { class: 'avatar sm', style: { background: hexOk(c.color) ? c.color : '#8a8a8a' }, text: WB.initials(c.name || '?') }),
+          WB.avatar(c.name, c.color),
           el('div', { class: 'msg-main' },
             el('div', { class: 'msg-top' }, el('strong', { text: c.name }), el('span', { class: 'msg-time', text: WB.ago(c.t) }),
               c.done && el('span', { class: 'msg-edited', text: 'resolved' })),
@@ -4536,7 +4322,7 @@
     $('back').removeAttribute('href');
     $('back').removeAttribute('title');
   }
-  else $('back').href = meta.folderId ? `/#/f/${meta.folderId}/boards` : '/';
+  else $('back').href = meta.folderId ? WB.href.abs(WB.href.boards(meta.folderId)) : '/';
 
   // ---- what this board is set to
   //
@@ -4631,7 +4417,7 @@
       return;
     }
     if (!chip) {
-      chip = el('button', { class: 'vchip', onclick: (e) => { e.stopPropagation(); verMenu(it.id, chip); } },
+      chip = el('button', { class: 'vchip', 'aria-haspopup': 'menu', onclick: (e) => { e.stopPropagation(); verMenu(it.id, chip); } },
         el('span', { class: 'vchip-label' }), el('span', { class: 'vchip-new' }));
       node.append(chip);
     }
@@ -4643,30 +4429,20 @@
       : `${v.label}${v.artist ? `, by ${v.artist}` : ''}. Click for more`;
   }
 
-  function closeMenus() {
-    for (const m of document.querySelectorAll('.menu.vmenu')) m.remove();
-  }
-  document.addEventListener('pointerdown', (e) => { if (!e.target.closest('.vmenu, .vchip')) closeMenus(); });
 
   // What can be done from a version's chip: swap in the newer one, look it up in the catalogue.
   function verMenu(id, anchor) {
-    closeMenus();
     const it = items.get(id);
     const v = it && versionInfo.get(it.ver);
     if (!v) return;
-    const entries = [
+    WB.menu(anchor, [
       el('div', { class: 'vmenu-head' }, el('b', { text: v.label }),
         el('span', { text: [v.artist && `by ${v.artist}`, v.descriptor].filter(Boolean).join(' · ') || 'In the catalogue' })),
-      v.newest && !viewOnly && el('button', { class: 'menu-item', text: `Swap in v${v.newest.number}`, onclick: () => { closeMenus(); swapVersion(id, v.newest.id); } }),
-      !viewOnly && el('button', { class: 'menu-item', text: 'Look through all its versions', onclick: () => { closeMenus(); lookAtEntity(v.entityId, v.id); } }),
-      !viewOnly && el('button', { class: 'menu-item', text: 'Put another version on the board', onclick: () => { closeMenus(); toggleCatalogue(true, v.entityId); } }),
-      !viewOnly && el('a', { class: 'menu-item', href: `/#/f/${v.projectId}/catalogue/${v.entityId}`, text: 'Its page in the catalogue' }),
-    ];
-    const menu = el('div', { class: 'menu vmenu', role: 'menu' }, entries);
-    document.body.append(menu);
-    const r = anchor.getBoundingClientRect();
-    menu.style.left = `${Math.max(8, Math.min(r.left, innerWidth - menu.offsetWidth - 8))}px`;
-    menu.style.top = `${Math.max(8, Math.min(r.bottom + 4, innerHeight - menu.offsetHeight - 8))}px`;
+      v.newest && !viewOnly && [`Swap in v${v.newest.number}`, () => swapVersion(id, v.newest.id)],
+      !viewOnly && ['Look through all its versions', () => lookAtEntity(v.entityId, v.id)],
+      !viewOnly && ['Put another version on the board', () => toggleCatalogue(true, v.entityId)],
+      !viewOnly && { href: WB.href.abs(WB.href.catalogue(v.projectId, { entity: v.entityId })), label: 'Its page in the catalogue' },
+    ], { cls: 'vmenu', align: 'left' });
   }
 
   // The piece shows another version of the same thing, in its place and at its width. One that is an

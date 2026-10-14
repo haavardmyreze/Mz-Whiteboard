@@ -28,7 +28,7 @@ const WBIngest = (() => {
     'image/bmp': '.bmp', 'image/svg+xml': '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov',
   };
   let mediabunny;
-  const uid = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => (b % 36).toString(36)).join('');
+  const { uid } = WB;
 
   // ---- the picture and sound of a video, along its timeline
   const STRIP_PICTURE = 0.85;

@@ -273,12 +273,13 @@ project cannot sit inside another one, cannot be deleted, and stays a project on
 filed in it.
 
 - **Filing a version.** On a board in a project, select images or videos and press Shift+V (or the
-  button in the floating toolbar). The one thing asked is which asset, set or shot it is, and the task
-  if the project uses them; typing a name the project does not have yet makes it. Nothing has to be
-  named a particular way: `screenshoot_090126.png` is filed like anything else. What a file's name
-  does say is filled in ahead, and so is the frame it sits in (a frame titled `kilo-0010`) and the last
-  choice made. Several pieces are filed at once; when some names say what they are and some do not,
-  only the others are asked about.
+  button in the floating toolbar). Each piece has its own row: which asset, set or shot it is, and the
+  task if the project uses them. Typing suggests what the project has (with its newest still and how
+  many versions), and a name it does not have yet is made, as an asset, set or shot by its shape or as
+  chosen. Nothing has to be named a particular way: `screenshoot_090126.png` is filed like anything
+  else. What a file's name does say is filled in ahead, and so is the frame it sits in (a frame titled
+  `kilo-0010`) and, for one piece, the last choice made. With several, "For all" fills every row at
+  once to start from; each still goes where its own row says.
 - **Numbering.** The catalogue counts versions itself: `kilo-0010 anim v1`, `v2`, `v3`, per asset, set
   or shot and task, in the order they were filed. A version number in the file's name (`_v012`) is
   not used or shown; the number can be changed by hand (see below).
@@ -310,11 +311,23 @@ filed in it.
 - **Bringing files in.** Drop images and videos anywhere on a project's catalogue, or press Import above
   it. Each is brought in exactly as a file dropped on a board is (`public/ingest.js`): a video gets its
   review copy, its timeline strip, its stills and its frame rate, and the file it was made from is kept
-  too. When its name says what it is, it is filed straight away; the ones whose names say nothing wait
-  together for one answer. On an asset, set or shot's own page, what is dropped there (or added with
-  its "Add versions" tile) becomes new versions of it, whatever the files are called. Nothing goes on a
-  board. A strip above the catalogue shows each file on its way in; click a filed one to open it in
+  too. A strip above the catalogue has a row for each file, with its own asset, set or shot and task,
+  filled in ahead from its name (on an asset, set or shot's own page, from that one), with the same
+  suggestions as filing on a board. Nothing is filed until you say: File on a row, Enter in its boxes,
+  or "File all" for every row that says where it goes (one still on its way in is filed when it
+  arrives). "For all" fills every row at once. Nothing goes on a board. Click a filed one to open it in
   the player.
+- **Setting a project up.** "Add assets, sets & shots" above the catalogue takes names, typed or pasted
+  one a line, each an asset, a set or a shot by its shape (or all of one kind, as chosen), and a run of
+  shots from a sequence and its numbers (kilo, 10 to 200 by 10). They are in the catalogue and the
+  sidebar at once, with nothing filed yet.
+- **Artists and CC.** An asset, set or shot's page names its artists and who else is cc'd, picked from
+  everyone the app knows (who signed in, filed, wrote a note or was named before) or typed. Its card
+  shows its artists.
+- **For you.** Home opens on what is relevant to you: versions filed and notes written by others, in
+  the last two weeks, on the assets, sets and shots you are an artist on or cc'd on (click one to open
+  it in the player), and those assets, sets and shots themselves. Signed in, you are who you signed in
+  as; otherwise, the name you gave.
 
 Names are read by the project's naming preset. The one there is follows the Myreze styleguide:
 `_` separates parts, `-` joins words, all lower case. An asset is `char-`, `prop-`, `env-`, `veh-` or
@@ -377,7 +390,10 @@ A project's catalogue has its own: `GET /api/projects/<folder>` (its assets, set
 `GET /api/entities/<id>` (one of them, every version and every note), `GET`, `PATCH` and `DELETE
 /api/versions/<id>` (`PATCH` takes `entity`, `task`, `number`, `artist`, `descriptor`, `hidden`, or
 `{ "deleted": false }` to bring a deleted one back), and `POST /api/projects/<folder>/versions` to file
-versions.
+versions (each file may say its own `entity` and `task`). `POST /api/projects/<folder>/entities` takes
+`{ "names": [...], "tier" }` to set many up at once; `PATCH /api/entities/<id>` takes `name`, `tier`,
+`artists` and `cc`. `GET /api/people` lists the names the app knows, and `GET /api/feed?name=` is
+Home's For you.
 
 ## Settings
 

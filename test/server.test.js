@@ -1741,3 +1741,49 @@ test('a version can be filed as something else, archived, and deleted once no bo
   assert.equal(added.type, 'image');
   assert.equal(added.ver, undefined);
 });
+
+test('a project is set up with its assets, sets and shots ahead, each with artists and people cc\'d, and a feed says what happened to them', async (t) => {
+  const s = start(4841);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+
+  // many at once, the tier read from each name; one the project has is left alone
+  const setUp = await call('POST', `/api/projects/${project.id}/entities`, { names: ['kilo-0010', 'Kilo-0020 ', 'char-robot', 'set-harbour', 'kilo-0010', ''] });
+  assert.equal(setUp.status, 201);
+  assert.deepEqual(setUp.body.made.map((e) => [e.name, e.tier]), [['kilo-0010', 'shot'], ['kilo-0020', 'shot'], ['char-robot', 'asset'], ['set-harbour', 'set']]);
+  const again = (await call('POST', `/api/projects/${project.id}/entities`, { names: ['kilo-0010', 'mystery'], tier: 'asset' })).body;
+  assert.deepEqual([again.had, again.made.map((e) => [e.name, e.tier])], [['kilo-0010'], [['mystery', 'asset']]]);
+  const cat = (await call('GET', `/api/projects/${project.id}`)).body;
+  assert.equal(cat.entities.length, 5);
+  assert.ok(cat.entities.every((e) => e.versions === 0));
+
+  // artists and cc
+  const shot = setUp.body.made[0];
+  const set = await call('PATCH', `/api/entities/${shot.id}`, { artists: ['Erik', 'Erik', ' '], cc: ['Anna'] });
+  assert.deepEqual([set.body.artists, set.body.cc], [['Erik'], ['Anna']]);
+  assert.equal((await call('PATCH', `/api/entities/${shot.id}`, { name: 'kilo-0020' })).status, 409);
+  assert.equal((await call('PATCH', `/api/entities/${shot.id}`, { tier: 'planet' })).status, 400);
+  assert.deepEqual((await call('GET', '/api/people')).body.people, ['Anna', 'Erik']);
+
+  // a version filed by Ben and a note on it reach Erik's and Anna's feeds, not Ben's
+  const src = (await (await fetch(`${s.base}/api/upload?name=a.png`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
+  const v = (await call('POST', `/api/projects/${project.id}/versions`, { by: 'Ben', entity: shot.id, task: 'anim', files: [{ look: { type: 'image', src, name: 'a.png' } }] })).body.versions[0];
+  const room = await joiner(4841)(`entity=${shot.id}`, 'Anna');
+  t.after(() => room.ws.close());
+  room.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'feednote1', type: 'comment', on: v.id, text: 'Lovely timing' } }] }));
+  await pause(250);
+  const erik = (await call('GET', '/api/feed?name=erik')).body;
+  assert.deepEqual(erik.assigned.map((e) => [e.name, e.role, e.versions]), [['kilo-0010', 'artist', 1]]);
+  assert.deepEqual(erik.items.map((i) => [i.kind, i.by, i.entity.name, i.version.label]), [['note', 'Anna', 'kilo-0010', 'kilo-0010 anim v1'], ['version', 'Ben', 'kilo-0010', 'kilo-0010 anim v1']]);
+  assert.equal(erik.items[0].note.text, 'Lovely timing');
+  const anna = (await call('GET', '/api/feed?name=Anna')).body;
+  assert.deepEqual([anna.assigned[0].role, anna.items.map((i) => i.kind)], ['cc', ['version']]);
+  assert.deepEqual((await call('GET', '/api/feed?name=Ben')).body.assigned, []);
+});

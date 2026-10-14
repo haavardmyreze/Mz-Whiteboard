@@ -883,16 +883,46 @@ async function handleCatalogue(req, res, parts) {
         boards: [...boards.values()].filter((b) => visible(req.user, b) && boardProject(b) === project).map((b) => ({ id: b.id, name: b.name })),
       });
     }
+    // { name, tier } makes one; { names: [...], tier } sets up many at once, before anything is filed of
+    // them. A name the project has already is left as it is. Without a tier, the name's shape says.
     if (parts.length === 4 && parts[3] === 'entities' && req.method === 'POST') {
-      const body = await readJson(req);
+      const body = await readJson(req, 1024 * 1024);
       const by = req.user ? req.user.name : cleanName(body.by, null);
-      return sendJson(res, 201, resolveEntity(project, { name: body.name, tier: body.tier }, by));
+      if (!Array.isArray(body.names)) return sendJson(res, 201, resolveEntity(project, { name: body.name, tier: body.tier }, by));
+      const wanted = [...new Set(body.names.slice(0, 2000).map((n) => naming.tokenize(n)).filter(Boolean))];
+      if (!wanted.length) return sendJson(res, 400, { error: 'No names to add' });
+      const had = wanted.filter((n) => store.entityNamed(project.id, n));
+      const made = wanted.filter((n) => !had.includes(n)).map((n) => resolveEntity(project, { name: n, tier: body.tier }, by));
+      return sendJson(res, 201, { made, had });
     }
     if (parts.length === 4 && parts[3] === 'versions' && req.method === 'POST') {
       const body = await readJson(req, 4 * 1024 * 1024);
       return sendJson(res, 201, { versions: await fileVersions(req, project, body) });
     }
     return sendJson(res, 404, { error: 'Not found' });
+  }
+  // PATCH /api/entities/:id { name, tier, artists, cc }: renamed, or who works on it and who follows it.
+  if (parts[1] === 'entities' && parts.length === 3 && req.method === 'PATCH') {
+    const entity = store.entity(parts[2]);
+    const project = entity && projectFor(entity.projectId);
+    if (!project) return sendJson(res, 404, { error: 'Not found' });
+    const body = await readJson(req);
+    const edit = {};
+    if (body.name !== undefined) {
+      edit.name = naming.tokenize(body.name);
+      if (!edit.name) return sendJson(res, 400, { error: 'An asset, set or shot needs a name' });
+    }
+    if (body.tier !== undefined) {
+      if (!naming.TIERS.includes(body.tier)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
+      edit.tier = body.tier;
+    }
+    const people = (list) => [...new Set((Array.isArray(list) ? list : []).slice(0, 50).map((n) => cleanName(n, null)).filter(Boolean))];
+    if (body.artists !== undefined) edit.artists = people(body.artists);
+    if (body.cc !== undefined) edit.cc = people(body.cc);
+    const done = store.setEntity(entity.id, edit);
+    if (!done.ok) return sendJson(res, 409, { error: `There is a ${done.taken.name} in this project already` });
+    retellEntity(entity.id);
+    return sendJson(res, 200, done.entity);
   }
   // GET /api/entities/:id: an entity, every version of it, and everything said about them.
   if (parts[1] === 'entities' && parts.length === 3 && req.method === 'GET') {
@@ -909,6 +939,45 @@ async function handleCatalogue(req, res, parts) {
       versions: versions.map((v) => ({ ...publicVersion(v), boards: store.boardsWithVersion(v.id).filter((b) => canSee(req.user, b.workspace)).map((b) => ({ id: b.id, name: b.name })) })),
       notes,
     });
+  }
+  // GET /api/people: every name the app knows, for picking artists and people to keep in the loop.
+  if (parts[1] === 'people' && parts.length === 2 && req.method === 'GET') {
+    flushAll();
+    return sendJson(res, 200, { people: store.people() });
+  }
+  // GET /api/feed?name=: what is relevant to the person asking (signed in, or by the name given). The
+  // assets, sets and shots they are an artist on or cc'd on, and what happened to them in the last two
+  // weeks: versions filed and notes written, by others.
+  if (parts[1] === 'feed' && parts.length === 2 && req.method === 'GET') {
+    const url = new URL(req.url, 'http://x');
+    const name = req.user ? req.user.name : cleanName(url.searchParams.get('name'), null);
+    if (!name) return sendJson(res, 200, { assigned: [], items: [] });
+    flushAll();
+    const mine = store.entitiesOf(name).filter((e) => projectFor(e.projectId));
+    const byId = new Map(mine.map((e) => [e.id, e]));
+    const since = Date.now() - 14 * 24 * 3600 * 1000;
+    const { versions, notes } = store.happenings(mine.map((e) => e.id), since);
+    const me = name.toLowerCase();
+    const about = (e) => ({ id: e.id, name: e.name, tier: e.tier, projectId: e.projectId, project: folders.get(e.projectId).name, role: e.role });
+    const labelOf = new Map();
+    const label = (versionId) => {
+      if (!labelOf.has(versionId)) labelOf.set(versionId, versionInfo(versionId));
+      return labelOf.get(versionId);
+    };
+    const items = [
+      ...versions.filter((v) => (v.createdBy || '').toLowerCase() !== me).map((v) => ({
+        kind: 'version', at: v.createdAt, by: v.createdBy, entity: about(byId.get(v.entityId)), version: { id: v.id, label: label(v.id)?.label, thumb: v.thumb, kind: v.kind },
+      })),
+      ...notes.filter((n) => (n.data.name || n.createdBy || '').toLowerCase() !== me).map((n) => ({
+        kind: 'note', at: n.createdAt, by: n.data.name || n.createdBy, color: n.data.color, entity: about(byId.get(n.entityId)),
+        version: { id: n.versionId, label: label(n.versionId)?.label }, note: { id: n.id, text: String(n.data.text || '').slice(0, 300), reply: !!n.re, board: n.boardId ? { id: n.boardId, name: n.boardName } : null },
+      })),
+    ].sort((a, b) => b.at - a.at).slice(0, 60);
+    const assigned = mine.map((e) => {
+      const list = store.versionsOf(e.id).filter((v) => !v.hidden);
+      return { ...about(e), versions: list.length, latestAt: list.length ? Math.max(...list.map((v) => v.createdAt)) : null, thumb: (list.find((v) => v.thumb) || {}).thumb || null, artists: e.artists, cc: e.cc };
+    }).sort((a, b) => (a.role === b.role ? (b.latestAt || 0) - (a.latestAt || 0) : a.role === 'artist' ? -1 : 1));
+    return sendJson(res, 200, { name, assigned, items });
   }
   // GET /api/versions/:id
   // PATCH  { entity, task, number, descriptor, artist }   what it is filed as: its name follows
@@ -1366,7 +1435,7 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { auth: auth.mode, user: req.user || null, admin: admin.allows(req), canShare: SHARING, maxUpload: MAX_UPLOAD, publicUrl: auth.publicUrl || null, shareBases: shareBases(), signOut: !!auth.interactive });
   }
   if (parts[1] === 'admin') return admin.handle(req, res, parts.slice(2));
-  if (parts[1] === 'projects' || parts[1] === 'entities' || parts[1] === 'versions') return handleCatalogue(req, res, parts);
+  if (['projects', 'entities', 'versions', 'people', 'feed'].includes(parts[1])) return handleCatalogue(req, res, parts);
   if (parts[1] === 'library' && req.method === 'GET') {
     return sendJson(res, 200, {
       folders: [...folders.values()].filter((f) => canSee(req.user, f.workspace)).map(publicFolder),

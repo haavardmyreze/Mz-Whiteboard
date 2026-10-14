@@ -115,7 +115,9 @@ CREATE TRIGGER IF NOT EXISTS items_text_set AFTER UPDATE OF label ON items BEGIN
   INSERT INTO items_text (rowid, label) SELECT new.rowid, new.label WHERE new.label IS NOT NULL;
 END;
 
--- The catalogue of a project. An entity is an asset, a set or a shot; every version belongs to one.
+-- The catalogue of a project. An entity is an asset, a set or a shot; every version belongs to one. It
+-- can be there before anything is filed of it. artists and cc are names (JSON arrays): who makes it, and
+-- who else follows it; both see what happens to it in their feed.
 CREATE TABLE IF NOT EXISTS entities (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
@@ -123,6 +125,8 @@ CREATE TABLE IF NOT EXISTS entities (
   name TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   created_by TEXT,
+  artists TEXT,
+  cc TEXT,
   UNIQUE (project_id, name)
 );
 
@@ -353,6 +357,8 @@ function openStore(dataDir) {
   if (!hasColumn('folders', 'settings')) db.exec('ALTER TABLE folders ADD COLUMN settings TEXT');
   if (!hasColumn('items', 'version_id')) db.exec('ALTER TABLE items ADD COLUMN version_id TEXT');
   if (!hasColumn('versions', 'deleted_at')) db.exec('ALTER TABLE versions ADD COLUMN deleted_at INTEGER');
+  if (!hasColumn('entities', 'artists')) db.exec('ALTER TABLE entities ADD COLUMN artists TEXT');
+  if (!hasColumn('entities', 'cc')) db.exec('ALTER TABLE entities ADD COLUMN cc TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS items_by_version ON items (version_id)');
   moveCommentsToNotes(db);
   moveDrawingsToNotes(db);
@@ -646,7 +652,18 @@ function openStore(dataDir) {
 
   // ---------------------------------------------------------------- projects: entities and versions
 
-  const entityOf = (r) => ({ id: r.id, projectId: r.project_id, tier: r.tier, name: r.name, createdAt: r.created_at, createdBy: r.created_by });
+  const names = (json) => {
+    try {
+      const list = JSON.parse(json || '[]');
+      return Array.isArray(list) ? list.filter((x) => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  };
+  const entityOf = (r) => ({
+    id: r.id, projectId: r.project_id, tier: r.tier, name: r.name, createdAt: r.created_at, createdBy: r.created_by,
+    artists: names(r.artists), cc: names(r.cc),
+  });
   const readEntities = db.prepare(`
     SELECT e.*,
       (SELECT count(*) FROM versions v WHERE v.entity_id = e.id AND v.hidden = 0 AND v.deleted_at IS NULL) AS n,
@@ -670,6 +687,50 @@ function openStore(dataDir) {
   function addEntity({ id, projectId, tier, name, by = null }) {
     putEntity.run(id, projectId, tier, name, Date.now(), by);
     return entityNamed(projectId, name);
+  }
+  // Renames it, moves it to another tier, or says who works on it and who follows it.
+  const putEntityFields = db.prepare('UPDATE entities SET name = ?, tier = ?, artists = ?, cc = ? WHERE id = ?');
+  function setEntity(id, { name, tier, artists, cc }) {
+    const e = entity(id);
+    if (!e) return { ok: false };
+    const to = { name: name ?? e.name, tier: tier ?? e.tier, artists: artists ?? e.artists, cc: cc ?? e.cc };
+    if (to.name !== e.name) {
+      const have = entityNamed(e.projectId, to.name);
+      if (have) return { ok: false, taken: have };
+    }
+    putEntityFields.run(to.name, to.tier, JSON.stringify(to.artists), JSON.stringify(to.cc), id);
+    return { ok: true, entity: entity(id) };
+  }
+  // Every entity with this person among its artists or cc, in any project (the caller sees which it may show).
+  const readFollowed = db.prepare("SELECT * FROM entities WHERE artists LIKE ? OR cc LIKE ?");
+  function entitiesOf(name) {
+    const key = String(name || '').trim().toLowerCase();
+    if (!key) return [];
+    const like = `%${key.replace(/[%_\\]/g, '')}%`;
+    return readFollowed.all(like, like).map(entityOf).map((e) => ({
+      ...e,
+      role: e.artists.some((a) => a.toLowerCase() === key) ? 'artist' : e.cc.some((a) => a.toLowerCase() === key) ? 'cc' : null,
+    })).filter((e) => e.role);
+  }
+  // What happened lately to some entities: versions filed and notes written, newest first.
+  function happenings(entityIds, since, limit = 80) {
+    if (!entityIds.length) return { versions: [], notes: [] };
+    const ids = entityIds.map(() => '?').join(', ');
+    const versions = db.prepare(`SELECT * FROM versions WHERE entity_id IN (${ids}) AND deleted_at IS NULL AND created_at >= ? ORDER BY created_at DESC LIMIT ?`)
+      .all(...entityIds, since, limit).map(versionOf);
+    const notes = db.prepare(`SELECT n.*, v.entity_id AS entity_id, b.name AS board_name FROM notes n JOIN versions v ON v.id = n.version_id
+      LEFT JOIN boards b ON b.id = n.board_id
+      WHERE v.entity_id IN (${ids}) AND v.deleted_at IS NULL AND n.deleted_at IS NULL AND n.created_at >= ? ORDER BY n.created_at DESC LIMIT ?`)
+      .all(...entityIds, since, limit).map((row) => ({ ...noteOf(row), entityId: row.entity_id, boardName: row.board_name }));
+    return { versions, notes };
+  }
+  // Everyone the app knows by name: who signed in, who filed or wrote something, who is named on an entity.
+  function people() {
+    const out = new Set();
+    for (const u of readUsers.all()) if (u.name) out.add(u.name);
+    for (const r of db.prepare('SELECT DISTINCT created_by AS n FROM versions WHERE created_by IS NOT NULL UNION SELECT DISTINCT created_by FROM notes WHERE created_by IS NOT NULL').all()) out.add(r.n);
+    for (const r of db.prepare('SELECT artists, cc FROM entities WHERE artists IS NOT NULL OR cc IS NOT NULL').all()) for (const n of [...names(r.artists), ...names(r.cc)]) out.add(n);
+    return [...out].filter(Boolean).sort((a, b) => a.localeCompare(b));
   }
   const countEntities = db.prepare('SELECT count(*) AS n FROM entities WHERE project_id = ?');
   const entityCount = (projectId) => countEntities.get(projectId).n;
@@ -821,7 +882,7 @@ function openStore(dataDir) {
   return {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
-    entities, entity, entityNamed, addEntity, entityCount, addVersion, version, versionsOf, hideVersion, editVersion, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion,
+    entities, entity, entityNamed, addEntity, setEntity, entitiesOf, happenings, people, entityCount, addVersion, version, versionsOf, hideVersion, editVersion, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion,
     note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,

@@ -693,7 +693,39 @@
 
   // ------------------------------------------------------------- Home
   //
-  // What you pinned, what you opened lately, and every project.
+  // What is relevant to you (the feed), what you pinned, what you opened lately, and every project.
+
+  // The feed: versions filed and notes written by others on the assets, sets and shots you are an artist
+  // on or cc'd on, and those you are on. Fetched when Home shows, at most every half minute.
+  let feed = null;
+  let feedAt = 0;
+  async function loadFeed() {
+    feedAt = Date.now();
+    try {
+      feed = await api('GET', `/api/feed${WB.info().user ? '' : `?name=${encodeURIComponent(me.name)}`}`);
+    } catch {
+      return;
+    }
+    if (route().kind === 'home' && !$('q').value.trim()) render();
+  }
+
+  function feedRow(item) {
+    const what = item.kind === 'version'
+      ? [el('strong', { text: item.by || 'Somebody' }), ' filed ', el('strong', { text: item.version.label || item.entity.name })]
+      : [el('strong', { text: item.by || 'Somebody' }), item.note.reply ? ' replied on ' : ' commented on ', el('strong', { text: item.version.label || item.entity.name })];
+    const where = [item.entity.project, item.entity.role === 'artist' ? 'you are an artist' : 'you are cc\'d', item.note && item.note.board && `on ${item.note.board.name}`, ago(item.at)].filter(Boolean).join(' · ');
+    return el('button', {
+      type: 'button', class: `feed-row ${item.kind}`, title: 'Open it, to look, comment and draw',
+      onclick: () => lookAt(item.entity.id, item.version.id),
+    },
+    item.kind === 'version'
+      ? el('span', { class: 'feed-thumb' }, item.version.thumb && el('img', { src: item.version.thumb, alt: '', loading: 'lazy' }))
+      : el('span', { class: 'avatar sm', style: { background: /^#[0-9a-f]{6}$/i.test(item.color || '') ? item.color : '#8a8a8a' }, text: WB.initials(item.by || '?') }),
+    el('span', { class: 'feed-body' },
+      el('span', { class: 'feed-what' }, ...what),
+      item.note && el('span', { class: 'feed-text', text: item.note.text }),
+      el('span', { class: 'feed-where', text: where })));
+  }
 
   function homeView() {
     const label = (text, n) => el('div', { class: 'section-label' }, text, n != null && el('span', { class: 'tally', text: String(n) }));
@@ -713,12 +745,21 @@
       if (p.kind === 'entity' && folderById(p.projectId)) return entityTile(folderById(p.projectId), { id: p.id, name: p.name, thumb: p.thumb, tier: p.tier, versions: null });
       return null;
     };
+    if (!feed || Date.now() - feedAt > 30000) loadFeed();
+    const assigned = (feed ? feed.assigned : []).filter((e) => folderById(e.projectId)).map((e) => {
+      const tile = entityTile(folderById(e.projectId), e);
+      if (e.role === 'cc') tile.querySelector('.card-name').append(el('span', { class: 'feed-cc', text: 'CC' }));
+      return tile;
+    });
+    const items = feed ? feed.items : [];
     const pinnedCards = pins().map(card).filter(Boolean);
     const recentBoards = recents().filter((x) => x.kind === 'board').map(card).filter(Boolean).slice(0, 8);
     const recentEnts = recents().filter((x) => x.kind === 'entity').map(card).filter(Boolean).slice(0, 8);
     const edited = recentBoards.length ? [] : [...everything.boards].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8).map(boardCard);
     const projects = everything.folders.filter((f) => f.project).sort(byName);
     const out = [];
+    if (items.length) out.push(label('For you', items.length), el('div', { class: 'feed' }, items.slice(0, 12).map(feedRow)));
+    if (assigned.length) out.push(label('Yours', assigned.length), el('div', { class: 'board-grid ent-grid' }, assigned));
     if (pinnedCards.length) out.push(label('Pinned', pinnedCards.length), el('div', { class: 'board-grid' }, pinnedCards));
     if (recentBoards.length) out.push(label('Boards you opened lately'), el('div', { class: 'board-grid' }, recentBoards));
     else if (edited.length) out.push(label('Edited lately'), el('div', { class: 'board-grid' }, edited));
@@ -726,6 +767,7 @@
     if (projects.length) out.push(label('Projects', projects.length), el('div', { class: 'folder-grid' }, projects.map(folderCard)));
     if (!out.length) out.push(el('p', { class: 'home-empty', text: 'Nothing here yet. Make a board, or open a workspace on the left.' }));
     if (!pinnedCards.length && out.length) out.push(el('p', { class: 'home-hint', text: 'Pin boards, folders, projects and shots to keep them here: the star beside where you are, or a card\'s menu.' }));
+    if (feed && !assigned.length) out.push(el('p', { class: 'home-hint', text: 'Be named an artist or cc\'d on an asset, set or shot (on its page in the catalogue), and what happens to it shows here, under For you.' }));
     return out.filter(Boolean);
   }
 
@@ -819,7 +861,87 @@
   function catTools(project) {
     return el('div', { class: 'cat-tools' },
       el('span', { class: 'cat-hint', text: 'Drop images and videos anywhere here to add them' }),
+      el('button', { type: 'button', class: 'btn', html: `${ICON_PLUS}<span>Add assets, sets &amp; shots</span>`, title: 'Set up what the project has, before anything is filed of it', onclick: () => addEntities(project) }),
       el('button', { type: 'button', class: 'btn', html: `${ICON_IMPORT}<span>Import</span>`, title: 'Bring images and videos into the catalogue', onclick: () => importer(project).pick() }));
+  }
+
+  // Setting a project up with what it has from the start: names, one a line, each an asset, a set or a
+  // shot by its shape (or as chosen). A run of shots can be filled in from a sequence and its numbers.
+  function addEntities(project) {
+    const presetId = project.settings && project.settings.naming;
+    const cat = catalogues.get(project.id);
+    const tiers = cat ? cat.preset.tiers : N.preset(presetId).tiers;
+    const box = el('textarea', { rows: 8, spellcheck: 'false', placeholder: 'char-robot\nset-harbour\nkilo-0010\nkilo-0020', 'aria-label': 'Names, one a line' });
+    const tierSel = el('select', { 'aria-label': 'What they are' },
+      el('option', { value: '', text: 'What each name says' }), tiers.map((t) => el('option', { value: t.id, text: `All ${t.label.toLowerCase()}` })));
+    const preview = el('div', { class: 'ae-preview' });
+    const seq = el('input', { type: 'text', placeholder: 'kilo', spellcheck: 'false', 'aria-label': 'Sequence' });
+    const from = el('input', { type: 'number', value: '10', min: '0', 'aria-label': 'First shot number' });
+    const to = el('input', { type: 'number', value: '100', min: '0', 'aria-label': 'Last shot number' });
+    const step = el('input', { type: 'number', value: '10', min: '1', 'aria-label': 'Step' });
+    const save = el('button', { type: 'submit', class: 'btn primary', text: 'Add' });
+    const error = el('p', { class: 've-error', hidden: true });
+    const wanted = () => [...new Set(box.value.split(/[\n,;]+/).map((x) => N.tokenize(x)).filter(Boolean))];
+    const paint = () => {
+      const list = wanted();
+      const have = new Set((catalogues.get(project.id)?.entities || []).map((e) => e.name));
+      const fresh = list.filter((n) => !have.has(n));
+      const tierOf = (n) => tierSel.value || N.tierOf(n, presetId) || 'asset';
+      const counts = tiers.map((t) => [t, fresh.filter((n) => tierOf(n) === t.id).length]).filter(([, n]) => n);
+      preview.textContent = !list.length ? 'Nothing yet.'
+        : `${fresh.length ? `Adds ${counts.map(([t, n]) => `${n} ${n === 1 ? t.one : t.label.toLowerCase()}`).join(', ')}.` : 'Nothing new.'}${list.length > fresh.length ? ` ${list.length - fresh.length} already there.` : ''}`;
+      save.disabled = !fresh.length;
+      save.textContent = fresh.length ? `Add ${fresh.length}` : 'Add';
+      error.hidden = true;
+    };
+    box.addEventListener('input', paint);
+    tierSel.addEventListener('change', paint);
+    const fillShots = () => {
+      const q = N.tokenize(seq.value);
+      const a = Number(from.value);
+      const b = Number(to.value);
+      const by = Math.max(1, Number(step.value) || 1);
+      if (!q || !(b >= a) || (b - a) / by > 1000) return;
+      const names = [];
+      for (let n = a; n <= b; n += by) names.push(`${q}-${String(n).padStart(4, '0')}`);
+      box.value = `${box.value.trim() ? `${box.value.trim()}\n` : ''}${names.join('\n')}`;
+      paint();
+    };
+    const dlg = el('dialog', { class: 'dlg ae' },
+      el('form', {
+        method: 'dialog',
+        onsubmit: async (e) => {
+          e.preventDefault();
+          save.disabled = true;
+          try {
+            const res = await api('POST', `/api/projects/${project.id}/entities`, { names: wanted(), tier: tierSel.value || undefined, by: me.name });
+            catalogues.delete(project.id);
+            dlg.close();
+            shownProject = '';
+            render();
+            undoable(`Added ${plural(res.made.length, 'asset, set or shot').replace('asset, set or shots', 'assets, sets and shots')}`, null);
+          } catch (err) {
+            error.textContent = err.message;
+            error.hidden = false;
+            save.disabled = false;
+          }
+        },
+      },
+      el('h2', { text: 'Add assets, sets & shots' }),
+      el('p', { text: 'What the project has, before anything is filed of it. Type or paste the names, one a line; each is an asset, a set or a shot by its name.' }),
+      box,
+      el('div', { class: 'ae-row' }, el('span', { text: 'They are' }), tierSel),
+      el('div', { class: 'ae-row ae-shots' }, el('span', { text: 'Or a run of shots:' }), seq, el('span', { text: 'from' }), from, el('span', { text: 'to' }), to, el('span', { text: 'by' }), step,
+        el('button', { type: 'button', class: 'btn small', text: 'Fill in', onclick: fillShots })),
+      preview, error,
+      el('div', { class: 'dlg-actions' },
+        el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }),
+        save)));
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.append(dlg);
+    paint();
+    dlg.showModal();
+    box.focus();
   }
 
   function entityTile(project, e) {
@@ -827,7 +949,9 @@
       el('div', { class: `card-thumbs n${e.thumb ? 1 : 0}` }, e.thumb && el('img', { src: e.thumb, alt: '', loading: 'lazy', draggable: 'false' })),
       el('div', { class: 'card-body' },
         el('div', { class: 'card-name', text: e.name }),
-        el('div', { class: 'card-meta', text: e.versions == null ? (N.TIERS.includes(e.tier) ? e.tier : '') : e.versions ? `${plural(e.versions, 'version')} · last ${ago(e.latestAt)}` : 'Nothing filed yet' })));
+        el('div', { class: 'card-meta', text: e.versions == null ? (N.TIERS.includes(e.tier) ? e.tier : '') : e.versions ? `${plural(e.versions, 'version')} · last ${ago(e.latestAt)}` : 'Nothing filed yet' }),
+        e.artists && e.artists.length > 0 && el('div', { class: 'card-meta ent-artists', title: `Artists: ${e.artists.join(', ')}` },
+          e.artists.slice(0, 4).map((n) => el('span', { class: 'avatar xs', text: WB.initials(n) })), el('span', { text: e.artists.join(', ') }))));
   }
 
   function catalogueView(project, cat, view = {}) {
@@ -879,12 +1003,11 @@
   async function editVersion(project, entity, v) {
     const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`).catch(() => null);
     const presetId = project.settings && project.settings.naming;
-    const list = (id, values) => el('datalist', { id }, (values || []).map((value) => el('option', { value })));
     const field = (label, input) => el('label', { class: 've-field' }, el('span', { text: label }), input);
-    const ent = el('input', { type: 'text', value: entity.name, list: 've-entities', autocomplete: 'off', required: true, spellcheck: 'false' });
-    const task = el('input', { type: 'text', value: v.task || '', list: 've-tasks', autocomplete: 'off', placeholder: 'None', spellcheck: 'false' });
+    const ent = el('input', { type: 'text', value: entity.name, required: true, spellcheck: 'false' });
+    const task = el('input', { type: 'text', value: v.task || '', placeholder: 'None', spellcheck: 'false' });
     const num = el('input', { type: 'number', value: String(v.number), min: '1', step: '1' });
-    const artist = el('input', { type: 'text', value: v.artist || '', list: 've-artists', autocomplete: 'off', placeholder: 'None', spellcheck: 'false' });
+    const artist = el('input', { type: 'text', value: v.artist || '', placeholder: 'None', spellcheck: 'false' });
     const desc = el('input', { type: 'text', value: v.descriptor || '', autocomplete: 'off', placeholder: 'None', spellcheck: 'false' });
     const name = el('div', { class: 've-name' });
     const error = el('p', { class: 've-error', hidden: true });
@@ -933,12 +1056,14 @@
         field('Asset, set or shot', ent), field('Task', task), field('Version', num), field('Artist', artist), field('Description', desc)),
       el('div', { class: 've-preview' }, el('span', { text: 'Called' }), name),
       error,
-      list('ve-entities', cat && cat.entities.map((x) => x.name)), list('ve-tasks', cat && cat.tasks), list('ve-artists', cat && cat.artists),
       el('div', { class: 'dlg-actions' },
         el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }),
         save)));
     dlg.addEventListener('close', () => dlg.remove());
     document.body.append(dlg);
+    WB.combo(ent, entitySource(() => cat, presetId));
+    WB.combo(task, taskSource(() => (cat ? cat.tasks : [])));
+    WB.combo(artist, taskSource(() => (cat ? cat.artists : [])));
     dlg.showModal();
     ent.select();
   }
@@ -973,10 +1098,73 @@
     if (undoNode) undoNode.remove();
     const node = el('div', { class: 'undo-toast', role: 'status' },
       el('span', { text }),
-      el('button', { type: 'button', class: 'btn small ghost', text: 'Undo', onclick: async () => { node.remove(); try { await undo(); } catch (err) { fail(err); } } }));
+      undo && el('button', { type: 'button', class: 'btn small ghost', text: 'Undo', onclick: async () => { node.remove(); try { await undo(); } catch (err) { fail(err); } } }));
     undoNode = node;
     document.body.append(node);
     setTimeout(() => node.remove(), 8000);
+  }
+
+  // Everyone the app knows by name, for picking artists and people to cc.
+  let people = [];
+  const loadPeople = async () => {
+    try {
+      people = (await api('GET', '/api/people')).people;
+    } catch {
+      // only what was typed, then
+    }
+  };
+
+  // Names as chips, each with a way to take it off, and a box to add one: picked from the people the app
+  // knows, or typed. `change(list)` is told the new list.
+  function namesField(names, change, { placeholder }) {
+    const chips = el('span', { class: 'pf-chips' });
+    const input = el('input', { type: 'text', class: 'pf-in', placeholder, spellcheck: 'false', 'aria-label': placeholder });
+    const wrap = el('span', { class: 'pf' }, chips, input);
+    let list = [...names];
+    const paint = () => chips.replaceChildren(...list.map((n) => el('span', { class: 'pf-chip' },
+      el('span', { class: 'avatar sm', text: WB.initials(n) }), el('span', { text: n }),
+      el('button', { type: 'button', class: 'pf-x', title: `Take ${n} off`, 'aria-label': `Take ${n} off`, html: svg('<path d="M7 7l10 10M17 7L7 17"/>', 12), onclick: () => set(list.filter((x) => x !== n)) }))));
+    const set = (next) => {
+      list = next;
+      paint();
+      change(list);
+    };
+    const addTyped = (name) => {
+      const n = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+      input.value = '';
+      if (n && !list.some((x) => x.toLowerCase() === n.toLowerCase())) set([...list, n]);
+    };
+    WB.combo(input, (typed) => {
+      const pool = [...new Set([me.name, ...people])].filter((n) => !list.some((x) => x.toLowerCase() === n.toLowerCase()));
+      const out = WB.rank(pool, typed).map((n) => ({ value: n, label: n === me.name ? `${n} (you)` : n }));
+      const t = typed.trim();
+      if (t && !pool.concat(list).some((n) => n.toLowerCase() === t.toLowerCase())) out.push({ value: t, label: `Add ${t}`, make: true });
+      return out;
+    }, { onPick: (o) => addTyped(o.value) });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.defaultPrevented && input.value.trim()) { e.preventDefault(); addTyped(input.value); }
+      else if (e.key === 'Backspace' && !input.value && list.length) set(list.slice(0, -1));
+    });
+    paint();
+    return wrap;
+  }
+
+  // Who makes it, and who else follows it: both see what happens to it in their feed on Home.
+  function entityPeople(entity) {
+    const save = (key) => async (list) => {
+      try {
+        const done = await api('PATCH', `/api/entities/${entity.id}`, { [key]: list });
+        entity[key] = done[key];
+        catalogues.delete(entity.projectId);
+        if (!people.length) loadPeople();
+      } catch (err) {
+        fail(err);
+      }
+    };
+    if (!people.length) loadPeople();
+    return el('div', { class: 'ent-people' },
+      el('div', { class: 'ent-pp' }, el('span', { class: 'ent-pp-label', text: 'Artists' }), namesField(entity.artists || [], save('artists'), { placeholder: 'Add an artist' })),
+      el('div', { class: 'ent-pp' }, el('span', { class: 'ent-pp-label', text: 'CC' }), namesField(entity.cc || [], save('cc'), { placeholder: 'Keep someone in the loop' })));
   }
 
   let showHidden = false;
@@ -1023,6 +1211,7 @@
       msg(n, true), replies(n.id).map((r) => msg(r, false))));
     const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
     return el('div', { class: 'ent-page' },
+      entityPeople(entity),
       label('Versions', versions.length),
       hidden > 0 && el('label', { class: 'ent-hidden' }, el('input', { type: 'checkbox', checked: showHidden, onchange: (e) => { showHidden = e.target.checked; render(); } }), `Show archived (${hidden})`),
       el('div', { class: 'board-grid ent-grid' },
@@ -1061,21 +1250,59 @@
     return look;
   }
 
-  // What is being brought into a project's catalogue: a strip above it, one row a file. Kept per project,
-  // so leaving the catalogue and coming back finds it as it was.
+  // Suggestions for "which asset, set or shot": those the project has (with how many versions, and the
+  // newest still), and, for a name it has not, the way to make it.
+  function entitySource(getCat, presetId) {
+    return (typed) => N.suggest(getCat() ? getCat().entities : [], typed, presetId);
+  }
+  const taskSource = (getTasks) => (typed) => WB.rank(getTasks(), typed).map((t) => ({ value: t, label: t }));
+
+  // What is being brought into a project's catalogue: a strip above it, one row a file. Each file says on
+  // its own row what it is to be filed as, filled in ahead from its name (or, added on an asset, set or
+  // shot's page, that one), and is filed when you say so: one at a time, or all that are ready at once.
+  // Kept per project, so leaving the catalogue and coming back finds it as it was.
   function importer(project) {
     let state = imports.get(project.id);
     if (state) return state;
     const presetId = project.settings && project.settings.naming;
     const rows = [];
+    let cat = catalogues.get(project.id) || null;
+    const catalogue = async () => cat || (cat = await api('GET', `/api/projects/${project.id}`));
+    const tiers = () => (cat ? cat.preset.tiers : N.preset(presetId).tiers);
+    const tasks = () => (cat ? cat.tasks : N.preset(presetId).tasks);
+    const known = (name) => cat && cat.entities.find((e) => e.name === name);
+
     const list = el('div', { class: 'imp-list' });
-    const pending = el('div', { class: 'imp-pending' });
-    const clearBtn = el('button', { type: 'button', class: 'btn small ghost', text: 'Clear', title: 'Put away what is done', onclick: () => {
-      for (let i = rows.length - 1; i >= 0; i--) if (rows[i].status === 'filed' || rows[i].status === 'failed') rows.splice(i, 1);
-      paint();
+    const title = el('b', { class: 'imp-title' });
+    const fileAll = el('button', { type: 'button', class: 'btn small primary', onclick: () => { for (const r of rows) if (canFile(r)) fileRow(r); } });
+    const clearBtn = el('button', { type: 'button', class: 'btn small ghost', text: 'Clear done', title: 'Put away what is filed', onclick: () => {
+      for (let i = rows.length - 1; i >= 0; i--) {
+        if (rows[i].status === 'filed' || (rows[i].status === 'failed' && !rows[i].look)) {
+          rows[i].node.remove();
+          rows.splice(i, 1);
+        }
+      }
+      paintHead();
     } });
-    const head = el('div', { class: 'imp-head' }, el('b', { class: 'imp-title' }), clearBtn);
-    const tray = el('div', { class: 'imp', hidden: true }, head, pending, list);
+    // The same answer for every file not yet filed, to start from.
+    const allEnt = el('input', { type: 'text', placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': 'Asset, set or shot for all' });
+    const allTask = el('input', { type: 'text', placeholder: 'Task', spellcheck: 'false', 'aria-label': 'Task for all' });
+    WB.combo(allEnt, entitySource(() => cat, presetId));
+    WB.combo(allTask, taskSource(tasks));
+    const fillAll = el('form', {
+      class: 'imp-fill',
+      onsubmit: (e) => {
+        e.preventDefault();
+        for (const r of rows) {
+          if (r.status === 'filed' || r.status === 'filing') continue;
+          if (allEnt.value.trim()) r.fields.ent.value = allEnt.value.trim();
+          if (allTask.value.trim()) r.fields.task.value = allTask.value.trim();
+          r.fields.sync();
+        }
+      },
+    }, el('span', { text: 'For all:' }), allEnt, allTask, el('button', { type: 'submit', class: 'btn small', text: 'Fill in' }));
+    const head = el('div', { class: 'imp-head' }, title, fillAll, el('span', { class: 'imp-gap' }), clearBtn, fileAll);
+    const tray = el('div', { class: 'imp', hidden: true }, head, list);
     const picker = el('input', { type: 'file', multiple: true, accept: 'image/*,video/mp4,video/webm,video/quicktime', hidden: true });
     document.body.append(picker);
     let pickFor = null;
@@ -1084,70 +1311,65 @@
       picker.value = '';
     });
 
-    let cat = catalogues.get(project.id) || null;
-    const catalogue = async () => cat || (cat = await api('GET', `/api/projects/${project.id}`));
-    const remembered = () => store(`wb:file:${project.id}`) || {};
-
     const PHASE = { enc: 'Preparing', up: 'Uploading', strip: 'Building timeline', orig: 'Keeping the original' };
-    function rowNode(r) {
-      const status = {
-        queued: 'Waiting', uploading: `${PHASE[r.phase] || 'Preparing'} ${Math.min(99, Math.round((r.progress || 0) * 100))}%`, filing: 'Filing…',
-        filed: r.label ? `Filed as ${r.label}` : 'Filed', failed: r.error || 'Failed', needs: 'Which asset, set or shot?',
-      }[r.status];
-      return el(r.version ? 'button' : 'div', {
-        class: `imp-row ${r.status}`, ...(r.version && { type: 'button', title: 'Open it, to look, comment and draw', onclick: () => lookAt(r.version.entityId, r.version.id) }),
-      },
-        el('span', { class: 'imp-thumb' }, r.preview && el('img', { src: r.preview, alt: '' })),
-        el('span', { class: 'imp-name', text: r.file.name }),
-        el('span', { class: 'imp-said', text: r.entity ? `Into ${r.entity.name}` : [r.parsed.entity, r.parsed.task].filter(Boolean).join(' · ') }),
-        el('span', { class: 'imp-status', text: status }));
+    const choiceOf = (r) => ({ name: N.tokenize(r.fields.ent.value), task: N.tokenize(r.fields.task.value) || null });
+    const canFile = (r) => (r.status === 'ready' || r.status === 'uploading' || r.status === 'queued' || (r.status === 'failed' && r.look)) && !r.fileWhenReady && !!choiceOf(r).name;
+
+    function makeRow(r) {
+      const ent = el('input', { type: 'text', value: r.entity ? r.entity.name : r.parsed.entity || '', placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': `What ${r.file.name} is` });
+      const task = el('input', { type: 'text', value: r.parsed.task || '', placeholder: 'Task', spellcheck: 'false', 'aria-label': 'Task' });
+      const tier = el('select', { 'aria-label': 'What it is', title: 'A new one: what is it?' }, tiers().map((t) => el('option', { value: t.id, text: t.one })));
+      const go = el('button', { type: 'button', class: 'btn small', text: 'File', onclick: () => fileRow(r) });
+      const status = el('span', { class: 'imp-status' });
+      const bar = el('i', { class: 'imp-bar' }, el('i'));
+      const thumb = el('span', { class: 'imp-thumb' });
+      const said = el('button', { type: 'button', class: 'imp-filed', hidden: true, title: 'Open it, to look, comment and draw', onclick: () => r.version && lookAt(r.version.entityId, r.version.id) });
+      const fields = el('span', { class: 'imp-fields' }, ent, tier, task, go);
+      WB.combo(ent, entitySource(() => cat, presetId));
+      WB.combo(task, taskSource(tasks));
+      const sync = () => {
+        const { name } = choiceOf(r);
+        const shape = name && N.tierOf(name, presetId);
+        tier.hidden = !name || !!known(name) || !!shape;
+        go.disabled = !canFile(r);
+        paintHead();
+      };
+      ent.addEventListener('input', sync);
+      task.addEventListener('input', sync);
+      for (const input of [ent, task]) input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented && canFile(r)) fileRow(r); });
+      r.fields = { ent, task, tier, go, status, bar, thumb, said, box: fields, sync };
+      r.node = el('div', { class: 'imp-row' }, thumb, el('span', { class: 'imp-file' }, el('span', { class: 'imp-name', text: r.file.name, title: r.file.name }), bar), fields, said, status);
+      sync();
+      return r.node;
     }
 
-    function paint() {
+    function paintRow(r) {
+      const f = r.fields;
+      r.node.className = `imp-row ${r.status}${r.fileWhenReady ? ' soon' : ''}`;
+      const pct = Math.min(99, Math.round((r.progress || 0) * 100));
+      f.status.textContent = {
+        queued: 'Waiting', uploading: `${PHASE[r.phase] || 'Preparing'} ${pct}%`, ready: '', filing: 'Filing…', filed: '', failed: r.error || 'Failed',
+      }[r.status] + (r.fileWhenReady && r.status !== 'filing' ? ' · then filed' : '');
+      f.bar.hidden = r.status !== 'uploading' && r.status !== 'queued';
+      f.bar.firstChild.style.width = `${pct}%`;
+      if (r.preview && !f.thumb.firstChild) f.thumb.append(el('img', { src: r.preview, alt: '' }));
+      f.box.hidden = r.status === 'filed';
+      f.said.hidden = r.status !== 'filed';
+      f.said.textContent = r.label ? `Filed as ${r.label}` : '';
+      f.go.textContent = r.status === 'filing' ? 'Filing…' : 'File';
+      f.sync();
+    }
+
+    function paintHead() {
       tray.hidden = !rows.length;
-      const busy = rows.filter((r) => r.status === 'queued' || r.status === 'uploading' || r.status === 'filing').length;
-      head.firstChild.textContent = busy ? `Bringing in ${busy} of ${rows.length}` : `Brought in ${rows.filter((r) => r.status === 'filed').length} of ${rows.length}`;
-      clearBtn.hidden = !!busy && rows.every((r) => r.status !== 'filed' && r.status !== 'failed');
-      list.replaceChildren(...rows.filter((r) => r.status !== 'needs').map(rowNode).reverse());
-      const needs = rows.filter((r) => r.status === 'needs');
-      if (!needs.length) return pending.replaceChildren();
-      const last = remembered();
-      const entIn = el('input', { type: 'text', list: 'imp-entities', placeholder: 'kilo-0010, char-robot, set-kitchen…', value: pending.dataset.entity ?? last.entity ?? '', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Asset, set or shot' });
-      const taskIn = el('input', { type: 'text', list: 'imp-tasks', placeholder: 'No task', value: pending.dataset.task ?? last.task ?? '', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Task' });
-      const tierSel = el('select', { 'aria-label': 'What it is' }, (cat ? cat.preset.tiers : N.preset(presetId).tiers).map((t) => el('option', { value: t.id, text: `A new ${t.one}` })));
-      const go = el('button', { type: 'submit', class: 'btn primary', text: `File ${needs.length === 1 ? 'it' : `these ${needs.length}`}` });
-      const check = () => {
-        pending.dataset.entity = entIn.value;
-        pending.dataset.task = taskIn.value;
-        const name = N.tokenize(entIn.value);
-        const have = cat && cat.entities.find((e) => e.name === name);
-        const shape = name && N.tierOf(name, presetId);
-        tierSel.hidden = !name || !!have || !!shape;
-        if (shape) tierSel.value = shape;
-        go.disabled = !name;
-      };
-      entIn.addEventListener('input', check);
-      taskIn.addEventListener('input', check);
-      const form = el('form', {
-        class: 'imp-ask',
-        onsubmit: async (e) => {
-          e.preventDefault();
-          const name = N.tokenize(entIn.value);
-          if (!name) return;
-          const have = cat && cat.entities.find((x) => x.name === name);
-          const task = N.tokenize(taskIn.value);
-          store(`wb:file:${project.id}`, { entity: name, task });
-          await fileRows(needs, { entity: have ? have.id : { name, tier: tierSel.hidden ? N.tierOf(name, presetId) || 'asset' : tierSel.value }, task: task || null });
-        },
-      },
-      el('div', { class: 'imp-ask-head' }, el('b', { text: needs.length === 1 ? 'One file’s name says nothing' : `${needs.length} files’ names say nothing` }),
-        el('span', { text: 'Say what they are, and they are filed together.' })),
-      el('div', { class: 'imp-ask-thumbs' }, needs.map((r) => el('span', { class: 'imp-thumb', title: r.file.name }, r.preview && el('img', { src: r.preview, alt: '' })))),
-      el('div', { class: 'imp-ask-fields' }, entIn, tierSel, taskIn, go),
-      el('datalist', { id: 'imp-entities' }, (cat ? cat.entities : []).map((x) => el('option', { value: x.name }))),
-      el('datalist', { id: 'imp-tasks' }, (cat ? cat.tasks : N.preset(presetId).tasks).map((t) => el('option', { value: t }))));
-      pending.replaceChildren(form);
-      check();
+      const busy = rows.filter((r) => r.status === 'queued' || r.status === 'uploading').length;
+      const filed = rows.filter((r) => r.status === 'filed').length;
+      title.textContent = busy ? `Bringing in ${rows.length - busy} of ${rows.length}` : `${plural(rows.length, 'file')} · ${filed} filed`;
+      const ready = rows.filter(canFile).length;
+      fileAll.textContent = ready > 1 ? `File all ${ready}` : 'File';
+      fileAll.hidden = !ready;
+      clearBtn.hidden = !filed && !rows.some((r) => r.status === 'failed' && !r.look);
+      fillAll.hidden = rows.filter((r) => r.status !== 'filed').length < 2;
     }
 
     // What has been filed shows in the catalogue behind the strip at once.
@@ -1161,61 +1383,80 @@
       }, 300);
     };
 
-    async function fileRows(list, choice = {}) {
-      for (const r of list) r.status = 'filing';
-      paint();
+    async function fileRow(r) {
+      if (!canFile(r)) return;
+      // Still on its way in: filed as soon as it is here.
+      if (!r.look) {
+        r.fileWhenReady = true;
+        return paintRow(r);
+      }
+      const { name, task } = choiceOf(r);
+      const have = known(name);
+      const entity = have ? have.id : { name, tier: N.tierOf(name, presetId) || r.fields.tier.value };
+      r.status = 'filing';
+      paintRow(r);
       try {
-        const res = await api('POST', `/api/projects/${project.id}/versions`, { files: list.map((r) => ({ look: r.look })), ...choice, by: me.name });
-        res.versions.forEach((v, i) => { list[i].status = 'filed'; list[i].label = v.label; list[i].version = v; });
-        cat = null;
-        await catalogue().catch(() => {});
+        const res = await api('POST', `/api/projects/${project.id}/versions`, { files: [{ look: r.look, entity, task }], by: me.name });
+        const v = res.versions[0];
+        Object.assign(r, { status: 'filed', label: v.label, version: v });
+        store(`wb:file:${project.id}`, { entity: name, task });
+        if (!have) {
+          cat = null;
+          await catalogue().catch(() => {});
+        }
         showFiled();
       } catch (err) {
-        for (const r of list) {
-          r.status = choice.entity && !list[0].entity ? 'needs' : 'failed';
-          r.error = err.message;
-        }
-        if (choice.entity && !list[0].entity) WB.dialog({ title: 'Those were not filed', text: err.message, ok: 'OK', cancellable: false });
+        Object.assign(r, { status: 'failed', error: err.message });
       }
-      paint();
+      paintRow(r);
     }
 
-    // One file at a time: read, upload, and file at once when it is known where it goes.
+    // One file at a time: read, upload, and then it waits to be filed (or is, if that was asked for).
     let running = false;
     async function work() {
       if (running) return;
       running = true;
       await catalogue().catch(() => {});
+      for (const r of rows) r.fields.sync();
       for (let r = rows.find((x) => x.status === 'queued'); r; r = rows.find((x) => x.status === 'queued')) {
         r.status = 'uploading';
         r.progress = 0;
-        paint();
+        paintRow(r);
         try {
-          r.look = await bringIn(r, paint);
+          r.look = await bringIn(r, () => paintRow(r));
           r.preview = r.look.th || (r.look.type === 'image' ? r.look.prev || r.look.src : r.look.poster) || null;
-          // Added on an asset, set or shot's page, it goes there, whatever its name says; its task still comes from the name.
-          if (r.entity) await fileRows([r], { entity: r.entity.id });
-          else if (r.parsed.entity) await fileRows([r]);
-          else r.status = 'needs';
+          r.status = 'ready';
+          paintRow(r);
+          if (r.fileWhenReady) {
+            r.fileWhenReady = false;
+            fileRow(r);
+          }
         } catch (err) {
           r.status = 'failed';
+          r.fileWhenReady = false;
           r.error = err.refused ? `This browser cannot process this video. Import it from ${WBIngest.OTHER_BROWSERS} instead` : err.message;
+          paintRow(r);
         }
-        paint();
       }
       running = false;
     }
 
-    // `entity`, when the files are added on an entity's page, is where they all go.
+    // `entity`, when the files are added on an entity's page, is what they are filled in as.
     function add(files, entity = null) {
       let n = 0;
       for (const file of files) {
         if (!/^(image|video)\//.test(file.type) && !/\.(png|jpe?g|gif|webp|avif|bmp|svg|mp4|m4v|webm|mov)$/i.test(file.name)) continue;
-        rows.push({ file, entity, status: 'queued', progress: 0, parsed: N.parse(file.name, presetId), look: null, preview: null });
+        const r = { file, entity, status: 'queued', progress: 0, parsed: N.parse(file.name, presetId), look: null, preview: null };
+        rows.push(r);
+        list.append(makeRow(r));
+        paintRow(r);
         n++;
       }
       if (!n) return void WB.dialog({ title: 'Nothing to bring in', text: 'Only images and MP4, WebM or MOV video can be added.', ok: 'OK', cancellable: false });
-      paint();
+      paintHead();
+      // The first file whose name said nothing takes the keyboard, ready to be told.
+      const blank = rows.find((r) => r.status === 'queued' && !r.fields.ent.value);
+      if (blank) setTimeout(() => blank.fields.ent.focus({ preventScroll: true }), 50);
       work();
     }
 
@@ -1224,9 +1465,9 @@
       picker.click();
     }
 
-    // Leaving while a file is still on its way in would lose it.
+    // Leaving with files not yet filed would lose them.
     window.addEventListener('beforeunload', (e) => {
-      if (!rows.some((r) => r.status === 'queued' || r.status === 'uploading' || r.status === 'filing')) return;
+      if (!rows.some((r) => r.status !== 'filed' && !(r.status === 'failed' && !r.look))) return;
       e.preventDefault();
       e.returnValue = '';
     });

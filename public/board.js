@@ -4913,92 +4913,85 @@
     openFiling(list, cat);
   }
 
-  // The dialog that files pieces as versions. It asks for one thing, which asset, set or shot, and the
-  // task if any; both come filled in when anything says what they are.
+  // The dialog that files pieces as versions. Each piece says on its own row which asset, set or shot it
+  // is, and the task if any: filled in ahead from its name, else the frame it is in, else (for one piece)
+  // the last choice. Several pieces are never lumped together: each goes where its row says.
   function openFiling(list, cat) {
     const presetId = project.naming;
     const remembered = store(`wb:file:${project.id}`) || {};
-    const parsed = list.map((it) => N.parse(it.name || '', presetId));
-    const named = parsed.map((p) => p.entity);
-    // What the pieces have in common says the most; then the frame they are in; then the last choice.
-    const same = (vals) => (vals.length && vals.every((x) => x && x === vals[0]) ? vals[0] : null);
-    const frames = list.map((it) => frameOf(it)).map((f) => (f ? N.tokenize(f.title) : null));
     const known = (name) => !!name && (cat.entities.some((e) => e.name === name) || !!N.tierOf(name, presetId));
-    // Some names say what they are and some do not: those that do go where they say, and what is asked
-    // is about the rest.
-    const mixed = named.some(Boolean) && !named.every(Boolean);
-    const asked = mixed ? parsed.filter((p) => !p.entity) : parsed;
-    const askedFrames = mixed ? frames.filter((f, i) => !named[i]) : frames;
-    let entity = (mixed ? null : same(named)) || (known(same(askedFrames)) ? same(askedFrames) : null) || (!mixed && named.some(Boolean) ? '' : remembered.entity || '');
-    let task = same(asked.map((p) => p.task)) || (asked.some((p) => p.task) ? '' : remembered.task || '');
-    let tier = null;
+    const tiers = N.preset(presetId).tiers;
+    const entityOptions = (typed) => N.suggest(cat.entities, typed, presetId);
+    const taskOptions = (typed) => WB.rank(cat.tasks, typed).map((t) => ({ value: t, label: t }));
 
-    const dlg = el('dialog', { class: 'dlg file-dlg' });
-    const entityList = el('datalist', { id: 'file-entities' }, cat.entities.map((e) => el('option', { value: e.name })));
-    const taskList = el('datalist', { id: 'file-tasks' }, cat.tasks.map((t) => el('option', { value: t })));
-    const entityIn = el('input', { type: 'text', list: 'file-entities', value: entity, placeholder: !mixed && named.some(Boolean) ? 'From each file’s name' : 'kilo-0010, char-robot, set-kitchen…', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Asset, set or shot' });
-    const taskIn = el('input', { type: 'text', list: 'file-tasks', value: task, placeholder: 'No task', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Task' });
-    const tierRow = el('div', { class: 'seg file-tier', role: 'radiogroup' });
+    const dlg = el('dialog', { class: `dlg file-dlg${list.length > 1 ? ' many' : ''}` });
     const hint = el('p', { class: 'file-hint' });
-    const ok = el('button', { type: 'submit', class: 'btn primary', text: 'File' });
-    const rows = el('div', { class: 'file-rows' }, list.map((it, i) => el('div', { class: 'file-row' },
-      el('img', { src: it.th || it.prev || (it.type === 'image' ? it.src : it.poster) || '', alt: '' }),
-      el('span', { class: 'file-name', text: it.name || (it.type === 'video' ? 'Video' : 'Image') }),
-      el('span', { class: 'file-said', text: [parsed[i].entity, parsed[i].task].filter(Boolean).join(' · ') }))));
+    const ok = el('button', { type: 'submit', class: 'btn primary', text: list.length > 1 ? `File ${list.length}` : 'File' });
+    const rows = list.map((it) => {
+      const parsed = N.parse(it.name || '', presetId);
+      const frame = frameOf(it);
+      const fromFrame = frame && known(N.tokenize(frame.title)) ? N.tokenize(frame.title) : null;
+      const ent = el('input', { type: 'text', value: parsed.entity || fromFrame || (list.length === 1 ? remembered.entity || '' : ''), placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': `What ${it.name || 'it'} is` });
+      const task = el('input', { type: 'text', value: parsed.task || (list.length === 1 && !parsed.entity ? remembered.task || '' : ''), placeholder: 'Task', spellcheck: 'false', 'aria-label': 'Task' });
+      const tier = el('select', { 'aria-label': 'What it is', title: 'A new one: what is it?' }, tiers.map((t) => el('option', { value: t.id, text: t.one })));
+      WB.combo(ent, entityOptions);
+      WB.combo(task, taskOptions);
+      const row = { it, ent, task, tier };
+      row.node = el('div', { class: 'file-row' },
+        el('img', { src: it.th || it.prev || (it.type === 'image' ? it.src : it.poster) || '', alt: '' }),
+        el('span', { class: 'file-name', text: it.name || (it.type === 'video' ? 'Video' : 'Image'), title: it.name || '' }),
+        el('span', { class: 'file-fields' }, ent, tier, task));
+      for (const input of [ent, task]) input.addEventListener('input', paint);
+      return row;
+    });
+    const nameOf = (row) => N.tokenize(row.ent.value);
+
+    // For several, one answer for them all, to start from.
+    const allEnt = el('input', { type: 'text', placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': 'Asset, set or shot for all' });
+    const allTask = el('input', { type: 'text', placeholder: 'Task', spellcheck: 'false', 'aria-label': 'Task for all' });
+    WB.combo(allEnt, entityOptions);
+    WB.combo(allTask, taskOptions);
+    const fill = el('div', { class: 'file-fill' }, el('span', { text: 'For all' }), allEnt, allTask,
+      el('button', { type: 'button', class: 'btn small', text: 'Fill in', onclick: () => {
+        for (const row of rows) {
+          if (allEnt.value.trim()) row.ent.value = allEnt.value.trim();
+          if (allTask.value.trim()) row.task.value = allTask.value.trim();
+        }
+        paint();
+      } }));
 
     function paint() {
-      entity = N.tokenize(entityIn.value);
-      task = N.tokenize(taskIn.value);
-      const have = cat.entities.find((e) => e.name === entity);
-      const shape = entity ? N.tierOf(entity, presetId) : null;
-      if (!tier || shape) tier = shape || tier || 'asset';
-      tierRow.hidden = !entity || !!have;
-      tierRow.replaceChildren(...N.preset(presetId).tiers.map((t) => el('button', {
-        type: 'button', class: `seg-btn${tier === t.id ? ' on' : ''}`, role: 'radio', 'aria-checked': String(tier === t.id),
-        onclick: () => { tier = t.id; paint(); },
-      }, t.one[0].toUpperCase() + t.one.slice(1))));
-      const missing = !entity && parsed.some((p) => !p.entity);
-      ok.disabled = missing;
-      const what = (n) => (n === 1 ? 'the next version' : 'new versions');
-      const rest = asked.length === 1 ? 'the one whose name says nothing' : `the ${asked.length} whose names say nothing`;
-      if (mixed) {
-        hint.textContent = missing ? `The others go where their names say. Which asset, set or shot is ${rest}?`
-          : `The others go where their names say; ${rest} ${asked.length === 1 ? 'goes' : 'go'} under ${entity}${task ? ` · ${task}` : ''}${have ? '' : `, a new ${N.preset(presetId).tiers.find((t) => t.id === tier).one}`}.`;
-        return;
+      for (const row of rows) {
+        const name = nameOf(row);
+        row.tier.hidden = !name || known(name);
       }
-      hint.textContent = missing ? 'Which asset, set or shot is it? Type a name, or pick one.'
-        : !entity ? `Each goes under what its name says, as ${what(list.length)}.`
-          : have ? `Filed under ${have.name}${task ? ` · ${task}` : ''} as ${what(list.length)}.`
-            : `A new ${N.preset(presetId).tiers.find((t) => t.id === tier).one}, ${entity}, is made for ${list.length === 1 ? 'it' : 'them'}.`;
+      const missing = rows.filter((row) => !nameOf(row)).length;
+      ok.disabled = missing > 0;
+      const made = [...new Set(rows.map(nameOf).filter((n) => n && !cat.entities.some((e) => e.name === n)))];
+      hint.textContent = missing ? (list.length === 1 ? 'Which asset, set or shot is it? Type a name, or pick one.' : `${missing === rows.length ? 'Say' : `${missing} still need to say`} which asset, set or shot ${missing === 1 ? 'it is' : 'each is'}.`)
+        : made.length ? `New in the catalogue: ${made.join(', ')}.` : `Each is filed as the next version of what its row says.`;
     }
-    entityIn.addEventListener('input', paint);
-    taskIn.addEventListener('input', paint);
 
     let confirmed = false;
     dlg.append(el('form', { method: 'dialog', onsubmit: () => { confirmed = true; } },
       el('h2', { text: list.length > 1 ? `File ${list.length} pieces as versions` : 'File as a version' }),
-      rows,
-      el('label', { class: 'file-field' }, el('span', { text: 'Asset, set or shot' }), entityIn), tierRow,
-      el('label', { class: 'file-field' }, el('span', { text: 'Task' }), taskIn),
-      hint, entityList, taskList,
+      list.length > 1 && fill,
+      el('div', { class: 'file-rows' }, rows.map((row) => row.node)),
+      hint,
       el('div', { class: 'dlg-actions' },
         el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }), ok)));
     dlg.addEventListener('close', async () => {
       dlg.remove();
       if (!confirmed) return;
-      const have = cat.entities.find((e) => e.name === entity);
-      const chosen = {
-        ...(entity && { entity: have ? have.id : { name: entity, tier } }),
-        ...(taskIn.value.trim() && { task }),
-      };
-      const body = {
-        files: list.map((it, i) => ({ board: boardId, item: it.id, ...(mixed && !named[i] && chosen) })),
-        ...(!mixed && chosen),
-        by: me.name,
-      };
+      const files = rows.map((row) => {
+        const name = nameOf(row);
+        const have = cat.entities.find((e) => e.name === name);
+        return { board: boardId, item: row.it.id, entity: have ? have.id : { name, tier: N.tierOf(name, presetId) || row.tier.value }, task: N.tokenize(row.task.value) || null };
+      });
       try {
-        const res = await WB.api('POST', `/api/projects/${project.id}/versions`, body);
-        if (entity) store(`wb:file:${project.id}`, { entity, task });
+        const res = await WB.api('POST', `/api/projects/${project.id}/versions`, { files, by: me.name });
+        const last = rows[rows.length - 1];
+        store(`wb:file:${project.id}`, { entity: nameOf(last), task: N.tokenize(last.task.value) || null });
         learnVersions(res.versions);
         toast(res.versions.length === 1 ? `Filed as ${res.versions[0].label}` : `Filed ${res.versions.length} versions: ${res.versions.map((v) => v.label).join(', ')}`, { ms: 5000 });
       } catch (err) {
@@ -5008,7 +5001,8 @@
     paint();
     document.body.append(dlg);
     dlg.showModal();
-    (entity ? taskIn : entityIn).focus();
+    const first = rows.find((row) => !nameOf(row));
+    (first ? first.ent : rows.length === 1 ? rows[0].task : ok).focus();
   }
 
   // ---- the catalogue beside the board: the project's assets, sets and shots, and their versions, to

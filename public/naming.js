@@ -88,10 +88,30 @@
     return out;
   }
 
+  // Suggestions for "which asset, set or shot", as a name is typed: the project's own that start with it,
+  // then those that hold it, each with what it is and how many versions it has; and for a name the
+  // project does not have, the way to make it. For a text box's list of suggestions (WB.combo).
+  function suggest(entities, typed, presetId, max = 8) {
+    const q = String(typed || '').trim().toLowerCase();
+    const name = tokenize(typed);
+    const starts = [];
+    const holds = [];
+    for (const e of entities || []) {
+      if (!q || e.name.startsWith(q)) starts.push(e);
+      else if (e.name.includes(q)) holds.push(e);
+    }
+    const out = [...starts, ...holds].slice(0, max).map((e) => ({
+      value: e.name, label: e.name, thumb: e.thumb || null,
+      hint: `${e.tier}${e.versions ? ` · ${e.versions} version${e.versions === 1 ? '' : 's'}` : ''}`,
+    }));
+    if (name && !(entities || []).some((e) => e.name === name)) out.push({ value: name, label: `New: ${name}`, hint: tierOf(name, presetId) || 'say what it is', make: true });
+    return out;
+  }
+
   // What a version is called wherever it is shown: "kilo-0010 anim v5".
   function label(entity, task, number) {
     return [entity, task, `v${number}`].filter(Boolean).join(' ');
   }
 
-  return { PRESETS, DEFAULT, TIERS, TOKEN, preset, tokenize, tierOf, seqOf, parse, label };
+  return { PRESETS, DEFAULT, TIERS, TOKEN, preset, tokenize, tierOf, seqOf, parse, label, suggest };
 });

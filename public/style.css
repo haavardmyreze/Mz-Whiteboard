@@ -2164,17 +2164,19 @@ button.imp-row:hover { background: var(--hover); }
 /* A run in the player: the shots of a project played through. No side strip; the bar under the picture
    runs the whole width, and its track is the strip of shots. */
 .viewer.run #filmstrip, .viewer.run #fstab, .viewer.run .fs-grip { display: none !important; }
-.viewer.run #timeline { left: 12px; height: 60px; }
+.viewer.run #timeline { left: 12px; height: 70px; }
 .tl-run { display: none; }
-.viewer.run .tl-run { display: block; position: absolute; left: 0; right: 0; top: 8px; bottom: 8px; overflow: hidden; border-radius: 4px; background: var(--surface-3); }
+.viewer.run .tl-run { display: block; position: absolute; left: 0; right: 0; top: 7px; bottom: 7px; overflow: hidden; border-radius: 4px; background: var(--surface-3); }
 .viewer.run .tl-track .tl-rail, .viewer.run .tl-track .tl-wave { display: none !important; }
-.tl-clip { position: absolute; top: 0; bottom: 0; box-sizing: border-box; font-style: normal; border-right: 1px solid rgba(0, 0, 0, 0.75); background-color: var(--surface-3); background-position: center; background-size: cover; }
-.tl-clip::after { content: ""; position: absolute; inset: 0; background: rgba(0, 0, 0, 0.18); }
+.tl-clip { position: absolute; top: 0; bottom: 0; display: flex; flex-direction: column; box-sizing: border-box; font-style: normal; border-right: 1px solid rgba(0, 0, 0, 0.75); background: #161616; }
+/* The stills, one after another at their own shape, as an editor shows a clip. */
+.tl-clippic { position: relative; flex: 1; min-height: 0; background-color: #222; background-position: left center; background-repeat: repeat-x; background-size: auto 100%; }
+.tl-clip::after { content: ""; position: absolute; inset: 0; background: rgba(0, 0, 0, 0.18); pointer-events: none; }
 .tl-clip.at::after { background: transparent; box-shadow: inset 0 0 0 2px var(--accent); }
 .tl-clip.seq-start { border-left: 2px solid rgba(255, 255, 255, 0.85); }
-.tl-clip.empty { background: repeating-linear-gradient(135deg, #1b1b1b 0 5px, #121212 5px 10px); }
+.tl-clip.empty .tl-clippic { background: repeating-linear-gradient(135deg, #1b1b1b 0 5px, #121212 5px 10px); }
 /* Each clip says which shot it is (and, given room, which version), along its foot. */
-.tl-clipname { position: absolute; z-index: 1; left: 3px; right: 3px; bottom: 2px; display: flex; gap: 4px; overflow: hidden; color: #fff; font-size: 10.5px; line-height: 14px; white-space: nowrap; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); pointer-events: none; }
+.tl-clipname { flex: none; display: flex; gap: 4px; height: 17px; padding: 0 5px; overflow: hidden; background: #161616; color: #f2f2f2; font-size: 10.5px; line-height: 17px; white-space: nowrap; pointer-events: none; }
 .tl-clipname b { flex: none; font-weight: 650; }
 .tl-clipname span { overflow: hidden; color: rgba(255, 255, 255, 0.75); text-overflow: ellipsis; }
 .tl-clip.empty .tl-clipname b { color: #9a9a9a; }
@@ -2185,7 +2187,7 @@ button.imp-row:hover { background: var(--hover); }
 .v-runcap span { color: #cfcfcf; font-size: 14px; }
 .v-runcap span.none { color: #9a9a9a; font-style: italic; }
 .tl-seqname { position: absolute; z-index: 1; top: 2px; left: 3px; padding: 0 4px; border-radius: 3px; background: rgba(0, 0, 0, 0.65); color: #fff; font-size: 9.5px; font-weight: 700; line-height: 14px; letter-spacing: 0.06em; text-transform: uppercase; }
-.viewer.run .tl-head { top: 4px; bottom: 4px; width: 2px; height: auto; margin: 0 0 0 -1px; border-radius: 1px; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }
+.viewer.run .tl-head { top: 3px; bottom: 3px; width: 2px; height: auto; margin: 0 0 0 -1px; border-radius: 1px; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }
 .viewer.run .tl-mark.comment { top: -3px; z-index: 2; }
 #timeline.still .iconbtn.tl-step { opacity: 0.35; pointer-events: none; }
 .v-spare { position: fixed; left: 0; top: 0; width: 2px; height: 2px; overflow: hidden; opacity: 0; pointer-events: none; }

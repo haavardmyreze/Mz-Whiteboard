@@ -1113,10 +1113,12 @@ const WBViewer = (() => {
           const still = stillOf(c.piece);
           const starts = c.piece.seq && c.piece.seq !== seq;
           seq = c.piece.seq;
+          // Its stills along the top, at their own shape, and under them, on a plain band, its shot and version.
           return el('i', {
             class: `tl-clip${starts ? ' seq-start' : ''}${c.piece.empty ? ' empty' : ''}`, 'data-id': c.id, title: c.piece.label || c.piece.name || '',
-            style: { left: `${(c.start / runTotal) * 100}%`, width: `${(c.dur / runTotal) * 100}%`, ...(still && !c.piece.empty && { backgroundImage: `url("${still}")` }) },
-          }, starts && el('b', { class: 'tl-seqname', text: c.piece.seq }),
+            style: { left: `${(c.start / runTotal) * 100}%`, width: `${(c.dur / runTotal) * 100}%` },
+          },
+          el('span', { class: 'tl-clippic', style: still && !c.piece.empty ? { backgroundImage: `url("${still}")` } : {} }, starts && el('b', { class: 'tl-seqname', text: c.piece.seq })),
           el('span', { class: 'tl-clipname' }, el('b', { text: c.piece.name || '' }), !c.piece.empty && el('span', { text: versionPart(c.piece) })));
         }));
       }

@@ -5,7 +5,7 @@ if "%PORT%"=="" set PORT=4680
 
 echo.
 echo  Asking Boards by Myreze on port %PORT% to save and shut down...
-powershell -NoProfile -Command "try{Invoke-WebRequest -UseBasicParsing -Method Post http://127.0.0.1:%PORT%/__shutdown -TimeoutSec 3 | Out-Null; exit 0}catch{exit 1}"
+powershell -NoProfile -Command "try{Invoke-WebRequest -UseBasicParsing -Method Post -Headers @{'X-WB'='1'} http://127.0.0.1:%PORT%/__shutdown -TimeoutSec 3 | Out-Null; exit 0}catch{exit 1}"
 if errorlevel 1 (
   echo  Boards by Myreze was not running, or did not respond.
 ) else (

@@ -2338,14 +2338,16 @@ body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
 /* The ring in Home's bar: what the page or the timeline shows, cached. */
 .home-head .kept-ring { margin-right: 2px; }
 @media (max-width: 700px) { .home-head .kept-ring .kept-label { display: none; } }
-/* A card's cache badge, in its top right corner: a tick, a filling ring, or a cloud. */
-.cache-badge { position: absolute; top: 7px; right: 7px; z-index: 2; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: rgba(0, 0, 0, 0.55); color: rgba(255, 255, 255, 0.75); pointer-events: auto; }
-.cache-badge svg { width: 12px; height: 12px; stroke-width: 2.2; }
-.cache-badge[data-state="cached"] { background: var(--ok); color: #fff; }
+/* A card's cache badge, in its top right corner: there when you look for it, not before. A small
+   tick once the video is on this computer, a thin ring filling while it comes; the cloud (plays from
+   the server) only while the pointer is over the card. */
+.cache-badge { position: absolute; top: 6px; right: 6px; z-index: 2; display: grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; background: rgba(0, 0, 0, 0.35); color: rgba(255, 255, 255, 0.7); opacity: 0.7; pointer-events: auto; transition: opacity 0.15s var(--ease); }
+.cache-badge svg { width: 9px; height: 9px; stroke-width: 2.4; }
+.cache-badge[data-state="cached"] { color: var(--ok); }
 .cache-badge[data-state="cached"] svg { stroke-width: 3; }
-.cache-badge[data-state="coming"] { background: conic-gradient(var(--accent) var(--p, 0%), rgba(0, 0, 0, 0.55) 0); }
-.cache-badge[data-state="coming"]::after { content: ''; width: 12px; height: 12px; border-radius: 50%; background: rgba(0, 0, 0, 0.7); }
-.vl-thumb .cache-badge { top: 4px; right: 4px; width: 16px; height: 16px; }
-.vl-thumb .cache-badge svg { width: 10px; height: 10px; }
-[data-density="compact"] .cache-badge { top: 4px; right: 4px; width: 16px; height: 16px; }
-[data-density="compact"] .cache-badge svg { width: 10px; height: 10px; }
+.cache-badge[data-state="remote"] { opacity: 0; }
+.card:hover .cache-badge, .vl-row:hover .cache-badge { opacity: 1; }
+.cache-badge[data-state="coming"] { background: conic-gradient(rgba(255, 255, 255, 0.75) var(--p, 0%), rgba(0, 0, 0, 0.35) 0); }
+.cache-badge[data-state="coming"]::after { content: ''; width: 9px; height: 9px; border-radius: 50%; background: rgba(0, 0, 0, 0.55); }
+.vl-thumb .cache-badge, [data-density="compact"] .cache-badge { top: 3px; right: 3px; width: 12px; height: 12px; }
+.vl-thumb .cache-badge svg, [data-density="compact"] .cache-badge svg { width: 8px; height: 8px; }

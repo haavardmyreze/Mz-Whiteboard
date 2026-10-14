@@ -2253,10 +2253,14 @@ const WBViewer = (() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     let ws = null;
     let closed = false;
+    let again = 0;
+    let wait = 1500;
     const outbox = [];
     const connect = () => {
+      if (closed) return;
       ws = new WebSocket(`${proto}://${location.host}/ws?entity=${encodeURIComponent(entityId)}`);
       ws.addEventListener('open', () => {
+        wait = 1500;
         ws.send(JSON.stringify({ t: 'hello', name: me.name, color: me.color }));
         for (const msg of outbox.splice(0)) ws.send(JSON.stringify(msg));
       });
@@ -2269,7 +2273,12 @@ const WBViewer = (() => {
         }
         if (msg.t === 'init' || msg.t === 'notes') onNotes(msg.notes);
       });
-      ws.addEventListener('close', () => { if (!closed) setTimeout(connect, 1500); });
+      // Dropped: tried again, waiting longer each time (up to half a minute), never once closed.
+      ws.addEventListener('close', () => {
+        if (closed) return;
+        again = setTimeout(connect, wait);
+        wait = Math.min(wait * 2, 30000);
+      });
     };
     connect();
     return {
@@ -2280,6 +2289,7 @@ const WBViewer = (() => {
       },
       close() {
         closed = true;
+        clearTimeout(again);
         if (ws) ws.close();
       },
     };
@@ -2287,12 +2297,14 @@ const WBViewer = (() => {
 
   // What a host whose notes live in entity rooms does with them: shown at once here, and the room says
   // what it came to.
+  // `getRoom(pieceId)` is the room of the piece a new comment is on.
   function roomNotes(viewer, getRoom, getNotes, setNotes) {
     return {
       add: (c) => {
+        const room = getRoom(c.on);
         setNotes([...getNotes(), c]);
         viewer.refresh();
-        getRoom()?.send([{ t: 'add', item: c }]);
+        room?.send([{ t: 'add', item: c }]);
       },
       set: (id, patch) => {
         setNotes(getNotes().map((n) => (n.id === id ? { ...n, ...patch } : n)));
@@ -2362,20 +2374,30 @@ const WBViewer = (() => {
     let room = null;
     let roomOf = null;
     let joinTimer = 0;
+    const join = (entityId) => {
+      clearTimeout(joinTimer);
+      if (entityId === roomOf) return;
+      if (room) room.close();
+      roomOf = entityId;
+      notes = [];
+      room = entityRoom(entityId, me, (list) => {
+        notes = list;
+        viewer.refresh();
+      });
+    };
     // The room follows the shot on screen; a beat later, so playing through does not hop every room.
+    // Coming back to the shot whose room is open before that beat is up stays in it.
     const follow = (id) => {
       const p = pieces.find((x) => x.id === id);
-      if (!p || p.entityId === roomOf) return;
       clearTimeout(joinTimer);
-      joinTimer = setTimeout(() => {
-        if (room) room.close();
-        roomOf = p.entityId;
-        notes = [];
-        room = entityRoom(p.entityId, me, (list) => {
-          notes = list;
-          viewer.refresh();
-        });
-      }, roomOf ? 400 : 0);
+      if (!p || p.entityId === roomOf) return;
+      joinTimer = setTimeout(() => join(p.entityId), roomOf ? 400 : 0);
+    };
+    // A comment goes to the room of the shot it is on, joined there and then if the beat is not up yet.
+    const roomFor = (pieceId) => {
+      const p = pieces.find((x) => x.id === pieceId);
+      if (p && p.entityId !== roomOf) join(p.entityId);
+      return room;
     };
     viewer.use({
       run: true,
@@ -2385,7 +2407,7 @@ const WBViewer = (() => {
       media: () => pieces,
       notes: () => notes,
       can: { member: () => true, write: () => !onSlate(), draw: () => !onSlate() },
-      ...roomNotes(viewer, () => room, () => notes, (next) => { notes = next; }),
+      ...roomNotes(viewer, (pieceId) => (pieceId ? roomFor(pieceId) : room), () => notes, (next) => { notes = next; }),
       onOpen: follow,
       onClose: () => {
         clearTimeout(joinTimer);

@@ -7,7 +7,7 @@
 // A project follows a preset. The one there is, Myreze's styleguide:
 //   `_` separates tokens, `-` joins words inside a token, all lowercase.
 //   An asset is char-, prop-, env-, veh- or fx- something (char-robot), a set is set- something
-//   (set-living-room), a shot is <sequence>-<number> (kilo-0010).
+//   (set-living-room), a shot is <sequence>-<four digits> (kilo-0010, ch01-0010).
 //   A Houdini file is <context>_<task>[_<descriptor>]_<artist>_v###: the context first (its shape says
 //   what tier it is), then the task, the version last, the artist before it, and anything between is
 //   the descriptor. Review media is taken to be named the same way (kilo-0010_anim_erik_v012.mov).
@@ -23,7 +23,8 @@
       tiers: [
         { id: 'asset', label: 'Assets', one: 'asset', test: /^(char|prop|env|veh|fx)-[a-z0-9]+(?:-[a-z0-9]+)*$/ },
         { id: 'set', label: 'Sets', one: 'set', test: /^set-[a-z0-9]+(?:-[a-z0-9]+)*$/ },
-        { id: 'shot', label: 'Shots', one: 'shot', test: /^[a-z]{3,5}-[0-9]{4}$/ },
+        // <sequence>-<shot>: the shot is always four digits, the sequence is free (kilo, ch01, ep2-intro).
+        { id: 'shot', label: 'Shots', one: 'shot', test: /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9]{4}$/ },
       ],
       tasks: ['model', 'rig', 'lookdev', 'dressing', 'layout', 'anim', 'fx', 'lighting'],
     },
@@ -45,9 +46,9 @@
     return t ? t.id : null;
   }
 
-  // The sequence a shot is in: "kilo" for kilo-0010. Asked only of shots, so it is looser than the
-  // preset's test for one: a shot named by hand (ab-12) still has a sequence, the part before its number.
-  const seqOf = (name) => (/^([a-z][a-z0-9]*)-\d+$/.exec(name || '') || [])[1] || null;
+  // The sequence a shot is in: everything before its number ("kilo" for kilo-0010, "ch01" for
+  // ch01-0010). Asked only of shots, so a shot named by hand with a shorter number (ab-12) still has one.
+  const seqOf = (name) => (/^([a-z0-9]+(?:-[a-z0-9]+)*)-\d+$/.exec(name || '') || [])[1] || null;
 
   // Whatever can be read from a file name: { entity, tier, task, descriptor, artist, hip }, each null
   // when the name does not say. `hip` is the number after v; nothing is made of it, since the catalogue

@@ -120,7 +120,7 @@
             type: 'button', class: 'btn', html: `${ICON.out}<span>Sign out</span>`,
             onclick: async () => {
               const sure = await WB.dialog({ title: 'Sign out?', text: `You are signed in as ${me.name}.`, ok: 'Sign out' });
-              if (sure) location.href = '/auth/logout';
+              if (sure) WB.signOut();
             },
           })));
     }
@@ -186,14 +186,39 @@
   // rebuilt under the pointer, except once a minute so "edited 5 min ago" stays true.
   let shown = '';
   let shownAt = 0;
+  let libraryLoaded = false;
+  // Somebody typing on the page (a name for an asset, a comment, the importer) is never rebuilt under:
+  // what the background check found waits until they are done.
+  const typingInPage = () => WB.isTyping(document.activeElement) && !!document.activeElement.closest('#content, dialog');
+  let renderWaiting = false;
+  document.addEventListener('focusout', () => setTimeout(() => {
+    if (renderWaiting && !typingInPage()) {
+      renderWaiting = false;
+      render();
+    }
+  }, 0));
+  // Pages that show boards say how long ago each was edited; only they are rebuilt once a minute.
+  const showsBoardTimes = () => {
+    const rt = route();
+    if (rt.kind === 'space') return true;
+    if (rt.kind !== 'folder') return false;
+    const f = folderById(rt.id);
+    return !f || !f.project || ['boards', 'home'].includes(currentView().page);
+  };
   async function refresh(quiet = false) {
     try {
       const next = await api('GET', '/api/library');
       const sig = JSON.stringify(next);
-      if (quiet === true && sig === shown && Date.now() - shownAt < 60000) return;
+      if (quiet === true && sig === shown && (Date.now() - shownAt < 60000 || !showsBoardTimes())) return;
       shown = sig;
       shownAt = Date.now();
       everything = next;
+      libraryLoaded = true;
+      prunePins();
+      if (quiet === true && typingInPage()) {
+        renderWaiting = true;
+        return;
+      }
       render();
     } catch (err) {
       $('empty').hidden = false;
@@ -452,7 +477,23 @@
   // Both are kept by this browser. What you opened (boards, from board.js, and assets, sets and shots)
   // is remembered as you go; what you pin stays on Home until you unpin it.
 
-  const pins = () => (Array.isArray(store('wb:pins')) ? store('wb:pins') : []);
+  const pins = () => (Array.isArray(store(WB.KEYS.pins)) ? store(WB.KEYS.pins) : []);
+  // Pins to what has since been deleted go, once the library (and for an asset, set or shot, its
+  // project's catalogue) says so: they would only lead nowhere, and take the room of real pins.
+  function prunePins() {
+    if (!libraryLoaded) return;
+    const keep = pins().filter((p) => {
+      if (p.kind === 'board') return everything.boards.some((b) => b.id === p.id);
+      if (p.kind === 'folder') return !!folderById(p.id);
+      if (!folderById(p.projectId)) return false;
+      if (p.kind === 'entity') {
+        const cat = catalogues.get(p.projectId);
+        return !cat || cat.entities.some((e) => e.id === p.id);
+      }
+      return true;
+    });
+    if (keep.length !== pins().length) store(WB.KEYS.pins, keep);
+  }
   const isPinned = (kind, id) => pins().some((p) => p.kind === kind && p.id === id);
   function togglePin(entry) {
     const list = pins();
@@ -557,8 +598,13 @@
     const cat = catalogues.get(f.id);
     const tierRows = () => {
       if (!cat) {
+        const pad = { paddingLeft: `${(depth + 2) * 14 + 32}px` };
+        if (catBroken(f.id)) {
+          return [el('div', { class: 'side-row side-note', style: pad }, 'Could not load. ',
+            el('button', { type: 'button', class: 'linkbtn', text: 'Try again', onclick: () => loadCatalogue(f.id, true) }))];
+        }
         loadCatalogue(f.id);
-        return [el('div', { class: 'side-row side-note', style: { paddingLeft: `${(depth + 2) * 14 + 32}px` }, text: 'Loading…' })];
+        return [el('div', { class: 'side-row side-note', style: pad, text: 'Loading…' })];
       }
       return cat.preset.tiers.flatMap((t) => {
         const of = cat.entities.filter((e) => e.tier === t.id);
@@ -579,14 +625,20 @@
     return sideRow({ key: `f:${f.id}`, depth, icon: PROJECT_SM, label: f.name, href: WB.href.folder(f.id), kids, drop, hereK, cls: 'project' });
   }
 
+  // A catalogue that would not load is not asked for again on every render (the sidebar, Home's pins and
+  // the cache would ask in a loop): it says so where it would show, with a way to try again.
   const loading = new Set();
-  async function loadCatalogue(id) {
-    if (loading.has(id)) return;
+  const catFailed = new Map(); // project id -> when it failed
+  const catBroken = (id) => catFailed.has(id) && Date.now() - catFailed.get(id) < 60000;
+  async function loadCatalogue(id, force = false) {
+    if (loading.has(id) || (!force && catBroken(id))) return;
     loading.add(id);
     try {
       catalogues.set(id, await api('GET', `/api/projects/${id}`));
+      catFailed.delete(id);
+      prunePins();
     } catch {
-      // the tree shows the project without its catalogue's parts
+      catFailed.set(id, Date.now());
     }
     loading.delete(id);
     keepAhead();
@@ -740,7 +792,6 @@
   // The newest version of your work, of what you are cc'd on, and of what you pinned, is fetched ahead
   // and kept on this computer (media.js), so it opens and scrubs at once when you get to it. So is what
   // the page you are on shows. Each can be turned off in your settings.
-  const askedCat = new Set();
   const videoOf = (n) => (n && n.look && n.look.type === 'video' ? n.look.src : null);
   function keepAhead() {
     const R = WB.media.RANK;
@@ -754,11 +805,7 @@
       if (!folderById(p.projectId)) continue;
       const cat = catalogues.get(p.projectId);
       if (!cat) {
-        // Once: a catalogue that will not load is not asked for again and again.
-        if (!askedCat.has(p.projectId)) {
-          askedCat.add(p.projectId);
-          loadCatalogue(p.projectId);
-        }
+        loadCatalogue(p.projectId);
         continue;
       }
       const tier = p.what === 'tier' && (/\/t\/([\w-]+)$/.exec(p.href) || [])[1];
@@ -930,29 +977,28 @@
     document.body.classList.remove('vpicking');
   }
 
-  async function versionsPage(project, fresh) {
-    const sig = `${project.id}|versions`;
+  async function versionsPage(project, fresh, sig) {
     const show = (data) => {
       if (shownProject !== sig) return;
       $('content').replaceChildren(...versionsView(project, data));
       paintVersionPick(project);
     };
-    shownProject = sig;
     if (versionLists.has(project.id)) show(versionLists.get(project.id));
     else if (fresh) $('content').replaceChildren(el('p', { class: 'home-empty', text: 'Loading…' }));
+    if (searching && versionLists.has(project.id)) return;
     try {
       const data = await api('GET', `/api/projects/${project.id}/versions`);
       const was = versionLists.get(project.id);
       versionLists.set(project.id, data);
       if (!was || JSON.stringify(was) !== JSON.stringify(data)) show(data);
     } catch (err) {
-      $('content').replaceChildren(el('p', { class: 'home-empty', text: err.message }));
+      pageFailed(sig, err);
     }
   }
 
   function versionsView(project, data) {
     const q = $('q').value.trim().toLowerCase();
-    const list = data.versions.filter((v) => !q || v.label.includes(q) || (v.createdBy || '').toLowerCase().includes(q));
+    const list = data.versions.filter((v) => !q || v.label.toLowerCase().includes(q) || (v.createdBy || '').toLowerCase().includes(q));
     vpick.order = list.map((v) => v.id);
     if (vpick.project !== project.id) {
       dropVersionPick();
@@ -1140,18 +1186,6 @@
     refresh();
   }
 
-  // Esc lets go of whatever is selected, wherever things can be: the catalogue (handled with its own
-  // Select mode), versions, and boards and folders. A dialog, a menu or the player takes Esc first.
-  window.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || document.querySelector('dialog[open], .menu:not([hidden])') || (document.querySelector('.viewer') && !document.querySelector('.viewer').hidden)) return;
-    if (document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
-    if (vpick.ids.size) {
-      vpick.ids.clear();
-      const f = folderById(vpick.project);
-      if (f) paintVersionPick(f);
-    }
-    if (bpick.size) dropBoardPick();
-  });
 
   // ------------------------------------------------------------- box select
   //
@@ -1326,6 +1360,7 @@
       });
     } catch (err) {
       runOf = null;
+      tlFailed = project.id;
       $('content').replaceChildren(el('p', { class: 'home-empty', text: `${err.message}. File versions of the project's shots, and they play here in order.` }));
     }
   }
@@ -1334,7 +1369,16 @@
   function render() {
     const rt = route();
     if (renderedFor !== location.hash) {
+      // A link to a folder or project that is not there any more says so, rather than landing quietly
+      // somewhere else.
+      const asked = /^#\/f\/([\w-]+)/.exec(location.hash);
+      if (asked && libraryLoaded && !folderById(asked[1])) WB.toast('That folder or project is not there any more, or is not shared with you.', { ms: 6000 });
+      // Somewhere new: a search typed for the last page does not carry over to this one.
+      if (renderedFor !== null && !searching) $('q').value = '';
       renderedFor = location.hash;
+      tlFailed = null;
+      // What was selected belongs to the page it was selected on: never carried, unseen, to another.
+      if (bpick.size) dropBoardPick();
       WB.media.want('page', []);
       pageScope = null;
       cacheRing.paint();
@@ -1345,7 +1389,6 @@
       thePlayer().close();
     }
     if (vpick.project && (rt.kind !== 'folder' || rt.id !== vpick.project || !(currentView().page === 'versions' || currentView().entity))) dropVersionPick();
-    if (bpick.size && (rt.kind === 'home' || (rt.kind === 'folder' && currentView().page !== 'boards'))) dropBoardPick();
     if (picking.on && (rt.kind !== 'folder' || rt.id !== picking.project || currentView().page !== 'catalogue' || currentView().entity)) {
       const f = folderById(picking.project);
       if (f) setPicking(f, false);
@@ -1396,17 +1439,29 @@
   const N = window.WBNaming;
   const catalogues = new Map(); // project id -> its catalogue as last fetched
 
+  // What went wrong loading a page, with a way to try again, shown only if that page is still the one up.
+  function pageFailed(sig, err) {
+    if (shownProject !== sig) return;
+    $('content').replaceChildren(el('div', { class: 'home-empty' },
+      el('p', { text: err.message || 'That did not load.' }),
+      el('button', { type: 'button', class: 'btn', text: 'Try again', onclick: () => { shownProject = ''; render(); } })));
+  }
+  // A search being typed narrows what is already loaded; nothing is fetched for it.
+  let searching = false;
+  let tlFailed = null; // the project whose timeline would not open, until you go elsewhere
+
   let shownProject = '';
   let shownEntity = null; // the asset, set or shot whose page is showing, for the crumbs before its catalogue is in
   async function renderProject(project, view) {
     const sig = `${project.id}|${view.page}|${view.entity}`;
     const fresh = shownProject !== sig;
     shownProject = sig;
-    if (view.page === 'versions') return versionsPage(project, fresh);
-    if (view.page === 'home') return projectHome(project, fresh);
+    if (view.page === 'versions') return versionsPage(project, fresh, sig);
+    if (view.page === 'home') return projectHome(project, fresh, sig);
     if (view.page === 'timeline') {
-      // The player plays it; the page behind says so. The background refresh of the library leaves it be.
-      if (runOf === project.id && thePlayer().isOpen()) return;
+      // The player plays it; the page behind says so. The background refresh of the library leaves it be,
+      // and one that would not open is not tried again until you come back to it.
+      if ((runOf === project.id && thePlayer().isOpen()) || tlFailed === project.id) return;
       $('content').replaceChildren(el('p', { class: 'home-empty', text: 'Opening the timeline…' }));
       openTimeline(project);
       return;
@@ -1416,6 +1471,7 @@
     if (fresh && (view.entity || !catalogues.has(project.id))) $('content').replaceChildren(el('p', { class: 'home-empty', text: 'Loading…' }));
     try {
       if (view.entity) {
+        if (searching && !fresh) return;
         const page = await api('GET', `/api/entities/${view.entity}`);
         if (shownProject !== sig) return;
         shownEntity = page.entity;
@@ -1426,6 +1482,7 @@
       }
       // What was fetched last shows at once (a search narrows it as it is typed); then it is brought up to date.
       if (catalogues.has(project.id)) $('content').replaceChildren(tray, ...catalogueView(project, catalogues.get(project.id), view));
+      if (searching && catalogues.has(project.id)) return;
       const had = catalogues.get(project.id);
       const cat = await api('GET', `/api/projects/${project.id}`);
       catalogues.set(project.id, cat);
@@ -1437,7 +1494,7 @@
         renderCrumbs(route());
       }
     } catch (err) {
-      $('content').replaceChildren(el('p', { class: 'home-empty', text: err.message }));
+      pageFailed(sig, err);
     }
   }
 
@@ -1447,9 +1504,7 @@
   // what was filed last, and the boards last worked on.
 
   const activities = new Map(); // project id -> { items, at }
-  async function projectHome(project, fresh) {
-    const sig = `${project.id}|home`;
-    shownProject = sig;
+  async function projectHome(project, fresh, sig) {
     const show = () => {
       if (shownProject !== sig) return;
       $('content').replaceChildren(...projectHomeView(project));
@@ -1767,12 +1822,6 @@
     for (const b of document.querySelectorAll('.pick-toggle')) b.classList.toggle('on', on);
     paintPicked();
   }
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && picking.on && !document.querySelector('dialog[open], .menu:not([hidden])') && !(document.querySelector('.viewer') && !document.querySelector('.viewer').hidden)) {
-      const f = folderById(picking.project);
-      if (f) setPicking(f, false);
-    }
-  });
 
   function entityTile(project, e) {
     const newest = e.newest || null;
@@ -2490,21 +2539,53 @@
   document.addEventListener('pointerdown', (e) => {
     if (!$('notices').hidden && !e.target.closest('.bellwrap')) toggleNotices(false);
   });
-  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('notices').hidden) toggleNotices(false); });
   loadNotices();
   setInterval(() => { if (!document.hidden) loadNotices(); }, 30000);
   // Coming back to this tab from a board: what was read there, or arrived since, shows at once.
   document.addEventListener('visibilitychange', () => { if (!document.hidden) loadNotices(); });
 
-  $('q').addEventListener('input', render);
+  // What is typed narrows the page from what it already has, a beat after the last key.
+  let searchTimer = 0;
+  $('q').addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      searching = true;
+      try {
+        render();
+      } finally {
+        searching = false;
+      }
+    }, 120);
+  });
+  // The page's keys, in one place. `/` goes to the search box unless something else is being typed in;
+  // Escape puts away the nearest thing, one at a time: the search, the notifications, the drawer, then
+  // what is selected. A dialog, a menu or the player has Escape to itself.
+  const playerOpen = () => !!player && player.isOpen();
   window.addEventListener('keydown', (e) => {
-    if (e.key === '/' && document.activeElement !== $('q') && !document.querySelector('dialog[open]')) {
+    const typing = WB.isTyping(e.target);
+    if (e.key === '/' && !typing && !e.ctrlKey && !e.metaKey && !document.querySelector('dialog[open]') && !playerOpen()) {
       e.preventDefault();
       $('q').focus();
-    } else if (e.key === 'Escape' && document.activeElement === $('q')) {
+      return;
+    }
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (e.target === $('q')) {
       $('q').value = '';
       $('q').blur();
       render();
+      return;
+    }
+    if (typing || document.querySelector('dialog[open], .wb-menu') || playerOpen()) return;
+    if (!$('notices').hidden) return void toggleNotices(false);
+    if (document.body.classList.contains('side-open')) return void closeDrawer();
+    if (vpick.ids.size) {
+      vpick.ids.clear();
+      const f = folderById(vpick.project);
+      if (f) paintVersionPick(f);
+    } else if (bpick.size) dropBoardPick();
+    else if (picking.on) {
+      const f = folderById(picking.project);
+      if (f) setPicking(f, false);
     }
   });
   window.addEventListener('hashchange', render);

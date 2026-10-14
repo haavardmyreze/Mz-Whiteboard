@@ -248,6 +248,7 @@ const WBIngest = (() => {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `/api/upload?${query}`);
+      xhr.setRequestHeader('X-WB', '1'); // from the app's own pages (see WB.api)
       xhr.upload.onprogress = (e) => { if (e.lengthComputable) onSent(e.loaded); };
       xhr.onload = () => {
         let data = {};

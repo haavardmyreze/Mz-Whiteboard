@@ -1366,6 +1366,8 @@ test('a file name fills in what it can, and a name that says nothing is no troub
   assert.equal(naming.tierOf('robot'), null);
   assert.equal(naming.tokenize('  Living Room! '), 'living-room');
   assert.equal(naming.seqOf('kilo-0010'), 'kilo');
+  assert.equal(naming.seqOf('ch01-0010'), 'ch01');
+  assert.equal(naming.tierOf('ch01-0010'), 'shot');
   assert.equal(naming.label('kilo-0010', 'anim', 5), 'kilo-0010 anim v5');
   assert.equal(naming.label('char-robot', null, 2), 'char-robot v2');
 });

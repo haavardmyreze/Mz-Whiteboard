@@ -92,6 +92,8 @@ const WB = (() => {
     if (signedIn !== undefined) return signedIn;
     try {
       const res = await fetch('/api/me');
+      // Signed out, or no longer on the list: nothing this browser kept may still be played.
+      if (res.status === 401 || res.status === 403) forgetKept();
       const data = await res.json();
       session = data;
       signedIn = data.user || null;
@@ -138,16 +140,34 @@ const WB = (() => {
     return then.toLocaleDateString(undefined, sameYear ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' });
   }
 
+  // The videos this browser kept (media.js) go when whoever kept them is no longer let in.
+  function forgetKept() {
+    try {
+      return WB.media ? WB.media.clear() : Promise.resolve();
+    } catch {
+      return Promise.resolve();
+    }
+  }
+
+  // Signs out, leaving nothing of the account's media behind in this browser.
+  async function signOut() {
+    await forgetKept();
+    location.href = '/auth/logout';
+  }
+
   // A sign-in that ran out while the page was open: off to sign in again, and then back to this page.
-  function toSignIn() {
+  async function toSignIn() {
+    await forgetKept();
     location.href = `/auth/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`;
   }
 
   // Errors carry the HTTP status, so a caller can tell "gone" from "not allowed" from "try again".
   async function api(method, url, body) {
+    // X-WB says the request comes from the app's own pages: a page elsewhere cannot send it without the
+    // server agreeing first, which it never does, so nobody else's page can change anything here.
     const res = await fetch(url, {
       method,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      headers: { 'X-WB': '1', ...(body && { 'Content-Type': 'application/json' }) },
       body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
@@ -554,6 +574,6 @@ const WB = (() => {
 
   return {
     el, store, remember, combo, rank, user, dialog, askName, info, offline, watchServer, initials, ago, api, theme, setTheme, themeButton,
-    media: null, colors: USER_COLORS, saveUser, clamp, uid, hexOk, isTyping, bytes, plural, avatar, menu, closeMenus, toast, href, KEYS,
+    media: null, colors: USER_COLORS, saveUser, signOut, clamp, uid, hexOk, isTyping, bytes, plural, avatar, menu, closeMenus, toast, href, KEYS,
   };
 })();

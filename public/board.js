@@ -162,6 +162,7 @@
   let online = false;
   let myId = null;
   let firstInit = true;
+  let booted = false;            // the board's panels and tools exist: until then the keys do nothing
   let retry = 500;
   let tool = 'select';
   let gesture = null;
@@ -687,22 +688,33 @@
   }
 
   // `quiet` marks housekeeping this page does by itself, so the board is not shown as just edited.
+  // Every batch this page sends is numbered, under a name for this page that lasts across reconnects
+  // (`cid`). The server applies a number only once and says which it has applied, so a batch sent again
+  // after a dropped connection is never applied twice, and an ack always settles the right batch.
+  const cid = uid();
+  let seq = 0;
+  const sendBatch = (b) => ws.send(JSON.stringify({ t: 'op', ops: b.ops, seq: b.seq, ...(b.quiet && { quiet: true }) }));
+
   function sendOps(ops, quiet = false) {
     // Somebody with a link sends nothing, unless it lets them comment, and then only comments.
     if (!ops.length || (viewOnly && !(guestWrites() && ops.every((op) => op.t === 'add' && op.item.type === 'comment')))) return;
-    const batch = { ops, keys: keysOf(ops), quiet };
+    const batch = { ops, keys: keysOf(ops), quiet, seq: ++seq };
     for (const k of batch.keys) pendingKeys.set(k, (pendingKeys.get(k) || 0) + 1);
     outbox.push(batch);
-    if (online) ws.send(JSON.stringify(quiet ? { t: 'op', ops, quiet } : { t: 'op', ops }));
+    if (online) sendBatch(batch);
   }
 
-  function onAck() {
-    const batch = outbox.shift();
-    if (!batch) return;
-    for (const k of batch.keys) {
-      const n = pendingKeys.get(k) - 1;
-      if (n > 0) pendingKeys.set(k, n);
-      else pendingKeys.delete(k);
+  // Settles every batch up to the one acked (an ack without a number, from an older server, settles the
+  // oldest).
+  function onAck(msg = {}) {
+    while (outbox.length && (msg.seq == null ? true : outbox[0].seq <= msg.seq)) {
+      const batch = outbox.shift();
+      for (const k of batch.keys) {
+        const n = pendingKeys.get(k) - 1;
+        if (n > 0) pendingKeys.set(k, n);
+        else pendingKeys.delete(k);
+      }
+      if (msg.seq == null) break;
     }
   }
 
@@ -911,10 +923,18 @@
     return { x: g.cur.x ?? b.x, y: g.cur.y ?? b.y, w: g.cur.w ?? b.w, h: it.type === 'note' ? b.h : g.cur.h ?? b.h };
   }
 
+  // What this hand has changed during each gesture that is going on: id -> the keys it set. A gesture's
+  // undo takes back only those, never what somebody else changed on the board meanwhile.
+  const touching = new Set();
+
   // Continuous edits (drags, typing) apply locally at once and reach the network in batches.
   function liveSet(id, patch) {
     const it = items.get(id);
     if (!it) return;
+    for (const t of touching) {
+      if (!t.has(id)) t.set(id, new Set());
+      for (const k of Object.keys(patch)) t.get(id).add(k);
+    }
     Object.assign(it, patch);
     renderItem(it);
     const queued = liveSets.get(id);
@@ -933,30 +953,35 @@
     sendOps(ops);
   }
 
+  // The board as it was when a gesture began, and from then on a note of what this hand changes in it.
   function snapshot(ids) {
     const snap = new Map();
     for (const id of ids) {
       const it = items.get(id);
       if (it) snap.set(id, { ...it });
     }
+    snap.touched = new Map();
+    touching.add(snap.touched);
     return snap;
   }
 
-  // Turns everything a gesture changed since `snap` into a single undo step.
+  // Turns what this hand changed since `snap` into a single undo step: the keys it set, back to what
+  // they were. A peer moving something else, or recolouring what was being dragged, is left alone.
   function recordSince(snap, extra = []) {
     flushLive();
+    touching.delete(snap.touched);
     const inverse = [];
-    for (const [id, before] of snap) {
+    for (const [id, keys] of snap.touched || []) {
+      const before = snap.get(id);
       const it = items.get(id);
-      if (!it) continue;
+      if (!before || !it) continue;
       const patch = {};
-      for (const k of new Set([...Object.keys(before), ...Object.keys(it)])) {
-        if (before[k] !== it[k]) patch[k] = before[k] ?? null;
-      }
+      for (const k of keys) if (before[k] !== it[k]) patch[k] = before[k] ?? null;
       if (Object.keys(patch).length) inverse.push({ t: 'set', id, patch });
     }
     pushUndo([...extra, ...inverse]);
   }
+
 
   // ------------------------------------------------------------- selection
 
@@ -3638,7 +3663,7 @@
   //   , and .     one frame back or on (with Shift, a second), on the open or the selected video
   //   Space, K    play or pause
   window.addEventListener('keydown', (e) => {
-    if (isTyping(e.target)) return;
+    if (!booted || isTyping(e.target)) return;
     // With something open the keys are the viewer's, bar the shortcuts list.
     if (viewer.isOpen() && e.key !== '?') return;
     // A dialog is open over the board: its keys are its own, and Delete must not reach what is selected behind it.
@@ -3696,8 +3721,8 @@
     else if (k === 'escape') {
       // One thing at a time, the nearest first.
       if (!$('helppanel').hidden) toggleHelp();
-      if (!$('actpanel').hidden) toggleActivity(false);
-      if (keptRing && keptRing.open) keptRing.close();
+      else if (!$('actpanel').hidden) toggleActivity(false);
+      else if (keptRing && keptRing.open) keptRing.close();
       else if (!catPanel.hidden) toggleCatalogue(false);
       else if (!$('setpanel').hidden) toggleSettings(false);
       else if (boardPanel) togglePanel(false);
@@ -4125,7 +4150,15 @@
   function onInit(msg) {
     finishEdit();
     flushLive();
-    const queued = outbox.splice(0);
+    // A snapshot put back: the board is now what it was then, for everyone. What this page had not yet
+    // had acked is dropped rather than laid over it, and undo starts afresh (an undo from before would
+    // take back changes the board no longer has, and bring things back that the snapshot took away).
+    const queued = msg.restored ? [] : outbox.splice(0);
+    if (msg.restored) {
+      outbox.length = 0;
+      undoStack.length = 0;
+      redoStack.length = 0;
+    }
     pendingKeys.clear();
     myId = msg.you;
     online = true;
@@ -4160,11 +4193,16 @@
     for (const id of [...peers.keys()]) dropPeer(id);
     for (const p of msg.peers) addPeer(p);
 
-    // Anything done while disconnected is replayed on top of the server's state.
+    // Anything done while disconnected is sent again, with the numbers it had: what the server already
+    // applied before the connection dropped it acks and leaves alone. It is laid over the server's state
+    // here too, until the acks come.
     for (const batch of queued) {
       applyOps(batch.ops);
-      sendOps(batch.ops, batch.quiet);
+      for (const k of batch.keys) pendingKeys.set(k, (pendingKeys.get(k) || 0) + 1);
+      outbox.push(batch);
+      sendBatch(batch);
     }
+    if (msg.restored && !firstInit) toast('A snapshot was put back. Undo starts afresh from here.', { ms: 6000 });
     setSel([...sel]);
     afterChange();
     refreshPeerSel();
@@ -4198,10 +4236,12 @@
     if (msg.t === 'init') {
       onInit(msg);
     } else if (msg.t === 'op') {
-      applyOps(msg.ops, msg.sync ? 'sync' : true);
+      // The server's own copy of ops this page sent, where it changed them (a version it would not keep,
+      // a comment it rewrote): they are what everyone else has, so they win over what is still unacked.
+      applyOps(msg.ops, msg.fix ? false : msg.sync ? 'sync' : true);
       refreshPeerSel();
     } else if (msg.t === 'ack') {
-      onAck();
+      onAck(msg);
     } else if (msg.t === 'versions') {
       learnVersions(msg.list);
     } else if (msg.t === 'join') {
@@ -4251,7 +4291,7 @@
   function connect() {
     if (dead) return;
     ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?${viewOnly ? 'share' : 'board'}=${boardId}`);
-    ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', name: me.name, color: me.color }));
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', name: me.name, color: me.color, cid }));
     ws.onmessage = (e) => onMessage(JSON.parse(e.data));
     ws.onclose = (e) => {
       online = false;
@@ -4868,6 +4908,7 @@
   setTool('select');
   applyCam();
   connect();
+  booted = true;
   // Text is measured from the page, so measure again once the typeface has arrived.
   typeface.then(updateOverlay);
 })();

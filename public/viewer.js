@@ -999,7 +999,7 @@ const WBViewer = (() => {
           el('span', { class: 'tl-clipname' }, el('b', { text: c.piece.name || '' }), !c.piece.empty && el('span', { text: versionPart(c.piece) })));
         });
         tlRun.classList.toggle('one-seq', seqs.length < 2 && !seqs[0]?.seq);
-        tlRun.replaceChildren(band, el('span', { class: 'tl-clips' }, clipEls), el('i', { class: 'tl-window' }));
+        tlRun.replaceChildren(band, el('span', { class: 'tl-clips' }, clipEls));
         cut.setClips(runClips, runTotal);
         paintCutMarks();
       }
@@ -1034,7 +1034,6 @@ const WBViewer = (() => {
         syncTimeline();
         told();
       },
-      onZoom: () => syncTimeline(),
     });
     // Comments on any shot of the run, where they are in it.
     function paintCutMarks() {
@@ -1077,11 +1076,7 @@ const WBViewer = (() => {
       const here = c ? c.start + (video ? at : stillAt) : at;
       const span = c ? runTotal : dur;
       tlTrack.style.setProperty('--p', `${(span > 0 && isFinite(span) ? clamp(here / span, 0, 1) : 0) * 100}%`);
-      if (c) {
-        cut.setTime(here);
-        // The stretch the close-up shows, marked on the whole run.
-        tlTrack.style.setProperty('--w', `${clamp(cut.span() / (runTotal || 1), 0, 1) * 100}%`);
-      }
+      if (c) cut.setTime(here);
       const label = timeLabel(here, span, fps);
       if (tlTime.textContent !== label) tlTime.textContent = label;
       const playing = runMode() ? runPlaying || (video && !video.paused) : !video.paused;

@@ -147,8 +147,8 @@ const WBCutTrack = (() => {
   // ---- one track
 
   // `onGrab()` when a hand takes hold of it (the run stops while it is moved), `onSeek(t)` to move the
-  // run to a moment, `onRelease()` when it lets go, `onZoom()` when it is drawn in or out.
-  function create({ onGrab, onSeek, onRelease, onZoom = () => {} }) {
+  // run to a moment, `onRelease()` when it lets go.
+  function create({ onGrab, onSeek, onRelease }) {
     const canvas = el('canvas', { class: 'cut-canvas' });
     let zoom = ZOOMS.includes(WB.store('wb:cutzoom')) ? WB.store('wb:cutzoom') : 1;
     let pps = PPS / zoom;
@@ -196,7 +196,6 @@ const WBCutTrack = (() => {
       WB.store('wb:cutzoom', zoom);
       paintZoom();
       draw();
-      onZoom();
     }
     function paintZoom() {
       zoomOut.disabled = zoom === ZOOMS[ZOOMS.length - 1];
@@ -442,8 +441,6 @@ const WBCutTrack = (() => {
           draw();
         }
       },
-      // How many seconds of the run it shows across.
-      span: () => (W || 0) / pps,
       setMarks(list) {
         marks = list;
         later();

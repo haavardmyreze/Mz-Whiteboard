@@ -345,6 +345,75 @@
     if (on) location.hash = WB.href.catalogue(folder.id);
   }
 
+  // A project's settings. For now, its 3D preview: the model of the venue its work is shown on, the material
+  // its projection surface has, and which view of a version goes on it. Set here once, they are never
+  // asked about again: the player just has a 2D / 3D switch.
+  async function projectSettings(project) {
+    const was = (project.settings && project.settings.preview3d) || null;
+    let model = was ? { url: was.model, name: was.name || 'Model' } : null;
+    const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`).catch(() => null);
+    const views = [...new Set([...((cat && cat.views) || []), ...(was && was.view ? [was.view] : [])])];
+    const file = el('span', { class: 'ps-file' });
+    const picker = el('input', { type: 'file', accept: '.glb,model/gltf-binary', hidden: true });
+    const choose = el('button', { type: 'button', class: 'btn small', onclick: () => picker.click() });
+    const remove = el('button', { type: 'button', class: 'btn small ghost', text: 'Remove', onclick: () => { model = null; paint(); } });
+    const screen = el('input', { type: 'text', value: (was && was.screen) || 'screen', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Material of the projection surface' });
+    const view = el('select', { 'aria-label': 'Which view goes on the model' },
+      [['', 'Main view'], ...views.map((v) => [v, v])].map(([v, t]) => el('option', { value: v, text: t, ...((was ? was.view || '' : '') === v && { selected: true }) })));
+    const save = el('button', { type: 'submit', class: 'btn primary', text: 'Save' });
+    const paint = () => {
+      file.textContent = model ? model.name : 'No model';
+      file.classList.toggle('none', !model);
+      choose.textContent = model ? 'Replace…' : 'Choose a .glb…';
+      remove.hidden = !model;
+      screen.disabled = view.disabled = !model;
+    };
+    picker.addEventListener('change', async () => {
+      const f = picker.files[0];
+      picker.value = '';
+      if (!f) return;
+      save.disabled = choose.disabled = true;
+      try {
+        const up = await WBIngest.upload(f, '.glb', (k) => { file.textContent = `Uploading ${f.name}… ${Math.round(k * 100)}%`; });
+        model = { url: up.url, name: f.name };
+      } catch (err) {
+        WB.toast(`${f.name} could not be uploaded: ${err.message}`, { ms: 6000 });
+      }
+      save.disabled = choose.disabled = false;
+      paint();
+    });
+    const row = (label, hint, ...control) => el('div', { class: 'ps-row' },
+      el('div', { class: 'ps-label' }, el('b', { text: label }), hint && el('span', { text: hint })), el('div', { class: 'ps-control' }, ...control));
+    const dlg = el('dialog', { class: 'dlg ps-dlg' },
+      el('form', {
+        method: 'dialog',
+        onsubmit: async (e) => {
+          e.preventDefault();
+          save.disabled = true;
+          try {
+            await api('PATCH', `/api/folders/${project.id}`, { settings: { preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value } : null } });
+            await refresh();
+            dlg.close();
+            WB.toast(model ? 'Saved. The player has a 2D / 3D switch in this project' : 'Saved');
+          } catch (err) {
+            WB.toast(err.message, { ms: 6000 });
+            save.disabled = false;
+          }
+        },
+      },
+      el('h2', { text: `${project.name}: settings` }),
+      el('h3', { class: 'ps-sec', text: '3D preview' }),
+      el('p', { class: 'ps-intro', text: 'Show the work on a 3D model of the venue: the player gets a 2D / 3D switch, and the picture plays on the model.' }),
+      row('Model', 'A .glb of the venue, with a camera named “main”: the view the work is judged and drawn from', el('div', { class: 'ps-model' }, file, choose, remove), picker),
+      row('Projection surface', 'The name of the material the screens have', screen),
+      row('Picture on the model', 'Which view of a version goes on the screens', view),
+      el('div', { class: 'dlg-actions' }, el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }), save)));
+    dlg.addEventListener('close', () => dlg.remove());
+    paint();
+    document.body.append(dlg);
+    dlg.showModal();
+  }
+
   function folderCard(folder) {
     const subs = childrenOf(folder.id).length;
     const boards = boardsIn(folder.id).length;
@@ -361,6 +430,7 @@
         hasPersonal && [`Move to ${SPACES[otherSpace(folder.workspace)]} workspace`, () => moveSpace('folder', folder)],
         !folder.project && !inProject(folder.id) && !holdsProject(folder.id) && ['Make it a project', () => setProject(folder, true)],
         folder.project && ['Open the catalogue', () => { location.hash = WB.href.catalogue(folder.id); }],
+        folder.project && ['Project settings…', () => projectSettings(folder)],
         folder.project && ['Make it a plain folder', () => setProject(folder, false)],
         !folder.project && ['Delete folder', () => removeFolder(folder), true],
       ].filter(Boolean)));
@@ -643,6 +713,7 @@
   function renderCrumbs(rt) {
     const parts = []; // [label, href, folderId for drops (undefined: none), ws]
     let pin = null;
+    let settingsOf = null; // a project's home has the way to its settings
     if (rt.kind === 'home') parts.push(['Home', '#/']);
     else if (rt.kind === 'space') parts.push([spaceName(rt.space), spaceHref(rt.space), null, rt.space]);
     else {
@@ -654,6 +725,7 @@
       pin = f && { kind: 'folder', id: f.id };
       if (f && f.project) {
         const v = currentView();
+        if (v.page === 'home') settingsOf = f;
         if (v.page === 'catalogue') {
           parts.push(['Catalogue', WB.href.catalogue(f.id)]);
           const cat = catalogues.get(f.id);
@@ -692,7 +764,9 @@
         type: 'button', class: `iconbtn crumb-pin${pinned ? ' on' : ''}`, html: ICON_STAR,
         title: pinned ? 'Pinned to Home. Click to unpin' : 'Pin to Home', 'aria-pressed': String(!!pinned),
         onclick: () => togglePin(pin),
-      })].filter(Boolean));
+      }),
+      settingsOf && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('settings', 16), title: 'Project settings', 'aria-label': 'Project settings', onclick: () => projectSettings(settingsOf) }),
+      ].filter(Boolean));
     document.title = `${parts[parts.length - 1][0]} · Boards`;
   }
 
@@ -1317,9 +1391,13 @@
     let seq = store(`wb:tl:seq:${key}`) || '';
     let task = store('wb:tl:task') || '';
     let withEmpty = store('wb:tl:empty') !== false;
-    // Which view of each shot (cmp, bty...), kept per project and shared with its catalogue's player.
+    // Which view of each shot (cmp, bty...), kept per project and shared with its catalogue's player. In 3D,
+    // the one the project puts on its model.
     let view = store(`wb:view:${key}`) || '';
+    const preview3d = project.settings && project.settings.preview3d;
+    let in3d = false;
     let data = null;
+    let reloadRun = () => {};
     const load = async () => {
       data = await api('GET', `/api/projects/${project.id}/timeline${task ? `?task=${encodeURIComponent(task)}` : ''}`);
       if (seq && !data.shots.some((x) => x.seq === seq)) seq = '';
@@ -1335,7 +1413,7 @@
         for (const x of filed) count.set(x.version.look.view, (count.get(x.version.look.view) || 0) + 1);
         view = [...count].sort((a, b) => b[1] - a[1])[0][0];
       }
-      for (const x of filed) x.shown = WBViewer.inView(x.version.look, view);
+      for (const x of filed) x.shown = WBViewer.inView(x.version.look, in3d ? preview3d.view : view);
       const videos = filed.filter((x) => x.shown.type === 'video' && (!seq || x.seq === seq));
       tlScope = { label: 'this timeline', items: videos.map((x) => ({ src: x.shown.src, name: x.version.label })) };
       WB.media.want('timeline', tlScope.items.map((x) => x.src), { rank: WB.media.RANK.timeline, hold: true });
@@ -1357,8 +1435,13 @@
     try {
       await WBViewer.openRun(thePlayer(), {
         load, me, dock: true,
+        ...(preview3d && preview3d.model && {
+          view3d: { ...preview3d, key: project.id },
+          onMode3d: (on) => { in3d = on; reloadRun({ keep: true }); },
+        }),
         title: () => `${project.name} · Timeline`,
         choices: (reload) => {
+          reloadRun = reload;
           const seqs = [...new Set(data.shots.map((x) => x.seq).filter(Boolean))];
           return [
             pick('Which sequence', seq, [['', 'All sequences'], ...seqs.map((x) => [x, x])], (v) => { seq = v; store(`wb:tl:seq:${key}`, v); reload(); }),
@@ -2093,8 +2176,6 @@
   function versionActions(project, entity, v) {
     return [
       ['Open', () => lookAt(entity.id, v.id)],
-      // The 3D preview spike (public/lab), with this version on the venue's model.
-      ['Preview in 3D (lab)', () => window.open(`/lab/preview3d.html?version=${encodeURIComponent(v.id)}`, '_blank')],
       ['Edit…', () => editVersion(project, entity, v)],
       [v.hidden ? 'Bring back from the archive' : 'Archive', () => archiveVersion(v, !v.hidden)],
       v.look && ['Download', () => { location.href = v.look.orig || v.look.src; }],

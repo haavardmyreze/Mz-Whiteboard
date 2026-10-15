@@ -1,3 +1,30 @@
+# 3D: a project's work on a model of its venue
+
+**Status: in the player.** A project's settings can hold a model of its venue; the player then has a 2D / 3D
+switch (see README.md, "3D: the work on the venue"). The code is `public/view3d.js`, driven by
+`public/viewer.js`; the settings dialog is in `public/home.js` (projectSettings); the server keeps the setting
+(cleanProjectSettings) and a comment's `pov: 'main'` (cleanComment), and accepts `.glb` uploads.
+
+How it fits together:
+
+- **One video, two ways of drawing it.** The 3D view textures the screens with the player's own `<video>`
+  (or `<img>`), which plays on unseen beneath the canvas. Time, stepping, scrubbing, the run's cuts and the
+  cache are the player's, unchanged.
+- **The main camera is the frame.** In 3D the piece box takes the main camera's shape (glTF's
+  `aspectRatio`, 16:9 if none) and the venue is drawn into it through that camera. So the player's own
+  zoom, pan, laser and pen work as on any picture, and a drawing is kept in the same units as ever; it
+  is marked `pov: 'main'` and shown only in 3D through the main camera. Flying off hides drawings and
+  takes the pen away.
+- **Which view goes on the screens** is the project's setting (its main one unless said), not the
+  player's view dropdown, which hides in 3D.
+- **Not yet:** the player opened from a board does not offer 3D (the board's pieces are its own copies,
+  not the project's versions). A model replaced after comments were drawn through it would leave those
+  drawings off target; keep a model once it is in use, or move its main camera with care.
+
+---
+
+The exploration that led here (the lab page it mentions has since been folded into the player and removed):
+
 # A 3D preview of projection work: how feasible it is
 
 The idea: a project can have a 3D model of its venue. What is filed is always the unwrapped picture

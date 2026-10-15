@@ -105,10 +105,12 @@ const MIME = {
   '.m4v': 'video/mp4',
   '.webm': 'video/webm',
   '.mov': 'video/quicktime',
+  '.glb': 'model/gltf-binary',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
 };
-const UPLOAD_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp', '.svg', '.mp4', '.m4v', '.webm', '.mov']);
+// A .glb is a project's 3D model of its venue (see cleanProjectSettings); everything else is media.
+const UPLOAD_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp', '.svg', '.mp4', '.m4v', '.webm', '.mov', '.glb']);
 
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 let store;
@@ -504,6 +506,8 @@ function cleanComment(it, peer) {
   if (Number.isSafeInteger(it.fr) && it.fr >= 0) clean.fr = it.fr;
   const drawing = cleanDrawing(it.drawing);
   if (drawing) clean.drawing = drawing;
+  // Drawn in a project's 3D preview, through its main camera: its strokes are in that camera's frame.
+  if (it.pov === 'main') clean.pov = 'main';
   return clean;
 }
 
@@ -825,9 +829,26 @@ function holdsProject(folder) {
   return false;
 }
 // What a project is set to: for now, which naming preset its files are read by.
+// A project's settings: its naming preset, and its 3D preview: the model of the venue its work is shown
+// on (an uploaded .glb), the name of the material its projection surface has (`screen` unless said), and
+// which view of a version goes on it (its main one unless said). `preview3d: null` takes the 3D preview away.
 function cleanProjectSettings(asked, was = {}) {
   const out = { ...was };
-  if (asked && typeof asked === 'object' && typeof asked.naming === 'string' && naming.PRESETS[asked.naming]) out.naming = asked.naming;
+  if (!asked || typeof asked !== 'object') return out;
+  if (typeof asked.naming === 'string' && naming.PRESETS[asked.naming]) out.naming = asked.naming;
+  if (asked.preview3d === null) delete out.preview3d;
+  else if (asked.preview3d && typeof asked.preview3d === 'object') {
+    const p = asked.preview3d;
+    const model = typeof p.model === 'string' && path.extname(uploadName(p.model) || '') === '.glb' && store.media(uploadName(p.model)) ? p.model : null;
+    if (model) {
+      out.preview3d = {
+        model,
+        name: typeof p.name === 'string' ? p.name.slice(0, 200) : '',
+        screen: typeof p.screen === 'string' && p.screen.trim() ? p.screen.trim().slice(0, 80) : 'screen',
+        view: viewName(p.view) || '',
+      };
+    }
+  }
   return out;
 }
 
@@ -2314,7 +2335,7 @@ async function handleRequest(req, res) {
   if (pathname === '/vendor/mediabunny.mjs') {
     return sendFile(req, res, path.join(__dirname, 'node_modules', 'mediabunny', 'dist', 'bundles', 'mediabunny.min.mjs'), { 'Cache-Control': 'public, max-age=86400' });
   }
-  // three.js, for the 3D preview (public/lab): its build, and the add-ons it is used with, as modules.
+  // three.js, for a project's 3D view (view3d.js): its build, and the add-ons it is used with, as modules.
   const three = /^\/vendor\/three\/(build|addons)\/([\w/.-]+\.js)$/.exec(pathname);
   if (three && !three[2].includes('..')) {
     const root = path.join(__dirname, 'node_modules', 'three', three[1] === 'build' ? 'build' : path.join('examples', 'jsm'));

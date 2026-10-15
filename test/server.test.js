@@ -1929,6 +1929,30 @@ test('a version can be shown more than one way: each view is filed with it, by n
   assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.views, ['bty', 'cmp', 'top']);
 });
 
+test('a project can hold a 3D model of its venue, uploaded as a .glb, and let it go again', async (t) => {
+  const s = start(4897);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const up = async (name) => (await (await fetch(`${s.base}/api/upload?name=${name}`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
+  const glb = await up('venue.glb');
+  assert.match(glb, /\.glb$/);
+  const set = async (preview3d) => (await call('PATCH', `/api/folders/${project.id}`, { settings: { preview3d } })).body.settings;
+  // the model, the screen's material (screen unless said) and the view that goes on it (as a token)
+  assert.deepEqual((await set({ model: glb, name: 'venue.glb', screen: ' ', view: 'CMP' })).preview3d, { model: glb, name: 'venue.glb', screen: 'screen', view: 'cmp' });
+  // anything that is not an uploaded .glb is not a model, and leaves the setting as it was
+  assert.equal((await set({ model: await up('a.png') })).preview3d.model, glb);
+  assert.equal((await set({ model: '/uploads/nothere.glb' })).preview3d.model, glb);
+  // and null takes it away
+  assert.equal((await set(null)).preview3d, undefined);
+});
+
 test('many assets, sets and shots are edited at once: artists and cc added, taken off or set, and what they are', async (t) => {
   const s = start(4844);
   t.after(s.stop);

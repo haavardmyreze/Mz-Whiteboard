@@ -375,6 +375,17 @@ filed in it.
   taken is refused, with what has it. Nothing goes on a board. Click a filed one to open it in
   the player. What a row is doing (Preparing, Uploading...) is said under its bar, so nothing on the
   row moves while it comes in; a row that did not come in has "Try again".
+- **3D: the work on the venue.** A project whose settings have a model of its venue (the settings button
+  beside the star on the project's home, or Project settings in its menu: a `.glb`, the name of the
+  material its screens have, and which view of a version goes on them) has a 2D / 3D switch in the
+  player's bar, in the catalogue and on the timeline. In 3D the picture plays on the model's screens
+  (through their own UVs), seen through the model's camera named `main`, at that camera's frame; the
+  timeline, comments, strip and sidebar are as ever, since it is the same video drawn another way. W A S D
+  (along the view, wherever it points), Q and E (down, up) or a right-drag fly off from the main camera,
+  easing in and out as in Unreal's viewport, and "Main camera" or V goes back. Drawing is done through
+  the main camera only, so what is drawn in 3D lands on the same thing for everyone; such a comment says
+  "Drawing in 3D", shows only in 3D, and opening it turns the player to 3D. Whether a project was last
+  looked at in 3D is remembered per browser. The room is lit from all round so nothing in it is black.
 - **Views of a version.** A version can be shown more than one way, each its own file: on projection
   work, say, the unwrapped picture (cmp, or vr) and how it looks projected (bty, or bty-left, top,
   side...). A word after the version in a file's name is its view (`ch04-0030_comp_erik_v110_bty.mov`),
@@ -617,7 +628,7 @@ public/icons.js    Every icon, drawn once
 public/boot.js     Theme and layout set before the page paints
 public/login.html  Sign-in page (password and Google modes)
 public/style.css   All styling
-public/lab/        Spikes not yet in the app: preview3d (a version's picture on a 3D model of its venue; see docs/3d-preview.md)
+public/view3d.js   The player's 3D view: a project's model of its venue, with the piece on its screens (docs/3d-preview.md)
 scripts/           restore-board.js: bring back a deleted board
 test/              npm test: sign-in, uploads, live sync, workspaces, links, the database, catalogue, versions, notes, notifications, snapping and asking Claude (against a stand-in)
 ```

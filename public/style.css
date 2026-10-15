@@ -2436,3 +2436,31 @@ body.viewonly #hint .hint-guest { display: inline; }
   .viewer.run .v-timeline > .tl-track { order: 1; flex: 1 0 100%; height: 48px; margin: 0 0 6px; }
   .viewer.run .cut { order: 2; height: 66px; }
 }
+
+/* The player's 3D view (view3d.js): the venue drawn over the picture, which plays on unseen beneath it
+   and is what the venue shows. The 2D / 3D switch is in the bar only in a project with a model. */
+.v-3d { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.v-3d.free { cursor: grab; }
+.v-3d.free:active { cursor: grabbing; }
+.viewer.in3d .v-piece > video, .viewer.in3d .v-piece > img { opacity: 0; }
+.viewer.in3d .v-viewpick { display: none; }
+.v-dims .btn { border-color: transparent; background: transparent; color: var(--text-2); font-weight: 600; }
+.v-dims .btn:hover { color: var(--text); }
+.v-dims .btn[aria-pressed="true"] { background: var(--surface-1); color: var(--text); box-shadow: var(--shadow-1); }
+.v-cam { gap: 6px; }
+.v-cam svg { width: 16px; height: 16px; }
+/* A project's settings. */
+.ps-dlg { width: min(520px, calc(100vw - 32px)); }
+.ps-sec { margin: 18px 0 2px; font-size: 13px; font-weight: 650; }
+.ps-intro { margin: 0 0 6px; color: var(--muted); font-size: 12.5px; }
+.ps-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 16px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+.ps-label { display: flex; flex-direction: column; gap: 2px; }
+.ps-label b { font-size: 13px; font-weight: 600; }
+.ps-label span { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.ps-control input[type="text"], .ps-control select { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; }
+.ps-control input:disabled, .ps-control select:disabled { opacity: 0.5; }
+.ps-model { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ps-file { flex: 1 1 100%; overflow: hidden; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.ps-file.none { color: var(--muted); }
+.ps-model .btn[hidden] { display: none; }
+@media (max-width: 560px) { .ps-row { grid-template-columns: minmax(0, 1fr); gap: 8px; } }

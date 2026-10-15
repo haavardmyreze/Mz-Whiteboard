@@ -1116,7 +1116,8 @@ body.dragging-tool, body.dragging-tool * { cursor: grabbing !important; }
 .v-pos { padding: 0 2px; color: var(--text-2); font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; text-align: center; }
 .live { flex: none; width: 8px; height: 8px; border-radius: 50%; }
 .v-name { flex: 0 1 auto; min-width: 0; max-width: 36ch; padding: 0 4px; overflow: hidden; font-size: 14px; font-weight: 600; letter-spacing: -0.012em; text-overflow: ellipsis; white-space: nowrap; }
-.v-zoom { min-width: 52px; font-variant-numeric: tabular-nums; }
+.v-zoom { min-width: 40px; padding: 0 8px; font-variant-numeric: tabular-nums; }
+.v-zoom svg { width: 18px; height: 18px; }
 
 #helppanel { right: 12px; top: calc(var(--bar) + 12px); width: 404px; max-width: calc(100vw - 24px); max-height: calc(100vh - var(--bar) - 24px); padding: 12px 16px 10px; overflow: auto; animation: rise 0.14s var(--ease); }
 /* Six icons, one of them lit: what the shortcuts are for, and the guide. */
@@ -2312,6 +2313,11 @@ body:not(.vpicking) .card.ver:is(:hover, :focus-visible) > .vl-box { display: bl
 .viewer.docked .v-bar { top: var(--dock-t); left: var(--dock-l); }
 .viewer.docked .v-bar .brand, .viewer.docked .v-bar .brand + .bar-slash { display: none; }
 .viewer.docked .v-timeline { left: calc(var(--dock-l) + 12px); }
+/* The strip of the other pieces (an asset's versions) starts where the page's sidebar ends. */
+.viewer.docked .v-film { left: var(--dock-l); top: calc(var(--bar) + var(--dock-t)); }
+.viewer.docked .v-fstab { left: calc(var(--dock-l) + var(--film)); top: calc(50% + (var(--bar) + var(--dock-t)) / 2); }
+.viewer.docked .fs-grip { left: calc(var(--dock-l) + var(--film) - 4px); top: calc(var(--bar) + var(--dock-t)); }
+@media (min-width: 701px) { .viewer.docked:not(.run) .v-timeline { left: calc(var(--dock-l) + var(--film) + 12px); } }
 .viewer.docked .v-panel { top: calc(var(--bar) + var(--dock-t)); }
 .viewer.docked .v-cptab { top: calc(50% + (var(--bar) + var(--dock-t)) / 2); }
 .viewer.docked .v-runcap { top: calc(var(--bar) + var(--dock-t) + 14px); left: calc(var(--dock-l) + 24px); }
@@ -2453,16 +2459,12 @@ body.viewonly #hint .hint-guest { display: inline; }
    The pointer goes through the piece box to the stage. */
 .viewer.in3d .v-piece { background: transparent; box-shadow: none; pointer-events: none; }
 .viewer.in3d .v-viewpick { display: none; }
-.v-dims .btn { border-color: transparent; background: transparent; color: var(--text-2); font-weight: 600; }
-.v-dims .btn:hover { color: var(--text); }
-.v-dims .btn[aria-pressed="true"] { background: var(--surface-1); color: var(--text); box-shadow: var(--shadow-1); }
-.v-dims .btn.loading { min-width: 64px; color: var(--text); font-variant-numeric: tabular-nums; }
-/* The model's cameras: its main one, and the rest under the arrow beside it. */
-.v-cams .btn { border-color: transparent; background: transparent; color: var(--text-2); font-weight: 600; }
-.v-cams .btn:hover, .v-cams .iconbtn:hover { color: var(--text); }
-.v-cams .btn[aria-pressed="true"] { background: var(--surface-1); color: var(--text); box-shadow: var(--shadow-1); }
-.v-cam { gap: 6px; }
-.v-cam svg { width: 16px; height: 16px; }
+.v-dims .iconbtn[aria-pressed="true"], .v-cams .iconbtn[aria-pressed="true"] { background: var(--surface-1); color: var(--text); box-shadow: var(--shadow-1); }
+/* While the venue is on its way: how much has come, beside the cube. */
+.v-3d-btn.loading { width: auto; gap: 4px; padding: 0 8px; color: var(--text); }
+.v-3dpct { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.v-3dpct:empty { display: none; }
+.v-cams .iconbtn:hover { color: var(--text); }
 .v-cams .v-cam-more { width: 22px; color: var(--text-2); }
 .v-cams .v-cam-more svg { width: 14px; height: 14px; transform: rotate(90deg); }
 /* A project's settings. */
@@ -2549,3 +2551,16 @@ body.spectating #viewport { pointer-events: none; }
 body.spectating :is(#toolbar, #tooloptions, #seltools, #selbox, #followpill, #followring, #threadpanel, #helppanel, #hint) { display: none !important; }
 body.spectating #topbar > :not(.brand, .bar-slash, #boardname, #conn) { display: none !important; }
 body.spectating #topbar .brand { pointer-events: none; }
+
+/* The player's choices (which view; on the timeline, which sequence, task and shots), in one menu. */
+.v-opts { position: relative; }
+.v-opts[hidden] { display: none; }
+.v-opts-n { position: absolute; right: 1px; top: 1px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; background: var(--accent-fill); color: #fff; font-size: 9.5px; font-weight: 600; line-height: 14px; text-align: center; }
+.v-opts-n[hidden] { display: none; }
+.v-opts-menu { min-width: 220px; }
+.menu-head { padding: 8px 8px 4px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; }
+.menu-head:not(:first-child) { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 10px; }
+.menu-check { display: flex; align-items: center; gap: 6px; }
+.menu-tick { display: inline-grid; place-items: center; width: 16px; height: 16px; flex: none; color: var(--accent); }
+.menu-tick svg { width: 14px; height: 14px; }
+.menu-check.on { font-weight: 600; }

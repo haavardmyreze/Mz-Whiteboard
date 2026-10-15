@@ -329,17 +329,19 @@ const WBViewer = (() => {
     const prevBtn = el('button', { class: 'iconbtn', html: ICON.prev, title: 'Previous (←)', onclick: () => step(-1) });
     const nextBtn = el('button', { class: 'iconbtn', html: ICON.next, title: 'Next (→)', onclick: () => step(1) });
     const crumb = el('button', { class: 'bar-crumb', title: 'Back (Esc)', onclick: () => close() });
-    const clearBtn = el('button', { class: 'btn ghost v-clear', text: 'Clear drawing', onclick: () => clearDrawing() });
+    const clearBtn = el('button', { class: 'iconbtn v-clear', html: ICON.eraser, title: 'Clear what is drawn on it (not what was drawn for a comment)', 'aria-label': 'Clear drawing', onclick: () => clearDrawing() });
     const extras = el('span', { class: 'v-extras' });
     const dlBtn = el('button', { class: 'iconbtn', html: ICON.download, title: 'Download the original media', onclick: () => opts.download && open && opts.download(open) });
-    const zoomBtn = el('button', { class: 'btn ghost v-zoom', text: 'Fit', title: 'Fit to the screen, or actual size', onclick: () => toggleZoom() });
+    const zoomBtn = el('button', { class: 'btn ghost v-zoom', html: ICON.fit, title: 'Fitted to the screen. Click for actual size', onclick: () => toggleZoom() });
     const doneBtn = el('button', { class: 'btn primary', text: 'Done', title: 'Close (Esc)', onclick: () => close() });
     // In a project with a model of its venue, the piece can be seen on it (view3d.js): 2D or 3D, and in 3D
     // the model's cameras to look through: its main one, and the others under the arrow beside it.
-    const d2Btn = el('button', { class: 'btn', text: '2D', title: 'The picture as it is', 'aria-pressed': 'true', onclick: () => set3d(false) });
-    const d3Btn = el('button', { class: 'btn', text: '3D', title: 'The picture on the venue, in 3D', 'aria-pressed': 'false', onclick: () => set3d(true) });
-    const dims = el('span', { class: 'bar-group v-dims', hidden: true }, d2Btn, d3Btn);
-    const camBtn = el('button', { class: 'btn v-cam', html: `${ICON.focus}<span>Main camera</span>`, title: 'Look through the main camera (V)', 'aria-pressed': 'false', onclick: () => toCamera('main') });
+    // One switch: pressed, the picture is on the venue; and while the venue is still on its way, how much has come.
+    const d3Pct = el('span', { class: 'v-3dpct' });
+    const D3_TITLE = 'See it on the venue, in 3D';
+    const d3Btn = el('button', { class: 'iconbtn v-3d-btn', html: ICON.cube, title: D3_TITLE, 'aria-label': '3D', 'aria-pressed': 'false', onclick: () => set3d(!in3d) }, d3Pct);
+    const dims = el('span', { class: 'bar-group v-dims', hidden: true }, d3Btn);
+    const camBtn = el('button', { class: 'iconbtn v-cam', html: ICON.focus, title: 'Look through the main camera (V)', 'aria-label': 'Main camera', 'aria-pressed': 'false', onclick: () => toCamera('main') });
     const camMore = el('button', { class: 'iconbtn v-cam-more', html: ICON.chevron, title: "The model's other cameras", 'aria-haspopup': 'menu', onclick: () => cameraMenu() });
     const camGroup = el('span', { class: 'bar-group v-cams', hidden: true }, camBtn, camMore);
     const brand = el('a', { class: 'brand', href: '/', title: 'All boards' }, el('span', { class: 'logomark', html: (document.querySelector('[data-logo-slot] svg') || {}).outerHTML || '' }), el('span', { class: 'wordmark', text: 'Boards' }));
@@ -727,7 +729,7 @@ const WBViewer = (() => {
         let mod = null;
         const counting = setInterval(() => {
           const k = mod ? mod.progress(opts.view3d.model) : 0;
-          d3Btn.textContent = k == null ? '3D …' : `3D ${Math.round(k * 100)}%`;
+          d3Pct.textContent = k == null ? '…' : `${Math.round(k * 100)}%`;
         }, 150);
         try {
           mod = await import('/view3d.js');
@@ -740,8 +742,8 @@ const WBViewer = (() => {
           clearInterval(counting);
           d3Btn.disabled = false;
           d3Btn.classList.remove('loading');
-          d3Btn.textContent = '3D';
-          d3Btn.title = 'The picture on the venue, in 3D';
+          d3Pct.textContent = '';
+          d3Btn.title = D3_TITLE;
         }
         if (!open) return;
       }
@@ -793,8 +795,8 @@ const WBViewer = (() => {
     const povHere = () => (in3d && three ? three.pose() : null);
     function paintDims() {
       dims.hidden = !has3d();
-      d2Btn.setAttribute('aria-pressed', String(!in3d));
       d3Btn.setAttribute('aria-pressed', String(in3d));
+      d3Btn.title = in3d ? 'Back to the picture as it is (2D)' : D3_TITLE;
       camGroup.hidden = !(in3d && three);
       if (camGroup.hidden) return;
       camBtn.setAttribute('aria-pressed', String(three.camera() === three.mainCamera() && !three.isFree()));
@@ -998,7 +1000,14 @@ const WBViewer = (() => {
       keepOn();
       pieceBox.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.s})`;
       emit('zoom');
-      zoomBtn.textContent = zoomed() ? `${Math.round((cam.s / actualS()) * 100)}%` : 'Fit';
+      // Fitted, an icon; zoomed in, how far, which is worth reading.
+      const z = zoomed() ? `${Math.round((cam.s / actualS()) * 100)}%` : '';
+      if (zoomBtn.dataset.z !== z) {
+        zoomBtn.dataset.z = z;
+        if (z) zoomBtn.textContent = z;
+        else zoomBtn.innerHTML = ICON.fit;
+        zoomBtn.title = z ? `At ${z}. Click to fit to the screen` : 'Fitted to the screen. Click for actual size';
+      }
       // A large picture shows its preview until it is zoomed past it, then its original.
       if (open && open.type === 'image' && open.prev && media && !fullRes.has(open.id) && cam.s * W * (window.devicePixelRatio || 1) > (open.pw || 2048) * 1.1) {
         fullRes.add(open.id);
@@ -1072,7 +1081,7 @@ const WBViewer = (() => {
     }
     syncFilmTab();
     if (Number.isFinite(store('wb:fsw'))) setFilmWidth(store('wb:fsw'), false);
-    dragEdge(filmGrip, (x) => setFilmWidth(x, false), () => setFilmWidth(film.offsetWidth));
+    dragEdge(filmGrip, (x) => setFilmWidth(x - film.getBoundingClientRect().left, false), () => setFilmWidth(film.offsetWidth));
     filmGrip.addEventListener('dblclick', () => setFilmWidth(null));
     filmGrip.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
@@ -2755,13 +2764,45 @@ const WBViewer = (() => {
     return { ...out, ...pick, name: pick.name || main.name, shownView: pick.view, viewNames: viewsOf(look) };
   }
   const viewLabel = (name) => name || 'Main';
-  // The picker for which view: a dropdown for the bar, of `names`, at `value`.
-  function viewPicker(names, value, onPick) {
-    const sel = el('select', { class: 'v-pick v-viewpick', 'aria-label': 'Which view', title: 'Which view of each version to show' },
-      names.map((n) => el('option', { value: n, text: viewLabel(n), ...(n === value && { selected: true }) })));
-    sel.addEventListener('change', () => onPick(sel.value));
-    return sel;
+  // The choices of what the player shows (which view; on the timeline, which sequence, task and shots), as
+  // one button in the bar that opens them as a menu, rather than a row of dropdowns. `groups()` says them
+  // as they are now: [{ name, value, def, options: [[value, label]], pick(value) }]; a group with one
+  // option is no choice and is left out. The button counts the groups not at their default, and its tip
+  // says what each is at.
+  function optionsButton(groups, { title = 'What to show' } = {}) {
+    const count = el('span', { class: 'v-opts-n', hidden: true });
+    const btn = el('button', { class: 'iconbtn v-opts', html: ICON.settings, 'aria-haspopup': 'menu', 'aria-label': title }, count);
+    const shown = () => groups().filter((g) => g.options.length > 1);
+    const labelOf = (g) => (g.options.find(([v]) => v === g.value) || [null, ''])[1];
+    function paint() {
+      const list = shown();
+      const n = list.filter((g) => g.value !== g.def).length;
+      count.hidden = !n;
+      count.textContent = String(n);
+      btn.hidden = !list.length;
+      btn.title = [title, ...list.map((g) => `${g.name}: ${labelOf(g)}`)].join('\n');
+    }
+    btn.addEventListener('click', () => {
+      WB.menu(btn, shown().flatMap((g) => [
+        el('div', { class: 'menu-head', text: g.name }),
+        ...g.options.map(([v, label]) => el('button', {
+          type: 'button', class: `menu-item menu-check${v === g.value ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(v === g.value),
+          onclick: (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            WB.closeMenus();
+            if (v !== g.value) g.pick(v);
+            paint();
+          },
+        }, el('span', { class: 'menu-tick', html: v === g.value ? ICON.check : '' }), el('span', { text: label }))),
+      ]), { cls: 'v-opts-menu' });
+    });
+    btn.paint = paint;
+    paint();
+    return btn;
   }
+  // Which view of each version: a group for optionsButton (a way of seeing, not a filter, so not counted).
+  const viewGroup = (names, value, pick) => ({ name: 'View', value, def: value, options: names.map((n) => [n, viewLabel(n)]), pick });
 
   // ---------------------------------------------------------------- an asset, set or shot's versions
   //
@@ -2877,12 +2918,13 @@ const WBViewer = (() => {
     const showPicker = (id) => {
       const p = pieces.find((x) => x.id === id);
       const names = p ? p.viewNames : [];
-      viewer.extras.replaceChildren(...(names.length > 1 && !follow ? [viewPicker(names, p.shownView, (name) => {
+      viewer.extras.replaceChildren(...(names.length > 1 && !follow ? [optionsButton(() => [viewGroup(names, p.shownView, (name) => {
         view = name;
         WB.store(viewKey, name);
         pieces = piecesIn(in3d ? preview3d.view : view);
         viewer.refresh();
-      })] : []));
+        showPicker(p.id);
+      })], { title: 'Which view' })].map((b) => (b.classList.add('v-viewpick'), b)) : []));
     };
     const shape = (list) => list.map((n) => (n.type === 'comment' ? n : { ...n, type: 'comment', on: n.versionId, obn: n.board && n.board.id ? n.board.name : 'the catalogue' }));
     let notes = shape(page.notes);
@@ -3073,7 +3115,7 @@ const WBViewer = (() => {
   }
 
   return {
-    create, openEntity, openRun, runPieces, usualView, entityRoom, inView, viewPicker, ICON, INK, inkColor, pathData, outlinePath, strokeNode, fmtTime, fmtMoment, timeLabel, cycleTimeMode,
+    create, openEntity, openRun, runPieces, usualView, entityRoom, inView, optionsButton, viewGroup, ICON, INK, inkColor, pathData, outlinePath, strokeNode, fmtTime, fmtMoment, timeLabel, cycleTimeMode,
     frameTime, frameIndex, lastFrame, goTo, whereOf, changing, switchSource, fetchWhole, releaseWhole, showWave,
     timeMode: () => timeMode,
   };

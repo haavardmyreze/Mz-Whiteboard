@@ -1619,13 +1619,17 @@ const admin = createAdmin({
 
 // ---------------------------------------------------------------- http
 
+// Compressed when the browser takes it so and it is worth it (a catalogue, a list of versions, the library).
 function sendJson(res, status, body) {
-  const data = JSON.stringify(body);
-  res.writeHead(status, {
-    'Content-Type': MIME['.json'],
-    'Content-Length': Buffer.byteLength(data),
-    'Cache-Control': 'no-store',
-  });
+  let data = Buffer.from(JSON.stringify(body));
+  const head = { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-store', Vary: 'Accept-Encoding' };
+  const how = res.req ? encodingFor(res.req, data.length) : null;
+  if (how) {
+    data = how === 'br' ? zlib.brotliCompressSync(data, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: data.length } }) : zlib.gzipSync(data, { level: 5 });
+    head['Content-Encoding'] = how;
+  }
+  head['Content-Length'] = data.length;
+  res.writeHead(status, head);
   res.end(data);
 }
 
@@ -1683,39 +1687,94 @@ function refuseRange(res, size) {
   res.end();
 }
 
-// A script that never changes while the server runs (three.js, for the 3D view: some 2 MB), sent compressed
-// to a browser that takes it so, which over a tunnel is what makes 3D quick to open. Each is compressed once,
-// the first time it is asked for, and kept.
-const packed = new Map(); // file -> Promise of { br, gzip, etag }
-function sendPacked(req, res, file, headers = {}) {
+// ---------------------------------------------------------------- the app's own files
+//
+// The pages, scripts and styles (and three.js, for the 3D view) are sent compressed to a browser that takes
+// them so: about a fifth of the size, which over a tunnel or from Cloud Run is most of the wait. Each is
+// compressed once, the first time it is asked for after it changed, and kept.
+//
+// A page names its scripts and styles with a version made from what is in them (/viewer.js?v=3fa9...), and
+// a file asked for under its current version may be kept by the browser for good: going from page to page
+// then asks for nothing but the page itself. A file that changes gets a new version, so an old copy is
+// never used; one asked for under a version it no longer has is sent as it is now, and not kept.
+const TEXT = new Set(['.html', '.js', '.mjs', '.css', '.json', '.svg', '.txt']);
+const statics = new Map(); // file -> { mtime, size, raw, version, br, gzip }
+const digest = (buf) => crypto.createHash('sha1').update(buf).digest('base64url');
+async function staticEntry(file) {
+  const st = await fsp.stat(file);
+  if (!st.isFile()) throw new Error('Not a file');
+  const known = statics.get(file);
+  if (known && known.mtime === st.mtimeMs && known.size === st.size) return known;
+  const raw = await fsp.readFile(file);
+  const entry = { mtime: st.mtimeMs, size: st.size, raw, version: digest(raw).slice(0, 12), br: null, gzip: null };
+  statics.set(file, entry);
+  return entry;
+}
+const squeeze = (fn, buf, opts) => new Promise((resolve, reject) => fn(buf, opts, (err, out) => (err ? reject(err) : resolve(out))));
+const BROTLI = (size) => ({ params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: size } });
+// How a browser takes things compressed, best first; null when it does not (or it is not worth it).
+function encodingFor(req, size) {
+  if (size < 1024) return null;
   const accepts = String(req.headers['accept-encoding'] || '');
-  const how = /\bbr\b/.test(accepts) ? 'br' : /\bgzip\b/.test(accepts) ? 'gzip' : null;
-  if (!how || req.headers.range) return sendFile(req, res, file, headers);
-  if (!packed.has(file)) {
-    const job = fsp.readFile(file).then(async (raw) => {
-      const st = await fsp.stat(file);
-      const squeeze = (fn, opts) => new Promise((resolve, reject) => fn(raw, opts, (err, out) => (err ? reject(err) : resolve(out))));
-      return {
-        br: await squeeze(zlib.brotliCompress, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length } }),
-        gzip: await squeeze(zlib.gzip, { level: 9 }),
-        etag: `"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`,
-      };
-    });
-    job.catch(() => packed.delete(file));
-    packed.set(file, job);
-  }
-  packed.get(file).then(({ br, gzip, etag }) => {
-    if (req.headers['if-none-match'] === etag) {
-      res.writeHead(304, { ETag: etag, Vary: 'Accept-Encoding', ...headers });
-      return res.end();
+  return /\bbr\b/.test(accepts) ? 'br' : /\bgzip\b/.test(accepts) ? 'gzip' : null;
+}
+// A page with its scripts and styles named by version.
+async function versionLinks(html) {
+  const found = [...new Set([...html.matchAll(/\b(?:src|href)="(\/[\w./-]+\.(?:js|css))"/g)].map((m) => m[1]))];
+  const versions = new Map();
+  await Promise.all(found.map(async (p) => {
+    const full = path.join(PUBLIC_DIR, p);
+    if (!full.startsWith(PUBLIC_DIR + path.sep)) return;
+    try {
+      versions.set(p, (await staticEntry(full)).version);
+    } catch {
+      // not there: named as it is
     }
-    const body = how === 'br' ? br : gzip;
-    res.writeHead(200, {
-      'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
-      'Content-Encoding': how, 'Content-Length': body.length, Vary: 'Accept-Encoding', ETag: etag, ...headers,
-    });
-    res.end(req.method === 'HEAD' ? undefined : body);
-  }, () => sendFile(req, res, file, headers));
+  }));
+  return html.replace(/\b(src|href)="(\/[\w./-]+\.(?:js|css))"/g, (all, attr, p) => (versions.has(p) ? `${attr}="${p}?v=${versions.get(p)}"` : all));
+}
+// `cache` says how long the browser may keep it when it is not asked for by version (default: ask again each time).
+async function sendStatic(req, res, file, { cache = 'no-cache', headers = {} } = {}) {
+  const ext = path.extname(file).toLowerCase();
+  if (!TEXT.has(ext)) return sendFile(req, res, file, { 'Cache-Control': cache, ...headers });
+  let entry;
+  try {
+    entry = await staticEntry(file);
+  } catch {
+    return sendJson(res, 404, { error: 'Not found' });
+  }
+  let body = entry.raw;
+  let version = entry.version;
+  if (ext === '.html') {
+    body = Buffer.from(await versionLinks(entry.raw.toString('utf8')));
+    version = digest(body).slice(0, 12);
+  }
+  const asked = new URL(req.url, 'http://x').searchParams.get('v');
+  const keep = ext !== '.html' && asked === version;
+  const etag = `"${version}"`;
+  const head = {
+    'Content-Type': MIME[ext] || 'application/octet-stream',
+    'Cache-Control': keep ? 'private, max-age=31536000, immutable' : cache,
+    ETag: etag,
+    Vary: 'Accept-Encoding',
+    ...headers,
+  };
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, head);
+    return res.end();
+  }
+  const how = encodingFor(req, body.length);
+  if (how) {
+    if (ext === '.html') body = await squeeze(how === 'br' ? zlib.brotliCompress : zlib.gzip, body, how === 'br' ? BROTLI(body.length) : { level: 6 });
+    else {
+      if (!entry[how]) entry[how] = await squeeze(how === 'br' ? zlib.brotliCompress : zlib.gzip, entry.raw, how === 'br' ? BROTLI(entry.raw.length) : { level: 9 });
+      body = entry[how];
+    }
+    head['Content-Encoding'] = how;
+  }
+  head['Content-Length'] = body.length;
+  res.writeHead(200, head);
+  res.end(req.method === 'HEAD' ? undefined : body);
 }
 
 function sendFile(req, res, file, headers = {}) {
@@ -2378,7 +2437,7 @@ async function handleRequest(req, res) {
     if (link) {
       const headers = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
       if (sharedBoard(link[1])) headers['Set-Cookie'] = `${VIEW_COOKIE}=${link[1]}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureCookie(req)}`;
-      return sendFile(req, res, path.join(PUBLIC_DIR, 'board.html'), headers);
+      return sendStatic(req, res, path.join(PUBLIC_DIR, 'board.html'), { cache: headers['Cache-Control'], headers });
     }
     const shared = /^\/api\/shared\/([\w-]{16,64})$/.exec(pathname);
     if (shared) {
@@ -2390,7 +2449,7 @@ async function handleRequest(req, res) {
     if (watching) {
       const headers = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
       if (!watching[2] && presentationFor(watching[1])) headers['Set-Cookie'] = `${WATCH_COOKIE}=${watching[1]}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureCookie(req)}`;
-      return sendFile(req, res, path.join(PUBLIC_DIR, watching[2] ? 'board.html' : 'watch.html'), headers);
+      return sendStatic(req, res, path.join(PUBLIC_DIR, watching[2] ? 'board.html' : 'watch.html'), { cache: headers['Cache-Control'], headers });
     }
     const watchApi = /^\/api\/watch\/([\w-]{16,64})(?:\/(.+))?$/.exec(pathname);
     if (watchApi) return handleWatchApi(req, res, url, watchApi[1], watchApi[2] || '');
@@ -2443,7 +2502,7 @@ async function handleRequest(req, res) {
   if (three && !three[2].includes('..')) {
     const root = path.join(__dirname, 'node_modules', 'three', three[1] === 'build' ? 'build' : path.join('examples', 'jsm'));
     const file = path.join(root, three[2]);
-    if (file.startsWith(root + path.sep)) return sendPacked(req, res, file, { 'Cache-Control': 'public, max-age=86400' });
+    if (file.startsWith(root + path.sep)) return sendStatic(req, res, file, { cache: 'public, max-age=86400' });
   }
 
   let file;
@@ -2455,7 +2514,7 @@ async function handleRequest(req, res) {
   const full = path.join(PUBLIC_DIR, file);
   if (!full.startsWith(PUBLIC_DIR + path.sep)) return sendJson(res, 404, { error: 'Not found' });
   // The typeface never changes under the same name, so browsers may keep it.
-  sendFile(req, res, full, { 'Cache-Control': file.startsWith('fonts/') ? 'public, max-age=31536000, immutable' : 'no-cache' });
+  sendStatic(req, res, full, { cache: file.startsWith('fonts/') ? 'public, max-age=31536000, immutable' : 'no-cache' });
 }
 
 // Nothing one request does may take the server, and everybody's open boards, down with it.
@@ -2477,7 +2536,14 @@ server.requestTimeout = 5 * 60 * 1000;
 
 // ---------------------------------------------------------------- realtime
 
-const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
+// Messages over a kilobyte (a board as it is opened, a catalogue's notes) go compressed, each on its own so a
+// connection holds no compression state between them: tunnels pass a live connection on as it is, so
+// nothing else would.
+const wss = new WebSocketServer({
+  noServer: true,
+  maxPayload: 16 * 1024 * 1024,
+  perMessageDeflate: { threshold: 1024, serverNoContextTakeover: true, clientNoContextTakeover: true, zlibDeflateOptions: { level: 6 } },
+});
 
 // Whether a request was made on the machine the server runs on, by someone sitting at it.
 function fromThisMachine(req) {

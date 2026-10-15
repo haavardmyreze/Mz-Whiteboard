@@ -1389,12 +1389,6 @@
       cacheRing.paint();
       return pieces;
     };
-    const pick = (label, value, options, set) => {
-      const sel = el('select', { class: 'v-pick', 'aria-label': label, title: label },
-        options.map(([v, text]) => el('option', { value: v, text, ...(v === value && { selected: true }) })));
-      sel.addEventListener('change', () => set(sel.value));
-      return sel;
-    };
     try {
       await WBViewer.openRun(thePlayer(), {
         load, me, dock: true,
@@ -1405,19 +1399,27 @@
           onMode3d: (on) => { in3d = on; reloadRun({ keep: true }); },
         }),
         title: () => `${project.name} · Timeline`,
+        // What the run is, all in one button (viewer.js optionsButton): which sequence, the newest of which
+        // task, whether shots with nothing filed are there as slates, and which view. Only what is a choice
+        // in this project is offered: a task, say, only where there are two to choose between.
         choices: (reload) => {
           reloadRun = reload;
-          const seqs = [...new Set(data.shots.map((x) => x.seq).filter(Boolean))];
-          return [
-            pick('Which sequence', seq, [['', 'All sequences'], ...seqs.map((x) => [x, x])], (v) => { seq = v; store(`wb:tl:seq:${key}`, v); reload(); }),
-            pick('Latest of which task', task, [['', 'Latest of any task'], ...data.tasks.map((x) => [x, `Latest ${x}`])], (v) => { task = v; store('wb:tl:task', v); reload(); }),
-            pick('Which shots', withEmpty ? 'all' : 'filed', [['all', 'All shots'], ['filed', 'Filed shots only']], (v) => { withEmpty = v === 'all'; store('wb:tl:empty', withEmpty); reload(); }),
-            // Only where some shot is shown more than one way; a shot without the view chosen shows its main one.
-            ...(data.shots.some((x) => x.version && (x.version.look.views || []).length) ? [WBViewer.viewPicker(
-              [...(data.shots.some((x) => x.version && !x.version.look.view) ? [''] : []), ...data.views], view,
-              (v) => { view = v; store(`wb:view:${key}`, v); reload({ keep: true }); },
-            )] : []),
-          ];
+          const opts = WBViewer.optionsButton(() => {
+            const seqs = [...new Set(data.shots.map((x) => x.seq).filter(Boolean))];
+            const untasked = data.shots.some((x) => x.version && !x.version.task);
+            const tasks = task || data.tasks.length > 1 || (data.tasks.length === 1 && untasked) ? data.tasks : [];
+            const emptyShots = !withEmpty || data.shots.some((x) => !x.version);
+            const views = data.shots.some((x) => x.version && (x.version.look.views || []).length)
+              ? [...(data.shots.some((x) => x.version && !x.version.look.view) ? [''] : []), ...data.views] : [];
+            return [
+              { name: 'Sequence', value: seq, def: '', options: seqs.length > 1 || seq ? [['', 'All sequences'], ...seqs.map((x) => [x, x])] : [], pick: (v) => { seq = v; store(`wb:tl:seq:${key}`, v); reload(); } },
+              { name: 'Task', value: task, def: '', options: tasks.length ? [['', 'Newest of any task'], ...tasks.map((x) => [x, `Newest ${x}`])] : [], pick: (v) => { task = v; store('wb:tl:task', v); reload(); } },
+              { name: 'Shots', value: withEmpty ? 'all' : 'filed', def: 'all', options: emptyShots ? [['all', 'All shots, a slate where nothing is filed'], ['filed', 'Only shots with something filed']] : [], pick: (v) => { withEmpty = v === 'all'; store('wb:tl:empty', withEmpty); reload(); } },
+              // In 3D the view is the one the project puts on its model, so there is none to choose.
+              ...(views.length > 1 && !in3d ? [WBViewer.viewGroup(views, view, (v) => { view = v; store(`wb:view:${key}`, v); reload({ keep: true }); })] : []),
+            ];
+          }, { title: 'What the timeline plays' });
+          return [opts];
         },
         onClose: () => {
           runOf = null;

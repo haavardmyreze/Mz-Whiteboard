@@ -18,6 +18,7 @@
     checks: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><path d="M5.5 7l1.3 1.3L9 6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M5.5 17l1.3 1.3L9 16"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>',
     chevron: '<path d="M9 6l6 6-6 6"/>',
     close: '<path d="M6 6l12 12M18 6L6 18"/>',
+    cube: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/>',
     cloud: '<path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 9.5 4.3 4.3 0 0 1 17.5 18z"/>',
     comment: '<path d="M4 5h16v11H11l-5 4v-4H4z"/>',
     disk: '<path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',

@@ -3,8 +3,11 @@
 // The close-up track of a run, under the whole-run track, as on the cut page of an editor: the playhead
 // stays in the middle and the shots go by under it as a strip of their frames, so a cut is seen coming
 // and a moment can be found to the frame. Dragging it moves the run under the playhead; a click goes
-// to where it was clicked; the wheel moves along it. It is always at the same scale: a few seconds of
-// the run each side of the playhead.
+// to where it was clicked; the wheel moves along it. It is always at the same scale, whatever the length
+// of the run: a few seconds each side of the playhead. It can be drawn out to show up to three times as
+// much (the buttons in its corner, or the wheel with Ctrl or Cmd), and that too is so many pixels a second,
+// never a share of the run. Along its top each shot has a plain band with its name and version, so the
+// frames under it are never written over, and every cut is a gap down the whole height.
 //
 // Frames are taken from the shots themselves, here in the browser, as they come into view: the nearest
 // to the playhead first, one at a time, from a copy of the video kept on this computer when there is one
@@ -12,7 +15,10 @@
 // or its still. Loaded after common.js; used by viewer.js.
 const WBCutTrack = (() => {
   const { el, clamp } = WB;
-  const PPS = 60; // px a second: some fourteen seconds across a laptop's screen, six across a phone's
+  const PPS = 60; // px a second, close in: some fourteen seconds across a laptop's screen, six across a phone's
+  const ZOOMS = [1, 1.5, 2, 3]; // how far it can be drawn out: up to three times as much in the same width
+  const HEAD = 19; // the band along the top with each shot's name
+  const GAP = 3; // the cut between two shots
   const FRAME_W = 160; // a frame taken is this wide
   const KEEP = 500; // frames held, the least lately drawn going first
   const fromB64 = (text) => Uint8Array.from(atob(text), (ch) => ch.charCodeAt(0));
@@ -141,10 +147,18 @@ const WBCutTrack = (() => {
   // ---- one track
 
   // `onGrab()` when a hand takes hold of it (the run stops while it is moved), `onSeek(t)` to move the
-  // run to a moment, `onRelease()` when it lets go.
-  function create({ onGrab, onSeek, onRelease }) {
+  // run to a moment, `onRelease()` when it lets go, `onZoom()` when it is drawn in or out.
+  function create({ onGrab, onSeek, onRelease, onZoom = () => {} }) {
     const canvas = el('canvas', { class: 'cut-canvas' });
-    const node = el('div', { class: 'cut', role: 'slider', 'aria-label': 'Close-up of the run: drag to move through it' }, canvas);
+    let zoom = ZOOMS.includes(WB.store('wb:cutzoom')) ? WB.store('wb:cutzoom') : 1;
+    let pps = PPS / zoom;
+    const zoomOut = el('button', { type: 'button', class: 'cut-zbtn', text: '−', title: 'Show more of the run (Ctrl + wheel)', 'aria-label': 'Show more of the run', onclick: () => setZoom(1) });
+    const zoomIn = el('button', { type: 'button', class: 'cut-zbtn', text: '+', title: 'Show less of the run, closer (Ctrl + wheel)', 'aria-label': 'Show less of the run, closer', onclick: () => setZoom(-1) });
+    const zoomLabel = el('span', { class: 'cut-zlabel' });
+    const zoomBox = el('span', { class: 'cut-zoom' }, zoomOut, zoomLabel, zoomIn);
+    // A click on the zoom buttons is theirs, not a move along the track.
+    zoomBox.addEventListener('pointerdown', (e) => e.stopPropagation());
+    const node = el('div', { class: 'cut', role: 'slider', 'aria-label': 'Close-up of the run: drag to move through it' }, canvas, zoomBox);
     let clips = [];
     let total = 0;
     let t = 0;
@@ -154,6 +168,7 @@ const WBCutTrack = (() => {
     let dpr = 1;
     let live = false;
     let raf = 0;
+    let accent = '#4f8cff';
 
     const later = () => {
       if (!raf && live) raf = requestAnimationFrame(() => { raf = 0; draw(); });
@@ -165,13 +180,31 @@ const WBCutTrack = (() => {
       H = Math.round(r.height);
       canvas.width = Math.max(1, Math.round(W * dpr));
       canvas.height = Math.max(1, Math.round(H * dpr));
+      accent = getComputedStyle(node).getPropertyValue('--accent').trim() || accent;
       draw();
     };
     const watch = new ResizeObserver(resize);
 
-    const xOf = (at) => W / 2 + (at - t) * PPS;
-    const atOf = (x) => t + (x - W / 2) / PPS;
+    const xOf = (at) => W / 2 + (at - t) * pps;
+    const atOf = (x) => t + (x - W / 2) / pps;
 
+    // One step further out (+1) or in (-1), kept for the next time.
+    function setZoom(dir) {
+      const i = clamp(ZOOMS.indexOf(zoom) + dir, 0, ZOOMS.length - 1);
+      zoom = ZOOMS[i];
+      pps = PPS / zoom;
+      WB.store('wb:cutzoom', zoom);
+      paintZoom();
+      draw();
+      onZoom();
+    }
+    function paintZoom() {
+      zoomOut.disabled = zoom === ZOOMS[ZOOMS.length - 1];
+      zoomIn.disabled = zoom === ZOOMS[0];
+      zoomLabel.textContent = `${zoom}×`;
+      zoomBox.title = `Showing ${zoom === 1 ? 'the closest view' : `${zoom} times as much as close in`}`;
+    }
+    paintZoom();
 
     function draw() {
       if (!live || !W || !H) return;
@@ -181,103 +214,113 @@ const WBCutTrack = (() => {
       ctx.fillRect(0, 0, W, H);
       const from = atOf(0);
       const to = atOf(W);
-      // Frames along the top, the shot and its version over them.
-      const tileH = H;
+      // Each shot: a band along the top with its name, and its frames under the band.
+      const tileY = HEAD + 1;
+      const tileH = H - tileY;
       const want = [];
-      for (const c of clips) {
-        if (c.start + c.dur < from || c.start > to) continue;
-        const x0 = xOf(c.start);
-        const x1 = xOf(c.start + c.dur);
+      const at = clips.find((c) => t >= c.start && t < c.start + c.dur) || clips[clips.length - 1];
+      clips.forEach((c, i) => {
+        if (c.start + c.dur < from || c.start > to) return;
+        // The cut is a gap: each shot is drawn short of the next by it.
+        const x0 = xOf(c.start) + (i ? GAP / 2 : 0);
+        const x1 = xOf(c.start + c.dur) - (i < clips.length - 1 ? GAP / 2 : 0);
+        if (x1 <= x0) return;
         const p = c.piece;
+        const here = c === at;
         ctx.save();
         ctx.beginPath();
         ctx.rect(x0, 0, x1 - x0, H);
         ctx.clip();
+        // The band: shots shaded in turn, so neighbours never run together, and the one at the playhead in
+        // the accent colour.
+        ctx.fillStyle = here ? accent : i % 2 ? '#2b2b2b' : '#333';
+        ctx.fillRect(x0, 0, x1 - x0, HEAD);
         ctx.fillStyle = '#1a1a1a';
-        ctx.fillRect(x0, 0, x1 - x0, H);
+        ctx.fillRect(x0, tileY, x1 - x0, tileH);
         if (p.empty) {
           // Nothing filed: a slate's stripes.
           ctx.strokeStyle = '#242424';
           ctx.lineWidth = 6;
-          for (let x = Math.floor(Math.max(x0, 0) / 14) * 14 - H; x < Math.min(x1, W) + H; x += 14) {
+          for (let x = Math.floor(Math.max(x0, 0) / 14) * 14 - tileH; x < Math.min(x1, W) + tileH; x += 14) {
             ctx.beginPath();
             ctx.moveTo(x, H);
-            ctx.lineTo(x + H, 0);
+            ctx.lineTo(x + tileH, tileY);
             ctx.stroke();
           }
         } else {
           const aspect = p.nw && p.nh ? p.nw / p.nh : 16 / 9;
           // A frame in its picture's own shape, standing for the seconds that wide a place is.
           const tileW = tileH * aspect;
-          const span = tileW / PPS;
+          const span = tileW / pps;
+          const sx = xOf(c.start);
           const first = Math.max(0, Math.floor((from - c.start) / span));
           const last = Math.min(Math.ceil(c.dur / span), Math.ceil((to - c.start) / span));
           const still = p.type === 'video' ? null : imageOf(p.prev || p.src);
           const poster = p.type === 'video' && (p.poster || p.th) ? imageOf(p.th || p.poster) : null;
           for (let k = first; k < last; k++) {
             const local = k * span;
-            const x = x0 + k * tileW;
+            const x = sx + k * tileW;
             let pic = still;
             if (p.type === 'video') {
               // The frame at the start of its place, to the nearest 24th of a second.
-              const at = Math.round(Math.min(local, Math.max(0, c.dur - 0.04)) * 24) / 24;
-              const key = frameKey(p.src, at);
+              const fat = Math.round(Math.min(local, Math.max(0, c.dur - 0.04)) * 24) / 24;
+              const key = frameKey(p.src, fat);
               pic = take(key);
-              if (!pic && !failed.has(p.src)) want.push({ key, src: p.src, at, d: Math.abs(c.start + local - t) });
+              if (!pic && !failed.has(p.src)) want.push({ key, src: p.src, at: fat, d: Math.abs(c.start + local - t) });
               if (!pic) {
                 const rgb = colourAt(p, local / c.dur);
                 if (rgb) {
                   ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
-                  ctx.fillRect(x, 0, tileW, H / 2);
+                  ctx.fillRect(x, tileY, tileW, tileH / 2);
                   ctx.fillStyle = `rgb(${rgb[3]},${rgb[4]},${rgb[5]})`;
-                  ctx.fillRect(x, H / 2, tileW, H - H / 2);
+                  ctx.fillRect(x, tileY + tileH / 2, tileW, tileH - tileH / 2);
                 } else if (poster) pic = poster;
               }
             }
-            if (pic) drawCover(ctx, pic, x, 0, tileW, H);
+            if (pic) drawCover(ctx, pic, x, tileY, tileW, tileH);
             ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-            ctx.fillRect(x + tileW - 1, 0, 1, H);
+            ctx.fillRect(x + tileW - 1, tileY, 1, tileH);
           }
         }
-        // Its name, held at the left of the track while the rest of it is still going by.
-        const name = c.piece.name || '';
-        const ver = c.piece.empty ? 'nothing filed' : versionOf(c.piece);
+        // In the band: where a sequence begins, its name; then the shot's, and its version. Held at the left
+        // of the track while the rest of the shot is still going by.
+        const seq = c.seqStart ? String(p.seq || '').toUpperCase() : '';
+        const name = p.name || '';
+        const ver = p.empty ? 'nothing filed' : versionOf(p);
+        ctx.font = '700 9.5px Inter, system-ui, sans-serif';
+        const sw = seq ? ctx.measureText(seq).width + 8 : 0;
         ctx.font = '600 11px Inter, system-ui, sans-serif';
         const nw = ctx.measureText(name).width;
         ctx.font = '400 11px Inter, system-ui, sans-serif';
         const vw = ver ? ctx.measureText(ver).width + 6 : 0;
-        const boxW = nw + vw + 12;
-        const bx = clamp(Math.max(x0, 0) + 4, x0 + 4, x1 - boxW - 4);
-        if (x1 - x0 > boxW + 8) {
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.62)';
-          roundRect(ctx, bx, 4, boxW, 18, 4);
-          ctx.fillStyle = '#f2f2f2';
-          ctx.font = '600 11px Inter, system-ui, sans-serif';
-          ctx.fillText(name, bx + 6, 17);
-          if (ver) {
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-            ctx.font = '400 11px Inter, system-ui, sans-serif';
-            ctx.fillText(ver, bx + 6 + nw + 6, 17);
-          }
+        const textW = (sw ? sw + 6 : 0) + nw + vw;
+        let tx = clamp(Math.max(x0, 0) + 6, x0 + 6, Math.max(x0 + 6, x1 - textW - 6));
+        const ink = here ? '#fff' : '#f2f2f2';
+        const quiet = here ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.6)';
+        const baseline = HEAD / 2 + 4;
+        if (seq) {
+          ctx.fillStyle = here ? 'rgba(0, 0, 0, 0.35)' : 'rgba(255, 255, 255, 0.9)';
+          roundRect(ctx, tx, 3, sw, HEAD - 6, 3);
+          ctx.fillStyle = here ? '#fff' : '#111';
+          ctx.font = '700 9.5px Inter, system-ui, sans-serif';
+          ctx.fillText(seq, tx + 4, baseline - 0.5);
+          tx += sw + 6;
+        }
+        ctx.fillStyle = ink;
+        ctx.font = '600 11px Inter, system-ui, sans-serif';
+        ctx.fillText(name, tx, baseline);
+        if (ver) {
+          ctx.fillStyle = quiet;
+          ctx.font = '400 11px Inter, system-ui, sans-serif';
+          ctx.fillText(ver, tx + nw + 6, baseline);
         }
         ctx.restore();
-        // The cut: a line at the end of each shot, and a brighter one where a sequence begins.
-        ctx.fillStyle = '#000';
-        ctx.fillRect(Math.round(x1) - 1, 0, 2, H);
-        if (c.seqStart) {
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-          ctx.fillRect(Math.round(x0), 0, 2, H);
-          const label = String(c.piece.seq || '').toUpperCase();
-          ctx.font = '700 9.5px Inter, system-ui, sans-serif';
-          const lw = ctx.measureText(label).width + 8;
-          if (x1 - x0 > lw + 8) {
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            roundRect(ctx, Math.round(x0) + 4, H - 18, lw, 14, 3);
-            ctx.fillStyle = '#fff';
-            ctx.fillText(label, Math.round(x0) + 8, H - 7.5);
-          }
+        // A sequence begins: a bright line down the cut before it.
+        if (c.seqStart && i) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+          ctx.fillRect(Math.round(xOf(c.start)) - 1, 0, 2, H);
         }
-      }
+      });
       // Before the first shot and after the last: nothing.
       if (from < 0) {
         ctx.fillStyle = '#070707';
@@ -287,18 +330,18 @@ const WBCutTrack = (() => {
         ctx.fillStyle = '#070707';
         ctx.fillRect(xOf(total), 0, W - xOf(total), H);
       }
-      // Comments, in their writers' colours, along the top.
+      // Comments, in their writers' colours, down the frames.
       for (const m of marks) {
         if (m.at < from || m.at > to) continue;
         const x = xOf(m.at);
         ctx.fillStyle = m.color;
         ctx.beginPath();
-        ctx.moveTo(x - 5, 0);
-        ctx.lineTo(x + 5, 0);
-        ctx.lineTo(x, 7);
+        ctx.moveTo(x - 5, tileY);
+        ctx.lineTo(x + 5, tileY);
+        ctx.lineTo(x, tileY + 7);
         ctx.closePath();
         ctx.fill();
-        ctx.fillRect(x - 0.75, 0, 1.5, H);
+        ctx.fillRect(x - 0.75, tileY, 1.5, tileH);
       }
       // The playhead, which stays where it is: white edged with black, to be seen on any picture.
       const px = Math.round(W / 2);
@@ -338,7 +381,7 @@ const WBCutTrack = (() => {
       const dx = e.clientX - hold.x;
       if (!hold.moved && Math.abs(dx) < 3) return;
       hold.moved = true;
-      onSeek(clamp(hold.t - dx / PPS, 0, total));
+      onSeek(clamp(hold.t - dx / pps, 0, total));
     });
     const letGo = (e) => {
       if (!hold || e.pointerId !== hold.pid) return;
@@ -354,17 +397,27 @@ const WBCutTrack = (() => {
     canvas.addEventListener('pointerup', letGo);
     canvas.addEventListener('pointercancel', letGo);
 
-    // The wheel moves along it. With Ctrl or Cmd (or a pinch) it is the browser's, as anywhere.
+    // The wheel moves along it; with Ctrl or Cmd (or a pinch) it draws the track in or out.
     let wheeling = 0;
+    let zoomWheel = 0;
     node.addEventListener('wheel', (e) => {
-      if (!clips.length || e.ctrlKey || e.metaKey) return;
+      if (!clips.length) return;
       e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        // A pinch comes as many small steps: they add up to one zoom step at a time.
+        zoomWheel += e.deltaY;
+        if (Math.abs(zoomWheel) >= 40) {
+          setZoom(zoomWheel > 0 ? 1 : -1);
+          zoomWheel = 0;
+        }
+        return;
+      }
       const px = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? W : 1;
       const d = (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * px;
       if (!wheeling) onGrab();
       clearTimeout(wheeling);
       wheeling = setTimeout(() => { wheeling = 0; onRelease(); }, 250);
-      onSeek(clamp(t + d / PPS, 0, total));
+      onSeek(clamp(t + d / pps, 0, total));
     }, { passive: false });
 
     return {
@@ -389,6 +442,8 @@ const WBCutTrack = (() => {
           draw();
         }
       },
+      // How many seconds of the run it shows across.
+      span: () => (W || 0) / pps,
       setMarks(list) {
         marks = list;
         later();

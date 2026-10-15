@@ -449,6 +449,12 @@ const WBIngest = (() => {
     : /Safari\//.test(navigator.userAgent) && !/Chrom(e|ium)\//.test(navigator.userAgent) ? 'Chrome, Edge or Firefox'
       : 'Firefox';
   const refusal = (dims) => Object.assign(new Error('This browser cannot process this video'), { refused: true, dims });
+  // A copy that was started and then gave up part way, or came out unreadable, is not a "never" from this
+  // browser: the same file often goes through on the next try (a graphics card's decoder busy with the
+  // page's other videos, say). It is tried again before anybody is told, and then offered to be tried again.
+  const stumble = (dims) => Object.assign(new Error('The review copy could not be made this time'), { refused: true, transient: true, dims });
+  const TRIES = 3;
+  const RETRY_WAIT = [1500, 4000];
   // A review copy is made in memory: past this it would not fit, in any browser. Said as it is, not as
   // "use another browser".
   const COPY_MAX = 1.5 * 1024 ** 3;
@@ -557,14 +563,28 @@ const WBIngest = (() => {
     }
   }
 
-  function tellRefused(list) {
-    if (!list.length) return;
-    const one = list.length === 1;
-    WB.dialog({
-      title: one ? 'This video needs a different browser' : 'These videos need a different browser',
-      text: `${list.map((r) => (r.dims ? `${r.name} (${r.dims})` : r.name)).join(', ')} ${one ? 'is' : 'are'} more than this browser can process, so ${one ? 'it was' : 'they were'} not added. Add ${one ? 'it' : 'them'} from ${OTHER_BROWSERS} instead.`,
-      cancellable: false,
-    });
+  // `retry`, given, is offered for the ones that only stumbled (see `stumble`): it is handed their files.
+  async function tellRefused(list, retry = null) {
+    const never = list.filter((r) => !r.transient);
+    const again = list.filter((r) => r.transient);
+    const names = (l) => l.map((r) => (r.dims ? `${r.name} (${r.dims})` : r.name)).join(', ');
+    if (never.length) {
+      const one = never.length === 1;
+      await WB.dialog({
+        title: one ? 'This video needs a different browser' : 'These videos need a different browser',
+        text: `${names(never)} ${one ? 'is' : 'are'} more than this browser can process, so ${one ? 'it was' : 'they were'} not added. Add ${one ? 'it' : 'them'} from ${OTHER_BROWSERS} instead.`,
+        cancellable: false,
+      });
+    }
+    if (again.length) {
+      const one = again.length === 1;
+      const yes = await WB.dialog({
+        title: one ? 'This video did not go in' : 'These videos did not go in',
+        text: `The review copy of ${names(again)} could not be made, though it was tried ${TRIES} times. This is usually passing: trying again often works.`,
+        ok: retry ? 'Try again' : 'OK', cancellable: !!retry,
+      });
+      if (yes && retry) retry(again.map((r) => r.file).filter(Boolean));
+    }
   }
 
   // Whether an H.264 file's header can be passed on as it is. One written by Firefox's encoder cannot (its
@@ -659,15 +679,15 @@ const WBIngest = (() => {
         }
       }
       if (!buffer) buffer = await encode('no-preference');
-      if (!buffer) throw refusal(`${w}×${h}`);
+      if (!buffer) throw stumble(`${w}×${h}`);
       const ext = mp4 ? 'mp4' : 'webm';
       return new File([buffer], `${file.name.replace(/\.[^.]+$/, '')}.${ext}`, { type: `video/${ext}` });
     } catch (err) {
       if (err.refused || err.tooLarge) throw err;
       if (signal && signal.aborted) throw aborted();
-      // It read the file and then gave up part way: the same answer as not being able to read it.
+      // It read the file and then gave up part way: tried again (see `stumble`).
       console.warn('Could not make a review copy:', err);
-      throw refusal();
+      throw stumble();
     } finally {
       input.dispose();
     }
@@ -684,7 +704,21 @@ const WBIngest = (() => {
 
   // `signal` stops it part way (the person took the file back): the copy being made, the upload, and the
   // strip being read all stop, and it rejects with an AbortError.
-  async function ingest(file, onProgress, { onPhase = () => {}, onStrip = () => {}, onPlan = () => {}, signal = null } = {}) {
+  async function ingest(file, onProgress, opts = {}) {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await ingestOnce(file, onProgress, opts);
+      } catch (err) {
+        if (!err.transient || attempt >= TRIES || (opts.signal && opts.signal.aborted)) throw err;
+        console.warn(`Trying ${file.name} again (${attempt + 1} of ${TRIES})`);
+        if (opts.onPhase) opts.onPhase(0);
+        await new Promise((resolve) => setTimeout(resolve, RETRY_WAIT[attempt - 1] || 4000));
+        if (opts.signal && opts.signal.aborted) throw aborted();
+      }
+    }
+  }
+
+  async function ingestOnce(file, onProgress, { onPhase = () => {}, onStrip = () => {}, onPlan = () => {}, signal = null } = {}) {
     const ext = fileExt(file);
     const url = URL.createObjectURL(file);
     try {
@@ -699,9 +733,9 @@ const WBIngest = (() => {
           // A copy made here that this browser then cannot show a frame of is a broken copy, and would be
           // a black rectangle on the board for everyone. A file that went up as it came may still play elsewhere.
           const made = prepared !== file;
-          const { w, h, video } = await probeVideo(preparedUrl).catch((err) => { throw made ? refusal() : err; });
+          const { w, h, video } = await probeVideo(preparedUrl).catch((err) => { throw made ? stumble() : err; });
           const shows = await pickFrame(video).catch(() => false);
-          if (!shows && made) throw refusal(`${w}×${h}`);
+          if (!shows && made) throw stumble(`${w}×${h}`);
           const th = shows ? await makeThumb(video, video.videoWidth, video.videoHeight) : null;
           const poster = shows ? await videoPoster(video).catch(() => null) : null;
           // Read from the file as it came: a re-encoded copy keeps the rate, but not every container records it as exactly.
@@ -755,7 +789,7 @@ const WBIngest = (() => {
 
 
   return {
-    IMG_EXT, VID_EXT, EXT_BY_TYPE, canCopyVideo, OTHER_BROWSERS,
+    IMG_EXT, VID_EXT, EXT_BY_TYPE, canCopyVideo, OTHER_BROWSERS, TRIES,
     fileExt, upload, loadImage, probeVideo, brightness, pickFrame, beyondThisBrowser, tellRefused, ingest, videoWave, readRate, snapRate,
   };
 })();

@@ -1354,6 +1354,8 @@
     let seq = store(`wb:tl:seq:${key}`) || '';
     let task = store('wb:tl:task') || '';
     let withEmpty = store('wb:tl:empty') !== false;
+    // Which view of each shot (cmp, bty...), kept per project and shared with its catalogue's player.
+    let view = store(`wb:view:${key}`) || '';
     let data = null;
     const load = async () => {
       data = await api('GET', `/api/projects/${project.id}/timeline${task ? `?task=${encodeURIComponent(task)}` : ''}`);
@@ -1363,12 +1365,20 @@
       const pending = data.shots.filter((x) => !x.version && withEmpty && (!seq || x.seq === seq));
       const slateOf = new Map(await Promise.all(pending.map(async (x) => [x.id, await slate(x.name, task)])));
       // All of it is cached, after the next few shots the player asks for first; the ring says how far.
-      const videos = data.shots.filter((x) => x.version && x.version.look.type === 'video' && (!seq || x.seq === seq));
-      tlScope = { label: 'this timeline', items: videos.map((x) => ({ src: x.version.look.src, name: x.version.label })) };
+      // A project whose versions are all named views (every one a cmp, say) starts on the one most have.
+      const filed = data.shots.filter((x) => x.version);
+      if (!view && filed.length && filed.every((x) => x.version.look.view)) {
+        const count = new Map();
+        for (const x of filed) count.set(x.version.look.view, (count.get(x.version.look.view) || 0) + 1);
+        view = [...count].sort((a, b) => b[1] - a[1])[0][0];
+      }
+      for (const x of filed) x.shown = WBViewer.inView(x.version.look, view);
+      const videos = filed.filter((x) => x.shown.type === 'video' && (!seq || x.seq === seq));
+      tlScope = { label: 'this timeline', items: videos.map((x) => ({ src: x.shown.src, name: x.version.label })) };
       WB.media.want('timeline', tlScope.items.map((x) => x.src), { rank: WB.media.RANK.timeline, hold: true });
       cacheRing.paint();
       return data.shots.filter((x) => (x.version || withEmpty) && (!seq || x.seq === seq)).map((x) => (x.version ? {
-        ...x.version.look, id: x.version.id, type: x.version.look.type, label: x.version.label, name: x.name, seq: x.seq, entityId: x.id,
+        ...x.shown, id: x.version.id, type: x.shown.type, label: x.version.label, name: x.name, seq: x.seq, entityId: x.id,
       } : {
         // A shot with nothing filed (of that task): a slate in its place, held like a still.
         type: 'image', id: `empty-${x.id}`, src: slateOf.get(x.id), nw: SLATE.w * SLATE.scale, nh: SLATE.h * SLATE.scale, empty: true,
@@ -1391,6 +1401,11 @@
             pick('Which sequence', seq, [['', 'All sequences'], ...seqs.map((x) => [x, x])], (v) => { seq = v; store(`wb:tl:seq:${key}`, v); reload(); }),
             pick('Latest of which task', task, [['', 'Latest of any task'], ...data.tasks.map((x) => [x, `Latest ${x}`])], (v) => { task = v; store('wb:tl:task', v); reload(); }),
             pick('Which shots', withEmpty ? 'all' : 'filed', [['all', 'All shots'], ['filed', 'Filed shots only']], (v) => { withEmpty = v === 'all'; store('wb:tl:empty', withEmpty); reload(); }),
+            // Only where some shot is shown more than one way; a shot without the view chosen shows its main one.
+            ...(data.shots.some((x) => x.version && (x.version.look.views || []).length) ? [WBViewer.viewPicker(
+              [...(data.shots.some((x) => x.version && !x.version.look.view) ? [''] : []), ...data.views], view,
+              (v) => { view = v; store(`wb:view:${key}`, v); reload({ keep: true }); },
+            )] : []),
           ];
         },
         onClose: () => {
@@ -2228,6 +2243,8 @@
         v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })), v.look, v.label),
       el('div', { class: 'card-body' },
         el('div', { class: 'card-name', text: v.label }),
+        // Shown more than one way: its views, the main one first.
+        v.look && (v.look.views || []).length > 0 && el('div', { class: 'card-meta', text: `Views: ${[v.look.view || 'main', ...v.look.views.map((x) => x.view)].join(', ')}` }),
         el('div', { class: 'card-meta', text: [v.artist, v.descriptor].filter(Boolean).join(' · ') || v.originalName || '' }),
         el('div', { class: 'card-meta', text: `Filed ${ago(v.createdAt)}${v.createdBy ? ` by ${v.createdBy}` : ''}${v.hidden ? ' · archived' : ''}` }),
         v.boards.length > 0 && el('div', { class: 'ver-boards' }, v.boards.map((b) => el('a', { class: 'ver-board', href: WB.href.board(b.id), text: b.name })))),
@@ -2351,7 +2368,16 @@
       },
     });
     if (ai) ai.node.hidden = true;
-    const head = el('div', { class: 'imp-head' }, title, fillAll, el('span', { class: 'imp-gap' }), aiBtn, clearBtn, fileAll);
+    // Which view of its version a file is (cmp, bty...): asked only of a project that shows its versions
+    // more than one way, or once a file's name says it is one; otherwise turned on here.
+    let viewsAsked = false;
+    const viewsOn = () => viewsAsked || !!(cat && cat.views && cat.views.length) || rows.some((r) => r.parsed.view);
+    const viewsBtn = el('button', {
+      type: 'button', class: 'btn small ghost', text: 'Views',
+      title: 'Say which view of its version each file is (cmp, bty, top...), when a version is shown more than one way',
+      onclick: () => { viewsAsked = true; resyncAll(); },
+    });
+    const head = el('div', { class: 'imp-head' }, title, fillAll, el('span', { class: 'imp-gap' }), viewsBtn, aiBtn, clearBtn, fileAll);
     const tray = el('div', { class: 'imp', hidden: true }, head, ai && ai.node, list);
     const picker = el('input', { type: 'file', multiple: true, accept: 'image/*,video/mp4,video/webm,video/quicktime', hidden: true });
     document.body.append(picker);
@@ -2363,10 +2389,29 @@
 
     const PHASE = { enc: 'Preparing', up: 'Uploading', strip: 'Building timeline', orig: 'Keeping the original' };
     const choiceOf = (r) => ({ name: N.tokenize(r.fields.ent.value), task: N.tokenize(r.fields.task.value) || null });
+    const viewOf = (r) => (viewsOn() && N.tokenize(r.fields.view.value)) || null;
     // The next number for a row: one past the highest its asset, set or shot and task has, counting the
-    // rows above it still to be filed to the same.
+    // rows above it still to be filed to the same. Another view of the row just above (the same name and
+    // task, from the same version of the file) is the same version, and has its number.
     function nextNumber(r) {
       const { name, task } = choiceOf(r);
+      const view = viewOf(r);
+      if (view) {
+        let prev = null;
+        for (const o of rows) {
+          if (o === r) break;
+          if (!o.fields) continue;
+          const c = choiceOf(o);
+          if (c.name === name && c.task === task) prev = o;
+        }
+        if (prev && viewOf(prev) !== view && prev.parsed.hip === r.parsed.hip) {
+          const n = prev.status === 'filed' && prev.version ? prev.version.number : Number(prev.fields.num.value);
+          if (n) return n;
+        }
+        // On its own, it goes with the newest version there is of that, if that has no such view yet.
+        const newest = !prev && known(name) && known(name).newest;
+        if (newest && (newest.task || null) === task && !WBViewer.inView(newest.look, '').viewNames.includes(view)) return newest.number;
+      }
       const have = known(name);
       let n = (have && have.tops ? have.tops[task || ''] || 0 : 0) + 1;
       for (const o of rows) {
@@ -2444,12 +2489,18 @@
       // to the same), unless another is typed.
       const num = el('input', { type: 'number', min: '1', step: '1', class: 'imp-num', 'aria-label': 'Version', title: 'Version: the next one, unless you say another' });
       num.addEventListener('input', () => { r.numTouched = num.value !== ''; resyncAll(); });
+      const view = el('input', {
+        type: 'text', class: 'imp-view', value: r.parsed.view || '', placeholder: 'View', spellcheck: 'false', 'aria-label': 'View',
+        title: 'Which view of the version this file is (cmp, bty, top...). Another view of a version that is there already goes with it. Leave it empty if there is only one',
+      });
+      WB.combo(view, (typed) => WB.rank([...new Set([...((cat && cat.views) || []), 'cmp', 'bty'])], typed).map((v) => ({ value: v, label: v })));
+      view.addEventListener('input', resyncAll);
       const go = el('button', { type: 'button', class: 'btn small', text: 'File', onclick: () => fileRow(r) });
       const status = el('span', { class: 'imp-status' });
       const bar = el('i', { class: 'imp-bar' }, el('i'));
       const thumb = el('span', { class: 'imp-thumb' });
       const said = el('button', { type: 'button', class: 'imp-filed', hidden: true, title: 'Open it, to look, comment and draw', onclick: () => r.version && lookAt(r.version.entityId, r.version.id) });
-      const fields = el('span', { class: 'imp-fields' }, ent, tier, task, el('span', { class: 'imp-v' }, el('span', { text: 'v' }), num), go);
+      const fields = el('span', { class: 'imp-fields' }, ent, tier, task, el('span', { class: 'imp-v' }, el('span', { text: 'v' }), num), view, go);
       const sync = () => {
         const { name } = choiceOf(r);
         f.sync();
@@ -2457,14 +2508,15 @@
           const next = name ? nextNumber(r) : '';
           if (num.value !== String(next)) num.value = String(next);
         }
+        view.hidden = !viewsOn();
         go.disabled = !canFile(r);
         paintHead();
       };
-      for (const input of [ent, task, num]) {
+      for (const input of [ent, task, num, view]) {
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented && canFile(r)) fileRow(r); });
         input.addEventListener('input', () => setMark(r, null));
       }
-      r.fields = { f, ent, task, num, tier, go, status, bar, thumb, said, box: fields, sync };
+      r.fields = { f, ent, task, num, view, tier, go, status, bar, thumb, said, box: fields, sync };
       // Taken back: whatever is under way for it stops, and the row goes.
       const drop = el('button', {
         type: 'button', class: 'iconbtn imp-x', html: icon('close', 14), title: `Take ${r.file.name} back`,
@@ -2477,7 +2529,19 @@
         },
       });
       r.fields.drop = drop;
-      r.node = el('div', { class: 'imp-row' }, thumb, el('span', { class: 'imp-file' }, el('span', { class: 'imp-name', text: r.file.name, title: r.file.name }), bar), fields, said, status, drop);
+      // Did not come in: it can be tried again as it is, without taking it back and adding it anew.
+      const retry = el('button', {
+        type: 'button', class: 'btn small imp-retry', html: `${icon('retry', 14)}<span>Try again</span>`, hidden: true, title: `Bring ${r.file.name} in again`,
+        onclick: () => {
+          Object.assign(r, { status: 'queued', error: null, progress: 0, phase: null, ctl: new AbortController() });
+          paintRow(r);
+          paintHead();
+          work();
+        },
+      });
+      r.fields.retry = retry;
+      // What it is doing is said under its bar, so nothing on the row moves while it comes in.
+      r.node = el('div', { class: 'imp-row' }, thumb, el('span', { class: 'imp-file' }, el('span', { class: 'imp-name', text: r.file.name, title: r.file.name }), bar, status), fields, said, el('span', { class: 'imp-end' }, retry, drop));
       sync();
       return r.node;
     }
@@ -2497,6 +2561,7 @@
       f.said.textContent = r.label ? `Filed as ${r.label}` : '';
       f.go.textContent = r.status === 'filing' ? 'Filing…' : 'File';
       f.drop.hidden = r.status === 'filed' || r.status === 'filing';
+      f.retry.hidden = !(r.status === 'failed' && !r.look);
       f.sync();
     }
 
@@ -2510,6 +2575,7 @@
       fileAll.hidden = !ready;
       clearBtn.hidden = !filed && !rows.some((r) => r.status === 'failed' && !r.look);
       fillAll.hidden = rows.filter((r) => r.status !== 'filed').length < 2;
+      viewsBtn.hidden = viewsOn() || !rows.some(unfiled);
       if (aiBtn) aiBtn.hidden = !rows.some(unfiled);
       if (ai && aiBtn.hidden) ai.node.hidden = true;
     }
@@ -2538,9 +2604,10 @@
       r.status = 'filing';
       paintRow(r);
       try {
-        const res = await api('POST', `/api/projects/${project.id}/versions`, { files: [{ look: r.look, entity, task, ...(Number.isSafeInteger(number) && number >= 1 && { number }) }], by: me.name });
+        const view = viewOf(r);
+        const res = await api('POST', `/api/projects/${project.id}/versions`, { files: [{ look: r.look, entity, task, ...(view && { view }), ...(Number.isSafeInteger(number) && number >= 1 && { number }) }], by: me.name });
         const v = res.versions[0];
-        Object.assign(r, { status: 'filed', label: v.label, version: v });
+        Object.assign(r, { status: 'filed', label: v.filedView ? `${v.label} · ${v.filedView}` : v.label, version: v });
         store(`wb:file:${project.id}`, { entity: name, task });
         // What is filed now has its number: the rows still to go count on from it.
         cat = null;
@@ -2578,7 +2645,8 @@
           if (err.name === 'AbortError') continue;
           r.status = 'failed';
           r.fileWhenReady = false;
-          r.error = err.refused ? `This browser cannot process this video. Import it from ${WBIngest.OTHER_BROWSERS} instead` : err.message;
+          r.error = err.transient ? `The review copy could not be made (tried ${WBIngest.TRIES} times). Try again`
+            : err.refused ? `This browser cannot process this video. Import it from ${WBIngest.OTHER_BROWSERS} instead` : err.message;
           paintRow(r);
         }
       }

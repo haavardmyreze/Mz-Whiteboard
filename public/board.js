@@ -2466,12 +2466,13 @@
         if (landed && isVideo && !made.orig) keepOriginal(ghost.id, file);
       } catch (err) {
         ghost.fail();
-        if (err.refused) late.push({ name: file.name, dims: err.dims });
+        if (err.refused) late.push({ name: file.name, dims: err.dims, transient: !!err.transient, file });
         else errors.push(`${file.name}: ${err.message}`);
       }
     }
-    tellRefused(late);
     for (const message of errors.slice(0, 3)) toast(message, { ms: 9000 });
+    // Put back where they were meant to go, as near as can be.
+    tellRefused(late, (again) => again.length && addFiles(again, at));
   }
 
   // ---- the file a video was made from
@@ -3285,6 +3286,12 @@
   // ------------------------------------------------------------- drop, paste, copy
 
   let dragDepth = 0;
+  // A link pressed with the pointer moving a little (a folder in the bar, say) is dragged by the browser,
+  // and let go over the board it would land as a note of its address. What is dragged from this page
+  // itself is never dropped on it.
+  let ownDrag = false;
+  document.addEventListener('dragstart', () => { ownDrag = true; });
+  document.addEventListener('dragend', () => { ownDrag = false; });
   window.addEventListener('dragenter', (e) => {
     e.preventDefault();
     if (viewOnly) return;
@@ -3300,9 +3307,9 @@
   window.addEventListener('dragover', (e) => e.preventDefault());
   window.addEventListener('drop', (e) => {
     e.preventDefault();
-    if (viewOnly) return;
     dragDepth = 0;
     $('dropzone').hidden = true;
+    if (viewOnly || ownDrag) return void (ownDrag = false);
     const at = s2w(e.clientX, e.clientY);
     if (e.dataTransfer.files.length) return addFiles(e.dataTransfer.files, at);
     const text = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
@@ -4389,7 +4396,7 @@
         const trail = [];
         for (let f = byId.get(meta.folderId); f && trail.length < 8; f = byId.get(f.parentId)) trail.unshift(f);
         $('boardname').before(...trail.flatMap((f) => [
-          el('a', { class: 'bar-crumb board-folder', href: WB.href.abs(f.project ? WB.href.folder(f.id) : WB.href.boards(f.id)), text: f.name, title: f.project ? `The ${f.name} project` : `The ${f.name} folder` }),
+          el('a', { class: 'bar-crumb board-folder', draggable: 'false', href: WB.href.abs(f.project ? WB.href.folder(f.id) : WB.href.boards(f.id)), text: f.name, title: f.project ? `The ${f.name} project` : `The ${f.name} folder` }),
           el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' }),
         ]));
       }).catch(() => { /* the logo still goes back */ });

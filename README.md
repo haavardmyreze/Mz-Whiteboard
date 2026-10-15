@@ -112,7 +112,9 @@ private networks, otherwise only the host machine can connect.
   frame by frame, rows first and then left to right, with loose media taking its place among the
   frames. They never scrub a video and never nudge anything in there; out on the board they nudge the
   selection. Moving through a video has its own keys (`,` and `.`), the same in the viewer and for a
-  video selected on the board.
+  video selected on the board. Space plays and pauses even when a dropdown just used (which sequence,
+  which view), a button or a link in the sidebar beside the timeline still has the keyboard: it lets
+  go, and the player takes the key. A dropdown gives the keyboard back once something is picked from it.
 - **The timeline.** Under an open video: play, a frame back, a frame on, the time, and a track to drag
   along, drawn as the video's picture and sound: bands of its colours with its loudness above them, on
   a dark bed in both themes so the colours read the same. Every comment has a small mark above the track in its writer's colour, at the moment it is
@@ -152,7 +154,10 @@ private networks, otherwise only the host machine can connect.
   A video that is more than the browser can process (a very large frame in Safari, say) is not added:
   a message names it and says which browsers to add it from instead, rather than putting the bare
   file on the board. (On a plain http address, where no browser can make review copies, videos still
-  go up as they are.)
+  go up as they are.) A review copy that was started and then gave up part way, or came out unreadable,
+  is not taken as a "never": that is usually passing (a graphics card's decoder busy with the page's
+  other videos, say), so it is tried again, three times in all, before anybody is told, and then
+  "Try again" is offered: in the message on a board, and on the row in a catalogue's import strip.
 - **Scrubbing that does not wait for the network.** A browser keeps only a little of a paused video
   in hand and fetches the rest as it is asked for, so a scrub keeps landing on moments it has not got,
   which drags badly over a tunnel or any slow link. A video that is opened is therefore fetched whole,
@@ -368,7 +373,19 @@ filed in it.
   next one (one past the last of that asset, set or shot and task, and past the rows above it going to
   the same); type another to use it instead, and the rows below count on from it. A number that is
   taken is refused, with what has it. Nothing goes on a board. Click a filed one to open it in
-  the player.
+  the player. What a row is doing (Preparing, Uploading...) is said under its bar, so nothing on the
+  row moves while it comes in; a row that did not come in has "Try again".
+- **Views of a version.** A version can be shown more than one way, each its own file: on projection
+  work, say, the unwrapped picture (cmp, or vr) and how it looks projected (bty, or bty-left, top,
+  side...). A word after the version in a file's name is its view (`ch04-0030_comp_erik_v110_bty.mov`),
+  and the import strip then has a View box on each row (a project already using views always has it;
+  otherwise "Views" in the strip turns it on). A file whose view a version of that number lacks goes
+  with that version instead of being refused; a view on its own row is put with the newest version
+  there is, if that has no such view yet, and two views of one file in a row share a number. A
+  version's card lists its views. In the player, and on the timeline, a dropdown in the bar picks the
+  view, remembered per project; a shot without that view shows its main one, and the bar says which
+  is showing. Changing the view stays on the same moment. A project that never names a view never
+  sees any of this.
 - **Looking without choosing.** Move the pointer across a video's picture in the catalogue and it
   scrubs through it, as if the pointer were dragging its playhead. An asset, set or shot's picture
   plays its newest version at once ("Latest"); its name goes to its page, which has Play latest too.
@@ -383,7 +400,14 @@ filed in it.
   an editor's cut page: the playhead stays in the middle and the shots go by under it as a strip of their
   own frames, so a cut is seen coming and a moment found to the frame. Drag it to move through the run (it
   stops while held, and plays on when let go if it was playing), click to go to a moment, or use the
-  wheel to move along it. It is always at the same scale, some fourteen seconds across a laptop. Its
+  wheel to move along it. It is always at the same scale, some fourteen seconds across a laptop,
+  however long the edit; the buttons in its corner (or the wheel with Ctrl or Cmd) draw it out to show
+  1.5, 2 or 3 times as much, still so many pixels a second, and that is remembered. Each shot has a
+  plain band along its top with its name and version (in the accent colour for the shot under the
+  playhead, and with the sequence's name where one begins), so the frames under it are never written
+  over, and every cut is a gap down the whole height. On the whole run above it the sequences are a
+  row of bands, named where there is room, the shots under them their stills, named only where wide
+  enough, and a box marks the stretch the close-up shows. Its
   frames are taken from the shots in the browser as they come into view, nearest the playhead first;
   until one is in, its place has the colour the shot has there. The arrows step from shot to shot, Space plays
   and pauses, loop goes round to the first shot, and what is written is about the shot under the

@@ -295,6 +295,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   const onBlur = () => {
     held.clear();
     drag = null;
+    canvas.classList.remove('steering');
   };
 
   // ---- drawing, while it is shown
@@ -305,6 +306,8 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     raf = requestAnimationFrame(frame);
     const dt = Math.min(0.1, (now - (last || now)) / 1000);
     last = now;
+    // While the view is being steered (a drag that looks, a move key held), the pointer is out of the way.
+    canvas.classList.toggle('steering', !!drag || held.size > 0);
     if (free) {
       const ease = 1 - Math.exp(-dt / LOOK_EASE);
       viewYaw += (yaw - viewYaw) * ease;

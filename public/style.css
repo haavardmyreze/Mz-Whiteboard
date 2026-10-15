@@ -2443,6 +2443,8 @@ body.viewonly #hint .hint-guest { display: inline; }
 .v-3d.free { cursor: grab; }
 .viewer:is([data-tool="pen"], [data-tool="eraser"], [data-tool="laser"]) .v-3d:not(.free) { cursor: crosshair; }
 .v-3d.free:active { cursor: grabbing; }
+/* Steering the view (looking with a drag, or a move key held), the pointer is hidden, as in Unreal. */
+.viewer .v-3d.steering { cursor: none !important; }
 /* All of the picture is unseen in 3D, the still held over a video while it changes source too. */
 .viewer.in3d .v-piece > video, .viewer.in3d .v-piece > img, .viewer.in3d .v-piece > .vhold { opacity: 0; }
 /* The venue is drawn on the stage: through the main camera in its frame (on near-black bars), where the piece box is (which keeps

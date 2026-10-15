@@ -192,6 +192,10 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
   const tanHalf = (deg) => Math.tan(THREE.MathUtils.degToRad(deg) / 2);
   const fovOf = (tan) => THREE.MathUtils.radToDeg(2 * Math.atan(tan));
+  // Flying, the lens is never wider than 90° across (Unreal's own), whatever the shape of the window: as
+  // a lens's height in degrees, for an area of that shape.
+  const MAX_ACROSS = 90;
+  const capped = (fov, aspect) => THREE.MathUtils.clamp(fov, 20, fovOf(tanHalf(MAX_ACROSS) / aspect));
   const mix = (a, b, p) => ({ x: a.x + (b.x - a.x) * p, y: a.y + (b.y - a.y) * p, w: a.w + (b.w - a.w) * p, h: a.h + (b.h - a.h) * p });
   // Where the main camera's frame is on the canvas, in fractions of it.
   function frameRect(r) {
@@ -225,8 +229,11 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       const e = new THREE.Euler().setFromQuaternion(view.quaternion, 'YXZ');
       yaw = viewYaw = e.y;
       pitch = viewPitch = e.x;
-      camera.fov = THREE.MathUtils.clamp(fovOf(tanHalf(view.fov) / shown.h), 20, 110);
-      glide = ms ? { to: 'free', t0: performance.now(), ms, from: { ...shown } } : null;
+      // (Kept to 90° across: past that the glide out eases the room in to it rather than jumping.)
+      const r = canvas.getBoundingClientRect();
+      const keep = tanHalf(view.fov) / shown.h;
+      camera.fov = capped(fovOf(keep), r.width && r.height ? r.width / r.height : 16 / 9);
+      glide = ms ? { to: 'free', t0: performance.now(), ms, from: { ...shown }, tan: keep } : null;
     } else {
       vel.set(0, 0, 0);
       held.clear();
@@ -350,8 +357,11 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     if (free) {
       view.position.copy(camera.position);
       view.quaternion.copy(camera.quaternion);
-      rect = glide ? mix(glide.from, FULL, easeOut(p)) : FULL;
-      tan = tanHalf(camera.fov) * rect.h;
+      // A window that changes shape never takes the lens past 90° across.
+      camera.fov = capped(camera.fov, r.width / r.height);
+      const q = glide ? easeOut(p) : 1;
+      rect = glide ? mix(glide.from, FULL, q) : FULL;
+      tan = (glide ? glide.tan + (tanHalf(camera.fov) - glide.tan) * q : tanHalf(camera.fov)) * rect.h;
     } else {
       const target = fr || FULL;
       const mainTan = tanHalf(main.fov) / target.h; // the main camera's lens, over the whole canvas

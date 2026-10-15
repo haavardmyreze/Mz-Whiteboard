@@ -506,9 +506,24 @@ function cleanComment(it, peer) {
   if (Number.isSafeInteger(it.fr) && it.fr >= 0) clean.fr = it.fr;
   const drawing = cleanDrawing(it.drawing);
   if (drawing) clean.drawing = drawing;
-  // Drawn in a project's 3D preview, through its main camera: its strokes are in that camera's frame.
-  if (it.pov === 'main') clean.pov = 'main';
+  // Made in a project's 3D preview: where the view was (a drawing's strokes are in that view's frame).
+  const pov = cleanPov(it.pov);
+  if (pov) clean.pov = pov;
   return clean;
+}
+
+// Where a comment made in 3D was made from: the camera's place, which way it turned (a quaternion) and its
+// lens (degrees top to bottom, over a 16:9 frame). 'main' is the model's main camera, which comments drawn
+// before views could be anywhere were made through.
+function cleanPov(pov) {
+  if (pov === 'main') return 'main';
+  if (!pov || typeof pov !== 'object' || !Array.isArray(pov.p) || !Array.isArray(pov.q)) return null;
+  const fine = (a, n) => a.length === n && a.every((v) => Number.isFinite(v) && Math.abs(v) < 1e6);
+  if (!fine(pov.p, 3) || !fine(pov.q, 4) || !Number.isFinite(pov.fov) || pov.fov < 1 || pov.fov > 179) return null;
+  const len = Math.hypot(...pov.q);
+  if (len < 1e-6) return null;
+  const r = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
+  return { p: pov.p.map((v) => r(v, 4)), q: pov.q.map((v) => r(v / len, 6)), fov: r(pov.fov, 3) };
 }
 
 // What may change about a comment: whether it has been dealt with, by anyone on the board, and what it

@@ -203,11 +203,18 @@ test('comments are stamped with who wrote them, only ever sit on a piece of cont
     { t: 'add', item: { id: 'comment03', type: 'comment', on: 'imageone1', text: '   ' } },
     // about the image as a whole, pointing at no spot on it
     { t: 'add', item: { id: 'comment04', type: 'comment', on: 'imageone1', text: 'Overall: lovely' } },
+    // made in 3D: where the view was is kept (cleaned), anything else said to be one is not
+    { t: 'add', item: { id: 'comment05', type: 'comment', on: 'imageone1', text: 'From the booth', pov: { p: [1.234567, 2, -3], q: [0, 0, 0, 2], fov: 40.12345, x: 1 } } },
+    { t: 'add', item: { id: 'comment06', type: 'comment', on: 'imageone1', text: 'Odd view', pov: { p: [1, 2], q: [0, 0, 0, 1], fov: 40 } } },
+    { t: 'add', item: { id: 'comment07', type: 'comment', on: 'imageone1', text: 'Through main', pov: 'main' } },
   ] }));
   await wait(300);
 
   const added = reviewer.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).filter((o) => o.item && o.item.type === 'comment');
-  assert.equal(added.length, 2);
+  assert.equal(added.length, 5);
+  assert.deepEqual(added[2].item.pov, { p: [1.2346, 2, -3], q: [0, 0, 0, 1], fov: 40.123 });
+  assert.equal(added[3].item.pov, undefined);
+  assert.equal(added[4].item.pov, 'main');
   const c = added[0].item;
   assert.equal(c.name, 'Anna');
   assert.equal(c.color, '#336699');

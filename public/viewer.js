@@ -315,18 +315,20 @@ const WBViewer = (() => {
     const dlBtn = el('button', { class: 'iconbtn', html: ICON.download, title: 'Download the original media', onclick: () => opts.download && open && opts.download(open) });
     const zoomBtn = el('button', { class: 'btn ghost v-zoom', text: 'Fit', title: 'Fit to the screen, or actual size', onclick: () => toggleZoom() });
     const doneBtn = el('button', { class: 'btn primary', text: 'Done', title: 'Close (Esc)', onclick: () => close() });
-    // In a project with a model of its venue, the piece can be seen on it (view3d.js): 2D or 3D, and, having
-    // flown off in 3D, the way back to the main camera.
+    // In a project with a model of its venue, the piece can be seen on it (view3d.js): 2D or 3D, and in 3D
+    // the model's cameras to look through: its main one, and the others under the arrow beside it.
     const d2Btn = el('button', { class: 'btn', text: '2D', title: 'The picture as it is', 'aria-pressed': 'true', onclick: () => set3d(false) });
     const d3Btn = el('button', { class: 'btn', text: '3D', title: 'The picture on the venue, in 3D', 'aria-pressed': 'false', onclick: () => set3d(true) });
     const dims = el('span', { class: 'bar-group v-dims', hidden: true }, d2Btn, d3Btn);
-    const camBtn = el('button', { class: 'btn ghost v-cam', html: `${ICON.focus}<span>Main camera</span>`, title: 'Back to the main camera (V)', hidden: true, onclick: () => backToMain() });
+    const camBtn = el('button', { class: 'btn v-cam', html: `${ICON.focus}<span>Main camera</span>`, title: 'Look through the main camera (V)', 'aria-pressed': 'false', onclick: () => toCamera('main') });
+    const camMore = el('button', { class: 'iconbtn v-cam-more', html: ICON.chevron, title: "The model's other cameras", 'aria-haspopup': 'menu', onclick: () => cameraMenu() });
+    const camGroup = el('span', { class: 'bar-group v-cams', hidden: true }, camBtn, camMore);
     const bar = el('header', { class: 'appbar chrome v-bar' },
       el('a', { class: 'brand', href: '/', title: 'All boards' }, el('span', { class: 'logomark', html: (document.querySelector('[data-logo-slot] svg') || {}).outerHTML || '' }), el('span', { class: 'wordmark', text: 'Boards' })),
       el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' }), crumb,
       el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' }),
       el('span', { class: 'stepper' }, prevBtn, posEl, nextBtn),
-      nameEl, el('div', { class: 'spacer' }), clearBtn, camBtn, extras, dims,
+      nameEl, el('div', { class: 'spacer' }), clearBtn, camGroup, extras, dims,
       el('span', { class: 'bar-group' }, dlBtn, zoomBtn),
       WB.themeButton(), doneBtn);
     // On a phone there is no room for the panel's brush: the viewer's own few tools sit along the bottom.
@@ -619,12 +621,10 @@ const WBViewer = (() => {
       if (old !== media) unload(old);
     }
 
-    // What the piece box holds: the picture at its own size, or, in 3D, the venue drawn at the main
-    // camera's shape over the picture (which plays on unseen, and is what the venue shows).
-    function arrange() {
-      if (!open) return;
-      const as3d = in3d && !!three;
-      if (as3d) {
+    // What the piece box holds: the picture at its own size, or, in 3D, the venue drawn at the shape of the
+    // frame the view holds over the picture (which plays on unseen, and is what the venue shows).
+    function sizeBox() {
+      if (in3d && three) {
         W = 1600;
         H = Math.round(W / three.aspect());
       } else {
@@ -634,8 +634,13 @@ const WBViewer = (() => {
       pieceBox.style.width = `${W}px`;
       pieceBox.style.height = `${H}px`;
       ink.setAttribute('viewBox', `0 0 ${UNITS} ${(UNITS * H) / W}`);
-      // In 3D the venue fills the stage, under the piece box, which keeps the main camera's frame (and
-      // what is drawn in it) but shows nothing of its own.
+    }
+    function arrange() {
+      if (!open) return;
+      const as3d = in3d && !!three;
+      sizeBox();
+      // In 3D the venue fills the stage, under the piece box, which keeps the frame held (and what is drawn
+      // in it) but shows nothing of its own.
       pieceBox.replaceChildren(media, ink);
       root.classList.toggle('in3d', as3d);
       if (as3d) {
@@ -662,9 +667,9 @@ const WBViewer = (() => {
         try {
           if (!three) {
             three = (await import('/view3d.js')).create({
-              onFree: () => { if (tool === 'pen' || tool === 'eraser') setTool('pan'); paintDims(); paintInk(); },
+              onFree: (on) => { if (on && (tool === 'pen' || tool === 'eraser')) setTool('pan'); paintDims(); paintInk(); },
               frameOf: () => pieceBox.getBoundingClientRect(),
-              // Drawing, erasing and pointing are done through the main camera; any other press moves the view.
+              // Drawing, erasing and pointing are done on the frame held; any other press moves the view.
               holds: (e) => e.button === 0 && !spaceDown && (tool === 'pen' || tool === 'eraser' || tool === 'laser'),
             });
           }
@@ -685,7 +690,7 @@ const WBViewer = (() => {
       }
       in3d = on;
       if (remember) store(key3d(), on);
-      if (three) three.setFree(false);
+      if (three) three.goTo('main', false);
       if (opts.onMode3d) opts.onMode3d(on);
       arrange();
       layout();
@@ -693,20 +698,47 @@ const WBViewer = (() => {
       paintDims();
       paintAll();
     }
-    function backToMain() {
-      if (!three || !three.isFree()) return;
-      three.setFree(false, true);
+    // The view goes to another frame (a camera of the model's, a comment's place: see view3d.js), and the
+    // piece box takes its shape.
+    function look(pov, animate = true) {
+      if (!in3d || !three) return;
+      if (pov === undefined) three.hold();
+      else three.goTo(pov, animate);
+      if (Math.round(1600 / three.aspect()) !== H) {
+        sizeBox();
+        fit();
+      }
       paintDims();
       paintInk();
     }
+    const toCamera = (n) => look(n);
+    function cameraMenu() {
+      if (!in3d || !three) return;
+      const names = three.cameras();
+      const main = three.mainCamera();
+      const on = three.camera();
+      WB.menu(camMore, names.map((name, i) => i !== main && [`${i === on ? '✓ ' : ''}${name}`, () => toCamera(i)]));
+    }
+    // In 3D a comment is made from where the view is: the moment one is begun (the pen taken up, the box
+    // clicked into, a comment sent), the view holds still there, framed 16:9, and that frame goes with the
+    // comment. A drawing begun already keeps the frame it was begun in, and the view goes back to it.
+    function holdForComment() {
+      if (!in3d || !three || !open) return;
+      if (draft && draft.on === open.id && draft.pov && typeof draft.pov === 'object') look(draft.pov);
+      else look();
+    }
+    const povHere = () => (in3d && three ? three.pose() : null);
     function paintDims() {
       dims.hidden = !has3d();
       d2Btn.setAttribute('aria-pressed', String(!in3d));
       d3Btn.setAttribute('aria-pressed', String(in3d));
-      camBtn.hidden = !(in3d && three && three.isFree());
+      camGroup.hidden = !(in3d && three);
+      if (camGroup.hidden) return;
+      camBtn.setAttribute('aria-pressed', String(three.camera() === three.mainCamera() && !three.isFree()));
+      camMore.hidden = three.cameras().length < 2;
     }
-    // Drawn in 3D, a drawing is seen through the main camera only; drawn on the picture, on the picture only.
-    const drawnHere = (c) => (c.pov === 'main' ? in3d && !!three && !three.isFree() : !in3d);
+    // Made in 3D, a drawing is seen from where it was drawn only; drawn on the picture, on the picture only.
+    const drawnHere = (c) => (c.pov ? in3d && !!three && three.at(c.pov) : !in3d);
 
     function makeVideo(piece) {
       const video = el('video', { playsinline: '', preload: 'auto' });
@@ -1502,7 +1534,8 @@ const WBViewer = (() => {
 
     function addDraftStroke(stroke) {
       if (!draft || draft.on !== open.id) {
-        draft = { id: uid(), on: open.id, strokes: [], ...(in3d && { pov: 'main' }) };
+        if (in3d) holdForComment();
+        draft = { id: uid(), on: open.id, strokes: [], ...(povHere() && { pov: povHere() }) };
         activeThread = null;
       }
       stampMoment(draft);
@@ -1536,7 +1569,10 @@ const WBViewer = (() => {
     }
     function redo() {
       if (unstroked.length && open) {
-        if (!draft || draft.on !== open.id) draft = { id: uid(), on: open.id, strokes: [], ...(in3d && { pov: 'main' }) };
+        if (!draft || draft.on !== open.id) {
+          if (in3d) holdForComment();
+          draft = { id: uid(), on: open.id, strokes: [], ...(povHere() && { pov: povHere() }) };
+        }
         draft.strokes.push(unstroked.pop());
         paintInk();
         renderPanel();
@@ -1637,7 +1673,7 @@ const WBViewer = (() => {
     // ---- tools: the brush, the eraser, the laser, and the hand
 
     function setTool(name) {
-      if ((name === 'pen' || name === 'eraser') && in3d && three && three.isFree()) backToMain();
+      if ((name === 'pen' || name === 'eraser') && in3d && three && can.draw()) holdForComment();
       if (!can.draw() && (name === 'pen' || name === 'eraser')) name = 'pan';
       tool = name;
       root.dataset.tool = name;
@@ -1903,6 +1939,8 @@ const WBViewer = (() => {
     const composer = el('textarea', { rows: 1, maxlength: 2000, placeholder: 'Leave a comment…', 'aria-label': 'Comment' });
     const replyBox = el('textarea', { rows: 1, maxlength: 2000, placeholder: 'Reply…', 'aria-label': 'Reply' });
     const editBox = el('textarea', { rows: 1, maxlength: 2000, 'aria-label': 'Edit comment' });
+    // In 3D, beginning to write a comment holds the view where it is (see holdForComment).
+    composer.addEventListener('focus', () => holdForComment());
     const momentChip = el('button', {
       class: 'tchip', onclick: () => {
         timed = !timed;
@@ -2193,7 +2231,8 @@ const WBViewer = (() => {
               }),
               canDelete && el('button', { class: 'iconbtn mini', html: ICON.trash, title: first ? 'Delete the thread, and what was drawn for it' : 'Delete', onclick: () => removeComment(c) }))),
           text,
-          first && Array.isArray(c.drawing) && el('span', { class: 'msg-drawn', title: c.pov ? 'Has a drawing, made in 3D through the main camera. Pick the thread to see it' : 'Has a drawing on the picture. Pick the thread to see it' }, el('span', { html: ICON.scribble }), c.pov ? 'Drawing in 3D' : 'Drawing')));
+          first && Array.isArray(c.drawing) && el('span', { class: 'msg-drawn', title: c.pov ? 'Has a drawing, made in 3D. Pick the thread to see it from where it was drawn' : 'Has a drawing on the picture. Pick the thread to see it' }, el('span', { html: ICON.scribble }), c.pov ? 'Drawing in 3D' : 'Drawing'),
+          first && c.pov && !Array.isArray(c.drawing) && el('span', { class: 'msg-drawn', title: 'Made in 3D. Pick the thread to see it from where it was made' }, el('span', { html: ICON.focus }), 'In 3D')));
     }
 
     function threadCard(c, mentions) {
@@ -2262,13 +2301,12 @@ const WBViewer = (() => {
       const rootNote = c && (c.re ? noteById(c.re) : c);
       if (!rootNote) return;
       if (rootNote.on !== open.id) return void show(rootNote.on, { thread: rootNote.id });
-      // Its drawing is seen in the view it was drawn in: in 3D through the main camera, or on the picture.
-      if (Array.isArray(rootNote.drawing)) {
-        if (rootNote.pov === 'main' && has3d()) {
-          if (!in3d) set3d(true).then(() => paintInk());
-          else backToMain();
-        } else if (!rootNote.pov && in3d) set3d(false);
-      }
+      // It is seen from where it was made: in 3D from the place it was made at, or, drawn on the picture, on
+      // the picture.
+      if (rootNote.pov && has3d()) {
+        if (!in3d) set3d(true).then(() => look(rootNote.pov, false));
+        else look(rootNote.pov);
+      } else if (!rootNote.pov && Array.isArray(rootNote.drawing) && in3d) set3d(false);
       if (activeThread !== rootNote.id) replyBox.value = '';
       activeThread = rootNote.id;
       calling = { id: rootNote.id, until: performance.now() + 4000 };
@@ -2292,6 +2330,11 @@ const WBViewer = (() => {
         if (drawn.pov) c.pov = drawn.pov;
       } else {
         stampMoment(c);
+        // Written in 3D, it is about what the view shows: that frame goes with it.
+        if (in3d && three) {
+          holdForComment();
+          if (povHere()) c.pov = povHere();
+        }
       }
       composer.value = '';
       autosize(composer);
@@ -2360,7 +2403,7 @@ const WBViewer = (() => {
       // Docked beside the page's own sidebar and bar, what has the keyboard there keeps its keys.
       if (!released && root.classList.contains('docked') && e.target instanceof Element && e.target !== document.body && !root.contains(e.target)) return;
       const k = e.key.toLowerCase();
-      // In 3D, W A S D Q E fly (unless a pen is in hand) and V goes back to the main camera.
+      // In 3D, W A S D Q E fly (unless a pen is in hand) and V goes to the main camera.
       if (in3d && three && tool !== 'pen' && tool !== 'eraser' && three.key(e, true)) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -2371,7 +2414,7 @@ const WBViewer = (() => {
       if (in3d && three && k === 'v' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        return void backToMain();
+        return void toCamera('main');
       }
       // Enter works a button that has the keyboard; Space always plays and pauses, even when a button
       // clicked a moment ago still has it.

@@ -3,25 +3,35 @@
 **Status: in the player.** A project's settings can hold a model of its venue; the player then has a 2D / 3D
 switch (see README.md, "3D: the work on the venue"). The code is `public/view3d.js`, driven by
 `public/viewer.js`; the settings dialog is in `public/home.js` (projectSettings); the server keeps the setting
-(cleanProjectSettings) and a comment's `pov: 'main'` (cleanComment), and accepts `.glb` uploads.
+(cleanProjectSettings) and where a comment made in 3D was made from (`pov`, cleanComment), and accepts `.glb`
+uploads.
 
 How it fits together:
 
 - **One video, two ways of drawing it.** The 3D view textures the screens with the player's own `<video>`
   (or `<img>`), which plays on unseen beneath the canvas. Time, stepping, scrubbing, the run's cuts and the
   cache are the player's, unchanged.
-- **The main camera is the frame.** In 3D the piece box takes the main camera's shape (glTF's
-  `aspectRatio`, 16:9 if none) but shows nothing itself: the venue is drawn on a canvas over the whole
-  stage, through the main camera into exactly the piece box's rectangle, letterboxed on the player's dark
-  ground. So the laser and pen work as on any picture, and a drawing is kept in the same units as ever; it
-  is marked `pov: 'main'` and shown only in 3D through the main camera. Any move of the view (a drag that
-  is not the pen's, eraser's or laser's, the wheel, a move key) flies off: the view fills the stage, its lens
-  widened so the room stays the size it was, drawings hide and the pen is put down.
+- **A frame, or flying.** The view is either held on a frame or flying. A frame is one of the model's
+  cameras (the one named `main`, or its first, to start with; the others are in the menu beside "Main
+  camera"), with its own shape (glTF's `aspectRatio`, 16:9 if none), or the place a comment was made
+  from, always 16:9. In 3D the piece box takes the frame's shape but shows nothing itself: the venue is
+  drawn on a canvas over the whole stage, through the frame into exactly the piece box's rectangle,
+  letterboxed on bars darker than the player's ground. So the laser and pen work as on any picture, and a
+  drawing is kept in the same units as ever. Any move of the view (a drag that is not the pen's, eraser's
+  or laser's, the wheel, a move key) flies off: the view fills the stage, its lens widened so the room
+  stays the size it was, drawings hide and the pen is put down.
+- **Comments are made from wherever the view is.** Beginning one (the pen or eraser taken up, the comment
+  box clicked into, or a comment sent while flying) holds the view still where it is, framed 16:9 with the
+  room kept at its size. The comment keeps that view as `pov: { p: [x, y, z], q: [x, y, z, w], fov }` (the
+  camera's place, its turn as a quaternion, and its lens in degrees top to bottom); a drawing's strokes are
+  in that frame. Picking the comment glides back to it, turning the player to 3D if need be, and its
+  drawing shows only there. A drawing begun and not yet sent keeps its frame: beginning again goes back to
+  it. Comments drawn before this through the main camera say `pov: 'main'` and still open on it.
 - **Which view goes on the screens** is the project's setting (its main one unless said), not the
   player's view dropdown, which hides in 3D.
 - **Not yet:** the player opened from a board does not offer 3D (the board's pieces are its own copies,
-  not the project's versions). A model replaced after comments were drawn through it would leave those
-  drawings off target; keep a model once it is in use, or move its main camera with care.
+  not the project's versions). A model replaced or moved after comments were made in it would leave their
+  views (and drawings) off target; keep a model once it is in use.
 
 ---
 

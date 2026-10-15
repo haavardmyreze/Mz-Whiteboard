@@ -384,12 +384,15 @@ filed in it.
   move of the view leaves the main camera: a drag (with both buttons held, it slides the camera along the
   view's plane: sideways, up and down), the wheel, W A S D (along the view, wherever it points) or Q and E
   (down, up), easing in and out as in Unreal's viewport, with the view filling the whole picture
-  area and the room kept at the size it was (the lens never wider than 122.5° across); "Main camera" or V goes back. Both ways are a short glide: the
-  letterbox opens out, or the camera moves back to the main one as it closes in (none, if the system asks
-  for reduced motion). A pen, eraser or laser in hand
-  works through the main camera without leaving it. Drawing is done through
-  the main camera only, so what is drawn in 3D lands on the same thing for everyone; such a comment says
-  "Drawing in 3D", shows only in 3D, and opening it turns the player to 3D. Whether a project was last
+  area and the room kept at the size it was (the lens never wider than 122.5° across). "Main camera" or V
+  goes back to the main camera, and the arrow beside it lists the model's other cameras to look through.
+  Each is a short glide: the letterbox opens out, or the camera moves to the frame as it closes in (none,
+  if the system asks for reduced motion). A pen, eraser or laser in hand works on the frame without
+  leaving it. A comment can be made from anywhere: the moment one is begun (the pen taken up, the comment
+  box clicked into) the view holds still where it is, letterboxed 16:9, and that view is kept with the
+  comment, so what is drawn lands on the same thing for everyone. Picking the comment glides back to it
+  (turning the player to 3D if need be); a drawing shows only from there. Such a comment says
+  "Drawing in 3D", or "In 3D" with no drawing. Whether a project was last
   looked at in 3D is remembered per browser. The room is lit from all round so nothing in it is black.
 - **Views of a version.** A version can be shown more than one way, each its own file: on projection
   work, say, the unwrapped picture (cmp, or vr) and how it looks projected (bty, or bty-left, top,

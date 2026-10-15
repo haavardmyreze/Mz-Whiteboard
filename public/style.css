@@ -2453,8 +2453,14 @@ body.viewonly #hint .hint-guest { display: inline; }
 .v-dims .btn { border-color: transparent; background: transparent; color: var(--text-2); font-weight: 600; }
 .v-dims .btn:hover { color: var(--text); }
 .v-dims .btn[aria-pressed="true"] { background: var(--surface-1); color: var(--text); box-shadow: var(--shadow-1); }
+/* The model's cameras: its main one, and the rest under the arrow beside it. */
+.v-cams .btn { border-color: transparent; background: transparent; color: var(--text-2); font-weight: 600; }
+.v-cams .btn:hover, .v-cams .iconbtn:hover { color: var(--text); }
+.v-cams .btn[aria-pressed="true"] { background: var(--surface-1); color: var(--text); box-shadow: var(--shadow-1); }
 .v-cam { gap: 6px; }
 .v-cam svg { width: 16px; height: 16px; }
+.v-cams .v-cam-more { width: 22px; color: var(--text-2); }
+.v-cams .v-cam-more svg { width: 14px; height: 14px; transform: rotate(90deg); }
 /* A project's settings. */
 .ps-dlg { width: min(520px, calc(100vw - 32px)); }
 .ps-sec { margin: 18px 0 2px; font-size: 13px; font-weight: 650; }

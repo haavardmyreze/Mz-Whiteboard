@@ -10,9 +10,11 @@
 //
 // It opens through the model's main camera (the camera named "main", or else its first): its place, lens
 // and frame's shape, letterboxed where the player's piece box is (`frameOf()`), on bars darker than the
-// room's ground, so it is the same picture on every screen and what is drawn on it lands on the same thing
-// for everyone. Any move of the view leaves it (a drag, the wheel, a move key), unless the player has a
-// pen, eraser or laser in hand (`holds(e)`): then the view fills the whole picture area, to fly about as in
+// room's ground, so it is the same picture on every screen. The model's other cameras are frames to look
+// through as well, and so is the place a comment was made from (`hold()`, `goTo(pov)`, `pose()`): what is
+// drawn on such a frame lands on the same thing for everyone. Any move of the view leaves the frame (a drag,
+// the wheel, a move key), unless the player has a pen, eraser or laser in hand (`holds(e)`): then the view
+// fills the whole picture area, to fly about as in
 // Unreal Engine's viewport: W and S along the view, A and D sideways, Q and E down and up, a drag to look
 // (with both buttons held, to slide along the view's plane), the wheel to glide (with a button held, to
 // set the speed), every move easing in and out. Nothing is drawn while flying.
@@ -36,14 +38,17 @@ const LOOK_EASE = 0.035;
 const UP = new THREE.Vector3(0, 1, 0);
 const MOVE = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE']);
 
-// `onFree(on)` hears when the view leaves the main camera to fly, or comes back to it; `frameOf()` says
-// where on the page the main camera's frame is (a DOMRect); `holds(e)` says a press is the player's own
-// (drawing, erasing, pointing), not a move of the view.
+// The view is held on a frame, or flying. A frame is one of the model's cameras (its main one to start
+// with), or a place a comment was made from: its camera's place, turn and lens over a 16:9 frame.
+//
+// `onFree(on)` hears when the view leaves a frame to fly, or has come to one; `frameOf()` says where on the
+// page the frame held is (a DOMRect: the player lays it out at aspect()); `holds(e)` says a press is the
+// player's own (drawing, erasing, pointing), not a move of the view.
 export function create({ onFree = () => {}, frameOf = () => null, holds = () => false } = {}) {
   const canvas = document.createElement('canvas');
   canvas.className = 'v-3d';
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  // The letterbox around the main camera's frame: darker than the room's own ground, so the frame reads.
+  // The letterbox around the frame held: darker than the room's own ground, so the frame reads.
   const LETTERBOX = new THREE.Color(0x09090a);
   renderer.setPixelRatio(1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -60,7 +65,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   sun.position.set(4, 10, 6);
   scene.add(sun);
 
-  // `camera` is the one flown; `view` is what is drawn through: the main camera, the flown one, or a glide
+  // `camera` is the one flown; `view` is what is drawn through: the frame held, the flown one, or a glide
   // between them.
   const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.05, 5000);
   camera.rotation.order = 'YXZ';
@@ -68,7 +73,11 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   let room = null; // the model in the scene
   let modelUrl = '';
   let screenName = 'screen';
-  let main = { position: new THREE.Vector3(0, 1.6, 6), quaternion: new THREE.Quaternion(), fov: 50, aspect: 16 / 9 };
+  let main = { cam: true, name: '', position: new THREE.Vector3(0, 1.6, 6), quaternion: new THREE.Quaternion(), fov: 50, aspect: 16 / 9 };
+  let cams = [main]; // the model's cameras: { cam, name, position, quaternion, fov, aspect }
+  // The frame held, or come back to: a camera of `cams`, or a comment's (no `cam`; its `fov` is worked out
+  // from `keep`, the lens over the whole canvas, once the player has laid out its frame).
+  let fixed = main;
   let texture = null;
   let source = null;
   let free = false;
@@ -86,18 +95,18 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     modelUrl = model;
     scene.add(room);
     room.updateMatrixWorld(true);
-    // The main camera, with the shape glTF says its frame has (aspectRatio; 16:9 if it says none).
+    // Its cameras, with the shape glTF says their frames have (aspectRatio; 16:9 if it says none).
     const json = gltf.parser.json;
     const shapeOf = new Map((json.nodes || []).filter((n) => n.camera != null).map((n) => [n.name, json.cameras[n.camera]?.perspective?.aspectRatio]));
-    const cams = [];
+    cams = [];
     room.traverse((o) => {
       if (!o.isCamera) return;
       const position = new THREE.Vector3();
       const quaternion = new THREE.Quaternion();
       o.getWorldPosition(position);
       o.getWorldQuaternion(quaternion);
-      const name = o.name || o.parent?.name || '';
-      cams.push({ name, position, quaternion, fov: o.fov, aspect: shapeOf.get(o.name) || shapeOf.get(o.parent?.name) || 16 / 9 });
+      const name = o.name || o.parent?.name || `Camera ${cams.length + 1}`;
+      cams.push({ cam: true, name, position, quaternion, fov: o.fov, aspect: shapeOf.get(o.name) || shapeOf.get(o.parent?.name) || 16 / 9 });
     });
     const box = new THREE.Box3().setFromObject(room);
     const size = box.getSize(new THREE.Vector3());
@@ -107,9 +116,10 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       const look = new THREE.PerspectiveCamera();
       look.position.set(centre.x, centre.y + size.y * 0.1, box.max.z + Math.max(size.x, size.y) * 0.6);
       look.lookAt(centre);
-      cams.push({ name: '', position: look.position.clone(), quaternion: look.quaternion.clone(), fov: 50, aspect: 16 / 9 });
+      cams.push({ cam: true, name: '', position: look.position.clone(), quaternion: look.quaternion.clone(), fov: 50, aspect: 16 / 9 });
     }
     main = cams.find((c) => c.name.toLowerCase() === 'main') || cams[0];
+    fixed = main;
     speed = Math.max(1, size.length() / 12);
     applyScreens();
     settle();
@@ -167,7 +177,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     applyScreens();
   }
 
-  // ---- looking through the main camera, or flying
+  // ---- held on a frame, or flying
 
   let yaw = 0;
   let pitch = 0;
@@ -179,15 +189,15 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   let shift = false;
   let drag = null;
 
-  // Between the main camera and flying the view glides: leaving, the letterbox opens out to the whole area
-  // with the room kept at its size; coming back, the camera moves and turns back to the main one as the
-  // letterbox closes in on its frame. Drawings show once it is there. Without motion, if the system asks.
+  // Between frames, and between a frame and flying, the view glides: leaving, the letterbox opens out to the
+  // whole area with the room kept at its size; going to a frame, the camera moves and turns to it as the
+  // letterbox closes in. Drawings show once it is there. Without motion, if the system asks.
   const OUT_MS = 260;
   const IN_MS = 480;
   const calm = matchMedia('(prefers-reduced-motion: reduce)');
   const FULL = { x: 0, y: 0, w: 1, h: 1 };
   let shown = FULL; // the part of the canvas last drawn into, in fractions of it
-  let glide = null; // { to: 'free' | 'main', t0, ms, from: rect, pos, quat, tan }
+  let glide = null; // { to: 'free' | 'fixed', t0, ms, from: rect, pos, quat, tan }
   const easeOut = (t) => 1 - (1 - t) ** 3;
   const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
   const tanHalf = (deg) => Math.tan(THREE.MathUtils.degToRad(deg) / 2);
@@ -197,7 +207,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   const MAX_ACROSS = 122.5;
   const capped = (fov, aspect) => THREE.MathUtils.clamp(fov, 20, fovOf(tanHalf(MAX_ACROSS) / aspect));
   const mix = (a, b, p) => ({ x: a.x + (b.x - a.x) * p, y: a.y + (b.y - a.y) * p, w: a.w + (b.w - a.w) * p, h: a.h + (b.h - a.h) * p });
-  // Where the main camera's frame is on the canvas, in fractions of it.
+  // Where the frame held is on the canvas, in fractions of it.
   function frameRect(r) {
     const f = frameOf();
     if (!f || !f.width || !f.height || !r.width || !r.height) return null;
@@ -208,6 +218,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   function settle() {
     free = false;
     glide = null;
+    fixed = main;
     shown = FULL;
     vel.set(0, 0, 0);
     held.clear();
@@ -216,41 +227,88 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     view.fov = main.fov;
     canvas.classList.remove('free');
   }
-  function setFree(on, { tell = true, animate = true } = {}) {
-    if (on === free) return;
-    free = on;
-    const ms = animate && !calm.matches ? (on ? OUT_MS : IN_MS) : 0;
-    if (free) {
-      // Flying starts from wherever the view is (on the main camera, or on its way back to it), looking
-      // where it looks, with the room at the size it was: the lens over the whole area is the one the view
-      // had over the part of it shown.
-      camera.position.copy(view.position);
-      camera.quaternion.copy(view.quaternion);
-      const e = new THREE.Euler().setFromQuaternion(view.quaternion, 'YXZ');
-      yaw = viewYaw = e.y;
-      pitch = viewPitch = e.x;
-      // (Kept to 122.5° across: past that the glide out eases the room in to it rather than jumping.)
-      const r = canvas.getBoundingClientRect();
-      const keep = tanHalf(view.fov) / shown.h;
-      camera.fov = capped(fovOf(keep), r.width && r.height ? r.width / r.height : 16 / 9);
-      glide = ms ? { to: 'free', t0: performance.now(), ms, from: { ...shown }, tan: keep } : null;
-    } else {
-      vel.set(0, 0, 0);
-      held.clear();
-      glide = ms ? { to: 'main', t0: performance.now(), ms, from: { ...shown }, pos: view.position.clone(), quat: view.quaternion.clone(), tan: tanHalf(view.fov) / shown.h } : null;
-    }
-    canvas.classList.toggle('free', free);
-    if (tell) onFree(free);
+  // Flying starts from wherever the view is (on a frame, or on its way to one), looking where it looks,
+  // with the room at the size it was: the lens over the whole area is the one the view had over the part
+  // of it shown.
+  function fly() {
+    if (free) return;
+    free = true;
+    camera.position.copy(view.position);
+    camera.quaternion.copy(view.quaternion);
+    const e = new THREE.Euler().setFromQuaternion(view.quaternion, 'YXZ');
+    yaw = viewYaw = e.y;
+    pitch = viewPitch = e.x;
+    // (Kept to 122.5° across: past that the glide out eases the room in to it rather than jumping.)
+    const r = canvas.getBoundingClientRect();
+    const keep = tanHalf(view.fov) / shown.h;
+    camera.fov = capped(fovOf(keep), r.width && r.height ? r.width / r.height : 16 / 9);
+    glide = calm.matches ? null : { to: 'free', t0: performance.now(), ms: OUT_MS, from: { ...shown }, tan: keep };
+    canvas.classList.add('free');
+    onFree(true);
+  }
+  // To a frame, from flying or from another frame: gliding from wherever the view is.
+  function holdOn(target, animate = true) {
+    const ms = animate && !calm.matches ? IN_MS : 0;
+    free = false;
+    fixed = target;
+    vel.set(0, 0, 0);
+    held.clear();
+    glide = ms ? { to: 'fixed', t0: performance.now(), ms, from: { ...shown }, pos: view.position.clone(), quat: view.quaternion.clone(), tan: tanHalf(view.fov) / shown.h } : null;
+    canvas.classList.remove('free');
+  }
+  // A comment is made from where the view is: it holds still there, framed 16:9, with the room kept at the
+  // size it was. Already on a comment's frame (or on the way to one), it stays.
+  function hold() {
+    if (!free && !fixed.cam) return;
+    holdOn({ position: view.position.clone(), quaternion: view.quaternion.clone(), fov: null, keep: tanHalf(view.fov) / shown.h, aspect: 16 / 9 });
+  }
+  // A comment's frame's lens, once the player has laid the frame out: the room as large as it was.
+  function settleLens(fr) {
+    if (fixed.fov == null) fixed.fov = THREE.MathUtils.clamp(fovOf(fixed.keep * (fr || FULL).h), 1, 179);
+  }
+  // What `pov` (as kept with a comment) stands for: 'main', a camera's number in cameras(), or a place.
+  function frameFor(pov) {
+    if (pov === 'main') return main;
+    if (Number.isInteger(pov)) return cams[pov] || null;
+    if (!pov || !Array.isArray(pov.p) || !Array.isArray(pov.q) || !Number.isFinite(pov.fov)) return null;
+    return { position: new THREE.Vector3(...pov.p), quaternion: new THREE.Quaternion(...pov.q).normalize(), fov: pov.fov, aspect: 16 / 9 };
+  }
+  // Whether frame `f` is the one held (or being glided to).
+  function same(f) {
+    if (f === fixed) return true;
+    if (f.cam || fixed.cam) return false;
+    settleLens(frameRect(canvas.getBoundingClientRect()));
+    const near = (a, b, e) => a.every((v, i) => Math.abs(v - b[i]) < e);
+    return near(fixed.position.toArray(), f.position.toArray(), 1e-3) && Math.abs(fixed.quaternion.dot(f.quaternion)) > 1 - 1e-6 && Math.abs(fixed.fov - f.fov) < 1e-2;
+  }
+  function goTo(pov, animate = true) {
+    const target = frameFor(pov);
+    if (!target || (!free && same(target))) return false;
+    holdOn(target, animate);
+    return true;
+  }
+  // Held on `pov`, and there, not on the way.
+  function at(pov) {
+    if (free || glide) return false;
+    const f = frameFor(pov);
+    return !!f && same(f);
+  }
+  // The comment's frame held, as kept with a comment; null on a camera of the model's, or flying.
+  function pose() {
+    if (free || fixed.cam) return null;
+    settleLens(frameRect(canvas.getBoundingClientRect()));
+    const r = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
+    return { p: fixed.position.toArray().map((v) => r(v, 4)), q: fixed.quaternion.toArray().map((v) => r(v, 6)), fov: r(fixed.fov, 3) };
   }
 
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-  // A press moves the view (and so leaves the main camera), unless it is the player's: a pen, eraser or
-  // laser at work through the main camera.
+  // A press moves the view (and so leaves the frame held), unless it is the player's: a pen, eraser or
+  // laser at work on the frame.
   canvas.addEventListener('pointerdown', (e) => {
     if (!free && holds(e)) return;
     e.stopPropagation();
     e.preventDefault();
-    if (!free) setFree(true);
+    fly();
     drag = { x: e.clientX, y: e.clientY, pid: e.pointerId };
     try {
       canvas.setPointerCapture(e.pointerId);
@@ -288,7 +346,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     if (e.ctrlKey || e.metaKey) return;
     e.preventDefault();
     e.stopPropagation();
-    if (!free) setFree(true);
+    fly();
     if (drag) {
       speed = THREE.MathUtils.clamp(speed * (e.deltaY > 0 ? 0.85 : 1.18), 0.1, 500);
       return;
@@ -301,7 +359,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     shift = e.shiftKey;
     if (!MOVE.has(e.code) || e.ctrlKey || e.metaKey || e.altKey) return false;
     if (down) {
-      if (!free) setFree(true);
+      fly();
       held.add(e.code);
     } else held.delete(e.code);
     return true;
@@ -375,22 +433,23 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       tan = (glide ? glide.tan + (tanHalf(camera.fov) - glide.tan) * q : tanHalf(camera.fov)) * rect.h;
     } else {
       const target = fr || FULL;
-      const mainTan = tanHalf(main.fov) / target.h; // the main camera's lens, over the whole canvas
+      settleLens(fr);
+      const fixedTan = tanHalf(fixed.fov) / target.h; // the frame's lens, over the whole canvas
       if (glide) {
         const q = easeInOut(p);
         rect = mix(glide.from, target, q);
-        view.position.lerpVectors(glide.pos, main.position, q);
-        view.quaternion.slerpQuaternions(glide.quat, main.quaternion, q);
-        tan = (glide.tan + (mainTan - glide.tan) * q) * rect.h;
+        view.position.lerpVectors(glide.pos, fixed.position, q);
+        view.quaternion.slerpQuaternions(glide.quat, fixed.quaternion, q);
+        tan = (glide.tan + (fixedTan - glide.tan) * q) * rect.h;
       } else {
         rect = target;
-        view.position.copy(main.position);
-        view.quaternion.copy(main.quaternion);
-        tan = mainTan * rect.h;
+        view.position.copy(fixed.position);
+        view.quaternion.copy(fixed.quaternion);
+        tan = fixedTan * rect.h;
       }
     }
     if (glide && p >= 1) {
-      const back = glide.to === 'main';
+      const back = glide.to === 'fixed';
       glide = null;
       // There: its drawings show.
       if (back) onFree(false);
@@ -434,11 +493,14 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   }
 
   return {
-    canvas, load, setSource, start, stop, key,
-    aspect: () => main.aspect,
-    // Away from the main camera, or still on the way back to it: its drawings are not where they belong.
+    canvas, load, setSource, start, stop, key, hold, goTo, at, pose,
+    // The shape of the frame held (or last held, flying), which the player lays its frame out at.
+    aspect: () => fixed.aspect,
+    // The model's cameras, by name, and which of them is held (its number), or -1.
+    cameras: () => cams.map((c) => c.name),
+    camera: () => (free || !fixed.cam ? -1 : cams.indexOf(fixed)),
+    mainCamera: () => cams.indexOf(main),
+    // Away from a frame, or on the way to one: no drawing is where it belongs.
     isFree: () => free || !!glide,
-    // From the player: at once (opening 3D), or gliding (back to the main camera).
-    setFree: (on, animate = false) => setFree(on, { tell: false, animate }),
   };
 }

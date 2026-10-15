@@ -2456,6 +2456,7 @@ body.viewonly #hint .hint-guest { display: inline; }
 .v-dims .btn { border-color: transparent; background: transparent; color: var(--text-2); font-weight: 600; }
 .v-dims .btn:hover { color: var(--text); }
 .v-dims .btn[aria-pressed="true"] { background: var(--surface-1); color: var(--text); box-shadow: var(--shadow-1); }
+.v-dims .btn.loading { min-width: 64px; color: var(--text); font-variant-numeric: tabular-nums; }
 /* The model's cameras: its main one, and the rest under the arrow beside it. */
 .v-cams .btn { border-color: transparent; background: transparent; color: var(--text-2); font-weight: 600; }
 .v-cams .btn:hover, .v-cams .iconbtn:hover { color: var(--text); }

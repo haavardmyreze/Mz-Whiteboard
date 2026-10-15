@@ -560,6 +560,7 @@ const WBViewer = (() => {
       // on the model is shown as it is.
       if (in3d && !has3d()) set3d(false);
       paintDims();
+      warm3d();
       document.body.classList.toggle('focus-video', piece.type === 'video');
       if (runMode() && (!was || was.id !== id)) {
         stillAt = 0;
@@ -683,27 +684,64 @@ const WBViewer = (() => {
     let busy3d = false; // following somebody into 3D (see follow3d)
     let next3d = null;
     const has3d = () => !!(opts.view3d && opts.view3d.model) && (!opts.can3d || (!!open && opts.can3d(open)));
+    // A piece that can be seen on the model open, the 3D view and the model are fetched ahead, a moment
+    // after, so the switch is there at once (the piece's own picture comes first). Once a model.
+    // The view itself is made then too, the model put in it and what draws it compiled, which is the rest of
+    // the wait: switching is then only showing it.
+    const warmed = new Set();
+    function warm3d() {
+      if (!has3d() || warmed.has(opts.view3d.model)) return;
+      const setting = opts.view3d;
+      warmed.add(setting.model);
+      setTimeout(async () => {
+        try {
+          const mod = await import('/view3d.js');
+          await mod.preload(setting.model);
+          if (!in3d) await readyThree(mod, setting, true);
+        } catch {
+          warmed.delete(setting.model);
+        }
+      }, 1500);
+    }
+    // The 3D view, made the first time it is wanted, with the project's model in it.
+    async function readyThree(mod, setting, warm = false) {
+      if (!three) {
+        three = mod.create({
+          onFree: (on) => { if (on && (tool === 'pen' || tool === 'eraser')) setTool('pan'); paintDims(); paintInk(); emit('3d'); },
+          frameOf: () => pieceBox.getBoundingClientRect(),
+          // Drawing, erasing and pointing are done on the frame held; any other press moves the view.
+          holds: (e) => e.button === 0 && !spaceDown && (tool === 'pen' || tool === 'eraser' || tool === 'laser'),
+        });
+      }
+      await three.load(setting);
+      if (warm) await three.warm();
+    }
     async function set3d(on) {
       on = !!on && has3d() && !!open;
       if (on === in3d) return;
       if (on) {
         d3Btn.disabled = true;
+        // Not fetched ahead yet (see warm3d): how far it has come, on the button, till it is there.
+        d3Btn.classList.add('loading');
+        d3Btn.title = 'Loading the venue…';
+        let mod = null;
+        const counting = setInterval(() => {
+          const k = mod ? mod.progress(opts.view3d.model) : 0;
+          d3Btn.textContent = k == null ? '3D …' : `3D ${Math.round(k * 100)}%`;
+        }, 150);
         try {
-          if (!three) {
-            three = (await import('/view3d.js')).create({
-              onFree: (on) => { if (on && (tool === 'pen' || tool === 'eraser')) setTool('pan'); paintDims(); paintInk(); emit('3d'); },
-              frameOf: () => pieceBox.getBoundingClientRect(),
-              // Drawing, erasing and pointing are done on the frame held; any other press moves the view.
-              holds: (e) => e.button === 0 && !spaceDown && (tool === 'pen' || tool === 'eraser' || tool === 'laser'),
-            });
-          }
-          await three.load(opts.view3d);
+          mod = await import('/view3d.js');
+          await readyThree(mod, opts.view3d);
         } catch (err) {
           console.warn('The 3D view could not be opened:', err);
           toast("The project's 3D model could not be opened", { ms: 5000 });
           return;
         } finally {
+          clearInterval(counting);
           d3Btn.disabled = false;
+          d3Btn.classList.remove('loading');
+          d3Btn.textContent = '3D';
+          d3Btn.title = 'The picture on the venue, in 3D';
         }
         if (!open) return;
       }

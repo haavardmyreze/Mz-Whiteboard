@@ -1683,6 +1683,41 @@ function refuseRange(res, size) {
   res.end();
 }
 
+// A script that never changes while the server runs (three.js, for the 3D view: some 2 MB), sent compressed
+// to a browser that takes it so, which over a tunnel is what makes 3D quick to open. Each is compressed once,
+// the first time it is asked for, and kept.
+const packed = new Map(); // file -> Promise of { br, gzip, etag }
+function sendPacked(req, res, file, headers = {}) {
+  const accepts = String(req.headers['accept-encoding'] || '');
+  const how = /\bbr\b/.test(accepts) ? 'br' : /\bgzip\b/.test(accepts) ? 'gzip' : null;
+  if (!how || req.headers.range) return sendFile(req, res, file, headers);
+  if (!packed.has(file)) {
+    const job = fsp.readFile(file).then(async (raw) => {
+      const st = await fsp.stat(file);
+      const squeeze = (fn, opts) => new Promise((resolve, reject) => fn(raw, opts, (err, out) => (err ? reject(err) : resolve(out))));
+      return {
+        br: await squeeze(zlib.brotliCompress, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length } }),
+        gzip: await squeeze(zlib.gzip, { level: 9 }),
+        etag: `"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`,
+      };
+    });
+    job.catch(() => packed.delete(file));
+    packed.set(file, job);
+  }
+  packed.get(file).then(({ br, gzip, etag }) => {
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, { ETag: etag, Vary: 'Accept-Encoding', ...headers });
+      return res.end();
+    }
+    const body = how === 'br' ? br : gzip;
+    res.writeHead(200, {
+      'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
+      'Content-Encoding': how, 'Content-Length': body.length, Vary: 'Accept-Encoding', ETag: etag, ...headers,
+    });
+    res.end(req.method === 'HEAD' ? undefined : body);
+  }, () => sendFile(req, res, file, headers));
+}
+
 function sendFile(req, res, file, headers = {}) {
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) return sendJson(res, 404, { error: 'Not found' });
@@ -2408,7 +2443,7 @@ async function handleRequest(req, res) {
   if (three && !three[2].includes('..')) {
     const root = path.join(__dirname, 'node_modules', 'three', three[1] === 'build' ? 'build' : path.join('examples', 'jsm'));
     const file = path.join(root, three[2]);
-    if (file.startsWith(root + path.sep)) return sendFile(req, res, file, { 'Cache-Control': 'public, max-age=86400' });
+    if (file.startsWith(root + path.sep)) return sendPacked(req, res, file, { 'Cache-Control': 'public, max-age=86400' });
   }
 
   let file;

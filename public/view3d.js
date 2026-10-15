@@ -23,14 +23,23 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 const models = new Map(); // url -> Promise of the loaded glTF, shared by every view on the page
+const arrived = new Map(); // url -> how much of it has come, from 0 to 1 (null while that is not known)
 const loadModel = (url) => {
   if (!models.has(url)) {
-    const p = new GLTFLoader().loadAsync(url);
-    p.catch(() => models.delete(url));
+    arrived.set(url, 0);
+    const p = new GLTFLoader().loadAsync(url, (e) => arrived.set(url, e.lengthComputable && e.total ? e.loaded / e.total : null));
+    p.then(() => arrived.set(url, 1), () => {
+      models.delete(url);
+      arrived.delete(url);
+    });
     models.set(url, p);
   }
   return models.get(url);
 };
+// The player fetches a project's model ahead, while a piece that can be seen on it is open, so that 3D is
+// there at once when asked for; and says how far it has come while it is asked for and not there yet.
+export const preload = (url) => loadModel(url).catch(() => {});
+export const progress = (url) => (arrived.has(url) ? arrived.get(url) : 0);
 
 const EASE_IN = 0.14; // seconds to get most of the way to the speed asked
 const EASE_OUT = 0.2; // and to come to rest
@@ -498,6 +507,29 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     renderer.render(scene, view);
     renderer.setScissorTest(false);
   }
+  // Made ready ahead of being shown: what draws the room and the screens compiled now, with a stand-in for
+  // the picture, so the first frame shown does not wait on it.
+  async function warm() {
+    if (running || !room) return;
+    const had = texture;
+    if (!texture) {
+      texture = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.flipY = false;
+      texture.needsUpdate = true;
+      applyScreens();
+    }
+    try {
+      if (renderer.compileAsync) await renderer.compileAsync(scene, view);
+      else renderer.compile(scene, view);
+    } finally {
+      if (!had && !running) {
+        texture.dispose();
+        texture = null;
+        applyScreens();
+      }
+    }
+  }
   function start() {
     if (running) return;
     running = true;
@@ -516,7 +548,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   }
 
   return {
-    canvas, load, setSource, start, stop, key, hold, goTo, at, pose, flight, steer,
+    canvas, load, setSource, start, stop, warm, key, hold, goTo, at, pose, flight, steer,
     // The shape of the frame held (or last held, flying), which the player lays its frame out at.
     aspect: () => fixed.aspect,
     // The model's cameras, by name, and which of them is held (its number), or -1.

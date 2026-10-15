@@ -11,12 +11,16 @@
 </head>
 <body class="p3">
   <canvas id="stage"></canvas>
+  <svg id="ink" class="p3-ink" viewBox="0 0 1 1" preserveAspectRatio="none" hidden></svg>
   <header class="p3-bar">
     <b>3D preview</b><span class="p3-lab">lab</span>
     <label class="btn small">Model (.glb)<input id="pickModel" type="file" accept=".glb,.gltf,model/gltf-binary" hidden></label>
     <label class="btn small">Video or image<input id="pickMedia" type="file" accept="video/*,image/*" hidden></label>
     <label class="p3-field">Screen material <input id="screenName" type="text" value="screen" spellcheck="false"></label>
-    <select id="cams" class="v-pick" aria-label="Viewpoint"></select>
+    <button id="mainView" class="btn small" type="button" aria-pressed="false" title="Look through the model's main camera (V)">Main camera</button>
+    <button id="pen" class="btn small" type="button" aria-pressed="false" title="Draw, through the main camera (P)">Draw</button>
+    <button id="clearInk" class="btn small ghost" type="button" title="Take away what is drawn on this frame">Clear</button>
+    <select id="cams" class="v-pick" aria-label="Viewpoint, moving freely"></select>
     <span class="spacer"></span>
     <span id="status" class="p3-status">Drop a .glb and a video anywhere</span>
   </header>
@@ -25,7 +29,7 @@
     <button id="play" class="iconbtn" title="Play or pause (Space)" aria-label="Play or pause">▶</button>
     <span id="time" class="p3-time">0:00</span>
     <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Where in the video">
-    <span class="p3-keys">W A S D to move · Q E down / up · drag to look · Shift faster · wheel: speed · , . a frame</span>
+    <span class="p3-keys">W A S D to move · Q E down / up · drag to look · Shift faster · wheel: speed · , . a frame · V main camera · P draw</span>
   </footer>
   <script type="module" src="/lab/preview3d.js"></script>
 </body>

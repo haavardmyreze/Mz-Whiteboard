@@ -5,6 +5,12 @@
 // element, the same kind the player uses, so in the app the 3D view would be one more way of drawing the
 // player's own video: time, stepping, scrubbing and comments stay as they are.
 //
+// The model has one main camera: the camera named "main", or else its first. Looking through it (V) the
+// view is that camera's, exactly: its place, its lens, and its frame's shape, letterboxed in the window,
+// so it is the same picture on every screen. Drawing (P) is only ever done through it, and what is drawn
+// is kept in that frame's coordinates, on the video frame it was drawn on, so it lands on the same thing
+// for everyone, every time. Moving freely is for looking about; nothing is drawn there.
+//
 // Try it: /lab/preview3d.html, then drop a .glb and a video (or pass ?model=…&video=… with addresses
 // on this server). W A S D move, Q and E go down and up, a drag looks around, Shift is faster.
 import * as THREE from 'three';
@@ -27,7 +33,9 @@ scene.add(sun);
 const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 2000);
 camera.rotation.order = 'YXZ';
 let model = null;
-let viewpoints = []; // { name, position, quaternion, fov }
+let viewpoints = []; // { name, position, quaternion, fov }: where to stand, moving freely
+let mainCam = null; // { name, position, quaternion, fov, aspect }: the one view drawn through
+let throughMain = false;
 
 // ---- the picture: a video (or a still) as a texture on the screens
 
@@ -92,6 +100,7 @@ function report() {
     line('Materials', [...all].join(', ') || 'none'),
     line('Screens', screens.length ? `${screens.length} mesh${screens.length === 1 ? '' : 'es'}: ${[...new Set(screens.map((s) => s.name))].join(', ')}` : `none named “${$('screenName').value}”`),
     noUv.length ? line('Warning', `${noUv.length} screen mesh${noUv.length === 1 ? ' has' : 'es have'} no UVs, so nothing can be shown on ${noUv.length === 1 ? 'it' : 'them'}`) : null,
+    line('Main camera', mainCam ? `${mainCam.name}: ${mainCam.aspect.toFixed(3)}:1, ${mainCam.fov.toFixed(1)}° high${mainCam.guessedAspect ? ' (its shape not given in the model, so 16:9)' : ''}` : 'none: the model has no camera, so nothing can be drawn'),
     line('Viewpoints', viewpoints.map((v) => v.name).join(', ')),
   ].filter(Boolean));
 }
@@ -112,14 +121,23 @@ async function loadModel(url) {
   model.updateMatrixWorld(true);
   // Where to stand: the model's own cameras, then a look at all of it from the front.
   viewpoints = [];
+  // The shape each camera's frame is said to have (glTF's aspectRatio), by the name of its node.
+  const json = gltf.parser.json;
+  const shapeOf = new Map((json.nodes || []).filter((n) => n.camera != null).map((n) => [n.name, json.cameras[n.camera]?.perspective?.aspectRatio]));
+  const cams = [];
   model.traverse((o) => {
     if (!o.isCamera) return;
     const position = new THREE.Vector3();
     const quaternion = new THREE.Quaternion();
     o.getWorldPosition(position);
     o.getWorldQuaternion(quaternion);
-    viewpoints.push({ name: o.name || o.parent?.name || `Camera ${viewpoints.length + 1}`, position, quaternion, fov: o.fov });
+    const name = o.name || o.parent?.name || `Camera ${viewpoints.length + 1}`;
+    const aspect = shapeOf.get(o.name) || shapeOf.get(o.parent?.name);
+    cams.push({ name, position, quaternion, fov: o.fov, aspect: aspect || 16 / 9, guessedAspect: !aspect });
+    viewpoints.push({ name, position, quaternion, fov: o.fov });
   });
+  mainCam = cams.find((c) => c.name.toLowerCase() === 'main') || cams[0] || null;
+  strokes.length = 0;
   const box = new THREE.Box3().setFromObject(model);
   const size = box.getSize(new THREE.Vector3());
   const centre = box.getCenter(new THREE.Vector3());
@@ -133,12 +151,14 @@ async function loadModel(url) {
   $('cams').replaceChildren(...viewpoints.map((v, i) => Object.assign(document.createElement('option'), { value: String(i), textContent: v.name })));
   goTo(0);
   applyScreens();
+  setMain(!!mainCam);
   $('status').textContent = '';
 }
 
 function goTo(i) {
   const v = viewpoints[i];
   if (!v) return;
+  if (throughMain) setMain(false);
   camera.position.copy(v.position);
   const e = new THREE.Euler().setFromQuaternion(v.quaternion, 'YXZ');
   yaw = e.y;
@@ -155,6 +175,7 @@ let speed = 3; // metres a second
 const held = new Set();
 let drag = null;
 canvas.addEventListener('pointerdown', (e) => {
+  if (throughMain) return;
   drag = { x: e.clientX, y: e.clientY };
   canvas.setPointerCapture(e.pointerId);
 });
@@ -167,6 +188,7 @@ canvas.addEventListener('pointermove', (e) => {
 canvas.addEventListener('pointerup', () => { drag = null; });
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
+  if (throughMain) return;
   speed = THREE.MathUtils.clamp(speed * (e.deltaY > 0 ? 0.85 : 1.18), 0.1, 500);
   $('status').textContent = `Speed ${speed.toFixed(1)} m/s`;
 }, { passive: false });
@@ -178,6 +200,9 @@ window.addEventListener('keydown', (e) => {
     togglePlay();
     return;
   }
+  if (e.code === 'KeyV') return void setMain(!throughMain);
+  if (e.code === 'KeyP') return void setPen(!drawing);
+  if (e.code === 'Escape' && drawing) return void setPen(false);
   if (e.code === 'Comma' || e.code === 'Period') {
     video.pause();
     video.currentTime = Math.max(0, video.currentTime + (e.code === 'Comma' ? -1 : 1) / 24);
@@ -198,7 +223,8 @@ function frame(now) {
     (held.has('KeyE') ? 1 : 0) - (held.has('KeyQ') ? 1 : 0),
     (held.has('KeyS') ? 1 : 0) - (held.has('KeyW') ? 1 : 0),
   );
-  camera.rotation.set(pitch, yaw, 0);
+  if (throughMain) move.set(0, 0, 0);
+  else camera.rotation.set(pitch, yaw, 0);
   if (move.lengthSq()) {
     const up = move.y;
     move.y = 0;
@@ -209,17 +235,106 @@ function frame(now) {
   resize();
   renderer.render(scene, camera);
   paintTime();
+  paintInk();
   requestAnimationFrame(frame);
 }
+// Moving freely the picture is the whole window. Through the main camera it is that camera's frame, as
+// large as fits between the bars, at the camera's own shape; the drawing lies exactly over it.
+let frameRect = null;
 function resize() {
-  const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
-  if (canvas.width !== Math.round(w * renderer.getPixelRatio()) || canvas.height !== Math.round(h * renderer.getPixelRatio())) {
-    renderer.setSize(w, h, false);
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
+  let r = { left: 0, top: 0, width: innerWidth, height: innerHeight };
+  if (throughMain && mainCam) {
+    const top = 64;
+    const room = { w: innerWidth - 24, h: innerHeight - top - 64 };
+    const w = Math.min(room.w, room.h * mainCam.aspect);
+    const h = w / mainCam.aspect;
+    r = { left: (innerWidth - w) / 2, top: top + (room.h - h) / 2, width: w, height: h };
   }
+  const key = `${r.left},${r.top},${r.width},${r.height},${throughMain}`;
+  if (frameRect === key) return;
+  frameRect = key;
+  for (const node of [canvas, ink]) Object.assign(node.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+  renderer.setSize(r.width, r.height, false);
+  camera.aspect = throughMain && mainCam ? mainCam.aspect : r.width / r.height;
+  camera.updateProjectionMatrix();
+  inkFrame = -1;
 }
+
+// ---- the main camera, and drawing through it
+
+function setMain(on) {
+  throughMain = on && !!mainCam;
+  document.body.classList.toggle('main', throughMain);
+  $('mainView').setAttribute('aria-pressed', String(throughMain));
+  $('mainView').disabled = !mainCam;
+  $('pen').disabled = !mainCam;
+  if (throughMain) {
+    $('cams').selectedIndex = -1;
+    camera.position.copy(mainCam.position);
+    camera.quaternion.copy(mainCam.quaternion);
+    camera.fov = mainCam.fov;
+  } else {
+    // Moving freely starts from where the main camera stands.
+    const e = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+    yaw = e.y;
+    pitch = e.x;
+    camera.fov = 60;
+    if (drawing) setPen(false);
+  }
+  held.clear();
+  frameRect = null;
+  resize();
+}
+
+// What is drawn: strokes in the main camera's frame (0 to 1 across and down), each on a frame of the video.
+const ink = $('ink');
+const strokes = []; // { frame, points: [[x, y], ...] }
+let drawing = false;
+let inkFrame = -1;
+let inkCount = -1;
+const frameNow = () => Math.round((video.currentTime || 0) * 24);
+function setPen(on) {
+  if (on && !mainCam) return;
+  if (on && !throughMain) setMain(true);
+  drawing = on;
+  document.body.classList.toggle('drawing', on);
+  $('pen').setAttribute('aria-pressed', String(on));
+  if (on) video.pause();
+}
+function paintInk() {
+  ink.toggleAttribute('hidden', !throughMain); // an <svg> has no hidden property, only the attribute
+  const f = frameNow();
+  if (f === inkFrame && strokes.length === inkCount && !pen) return;
+  inkFrame = f;
+  inkCount = strokes.length;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  ink.replaceChildren(...strokes.filter((st) => st.frame === f).map((st) => {
+    const line = document.createElementNS(svgNS, 'polyline');
+    line.setAttribute('points', st.points.map((p) => p.join(',')).join(' '));
+    return line;
+  }));
+}
+let pen = null;
+const inkAt = (e) => {
+  const r = ink.getBoundingClientRect();
+  return [Math.round(((e.clientX - r.left) / r.width) * 10000) / 10000, Math.round(((e.clientY - r.top) / r.height) * 10000) / 10000];
+};
+ink.addEventListener('pointerdown', (e) => {
+  if (!drawing) return;
+  ink.setPointerCapture(e.pointerId);
+  pen = { frame: frameNow(), points: [inkAt(e)] };
+  strokes.push(pen);
+});
+ink.addEventListener('pointermove', (e) => { if (pen) pen.points.push(inkAt(e)); });
+ink.addEventListener('pointerup', () => { pen = null; inkFrame = -1; });
+$('mainView').addEventListener('click', () => { setMain(!throughMain); $('mainView').blur(); });
+$('pen').addEventListener('click', () => { setPen(!drawing); $('pen').blur(); });
+$('clearInk').addEventListener('click', () => {
+  const f = frameNow();
+  for (let i = strokes.length - 1; i >= 0; i--) if (strokes[i].frame === f) strokes.splice(i, 1);
+  $('clearInk').blur();
+});
+window.addEventListener('resize', () => { frameRect = null; });
 
 // ---- the video's own controls
 
@@ -263,4 +378,4 @@ if (q.get('screen')) $('screenName').value = q.get('screen');
 if (q.get('video')) setMedia(q.get('video'), /\.(png|jpe?g|webp|avif)$/i.test(q.get('video')));
 if (q.get('model')) loadModel(q.get('model')).catch((err) => { $('status').textContent = `Could not read the model: ${err.message}`; });
 requestAnimationFrame(frame);
-window.__p3 = { scene, camera, video, screens, goTo: (i) => goTo(i) };
+window.__p3 = { scene, camera, video, screens, strokes, goTo: (i) => goTo(i), main: () => mainCam };

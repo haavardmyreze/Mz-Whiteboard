@@ -1,6 +1,14 @@
 /* The 3D preview spike (preview3d.js): the venue fills the window, the bars float over it. */
 body.p3 { overflow: hidden; background: #0b0b0b; color: #f2f2f2; }
-#stage { position: fixed; inset: 0; display: block; width: 100vw; height: 100vh; cursor: grab; touch-action: none; }
+#stage { position: fixed; left: 0; top: 0; display: block; width: 100vw; height: 100vh; cursor: grab; touch-action: none; }
+/* Through the main camera the picture is the camera's own frame, at its own shape, the rest left dark;
+   nothing can be moved, only looked at, and drawn on. */
+body.p3.main #stage { cursor: default; outline: 1px solid rgba(255, 255, 255, 0.18); }
+.p3-ink { position: fixed; z-index: 1; overflow: visible; pointer-events: none; }
+body.p3.drawing .p3-ink { pointer-events: auto; cursor: crosshair; touch-action: none; }
+.p3-ink polyline { fill: none; stroke: #ff5a4f; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.p3-bar .btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.p3-bar .btn:disabled { opacity: 0.4; cursor: default; }
 #stage:active { cursor: grabbing; }
 .p3-bar, .p3-foot { position: fixed; left: 12px; right: 12px; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(12, 12, 12, 0.78); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
 .p3-bar { top: 12px; flex-wrap: wrap; }
@@ -17,3 +25,4 @@ body.p3 { overflow: hidden; background: #0b0b0b; color: #f2f2f2; }
 .p3-report p { margin: 3px 0; }
 .p3-report b { color: #8a8a8a; font-weight: 600; }
 @media (max-width: 760px) { .p3-keys { display: none; } }
+body.p3.main .p3-report { display: none; }

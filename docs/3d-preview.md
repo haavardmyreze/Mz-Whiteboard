@@ -13,6 +13,14 @@ up, drag to look, Shift for faster, the wheel for speed, the model's own cameras
 overview. It was tried with a small test venue (a curved 150° wall, a floor, steps) and a test video:
 the picture lands on the wall the right way up and the right way round, and plays.
 
+**One main camera.** The model has one camera that is *the* view: the one named `main`, or else its
+first. Looking through it (V) the view is exactly that camera's, its place, its lens and the shape of
+its frame (glTF's `aspectRatio`), letterboxed in the window, so everyone sees the same picture whatever
+their screen. Moving freely is for looking about. **Drawing is only done through the main camera**
+(turning the pen on, P, switches to it): a stroke is kept in that camera's frame, 0 to 1 across and
+down, on the frame of the video it was drawn on. In the spike, a ring drawn round a block stays on the
+block after walking off and coming back, and after the window changes size.
+
 ## Why it fits the app
 
 - **The texture is the player's own `<video>`.** three.js draws a `VideoTexture` from any video element,
@@ -35,11 +43,14 @@ the picture lands on the wall the right way up and the right way round, and play
 2. **A "3D" switch in the player's bar**, shown only in a project that has a model, for videos and
    stills alike. The picture area becomes the WebGL canvas, drawing the open video; the timeline,
    comments and the close-up track stay as they are. Camera position remembered per project.
-3. **Comments in 3D.** A comment's moment works as now. Drawing on a 3D view is the open question:
-   simplest is to keep drawing on the flat picture (switch back to draw), and have a comment made in
-   3D remember the camera, so clicking it puts you back where it was seen from. Drawing straight onto
-   the screen surface (ray-cast to UV, stored in picture coordinates) is possible later and would then
-   show on the flat picture too.
+3. **Comments in 3D, through the main camera.** A comment's moment works as now. A comment made in
+   3D says so (`pov: 'main'`), and its drawing is kept in the main camera's frame, exactly as the
+   player keeps a drawing in the picture's frame today: the same ink, the same units, only another
+   frame. Opening such a comment, in the player or from a notification, switches to the main camera,
+   so the drawing is always seen from where it was drawn. Free movement has no pen. A comment on the
+   flat picture stays on the flat picture. If the main camera is moved in a new model, drawings made
+   through the old one no longer line up, so a model, once comments are drawn through it, is kept: a
+   new model is a new one, and older comments keep pointing at the model and camera they were drawn in.
 4. **Resolution.** Review copies are at most 1920×1080. Fine for a wall seen from the audience, soft
    for a large dome or a close look. The 3D view could ask for the original (which is kept) when it is
    not too large, or the review copy limit could be raised for projects with a model.
@@ -55,8 +66,10 @@ that remember the camera another day; drawing onto the surface is the larger, op
   frame, top left at the top left). If the projection UVs are on a second channel, that can be chosen
   (`uv1`), but the first is simplest.
 - **The projection area's material named `screen`** (or `screen-left`, `screen-top`… for several).
-- **Metres, Y up**, the glTF default. Cameras placed in the model (an audience seat, the control
-  booth) become viewpoints by name.
+- **One camera named `main`**, placed where the work is judged from (the best seat, say), with its
+  aspect ratio set to the shape the review should have. Its lens and frame are what every drawing is
+  made through. Other cameras (the control booth, a side seat) become viewpoints to move from.
+- **Metres, Y up**, the glTF default.
 - **Keep it light**: a venue as blocks, no hidden detail; textures on the room are fine but not needed.
 
 ## Risks and limits

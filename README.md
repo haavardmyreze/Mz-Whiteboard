@@ -423,8 +423,11 @@ filed in it.
   everyone the app knows (who signed in, filed, wrote a note or was named before) or typed. Its card
   shows its artists.
 - **Versions, as they came in.** A project's Versions (in the sidebar) lists every version filed in it,
-  newest first: by day, and within a day by who filed a run of them, each with its still (which scrubs
-  under the pointer and opens in the player), what it is, and the boards it is on. Click to pick, Shift
+  newest first: by day, and within a day by who filed a run of them, each run a grid of the same version
+  cards an asset, set or shot's page has (cards or compact rows, as the button in the bar says): its
+  still (which scrubs under the pointer and opens in the player), its shot (a link to it) and the rest
+  of its label, when it was filed, and the boards it is on. Click a card to pick it (its box shows on a
+  hover), Shift
   and a click for a run, or drag a box; once something is picked, a day's or a run's box picks all of
   it, and Esc lets go (as it does wherever things are picked); then "Add to board" puts them on one of
   the project's boards, in rows below what is there, or "New board" makes one in the project with them

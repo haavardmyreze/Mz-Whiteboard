@@ -220,8 +220,10 @@ private networks, otherwise only the host machine can connect.
 - **Live collaboration.** Everyone sees edits, cursors and selections as they happen.
 - **Follow anyone.** Click a teammate's picture to follow their view, into the viewer and back
   out with them, with their video playing, pausing and stepping on your screen as on theirs; you
-  join on the frame they are on, not at the start. Pan,
-  zoom or open something yourself to stop. The laser pointer (L) is visible to everyone.
+  join on the frame they are on, not at the start. In the viewer you see as much of the piece as they
+  do: zoomed in where they are. Pan, zoom or open something yourself to stop; should they leave the
+  board, it says so. The laser pointer (L) is visible to everyone. To take people through more than
+  one board, through versions and the timeline, present the project instead (see below).
 - **Notifications.** The bell on the board list collects what concerns you from every board: replies
   in threads you wrote in, comments on what you added and on boards you made, and comments that
   @mention your name. Opening one goes straight to the comment. What you have read is remembered
@@ -277,7 +279,9 @@ look, also read the team's comments, or also comment (under a name they type, wi
 deleting anything). A link can end after a day, a week or a month, can be replaced by a new one
 that stops the old one at once, and can be turned off. Changing any of it applies to whoever is
 watching straight away. Somebody holding a link can load only the files that board shows (never the
-files its videos were made from). The settings,
+files its videos were made from). A project can also be presented through a link of the same kind,
+which follows whoever presents it from board to player to timeline (see "Presenting it", under
+Projects). Behind IAP neither kind of link exists, since nothing gets past Google's sign-in. The settings,
 and how to reach the server from outside the building, are in [DEPLOY.md](DEPLOY.md); copy
 `.env.example` to `.env` to set them.
 
@@ -433,6 +437,33 @@ filed in it.
   and its version are written over the picture and in the bar, and each clip in the strip says its
   shot. Shots with nothing filed (of the task chosen) are there as a slate, held like a still, with no
   comments, as they have no version to be on; "Filed shots only" leaves them out.
+- **Presenting it.** Present, in the bar of a project's pages and of its boards, makes a link to
+  watch you by (`/p/<link>`): whoever opens it sees what you show, as you show it, and nothing else.
+  They follow you from a board, into the viewer and out, to an asset's versions in the player, to the
+  timeline and back, onto the frame you are on, playing as you play, reading the thread you read (with
+  its drawing), zoomed in as far as you are, in 2D or 3D through the camera you look through, flying
+  with you, and your laser. They cannot go elsewhere or look about: the corner is no way out, and their
+  keys, wheel and pointer move nothing. Only what is their screen's own is in reach: the sound, full
+  screen, and folding the strip and the comments away. Lists (the catalogue, Versions, a project's home)
+  are never shown: while you look for the next thing, what they saw last stays, and a line says you are
+  finding what to show next. Anything outside the project is shown the same way, as nothing.
+  - *One link each, per project, kept.* The same link every time, so it can go in the invitation to every
+    review; it is live only while you present, and between times it says it is waiting for you (and
+    picks you up once you start, without a reload). It can show only what you show, or also the
+    comments on it (never which board they were made on); it can end after a day, a week or a month,
+    be replaced by a new one that stops the old at once, or be turned off. It needs no sign-in: people
+    type a name, which you see as they join ("2 watching" in the pill at the foot of every page, with
+    their names under Link).
+  - *Presenting lasts* in that browser tab, from page to page, until Stop. Reloading or going to another
+    page is a moment's pause for those watching; should you be gone for more than a few seconds, they
+    are told you stepped away. Another tab of yours left open says nothing to anyone.
+  - *What the link can load* is only what has been shown since you started: the boards (as a read-only
+    link has them), the versions of the assets, sets and shots opened, the shots of the timeline played,
+    and the project's model of its venue. Never the file a video was made from, and nothing once you stop.
+  - *The team sees who is presenting.* Where you are in a project, the line at the top says
+    "Anna is presenting · Watch" while somebody else is, a way to watch them in a new tab.
+  - A browser that will not play sound unasked plays without, and the sound button says so; a click
+    turns it on.
 - **Setting a project up.** "Add assets, sets & shots" above the catalogue takes names, typed or pasted
   one a line, each an asset, a set or a shot by its shape (or all of one kind, as chosen), and a run of
   shots from a sequence and its numbers (kilo, 10 to 200 by 10). They are in the catalogue and the
@@ -618,6 +649,8 @@ notifications.js   What each person is told about, worked out from the notes
 ai.js              Asking Claude for names: the prompt, the Claude API, checking what it answers
 auth.js            Who is asking: the four sign-in modes
 public/board.js    The canvas: rendering, input, sync, following
+public/present.js  Presenting a project: the link, the pill, and saying what is shown as you go
+public/watch.js    The page a presentation's link opens: what the presenter shows, followed, and nothing else (watch.html)
 public/snap.js     Smart snapping's geometry: edges, centres, equal gaps (tested on its own)
 public/cuttrack.js A run's close-up track: the playhead held in the middle, frames going by under it
 public/viewer.js   The player: one piece at a time, its strip, timeline, comments and drawings; used by boards and the catalogue
@@ -637,5 +670,5 @@ public/login.html  Sign-in page (password and Google modes)
 public/style.css   All styling
 public/view3d.js   The player's 3D view: a project's model of its venue, with the piece on its screens (docs/3d-preview.md)
 scripts/           restore-board.js: bring back a deleted board
-test/              npm test: sign-in, uploads, live sync, workspaces, links, the database, catalogue, versions, notes, notifications, snapping and asking Claude (against a stand-in)
+test/              npm test: sign-in, uploads, live sync, workspaces, links, presenting, the database, catalogue, versions, notes, notifications, snapping and asking Claude (against a stand-in)
 ```

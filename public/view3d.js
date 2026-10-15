@@ -250,6 +250,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   function holdOn(target, animate = true) {
     const ms = animate && !calm.matches ? IN_MS : 0;
     free = false;
+    track = null;
     fixed = target;
     vel.set(0, 0, 0);
     held.clear();
@@ -299,6 +300,23 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     settleLens(frameRect(canvas.getBoundingClientRect()));
     const r = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
     return { p: fixed.position.toArray().map((v) => r(v, 4)), q: fixed.quaternion.toArray().map((v) => r(v, 6)), fov: r(fixed.fov, 3) };
+  }
+
+  // Flying, where the view is and where it looks, as somebody following it is sent it (see steer).
+  function flight() {
+    if (!free) return null;
+    const r = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
+    return { p: camera.position.toArray().map((v) => r(v, 3)), q: camera.quaternion.toArray().map((v) => r(v, 5)), fov: r(camera.fov, 2) };
+  }
+  // Flies to where somebody else's view is (from flight()), easing there as their moves come in.
+  let track = null;
+  function steer(pov) {
+    if (!pov || !Array.isArray(pov.p) || !Array.isArray(pov.q)) return;
+    fly();
+    track = { p: new THREE.Vector3(...pov.p), q: new THREE.Quaternion(...pov.q).normalize(), fov: pov.fov };
+    const e = new THREE.Euler().setFromQuaternion(track.q, 'YXZ');
+    yaw = e.y;
+    pitch = e.x;
   }
 
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -401,6 +419,11 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       vel.lerp(want, 1 - Math.exp(-dt / (want.lengthSq() ? EASE_IN : EASE_OUT)));
       if (!want.lengthSq() && vel.lengthSq() < 1e-6) vel.set(0, 0, 0);
       camera.position.addScaledVector(vel, dt);
+      // Following somebody's flight: on to where they are, a little behind, so their moves come in smoothly.
+      if (track) {
+        camera.position.lerp(track.p, 1 - Math.exp(-dt / 0.12));
+        if (Number.isFinite(track.fov)) camera.fov += (track.fov - camera.fov) * (1 - Math.exp(-dt / 0.12));
+      }
     }
     const r = canvas.getBoundingClientRect();
     if (!r.width || !r.height) return;
@@ -493,7 +516,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   }
 
   return {
-    canvas, load, setSource, start, stop, key, hold, goTo, at, pose,
+    canvas, load, setSource, start, stop, key, hold, goTo, at, pose, flight, steer,
     // The shape of the frame held (or last held, flying), which the player lays its frame out at.
     aspect: () => fixed.aspect,
     // The model's cameras, by name, and which of them is held (its number), or -1.

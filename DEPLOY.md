@@ -140,7 +140,7 @@ Changes to the list take effect on restart.
 a domain on Cloudflare (about $10 a year), `cloudflared` installed on this PC as a service, and a
 tunnel that sends `boards.example.com` to `http://localhost:4680`. It makes only an outbound
 connection, so no router ports are opened, and it provides HTTPS. Do not add Cloudflare Access in front:
-the app does its own sign-in, and read-only links must stay reachable without one. Set `HOST=127.0.0.1` in
+the app does its own sign-in, and read-only links and presentation links (`/s/...`, `/p/...`) must stay reachable without one. Set `HOST=127.0.0.1` in
 `.env` so the tunnel is the only way in from outside (people on your own network then use the public address too).
 
 **3. Keep it up.** The PC must stay awake and on. Back up the `data` folder; it holds every board and upload.
@@ -183,5 +183,5 @@ default here.
 ```bash
 npm install
 npm start        # http://localhost:4680, data in ./data
-npm test         # sign-in, uploads, live sync, workspaces, read-only links
+npm test         # sign-in, uploads, live sync, workspaces, read-only links, presenting
 ```

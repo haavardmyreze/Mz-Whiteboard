@@ -301,6 +301,9 @@ input[type="text"]:focus-visible, input[type="search"]:focus-visible, textarea:f
 }
 .avatar:hover { transform: translateY(-1px); }
 .avatar.following { box-shadow: 0 0 0 2px var(--accent); }
+/* Presenting the project (see present.js): ringed in the colour of being on air. */
+.avatar.presenting { box-shadow: 0 0 0 2px var(--brand); }
+.avatar.presenting.following { box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px var(--brand); }
 .avatar.more { background: var(--surface-3); color: var(--text-2); cursor: default; }
 .avatar.me { margin-left: 8px; }
 .avatar.me.fixed, .avatar.me.fixed:hover { transform: none; cursor: default; }
@@ -2372,7 +2375,7 @@ body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
 body.viewonly #hint .hint-guest { display: inline; }
 /* A phone's board bar: Activity and Share live in Board settings, beside the guide. */
 @media (max-width: 640px) {
-  #activity, #share { display: none !important; }
+  #activity, #share, #topbar .present-btn:not(.on-air) { display: none !important; }
 }
 
 /* Asking Claude (claude.js): a line to say what these are, and what it said. Quiet until it is used. */
@@ -2476,3 +2479,72 @@ body.viewonly #hint .hint-guest { display: inline; }
 .ps-file.none { color: var(--muted); }
 .ps-model .btn[hidden] { display: none; }
 @media (max-width: 560px) { .ps-row { grid-template-columns: minmax(0, 1fr); gap: 8px; } }
+
+/* ---------------------------------------------------------------- presenting a project, and watching it */
+
+/* The bar's Present button: a dot that lights while you present. */
+.present-btn { flex: none; gap: 7px; }
+.present-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.present-btn.on-air { border-color: color-mix(in srgb, var(--brand) 55%, var(--line-strong)); color: var(--text); }
+.present-btn.on-air .present-dot { background: var(--brand); animation: on-air 1.6s ease-in-out infinite; }
+@keyframes on-air { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 25%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .present-btn.on-air .present-dot, .present-pill .live { animation: none; } }
+.present-btn[hidden] { display: none; }
+/* While presenting, on every page: that you are, who is watching, the link and the way to stop. */
+.present-pill { position: fixed; left: 50%; bottom: 16px; z-index: 55; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 5px 5px 5px 12px; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); box-shadow: var(--shadow-2); font-size: 13px; white-space: nowrap; animation: rise 0.18s var(--ease); }
+.present-pill[hidden] { display: none; }
+.present-pill .live { background: var(--brand); animation: on-air 1.6s ease-in-out infinite; }
+.present-what { font-weight: 600; }
+.present-who { color: var(--text-2); }
+/* Over a video, above its timeline; beside the board's own tools at the foot of a phone. */
+body.focus-video .present-pill { bottom: 96px; }
+body.focus .present-pill { left: calc((100vw + var(--film, 0px) - var(--side, 0px)) / 2); }
+@media (max-width: 699px) { .present-pill { bottom: calc(84px + env(safe-area-inset-bottom)); } }
+.present-watching { color: var(--text); }
+/* Somebody else on the team presenting the project you are in, at the end of where you are. */
+.crumb-live { display: inline-flex; align-items: center; gap: 7px; height: 24px; margin: -2px 0 -2px 8px; padding: 0 10px; border: 1px solid var(--line); border-radius: 12px; color: var(--text-2); font-size: 12px; text-decoration: none; white-space: nowrap; }
+.crumb-live:hover { background: var(--hover); color: var(--text); }
+.crumb-live b { color: var(--accent); font-weight: 600; }
+
+/* A player that only follows somebody presenting: nothing in it is to be steered, bar folding the strip
+   and the comments away, and reading the comments. */
+.viewer.locked :is(.v-stage, .v-timeline, .v-film, .fs-grip, .cp-list > *) { pointer-events: none; }
+.viewer.locked :is(.bar-crumb, .bar-slash, .stepper, .v-clear, .v-dims, .v-cams, .v-extras, .bar-group, .themebtn, .v-tools, .cp-compose, .cp-reply) { display: none !important; }
+.viewer.locked .v-bar > .btn.primary { display: none; }
+.viewer.locked .brand { pointer-events: none; }
+.viewer.locked .tl-loop, .viewer.locked .tl-step { visibility: hidden; }
+
+/* The page that watches: what is shown fills it. */
+body.watch { overflow: hidden; background: var(--viewer-bg, var(--bg)); }
+#stage, .watch-board { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; }
+.watch-board { display: block; background: var(--canvas); }
+.watch-card { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px 16px; background: var(--bg); }
+.watch-card[hidden] { display: none; }
+.watch-card-in { display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 420px; text-align: center; }
+.watch-card-in .logomark { display: inline-grid; place-items: center; width: 48px; height: 48px; border-radius: 12px; background: var(--ink-bg); color: var(--ink-fg); }
+.watch-card-in .logomark svg { width: 32px; height: 32px; }
+.watch-card h1 { margin: 0; font-size: 24px; font-weight: 650; line-height: 1.2; letter-spacing: -0.025em; }
+.watch-card p { margin: 0; color: var(--text-2); line-height: 1.5; text-wrap: pretty; }
+.watch-join { display: flex; gap: 8px; width: 100%; margin-top: 6px; }
+.watch-join input { flex: 1; min-width: 0; height: var(--h); padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-1); color: var(--text); font: inherit; }
+.watch-join input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); outline: none; }
+/* Who presents, and this screen's own few controls, at the top right, over whatever is shown. */
+.watch-status { top: 8px; right: 12px; z-index: 50; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 2px 0 12px; font-size: 13px; white-space: nowrap; }
+.watch-status[hidden] { display: none; }
+.watch-status .live { background: var(--brand); animation: on-air 1.6s ease-in-out infinite; }
+.watch-status .live.off { background: var(--muted); animation: none; }
+.watch-says { font-weight: 600; }
+.watch-project { color: var(--text-2); }
+.watch-status .iconbtn { width: 28px; height: 28px; }
+.watch-status .iconbtn.off { color: var(--muted); }
+@media (max-width: 699px) { .watch-project { display: none; } .watch-status { top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); right: 8px; } }
+/* Between things to show: what was shown last stays, and this says why. */
+.watch-note { position: fixed; left: 50%; bottom: 24px; z-index: 50; transform: translateX(-50%); padding: 8px 14px; border: 1px solid var(--tip-line); border-radius: var(--r-3); background: var(--tip-bg); box-shadow: var(--shadow-pop); color: var(--tip-fg); font-weight: 500; white-space: nowrap; }
+.watch-note[hidden] { display: none; }
+body.watch .viewer { --dock-t: 0px; }
+
+/* A board shown while presenting (in the watching page's frame): only the board, where the presenter is. */
+body.spectating #viewport { pointer-events: none; }
+body.spectating :is(#toolbar, #tooloptions, #seltools, #selbox, #followpill, #followring, #threadpanel, #helppanel, #hint) { display: none !important; }
+body.spectating #topbar > :not(.brand, .bar-slash, #boardname, #conn) { display: none !important; }
+body.spectating #topbar .brand { pointer-events: none; }

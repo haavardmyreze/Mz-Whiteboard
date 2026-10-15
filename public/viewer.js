@@ -25,7 +25,12 @@
 //     onOpen(id), onClose(), onMedia(id, playing, time), onThread(id), onLaser(id, pts), onInteract(), onWhole(id, url)
 //     view3d: { key, model, screen }      a project with a model of its venue: the piece can be seen on it in 3D
 //     onMode3d(on)                        it has turned to 3D or back (the host may show the pieces another way)
+//     scene: () => ({ k, ... })           what is shown, for somebody presenting it (see present.js)
+//     locked: true                        it only follows somebody else (who presents): nothing here moves it
 //   })
+//
+// Whoever wants to know what the player does, whatever host it has, listens with `watch(fn)`: fn('open', id),
+// ('close'), ('media', id, playing, time), ('thread', id), ('laser', id, pts), ('zoom'), ('3d').
 //
 // Drawings are measured against the piece: its width is 1000, its height in proportion. A stroke is a
 // box (x, y, w, h), its points within the box from 0 to 1, how wide its line is along them (ws, times
@@ -279,7 +284,20 @@ const WBViewer = (() => {
     function setHost(next) {
       opts = next;
       can = { read: () => true, write: () => true, draw: () => true, member: () => true, ...(next.can || {}) };
+      if (next.locked) Object.assign(can, { write: () => false, draw: () => false, member: () => false });
     }
+    const locked = () => !!opts.locked;
+    // Who listens to what the player does, whatever its host (see `watch` below).
+    const watchers = new Set();
+    const emit = (type, ...args) => {
+      for (const fn of watchers) {
+        try {
+          fn(type, ...args);
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    };
     // A run (`host.run`): the pieces are shots in order, played through one after another like an edit, with
     // a strip of them all under the picture in place of the side strip. Stills are held a few seconds.
     const runMode = () => !!opts.run;
@@ -323,8 +341,9 @@ const WBViewer = (() => {
     const camBtn = el('button', { class: 'btn v-cam', html: `${ICON.focus}<span>Main camera</span>`, title: 'Look through the main camera (V)', 'aria-pressed': 'false', onclick: () => toCamera('main') });
     const camMore = el('button', { class: 'iconbtn v-cam-more', html: ICON.chevron, title: "The model's other cameras", 'aria-haspopup': 'menu', onclick: () => cameraMenu() });
     const camGroup = el('span', { class: 'bar-group v-cams', hidden: true }, camBtn, camMore);
+    const brand = el('a', { class: 'brand', href: '/', title: 'All boards' }, el('span', { class: 'logomark', html: (document.querySelector('[data-logo-slot] svg') || {}).outerHTML || '' }), el('span', { class: 'wordmark', text: 'Boards' }));
     const bar = el('header', { class: 'appbar chrome v-bar' },
-      el('a', { class: 'brand', href: '/', title: 'All boards' }, el('span', { class: 'logomark', html: (document.querySelector('[data-logo-slot] svg') || {}).outerHTML || '' }), el('span', { class: 'wordmark', text: 'Boards' })),
+      brand,
       el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' }), crumb,
       el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' }),
       el('span', { class: 'stepper' }, prevBtn, posEl, nextBtn),
@@ -335,7 +354,8 @@ const WBViewer = (() => {
     const tools = el('nav', { class: 'chrome v-tools' });
     // The next shot of a run waits here, loaded and on its first frame, to take over at the cut.
     const spareBox = el('div', { class: 'v-spare', 'aria-hidden': 'true' });
-    const root = el('div', { class: `viewer${opts.run ? ' run' : ''}`, hidden: true }, stage, bar, film, filmTab, filmGrip, timeline, panel, cpTab, tools, spareBox);
+    const root = el('div', { class: `viewer${opts.run ? ' run' : ''}${opts.locked ? ' locked' : ''}`, hidden: true }, stage, bar, film, filmTab, filmGrip, timeline, panel, cpTab, tools, spareBox);
+    if (opts.locked) brand.removeAttribute('href');
     document.body.append(root);
 
     let pieces = [];
@@ -356,6 +376,7 @@ const WBViewer = (() => {
     let filmOff = store('wb:filmoff') === true;
     // A video starts again from the top when it reaches the end, unless that is turned off (remembered).
     let looping = store('wb:loop') !== false;
+    let soundWanted = true;
     let editingId = null;
     const typed = new Map(); // piece id -> what its comment box held
     const fullRes = new Set();
@@ -547,6 +568,7 @@ const WBViewer = (() => {
       if (runMode() && runPlaying && (!was || was.id !== id)) playOpen();
       if (thread) pickThread(thread);
       if (opts.onOpen) opts.onOpen(id);
+      emit('open', id);
       return true;
     }
 
@@ -577,6 +599,7 @@ const WBViewer = (() => {
       closeNames();
       trails.clear();
       if (opts.onClose) opts.onClose(was.id);
+      emit('close');
     }
 
     function leavePiece(piece) {
@@ -654,6 +677,8 @@ const WBViewer = (() => {
 
     let in3d = false;
     let three = null; // the 3D view, made the first time it is asked for
+    let busy3d = false; // following somebody into 3D (see follow3d)
+    let next3d = null;
     const has3d = () => !!(opts.view3d && opts.view3d.model);
     async function set3d(on) {
       on = !!on && has3d() && !!open;
@@ -663,7 +688,7 @@ const WBViewer = (() => {
         try {
           if (!three) {
             three = (await import('/view3d.js')).create({
-              onFree: (on) => { if (on && (tool === 'pen' || tool === 'eraser')) setTool('pan'); paintDims(); paintInk(); },
+              onFree: (on) => { if (on && (tool === 'pen' || tool === 'eraser')) setTool('pan'); paintDims(); paintInk(); emit('3d'); },
               frameOf: () => pieceBox.getBoundingClientRect(),
               // Drawing, erasing and pointing are done on the frame held; any other press moves the view.
               holds: (e) => e.button === 0 && !spaceDown && (tool === 'pen' || tool === 'eraser' || tool === 'laser'),
@@ -687,6 +712,7 @@ const WBViewer = (() => {
       in3d = on;
       if (three) three.goTo('main', false);
       if (opts.onMode3d) opts.onMode3d(on);
+      emit('3d');
       arrange();
       layout();
       fit();
@@ -699,6 +725,7 @@ const WBViewer = (() => {
       if (!in3d || !three) return;
       if (pov === undefined) three.hold();
       else three.goTo(pov, animate);
+      emit('3d');
       if (Math.round(1600 / three.aspect()) !== H) {
         sizeBox();
         fit();
@@ -737,6 +764,7 @@ const WBViewer = (() => {
 
     function makeVideo(piece) {
       const video = el('video', { playsinline: '', preload: 'auto' });
+      video.muted = !soundWanted;
       // In a run, the run loops, not the shot.
       video.loop = looping && !runMode();
       if (piece.poster || piece.th) video.poster = piece.poster || piece.th;
@@ -928,6 +956,7 @@ const WBViewer = (() => {
     function applyCam() {
       keepOn();
       pieceBox.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.s})`;
+      emit('zoom');
       zoomBtn.textContent = zoomed() ? `${Math.round((cam.s / actualS()) * 100)}%` : 'Fit';
       // A large picture shows its preview until it is zoomed past it, then its original.
       if (open && open.type === 'image' && open.prev && media && !fullRes.has(open.id) && cam.s * W * (window.devicePixelRatio || 1) > (open.pw || 2048) * 1.1) {
@@ -1248,6 +1277,7 @@ const WBViewer = (() => {
     // Playing, stopping and moving the video. Only what this hand does is told to the host.
     function told() {
       const video = videoOpen();
+      if (open && (video || runMode())) emit('media', open.id, video ? !video.paused : runPlaying, video ? whereOf(video) : stillAt);
       if (!video || !opts.onMedia) return;
       opts.onMedia(open.id, !video.paused, whereOf(video));
     }
@@ -1660,8 +1690,12 @@ const WBViewer = (() => {
       if (laserSend) return;
       laserSend = setTimeout(() => {
         laserSend = 0;
-        if (laserOut.length && open && opts.onLaser) opts.onLaser(open.id, laserOut.splice(0));
-        else laserOut.length = 0;
+        if (laserOut.length && open) {
+          const pts = laserOut.splice(0);
+          if (opts.onLaser) opts.onLaser(open.id, pts);
+          emit('laser', open.id, pts);
+        }
+        laserOut.length = 0;
       }, 25);
     }
 
@@ -1908,7 +1942,7 @@ const WBViewer = (() => {
     stage.addEventListener('contextmenu', (e) => e.preventDefault());
     stage.addEventListener('wheel', (e) => {
       e.preventDefault();
-      if (!open) return;
+      if (!open || locked()) return;
       interact();
       const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
       zoomAt(e.clientX, e.clientY, Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)));
@@ -2285,6 +2319,7 @@ const WBViewer = (() => {
 
     function afterThread() {
       if (opts.onThread) opts.onThread(activeThread);
+      emit('thread', activeThread);
       renderPanel();
       paintMarks();
       paintInk();
@@ -2398,6 +2433,18 @@ const WBViewer = (() => {
       // Docked beside the page's own sidebar and bar, what has the keyboard there keeps its keys.
       if (!released && root.classList.contains('docked') && e.target instanceof Element && e.target !== document.body && !root.contains(e.target)) return;
       const k = e.key.toLowerCase();
+      // Following somebody who presents, only what is this screen's own is in reach: the sound, and the
+      // strip and the comments put away or back. Everything else is theirs to do.
+      if (locked()) {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (k === 'm' && !e.shiftKey) toggleSound();
+        else if (k === 'f' && e.shiftKey) toggleFilm();
+        else if (k === 'c' && e.shiftKey && can.read()) togglePanel();
+        else if (e.code !== 'Space' && !k.startsWith('arrow')) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
       // In 3D, W A S D Q E fly (unless a pen is in hand) and V goes to the main camera.
       if (in3d && three && tool !== 'pen' && tool !== 'eraser' && three.key(e, true)) {
         e.preventDefault();
@@ -2465,7 +2512,7 @@ const WBViewer = (() => {
       done();
     }, true);
     window.addEventListener('keyup', (e) => {
-      if (e.code !== 'Space' || !spaceDown) return;
+      if (e.code !== 'Space' || !spaceDown || locked()) return;
       e.preventDefault();
       const tapped = spaceTap && performance.now() - spaceAt < 400;
       spaceDown = false;
@@ -2479,7 +2526,7 @@ const WBViewer = (() => {
     });
     // Text pasted while a piece is open is on its way into a comment.
     window.addEventListener('paste', (e) => {
-      if (!open || isTyping(e.target)) return;
+      if (!open || isTyping(e.target) || locked()) return;
       const text = e.clipboardData && e.clipboardData.getData('text/plain');
       if (!text || text.startsWith('{"wipboard"')) return;
       e.preventDefault();
@@ -2498,6 +2545,22 @@ const WBViewer = (() => {
         paintDims();
         root.classList.toggle('run', runMode());
         root.classList.toggle('docked', !!next.dock);
+        root.classList.toggle('locked', !!next.locked);
+        // Following somebody who presents, the corner is no way out.
+        if (next.locked) brand.removeAttribute('href');
+        else brand.setAttribute('href', '/');
+      },
+      // The sound, as this screen wants it (somebody watching a presentation chooses theirs).
+      sound(on) {
+        soundWanted = !!on;
+        const video = videoOpen();
+        if (video) video.muted = !soundWanted;
+        if (spare) spare.video.muted = !soundWanted;
+      },
+      // Hears what the player does, whatever host it has; returns how to stop.
+      watch(fn) {
+        watchers.add(fn);
+        return () => watchers.delete(fn);
       },
       host: () => opts,
       refresh,
@@ -2536,11 +2599,82 @@ const WBViewer = (() => {
         }
       },
       followMedia(id, playing, time) {
-        const video = open && open.id === id ? videoOpen() : null;
+        if (!open || open.id !== id) return;
+        const video = videoOpen();
+        // In a run, playing goes on into the next shot, as theirs does; a still is held as long as theirs.
+        if (runMode()) {
+          runPlaying = !!playing;
+          if (!video) {
+            stillAt = clamp(time, 0, STILL - 0.01);
+            cancelAnimationFrame(stillRaf);
+            if (runPlaying) playOpen();
+            syncTimeline();
+            return;
+          }
+        }
         if (!video) return;
         if (Math.abs(whereOf(video) - time) > (playing ? 0.25 : 0.001)) goTo(video, time);
-        if (playing) video.play().catch(() => {});
-        else video.pause();
+        // A browser that will not play sound unasked plays it without, and says so.
+        if (playing) {
+          video.play().catch(() => {
+            if (video.muted || videoOpen() !== video) return;
+            video.muted = true;
+            soundWanted = false;
+            emit('muted');
+            video.play().catch(() => {});
+          });
+        } else video.pause();
+        syncTimeline();
+      },
+      // How far into the piece the view is: its middle, in drawing units, and how many times the fit it is
+      // shown at. Null when it is fitted.
+      zoom() {
+        if (!open || !zoomed()) return null;
+        const mid = toUnits(pad.l + (innerWidth - pad.l - pad.r) / 2, pad.t + (innerHeight - pad.t - pad.b) / 2);
+        const r = (v) => Math.round(v * 10) / 10;
+        return [r(mid.x), r(mid.y), Math.round((cam.s / fitS()) * 1000) / 1000];
+      },
+      // Shows the piece as somebody else has it, as far in and on the same middle, whatever this window's shape.
+      followZoom(z) {
+        if (!open) return;
+        if (!Array.isArray(z)) return void fit();
+        const s = clamp(fitS() * z[2], fitS(), maxS());
+        cam.s = s;
+        cam.x = pad.l + (innerWidth - pad.l - pad.r) / 2 - (z[0] / units()) * s;
+        cam.y = pad.t + (innerHeight - pad.t - pad.b) / 2 - (z[1] / units()) * s;
+        applyCam();
+      },
+      // In 3D, how it is seen: { on, c: the model's camera held, q: a comment's frame held, f: flown, at }.
+      // Null in 2D, or where there is no 3D.
+      view3d() {
+        if (!in3d || !three) return null;
+        const f = three.flight();
+        if (f) return { on: 1, f };
+        const c = three.camera();
+        if (c >= 0) return { on: 1, c };
+        const q = three.pose();
+        return q ? { on: 1, q } : { on: 1 };
+      },
+      // Sees it as somebody else does: in 2D or 3D, through the same camera, frame or flight. What comes in
+      // while the model is still loading waits, and the latest of it is what is shown.
+      follow3d(d) {
+        next3d = { d };
+        if (busy3d) return;
+        busy3d = true;
+        (async () => {
+          while (next3d) {
+            const { d: x } = next3d;
+            next3d = null;
+            const on = !!(x && x.on) && has3d();
+            if (on !== in3d) await set3d(on);
+            if (!on || !in3d || !three) continue;
+            if (x.f) three.steer(x.f);
+            else if (Number.isInteger(x.c)) look(x.c);
+            else if (x.q) look(x.q);
+            paintDims();
+            paintInk();
+          }
+        })().finally(() => { busy3d = false; });
       },
       laser(key, color, id, flat) {
         if (!open || open.id !== id || !Array.isArray(flat)) return;
@@ -2553,8 +2687,11 @@ const WBViewer = (() => {
       // Where the open video is, for whoever follows from now on.
       moment() {
         const video = videoOpen();
+        if (!video && open && runMode()) return [open.id, Math.round(stillAt * 1000) / 1000, runPlaying ? 1 : 0];
         return video ? [open.id, Math.round(whereOf(video) * 1000) / 1000, video.paused ? 0 : 1] : null;
       },
+      // What is shown, for somebody presenting it: the host's own word for it, if it has one.
+      scene: () => (open && opts.scene ? opts.scene() : null),
     };
   }
 
@@ -2676,15 +2813,17 @@ const WBViewer = (() => {
   // What is said about them is live: everyone who has the entity open, here or on any board a version is
   // on, sees it as it is written, and what is written here is there on those boards.
   // `title` is where the entity is (its project), for the bar; `dock` keeps a page's own bar and sidebar.
-  async function openEntity(viewer, entityId, { version = null, me, title = null, dock = false, onClose = () => {} } = {}) {
-    const page = await WB.api('GET', `/api/entities/${entityId}`);
+  // Somebody watching a presentation (watch.js) has it `follow`ed instead: { page, view, room } (the entity
+  // as the link gives it, the view the presenter shows, and where the notes come from); nothing is theirs to do.
+  async function openEntity(viewer, entityId, { version = null, me, title = null, dock = false, onClose = () => {}, follow = null } = {}) {
+    const page = follow ? follow.page : await WB.api('GET', `/api/entities/${entityId}`);
     const versions = page.versions.filter((v) => !v.hidden || v.id === version);
     if (!versions.length) throw new Error('There is nothing filed under it yet');
     // Oldest first, so the arrows go forward in time; the newest of each task last.
     versions.sort((a, b) => (a.task || '').localeCompare(b.task || '') || a.number - b.number);
     // Each in the view last chosen in this project, where it has that view.
     const viewKey = `wb:view:${page.entity.projectId}`;
-    let view = WB.store(viewKey) || '';
+    let view = follow ? follow.view || '' : WB.store(viewKey) || '';
     const piecesIn = (name) => versions.map((v) => {
       const look = inView(v.look, name);
       return { ...look, id: v.id, type: look.type || v.kind, label: v.label, name: look.name || v.originalName };
@@ -2697,7 +2836,7 @@ const WBViewer = (() => {
     const showPicker = (id) => {
       const p = pieces.find((x) => x.id === id);
       const names = p ? p.viewNames : [];
-      viewer.extras.replaceChildren(...(names.length > 1 ? [viewPicker(names, p.shownView, (name) => {
+      viewer.extras.replaceChildren(...(names.length > 1 && !follow ? [viewPicker(names, p.shownView, (name) => {
         view = name;
         WB.store(viewKey, name);
         pieces = piecesIn(in3d ? preview3d.view : view);
@@ -2706,18 +2845,28 @@ const WBViewer = (() => {
     };
     const shape = (list) => list.map((n) => (n.type === 'comment' ? n : { ...n, type: 'comment', on: n.versionId, obn: n.board && n.board.id ? n.board.name : 'the catalogue' }));
     let notes = shape(page.notes);
-    const room = entityRoom(entityId, me, (list) => {
+    const room = (follow ? follow.room : entityRoom)(entityId, me, (list) => {
       notes = list;
       viewer.refresh();
     });
     viewer.use({
       me: () => me,
       dock,
+      locked: !!follow,
       title: () => (title ? `${title} · ${page.entity.name}` : page.entity.name),
       media: () => pieces,
       notes: () => notes,
-      can: { member: () => true },
+      can: follow ? { read: () => follow.read } : { member: () => true },
       ...roomNotes(viewer, () => room, () => notes, (next) => { notes = next; }),
+      ...(follow && { download: null }),
+      scene: () => ({ k: 'entity', entity: entityId, view: in3d ? '' : view }),
+      // Seen another way (by the person presenting, say): each in that view.
+      setView: (name) => {
+        if ((name || '') === view) return;
+        view = name || '';
+        if (!in3d) pieces = piecesIn(view);
+        viewer.refresh();
+      },
       ...(preview3d && preview3d.model && {
         view3d: { ...preview3d, key: page.entity.projectId },
         onMode3d: (on) => {
@@ -2742,7 +2891,9 @@ const WBViewer = (() => {
   // any), in order, sequence by sequence, played one into the next. What is said is about the shot under
   // the playhead, live, through its room. A shot with nothing filed may come as a slate (`empty`): it is
   // seen and held like a still, and nothing is written or drawn on it, as it has no version to be on.
-  async function openRun(viewer, { load, me, title, choices, dock = false, view3d = null, onMode3d = null, onClose = () => {} }) {
+  // `scene()` says what the run is (which sequence, task, view), for somebody presenting it. Somebody watching a
+  // presentation has it `follow`ed: { room, read } (where the notes come from, and whether they are shown).
+  async function openRun(viewer, { load, me, title, choices, dock = false, view3d = null, onMode3d = null, onClose = () => {}, scene = null, follow = null }) {
     let pieces = await load();
     if (!pieces.length) throw new Error('There are no shots to play yet');
     const onSlate = () => !!(pieces.find((x) => x.id === viewer.current()) || {}).empty;
@@ -2756,14 +2907,14 @@ const WBViewer = (() => {
       if (room) room.close();
       roomOf = entityId;
       notes = [];
-      room = entityRoom(entityId, me, (list) => {
+      room = (follow ? follow.room : entityRoom)(entityId, me, (list) => {
         notes = list;
         viewer.refresh();
       });
     };
     // The room follows the shot on screen; a beat later, so playing through does not hop every room.
     // Coming back to the shot whose room is open before that beat is up stays in it.
-    const follow = (id) => {
+    const joinShot = (id) => {
       const p = pieces.find((x) => x.id === id);
       clearTimeout(joinTimer);
       if (!p || p.entityId === roomOf) return;
@@ -2778,13 +2929,15 @@ const WBViewer = (() => {
     viewer.use({
       run: true,
       dock,
+      locked: !!follow,
       me: () => me,
       title,
       media: () => pieces,
       notes: () => notes,
-      can: { member: () => true, write: () => !onSlate(), draw: () => !onSlate() },
+      can: follow ? { read: () => follow.read } : { member: () => true, write: () => !onSlate(), draw: () => !onSlate() },
+      ...(scene && { scene }),
       ...roomNotes(viewer, (pieceId) => (pieceId ? roomFor(pieceId) : room), () => notes, (next) => { notes = next; }),
-      onOpen: follow,
+      onOpen: joinShot,
       ...(view3d && { view3d, onMode3d }),
       onClose: () => {
         clearTimeout(joinTimer);
@@ -2808,8 +2961,78 @@ const WBViewer = (() => {
     viewer.open(pieces[0].id);
   }
 
+  // ---------------------------------------------------------------- a project's timeline, as its pieces
+  //
+  // The card that stands in for a shot with nothing filed: its name, and that it has nothing yet.
+  // It is drawn as SVG, so it is sharp at any size the player shows it at: drawn at 1280 x 720, said to
+  // be four times that so it is never scaled up from a small picture. An image cannot reach the page's
+  // fonts, so Inter goes inside it (fetched once).
+  const slates = new Map();
+  let slateFont = null;
+  const slateFontReady = () => {
+    if (!slateFont) {
+      slateFont = fetch('/fonts/inter-latin.woff2')
+        .then((r) => (r.ok ? r.blob() : null))
+        .then((b) => b && new Promise((resolve) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(fr.result);
+          fr.onerror = () => resolve(null);
+          fr.readAsDataURL(b);
+        }))
+        .catch(() => null);
+    }
+    return slateFont;
+  };
+  const SLATE = { w: 1280, h: 720, scale: 3 };
+  const xml = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
+  async function slate(name, task) {
+    const key = `${name}|${task}`;
+    if (slates.has(key)) return slates.get(key);
+    const font = await slateFontReady();
+    const { w, h, scale } = SLATE;
+    const face = font ? `<style>@font-face{font-family:SlateInter;font-weight:100 900;src:url(${font}) format("woff2")}</style>` : '';
+    const family = `${font ? 'SlateInter, ' : ''}Inter, system-ui, -apple-system, 'Segoe UI', sans-serif`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w * scale}" height="${h * scale}" viewBox="0 0 ${w} ${h}">${face}`
+      + '<defs><pattern id="s" width="40" height="40" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="40" height="40" fill="#111"/><rect width="10" height="40" fill="#191919"/></pattern></defs>'
+      + `<rect width="${w}" height="${h}" fill="url(#s)"/>`
+      + `<text x="${w / 2}" y="360" text-anchor="middle" font-family="${xml(family)}" font-weight="600" font-size="64" fill="#e8e8e8">${xml(name)}</text>`
+      + `<text x="${w / 2}" y="416" text-anchor="middle" font-family="${xml(family)}" font-weight="400" font-size="30" fill="#8a8a8a">${xml(task ? `No ${task} filed yet` : 'Nothing filed yet')}</text>`
+      + '</svg>';
+    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+    slates.set(key, url);
+    return url;
+  }
+
+  // The pieces a project's timeline (GET /api/projects/:id/timeline) plays, for `openRun`: the newest version
+  // of each shot (of `seq`, or all), seen in `view`, and where `withEmpty`, a slate for each with nothing filed.
+  async function runPieces(data, { seq = '', task = '', withEmpty = true, view = '' } = {}) {
+    if (!data.shots.length) return [];
+    // The slates for shots with nothing filed, drawn before the run is laid out.
+    const pending = data.shots.filter((x) => !x.version && withEmpty && (!seq || x.seq === seq));
+    const slateOf = new Map(await Promise.all(pending.map(async (x) => [x.id, await slate(x.name, task)])));
+    return data.shots.filter((x) => (x.version || withEmpty) && (!seq || x.seq === seq)).map((x) => {
+      if (!x.version) {
+        // A shot with nothing filed (of that task): a slate in its place, held like a still.
+        return {
+          type: 'image', id: `empty-${x.id}`, src: slateOf.get(x.id), nw: SLATE.w * SLATE.scale, nh: SLATE.h * SLATE.scale, empty: true,
+          label: `${x.name} · nothing filed yet`, name: x.name, seq: x.seq, entityId: x.id,
+        };
+      }
+      const shown = inView(x.version.look, view);
+      return { ...shown, id: x.version.id, type: shown.type, label: x.version.label, name: x.name, seq: x.seq, entityId: x.id };
+    });
+  }
+  // A project whose versions are all named views (every one a cmp, say) starts on the one most have.
+  function usualView(data) {
+    const filed = data.shots.filter((x) => x.version);
+    if (!filed.length || !filed.every((x) => x.version.look.view)) return '';
+    const count = new Map();
+    for (const x of filed) count.set(x.version.look.view, (count.get(x.version.look.view) || 0) + 1);
+    return [...count].sort((a, b) => b[1] - a[1])[0][0];
+  }
+
   return {
-    create, openEntity, openRun, entityRoom, inView, viewPicker, ICON, INK, inkColor, pathData, outlinePath, strokeNode, fmtTime, fmtMoment, timeLabel, cycleTimeMode,
+    create, openEntity, openRun, runPieces, usualView, entityRoom, inView, viewPicker, ICON, INK, inkColor, pathData, outlinePath, strokeNode, fmtTime, fmtMoment, timeLabel, cycleTimeMode,
     frameTime, frameIndex, lastFrame, goTo, whereOf, changing, switchSource, fetchWhole, releaseWhole, showWave,
     timeMode: () => timeMode,
   };

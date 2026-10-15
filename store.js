@@ -248,6 +248,20 @@ CREATE TABLE IF NOT EXISTS grants (
   created_by TEXT,
   UNIQUE (target_type, target_id, principal_type, principal_id)
 );
+
+-- A link to watch somebody present a project: whoever opens it sees what they show, as they show it, and
+-- nothing else. One per person per project, so the same link can be sent ahead of every review. The owner
+-- is who presents: their sign-in's id, or where nobody signs in, the name they go by.
+CREATE TABLE IF NOT EXISTS presentations (
+  token TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  owner_name TEXT,
+  access TEXT NOT NULL,
+  expires_at INTEGER,
+  created_at INTEGER NOT NULL,
+  UNIQUE (project_id, owner)
+);
 `;
 
 const VIDEO_EXT = /\.(mp4|m4v|webm|mov)$/i;
@@ -615,6 +629,17 @@ function openStore(dataDir) {
   // Back at the top level, since its folder may have gone since.
   const unmark = db.prepare('UPDATE boards SET deleted_at = NULL, folder_id = NULL WHERE id = ? AND deleted_at IS NOT NULL');
   const restoreBoard = (id) => unmark.run(id).changes > 0;
+
+  // ---- links to watch a project being presented
+
+  const presentationOf = (r) => ({ token: r.token, projectId: r.project_id, owner: r.owner, ownerName: r.owner_name, access: r.access, expiresAt: r.expires_at, createdAt: r.created_at });
+  const readPresentations = db.prepare('SELECT * FROM presentations');
+  const presentations = () => readPresentations.all().map(presentationOf);
+  const putPresentation = db.prepare(`INSERT INTO presentations (token, project_id, owner, owner_name, access, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (token) DO UPDATE SET owner_name = excluded.owner_name, access = excluded.access, expires_at = excluded.expires_at`);
+  const savePresentation = (p) => putPresentation.run(p.token, p.projectId, p.owner, p.ownerName || null, p.access, p.expiresAt || null, p.createdAt);
+  const dropPresentation = db.prepare('DELETE FROM presentations WHERE token = ?');
+  const deletePresentation = (token) => dropPresentation.run(token).changes > 0;
 
   const readFolders = db.prepare('SELECT * FROM folders');
   const folders = () => readFolders.all().map((r) => ({
@@ -1149,6 +1174,7 @@ function openStore(dataDir) {
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,
     grants, setGrant, removeGrant, removeGrantsOn,
+    presentations, savePresentation, deletePresentation,
   };
 }
 

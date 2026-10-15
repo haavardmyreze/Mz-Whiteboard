@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#090909">
+  <meta name="referrer" content="no-referrer">
+  <script src="/boot.js"></script>
+  <title>Boards by Myreze</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+  <!-- three.js, for a project's 3D view (view3d.js): only fetched when the presenter turns to 3D. -->
+  <script type="importmap">{ "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/addons/" } }</script>
+</head>
+<body class="watch">
+  <!-- What the presenter shows: a board (in a frame), the player, or while there is nothing, a card saying so. -->
+  <div id="stage"></div>
+  <div id="card" class="watch-card" hidden></div>
+  <div id="note" class="watch-note" hidden></div>
+  <div id="status" class="watch-status chrome" hidden></div>
+  <span class="logomark" data-logo-slot hidden></span>
+  <div id="toasts"></div>
+  <script src="/common.js"></script>
+  <script src="/icons.js"></script>
+  <script src="/media.js"></script>
+  <script src="/ink.js"></script>
+  <script src="/cuttrack.js"></script>
+  <script src="/viewer.js"></script>
+  <script src="/watch.js"></script>
+</body>
+</html>

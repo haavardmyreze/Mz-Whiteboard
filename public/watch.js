@@ -1,0 +1,310 @@
+'use strict';
+
+// Watching somebody present a project (/p/<token>, see present.js and "presenting a project" in server.js).
+// Whatever they show is shown here, as they show it: a board (its read-only page, in a frame, following
+// them on it), an asset, set or shot's versions in the player, or the project's timeline. Nothing here is
+// to be steered: no going elsewhere, no looking about. Only what is this screen's own is in reach: the
+// sound, full screen, and folding the comments and the strip away.
+(async () => {
+  const { el } = WB;
+  const $ = (id) => document.getElementById(id);
+  const token = location.pathname.split('/').filter(Boolean)[1];
+  const stage = $('stage');
+  const card = $('card');
+  const note = $('note');
+  const status = $('status');
+  const ICON = WB.iconSet(18);
+
+  let info = null;      // what the link is: { project, presenter, access, live }
+  let me = null;
+  let ws = null;
+  let retry = 800;
+  let dead = false;
+  let live = false;
+  let away = false;
+  let scene = null;     // what is shown now, as the presenter's page said it
+  let shownKey = '';    // which of it is mounted here
+  let mounting = null;  // the scene being put up, while its pieces load
+  let state = {};       // what the presenter's player is doing (see cleanPlayer in server.js)
+  let stateAt = 0;      // when that was said, for a video playing on since
+  let notes = [];
+  const noteListeners = new Set();
+  let frame = null;     // the board's page, when a board is shown
+  let soundOn = false;
+
+  const viewer = WBViewer.create({ me: () => me, title: () => '', media: () => [], notes: () => [], locked: true, add() {}, set() {}, remove() {} });
+  viewer.watch((type) => {
+    if (type !== 'muted' || !soundOn) return;
+    soundOn = false;
+    paintStatus();
+  });
+
+  // ---- what is said on the screen besides what is shown
+
+  function fatal(text) {
+    dead = true;
+    if (ws) ws.close();
+    viewer.close();
+    stage.replaceChildren();
+    status.hidden = true;
+    note.hidden = true;
+    showCard(text, 'The link may have been turned off or replaced, or it ran out. Ask whoever sent it for a new one.');
+  }
+  function showCard(title, text, ...more) {
+    card.replaceChildren(el('div', { class: 'watch-card-in' },
+      el('span', { class: 'logomark', html: (document.querySelector('[data-logo-slot] svg') || {}).outerHTML || '' }),
+      el('h1', { text: title }), text && el('p', { text }), ...more));
+    card.hidden = false;
+  }
+  const presenter = () => (info && info.presenter && info.presenter.name) || 'The presenter';
+
+  function paintStatus() {
+    status.hidden = false;
+    const dot = el('i', { class: `live${live && !away ? '' : ' off'}` });
+    const says = !live ? `Waiting for ${presenter()}` : away ? `${presenter()} stepped away` : `${presenter()} is presenting`;
+    status.replaceChildren(dot,
+      el('span', { class: 'watch-says', text: says }),
+      el('span', { class: 'watch-project', text: info ? info.project.name : '' }),
+      el('button', {
+        class: `iconbtn${soundOn ? '' : ' off'}`, html: soundOn ? ICON.sound : ICON.muted,
+        title: soundOn ? 'Sound on. Click to turn it off (M)' : 'Sound off. Click to turn it on (M)', onclick: () => setSound(!soundOn),
+      }),
+      document.fullscreenEnabled && el('button', { class: 'iconbtn', html: ICON.fit, title: 'Full screen', onclick: toggleFull }));
+  }
+  function toggleFull() {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else document.documentElement.requestFullscreen().catch(() => {});
+  }
+  // Sound is this screen's to choose. A browser that will not play sound unasked plays it without.
+  function setSound(on) {
+    soundOn = on;
+    viewer.sound(on);
+    if (frame && frame.contentWindow) frame.contentWindow.postMessage({ wb: 'sound', on }, location.origin);
+    paintStatus();
+  }
+  window.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() === 'm' && !e.ctrlKey && !e.metaKey && !e.altKey && !WB.isTyping(e.target)) setSound(!soundOn);
+  });
+  // A frame's board says when its player had to go without sound.
+  window.addEventListener('message', (e) => {
+    if (e.origin !== location.origin || !e.data || e.data.wb !== 'muted') return;
+    if (soundOn) {
+      soundOn = false;
+      paintStatus();
+    }
+  });
+
+  // Between things to show (a list of the catalogue, say), what was shown last stays, and a line says why.
+  function paintNote() {
+    const idle = live && !away && scene && scene.k === 'idle' && shownKey;
+    note.hidden = !idle && !(live && away && shownKey);
+    note.textContent = away ? `${presenter()} stepped away. It goes on when they are back.` : `${presenter()} is finding what to show next…`;
+  }
+  function paintWaiting() {
+    if (dead) return;
+    if (!live) {
+      tearDown();
+      showCard(`${info.project.name}`, `${presenter()} is not presenting right now. This page follows them once they start: leave it open.`);
+    } else if (!shownKey && !mounting) {
+      showCard(`${info.project.name}`, `${presenter()} is presenting, and is about to show something.`);
+    } else card.hidden = true;
+    paintNote();
+    paintStatus();
+  }
+
+  // ---- what is shown
+
+  function tearDown() {
+    shownKey = '';
+    mounting = null;
+    viewer.close();
+    if (frame) frame.remove();
+    frame = null;
+  }
+  const keyOf = (s) => (!s || s.k === 'idle' ? '' : s.k === 'board' ? `b:${s.board}` : s.k === 'entity' ? `e:${s.entity}` : `r:${s.seq}|${s.task}|${s.empty}|${s.view}`);
+
+  async function show(next) {
+    scene = next;
+    const key = keyOf(next);
+    if (!key) return paintWaiting();
+    if (key === shownKey || (mounting && mounting.key === key)) {
+      if (next.k === 'entity' && shownKey === key) viewer.host().setView?.(next.view);
+      paintNote();
+      return apply();
+    }
+    tearDown();
+    const job = { key };
+    mounting = job;
+    paintWaiting();
+    try {
+      if (next.k === 'board') {
+        frame = el('iframe', { class: 'watch-board', src: `/p/${encodeURIComponent(token)}/b/${encodeURIComponent(next.board)}`, allow: 'autoplay; fullscreen', 'aria-label': 'The board being presented' });
+        frame.addEventListener('load', () => { if (frame && frame.contentWindow) frame.contentWindow.postMessage({ wb: 'sound', on: soundOn }, location.origin); });
+        stage.replaceChildren(frame);
+      } else if (next.k === 'entity') {
+        const page = await WB.api('GET', `/api/watch/${token}/entity/${next.entity}`);
+        if (mounting !== job) return;
+        await WBViewer.openEntity(viewer, next.entity, {
+          version: typeof state.f === 'string' ? state.f : null, me, title: info.project.name,
+          follow: { page, view: next.view, room: noteRoom, read: info.access === 'comments' },
+        });
+      } else if (next.k === 'run') {
+        const data = await WB.api('GET', `/api/watch/${token}/timeline${next.task ? `?task=${encodeURIComponent(next.task)}` : ''}`);
+        if (mounting !== job) return;
+        const preview3d = data.project.settings && data.project.settings.preview3d;
+        let in3d = false;
+        let reload = () => {};
+        const load = () => WBViewer.runPieces(data, { seq: next.seq, task: next.task, withEmpty: next.empty, view: in3d ? preview3d.view : next.view });
+        await WBViewer.openRun(viewer, {
+          load, me, title: () => `${info.project.name} · Timeline`,
+          choices: (again) => { reload = again; return []; },
+          ...(preview3d && preview3d.model && {
+            view3d: { ...preview3d, key: data.project.id },
+            onMode3d: (on) => { in3d = on; reload({ keep: true }); },
+          }),
+          follow: { room: noteRoom, read: info.access === 'comments' },
+        });
+      }
+    } catch (err) {
+      if (mounting !== job) return;
+      mounting = null;
+      showCard('This could not be shown', err.message);
+      return;
+    }
+    if (mounting !== job) return;
+    mounting = null;
+    shownKey = key;
+    viewer.sound(soundOn);
+    paintWaiting();
+    apply();
+  }
+
+  // Whoever is watching is shown what the presenter's player does: the piece, 2D or 3D, the moment, the
+  // thread, the zoom. A video playing has played on since it was said.
+  function apply(patch = state) {
+    if (!scene || scene.k === 'board' || scene.k === 'idle' || mounting || !viewer.isOpen()) return;
+    // A piece this page has not got (filed since it loaded, say) leaves the one showing as it is.
+    const has = (id) => (viewer.host().media() || []).some((p) => p.id === id);
+    if ('f' in patch && typeof patch.f === 'string' && patch.f !== viewer.current() && has(patch.f)) viewer.follow(patch.f);
+    const open = viewer.current();
+    if ('d' in patch) viewer.follow3d(patch.d);
+    if ('m' in patch && Array.isArray(patch.m) && patch.m[0] === open) {
+      const [, at, playing] = patch.m;
+      viewer.followMedia(open, !!playing, at + (playing ? (performance.now() - stateAt) / 1000 : 0));
+    }
+    if ('t' in patch) viewer.follow(open, { thread: patch.t });
+    if ('z' in patch) requestAnimationFrame(() => viewer.followZoom(patch.z));
+  }
+
+  // The notes on what is shown, when the link shows them: as a room would have them (see openEntity).
+  function noteRoom(entityId, who, onNotes) {
+    noteListeners.add(onNotes);
+    onNotes(notes);
+    return { send() {}, close: () => noteListeners.delete(onNotes) };
+  }
+  function setNotes(list) {
+    notes = Array.isArray(list) ? list : [];
+    for (const fn of noteListeners) fn(notes);
+  }
+
+  // ---- the connection
+
+  function connect() {
+    if (dead) return;
+    ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?watch=${encodeURIComponent(token)}`);
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', name: me.name, color: me.color }));
+    ws.onmessage = (e) => {
+      let msg;
+      try {
+        msg = JSON.parse(e.data);
+      } catch {
+        return;
+      }
+      onMessage(msg);
+    };
+    ws.onclose = (e) => {
+      if (dead) return;
+      if (e.code === 4005) return fatal('This link is not shared any more.');
+      WB.offline(true);
+      setTimeout(connect, retry);
+      retry = Math.min(retry * 1.6, 8000);
+    };
+  }
+
+  function onMessage(msg) {
+    if (msg.t === 'init') {
+      retry = 800;
+      WB.offline(false);
+      info = { ...info, project: msg.project, presenter: msg.presenter, access: msg.access };
+      live = msg.live;
+      away = msg.away;
+      state = msg.p || {};
+      stateAt = performance.now() - (msg.mAge || 0);
+      setNotes(msg.notes);
+      document.title = `${msg.project.name} · Boards`;
+      if (live && msg.scene) show(msg.scene);
+      else paintWaiting();
+    } else if (msg.t === 'scene') {
+      state = msg.p || {};
+      stateAt = performance.now();
+      show(msg.scene);
+    } else if (msg.t === 'p') {
+      Object.assign(state, msg.p);
+      if ('m' in msg.p) stateAt = performance.now();
+      apply(msg.p);
+    } else if (msg.t === 'laser') {
+      if (viewer.isOpen()) viewer.laser('presenter', (info.presenter && info.presenter.color) || '#ffffff', msg.on, msg.pts);
+    } else if (msg.t === 'notes') {
+      setNotes(msg.notes);
+    } else if (msg.t === 'live') {
+      live = true;
+      away = false;
+      info.presenter = msg.presenter;
+      info.access = msg.access;
+      paintWaiting();
+    } else if (msg.t === 'away' || msg.t === 'back') {
+      away = msg.t === 'away';
+      paintWaiting();
+    } else if (msg.t === 'ended') {
+      live = false;
+      scene = null;
+      state = {};
+      setNotes([]);
+      paintWaiting();
+    } else if (msg.t === 'access') {
+      info.access = msg.access;
+      // Shown again, with the comments or without them.
+      const was = scene;
+      tearDown();
+      if (was) show(was);
+    }
+  }
+
+  // ---- start
+
+  try {
+    info = await WB.api('GET', `/api/watch/${token}`);
+  } catch {
+    return fatal('This link is not shared any more.');
+  }
+  document.title = `${info.project.name} · Boards`;
+  // Who is watching, for the presenter to see: a name, typed once and kept. Joining is a click, so the
+  // browser lets what is played here have its sound.
+  const known = WB.user();
+  const name = el('input', { type: 'text', maxlength: 32, placeholder: 'Your name', value: known ? known.name : '', autocomplete: 'name', 'aria-label': 'Your name' });
+  await new Promise((resolve) => {
+    const join = (e) => {
+      e.preventDefault();
+      if (!name.value.trim()) return name.focus();
+      me = WB.saveUser(name.value.trim());
+      resolve();
+    };
+    showCard(info.project.name, info.live ? `${info.presenter.name} is presenting. Say who you are, and join.` : `${info.presenter.name} presents it here. Say who you are, and you are in when they start.`,
+      el('form', { class: 'watch-join', onsubmit: join }, name, el('button', { class: 'btn primary', type: 'submit', text: 'Join' })));
+    name.focus();
+  });
+  soundOn = true;
+  card.hidden = true;
+  paintStatus();
+  connect();
+})();

@@ -2574,3 +2574,180 @@ test('without a key Claude is off, and the pages are told', async (t) => {
   const res = await fetch(`${s.base}/api/projects/${kilo.id}/ai/files`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ files: [{ key: '0', filename: 'a.mov' }] }) });
   assert.equal(res.status, 503);
 });
+
+// ---------------------------------------------------------------- presenting a project
+
+test('a project is presented through a link of its presenter: live only while they present, showing only what they show', async (t) => {
+  const WebSocket = require('ws');
+  const port = 4931;
+  const s = start(port, { AUTH_MODE: 'password', SITE_PASSWORD: 'team-secret' });
+  t.after(s.stop);
+  await s.ready;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const login = async (name) => {
+    const res = await fetch(`${s.base}/auth/password`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, password: 'team-secret' }) });
+    return res.headers.get('set-cookie').split(';')[0];
+  };
+  const anna = await login('Anna');
+  const ben = await login('Ben');
+  const call = async (cookie, method, p, body) => {
+    const res = await fetch(s.base + p, { method, headers: { ...(cookie && { cookie }), 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    return { status: res.status, body: await res.json().catch(() => null), headers: res.headers };
+  };
+  const upload = async (name) => (await (await fetch(`${s.base}/api/upload?name=${name}&uid=up${name.replace(/\W/g, '')}&offset=0&done=1`, { method: 'POST', headers: { cookie: anna }, body: crypto.randomBytes(2000) })).json()).url;
+  const open = (query, cookie, hello) => new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?${query}`, { headers: cookie ? { cookie } : {} });
+    const conn = { ws, seen: [], closed: null };
+    ws.on('open', () => {
+      ws.send(JSON.stringify({ t: 'hello', ...hello }));
+      setTimeout(() => resolve(conn), 250);
+    });
+    ws.on('message', (raw) => conn.seen.push(JSON.parse(raw)));
+    ws.on('error', reject);
+    ws.on('close', (code) => { conn.closed = code; });
+  });
+  const last = (conn, type) => conn.seen.filter((m) => m.t === type).pop();
+
+  // A project with two shots filed, and a board in it with a picture on it.
+  const kilo = (await call(anna, 'POST', '/api/folders', { name: 'Kilo' })).body;
+  await call(anna, 'PATCH', `/api/folders/${kilo.id}`, { project: true });
+  const board = (await call(anna, 'POST', '/api/boards', { name: 'Standup', folderId: kilo.id })).body;
+  const [a, b, c] = [await upload('a.webm'), await upload('b.webm'), await upload('c.png')];
+  await call(anna, 'POST', `/api/projects/${kilo.id}/versions`, { files: [
+    { look: { type: 'video', src: a, nw: 640, nh: 360, name: 'a.webm' }, entity: { name: 'kilo-0010', tier: 'shot' }, task: 'anim' },
+    { look: { type: 'video', src: b, nw: 640, nh: 360, name: 'b.webm' }, entity: { name: 'kilo-0020', tier: 'shot' }, task: 'anim' },
+  ] });
+  const shots = (await call(anna, 'GET', `/api/projects/${kilo.id}`)).body.entities;
+  const e10 = shots.find((e) => e.name === 'kilo-0010');
+  const e20 = shots.find((e) => e.name === 'kilo-0020');
+  const v10 = (await call(anna, 'GET', `/api/entities/${e10.id}`)).body.versions[0].id;
+  const editor = await open(`board=${board.id}`, anna, {});
+  editor.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'picture1', type: 'image', x: 0, y: 0, w: 100, h: 100, src: c } }] }));
+  await wait(200);
+
+  // One link per person per project, the same each time it is asked for.
+  assert.deepEqual((await call(anna, 'GET', `/api/projects/${kilo.id}/present`)).body, { token: null });
+  const made = (await call(anna, 'POST', `/api/projects/${kilo.id}/present`, {})).body;
+  assert.match(made.token, /^[\w-]{20,}$/);
+  assert.equal(made.access, 'view');
+  assert.equal(made.live, false);
+  assert.equal((await call(anna, 'POST', `/api/projects/${kilo.id}/present`, {})).body.token, made.token);
+  assert.equal((await call(anna, 'GET', `/api/projects/${kilo.id}/present`)).body.token, made.token);
+  assert.deepEqual((await call(ben, 'GET', `/api/projects/${kilo.id}/present`)).body, { token: null }, "Anna's is hers");
+  assert.equal((await call(null, 'GET', `/api/projects/${kilo.id}/present`)).status, 401);
+  const token = made.token;
+
+  // The link needs no sign-in: its page (which lets the browser load what is shown), and what it is.
+  const page = await call(null, 'GET', `/p/${token}`);
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get('set-cookie'), /wb_watch=/);
+  assert.deepEqual((await call(null, 'GET', `/api/watch/${token}`)).body, { project: { name: 'Kilo' }, presenter: { name: 'Anna', color: '#888888' }, access: 'view', live: false });
+  assert.equal((await call(null, 'GET', '/api/watch/notarealtokenvalue000')).status, 404);
+  const watching = `wb_watch=${token}`;
+  const file = async (src, cookie = watching) => (await fetch(s.base + src, { headers: { cookie } })).status;
+
+  // Somebody watching before it is live waits, and can load nothing.
+  const carla = await open(`watch=${token}`, null, { name: 'Carla' });
+  assert.equal(last(carla, 'init').live, false);
+  assert.equal(last(carla, 'init').scene, null);
+  assert.equal(await file(a), 401);
+  assert.equal((await call(null, 'GET', `/api/watch/${token}/entity/${e10.id}`)).status, 404);
+
+  // Nobody else presents through Anna's link.
+  const benHost = await open(`present=${token}`, ben, { name: 'Ben' });
+  await wait(100);
+  assert.equal(benHost.closed, 4003);
+
+  // Anna presents: those watching are told, and she sees who they are.
+  const host = await open(`present=${token}`, anna, { name: 'Anna' });
+  assert.equal(last(carla, 'live').presenter.name, 'Anna');
+  assert.deepEqual(last(host, 'watchers').list.map((w) => w.name), ['Carla']);
+  assert.deepEqual((await call(ben, 'GET', '/api/library')).body.presenting.map((p) => [p.projectId, p.name, p.token]), [[kilo.id, 'Anna', token]], 'the team sees who presents');
+
+  // She opens a shot's versions: those watching are shown it, and only it.
+  host.ws.send(JSON.stringify({ t: 'scene', scene: { k: 'entity', entity: e10.id, view: '' }, p: { f: v10, m: [v10, 1.5, 1], evil: 'x' } }));
+  await wait(200);
+  const scene = last(carla, 'scene');
+  assert.deepEqual(scene.scene, { k: 'entity', entity: e10.id, view: '' });
+  assert.deepEqual(scene.p, { f: v10, m: [v10, 1.5, 1] });
+  const shown = await call(null, 'GET', `/api/watch/${token}/entity/${e10.id}`);
+  assert.equal(shown.status, 200);
+  assert.deepEqual(shown.body.versions.map((v) => v.label), ['kilo-0010 anim v1']);
+  assert.equal(shown.body.versions[0].look.src, a);
+  assert.equal((await call(null, 'GET', `/api/watch/${token}/entity/${e20.id}`)).status, 404, 'not shown');
+  assert.equal(await file(a), 200);
+  assert.equal(await file(b), 401);
+  assert.equal(await file(c), 401);
+  assert.equal(await file(a, 'wb_watch=notarealtokenvalue000'), 401);
+
+  // What the player does reaches them, and nothing it should not.
+  host.ws.send(JSON.stringify({ t: 'p', p: { t: 'thread01', z: [500, 280, 2], name: 'Boss', s: ['x'] } }));
+  host.ws.send(JSON.stringify({ t: 'laser', on: v10, pts: [1, 2, 3, 4] }));
+  await wait(200);
+  assert.deepEqual(last(carla, 'p').p, { t: 'thread01', z: [500, 280, 2] });
+  assert.deepEqual(last(carla, 'laser').pts, [1, 2, 3, 4]);
+  // Another tab of hers, left open, says nothing to anyone.
+  const otherTab = await open(`present=${token}`, anna, { name: 'Anna' });
+  otherTab.ws.send(JSON.stringify({ t: 'p', p: { f: 'elsewhere' } }));
+  await wait(150);
+  assert.notEqual(last(carla, 'p').p.f, 'elsewhere');
+  otherTab.ws.close();
+
+  // The timeline: its shots can be loaded, as it plays them.
+  host.ws.send(JSON.stringify({ t: 'scene', scene: { k: 'run', seq: '', task: '', empty: true, view: '' } }));
+  await wait(150);
+  const run = await call(null, 'GET', `/api/watch/${token}/timeline`);
+  assert.equal(run.status, 200);
+  assert.deepEqual(run.body.shots.map((x) => x.version && x.version.label), ['kilo-0010 anim v1', 'kilo-0020 anim v1']);
+  assert.equal(await file(b), 200);
+  assert.equal((await call(null, 'GET', `/api/watch/${token}/timeline?task=comp`)).status, 404, 'not the one shown');
+
+  // The board: watched through the link, following her own peer on it.
+  editor.ws.send(JSON.stringify({ t: 'lead', present: token }));
+  host.ws.send(JSON.stringify({ t: 'scene', scene: { k: 'board', board: board.id } }));
+  await wait(150);
+  assert.deepEqual(last(carla, 'scene').scene, { k: 'board', board: board.id });
+  assert.equal(await file(c), 200);
+  const onBoard = await open(`watch=${token}&board=${board.id}`, null, { name: 'Carla' });
+  const boardInit = last(onBoard, 'init');
+  assert.deepEqual(boardInit.items.map((i) => i.id), ['picture1']);
+  assert.ok(boardInit.lead);
+  assert.equal(boardInit.peers.find((p) => p.name === 'Anna').lead, boardInit.lead);
+  // ...and seen by the team as a pointer, unable to change anything.
+  onBoard.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'del', ids: ['picture1'] }] }));
+  await wait(150);
+  assert.ok(!editor.seen.some((m) => m.t === 'op' && m.from));
+  // A board never shown cannot be watched through it.
+  const other = (await call(anna, 'POST', '/api/boards', { name: 'Secret', folderId: kilo.id })).body;
+  await assert.rejects(open(`watch=${token}&board=${other.id}`, null, { name: 'Carla' }));
+  // Something outside the project is shown as nothing.
+  const elsewhere = (await call(anna, 'POST', '/api/boards', { name: 'Elsewhere' })).body;
+  host.ws.send(JSON.stringify({ t: 'scene', scene: { k: 'board', board: elsewhere.id } }));
+  await wait(150);
+  assert.deepEqual(last(carla, 'scene').scene, { k: 'idle' });
+
+  // Stopping: those watching are told, the board watched through it closes, and nothing more loads.
+  host.ws.send(JSON.stringify({ t: 'end' }));
+  await wait(200);
+  assert.ok(last(carla, 'ended'));
+  assert.equal(onBoard.closed, 4007);
+  assert.equal(await file(a), 401);
+  assert.equal((await call(null, 'GET', `/api/watch/${token}`)).body.live, false);
+
+  // Changing what it shows is said at once; a new link stops the old one for whoever has it.
+  assert.equal((await call(anna, 'PATCH', `/api/projects/${kilo.id}/present`, { access: 'comments' })).body.access, 'comments');
+  await wait(100);
+  assert.equal(last(carla, 'access').access, 'comments');
+  const fresh = (await call(anna, 'POST', `/api/projects/${kilo.id}/present/reset`, {})).body;
+  assert.notEqual(fresh.token, token);
+  assert.equal(fresh.access, 'comments');
+  await wait(150);
+  assert.equal(carla.closed, 4005);
+  assert.equal(host.closed, 4005);
+  assert.equal((await call(null, 'GET', `/api/watch/${token}`)).status, 404);
+  assert.equal((await call(null, 'GET', `/api/watch/${fresh.token}`)).status, 200);
+  assert.deepEqual((await call(anna, 'DELETE', `/api/projects/${kilo.id}/present`)).body, { token: null });
+  assert.equal((await call(null, 'GET', `/api/watch/${fresh.token}`)).status, 404);
+  assert.equal((await call(null, 'GET', `/p/${fresh.token}`)).headers.get('set-cookie'), null);
+  editor.ws.close();
+});

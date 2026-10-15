@@ -65,6 +65,12 @@
   const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
   // A folder is found whatever workspace it is in; only the top level, `null`, is the workspace's own.
   const folderById = (id) => everything.folders.find((f) => f.id === id) || null;
+  // The project the page is in, if it is in one.
+  const projectHere = () => {
+    const id = currentFolder();
+    return (id && trailTo(id).reverse().find((f) => f.project)) || null;
+  };
+  let presentBtn = null; // the bar's Present button (see presenting, at the end)
   const childrenOf = (id, ws = space) => (id ? everything.folders : everything.folders.filter((f) => f.workspace === ws)).filter((f) => (f.parentId || null) === id).sort(byName);
   const boardsIn = (id, ws = space) => (id ? everything.boards : everything.boards.filter((b) => b.workspace === ws)).filter((b) => (b.folderId || null) === id);
 
@@ -707,6 +713,16 @@
 
   // ------------------------------------------------------------- where you are
   //
+  // Somebody else on the team presenting the project you are in: a way to watch them, as their link does.
+  function presentingHere(rt) {
+    const proj = rt.kind === 'folder' ? trailTo(rt.id).reverse().find((f) => f.project) : null;
+    const mine = WBPresent.token();
+    return (proj ? everything.presenting || [] : []).filter((p) => p.projectId === proj.id && p.token !== mine).map((p) => el('a', {
+      class: 'crumb-live', href: `/p/${p.token}`, target: '_blank', rel: 'noopener',
+      title: `${p.name} is presenting ${proj.name}. Watch what they show, in a new tab`,
+    }, el('i', { class: 'live', style: { background: p.color } }), el('span', { text: `${p.name} is presenting` }), el('b', { text: 'Watch' })));
+  }
+
   // One line: the workspace, the folders down to here, and in a catalogue the tier, the sequence and
   // the asset, set or shot. Every part goes there, folders take drops, and the star pins what is here.
 
@@ -766,6 +782,7 @@
         onclick: () => togglePin(pin),
       }),
       settingsOf && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('settings', 16), title: 'Project settings', 'aria-label': 'Project settings', onclick: () => projectSettings(settingsOf) }),
+      ...presentingHere(rt),
       ].filter(Boolean));
     document.title = `${parts[parts.length - 1][0]} · Boards`;
   }
@@ -1346,45 +1363,6 @@
   // A project's timeline: its shots played through in the player, as an edit (viewer.js, openRun): the
   // newest version of each, of one task or any, all sequences or one, chosen in the player's bar.
   // runOf: the project whose timeline is open (declared with the cache ring, which asks for it).
-  // The card that stands in for a shot with nothing filed: its name, and that it has nothing yet.
-  // It is drawn as SVG, so it is sharp at any size the player shows it at: drawn at 1280 x 720, said to
-  // be four times that so it is never scaled up from a small picture. An image cannot reach the page's
-  // fonts, so Inter goes inside it (fetched once).
-  const slates = new Map();
-  let slateFont = null;
-  const slateFontReady = () => {
-    if (!slateFont) {
-      slateFont = fetch('/fonts/inter-latin.woff2')
-        .then((r) => (r.ok ? r.blob() : null))
-        .then((b) => b && new Promise((resolve) => {
-          const fr = new FileReader();
-          fr.onload = () => resolve(fr.result);
-          fr.onerror = () => resolve(null);
-          fr.readAsDataURL(b);
-        }))
-        .catch(() => null);
-    }
-    return slateFont;
-  };
-  const SLATE = { w: 1280, h: 720, scale: 3 };
-  const xml = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
-  async function slate(name, task) {
-    const key = `${name}|${task}`;
-    if (slates.has(key)) return slates.get(key);
-    const font = await slateFontReady();
-    const { w, h, scale } = SLATE;
-    const face = font ? `<style>@font-face{font-family:SlateInter;font-weight:100 900;src:url(${font}) format("woff2")}</style>` : '';
-    const family = `${font ? 'SlateInter, ' : ''}Inter, system-ui, -apple-system, 'Segoe UI', sans-serif`;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w * scale}" height="${h * scale}" viewBox="0 0 ${w} ${h}">${face}`
-      + '<defs><pattern id="s" width="40" height="40" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="40" height="40" fill="#111"/><rect width="10" height="40" fill="#191919"/></pattern></defs>'
-      + `<rect width="${w}" height="${h}" fill="url(#s)"/>`
-      + `<text x="${w / 2}" y="360" text-anchor="middle" font-family="${xml(family)}" font-weight="600" font-size="64" fill="#e8e8e8">${xml(name)}</text>`
-      + `<text x="${w / 2}" y="416" text-anchor="middle" font-family="${xml(family)}" font-weight="400" font-size="30" fill="#8a8a8a">${xml(task ? `No ${task} filed yet` : 'Nothing filed yet')}</text>`
-      + '</svg>';
-    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
-    slates.set(key, url);
-    return url;
-  }
   async function openTimeline(project) {
     runOf = project.id;
     const key = project.id;
@@ -1402,29 +1380,14 @@
       data = await api('GET', `/api/projects/${project.id}/timeline${task ? `?task=${encodeURIComponent(task)}` : ''}`);
       if (seq && !data.shots.some((x) => x.seq === seq)) seq = '';
       if (!data.shots.length) return [];
-      // The slates for shots with nothing filed, drawn before the run is laid out.
-      const pending = data.shots.filter((x) => !x.version && withEmpty && (!seq || x.seq === seq));
-      const slateOf = new Map(await Promise.all(pending.map(async (x) => [x.id, await slate(x.name, task)])));
+      if (!view) view = WBViewer.usualView(data);
+      const pieces = await WBViewer.runPieces(data, { seq, task, withEmpty, view: in3d ? preview3d.view : view });
       // All of it is cached, after the next few shots the player asks for first; the ring says how far.
-      // A project whose versions are all named views (every one a cmp, say) starts on the one most have.
-      const filed = data.shots.filter((x) => x.version);
-      if (!view && filed.length && filed.every((x) => x.version.look.view)) {
-        const count = new Map();
-        for (const x of filed) count.set(x.version.look.view, (count.get(x.version.look.view) || 0) + 1);
-        view = [...count].sort((a, b) => b[1] - a[1])[0][0];
-      }
-      for (const x of filed) x.shown = WBViewer.inView(x.version.look, in3d ? preview3d.view : view);
-      const videos = filed.filter((x) => x.shown.type === 'video' && (!seq || x.seq === seq));
-      tlScope = { label: 'this timeline', items: videos.map((x) => ({ src: x.shown.src, name: x.version.label })) };
+      const videos = pieces.filter((x) => x.type === 'video' && !x.empty);
+      tlScope = { label: 'this timeline', items: videos.map((x) => ({ src: x.src, name: x.label })) };
       WB.media.want('timeline', tlScope.items.map((x) => x.src), { rank: WB.media.RANK.timeline, hold: true });
       cacheRing.paint();
-      return data.shots.filter((x) => (x.version || withEmpty) && (!seq || x.seq === seq)).map((x) => (x.version ? {
-        ...x.shown, id: x.version.id, type: x.shown.type, label: x.version.label, name: x.name, seq: x.seq, entityId: x.id,
-      } : {
-        // A shot with nothing filed (of that task): a slate in its place, held like a still.
-        type: 'image', id: `empty-${x.id}`, src: slateOf.get(x.id), nw: SLATE.w * SLATE.scale, nh: SLATE.h * SLATE.scale, empty: true,
-        label: `${x.name} · nothing filed yet`, name: x.name, seq: x.seq, entityId: x.id,
-      }));
+      return pieces;
     };
     const pick = (label, value, options, set) => {
       const sel = el('select', { class: 'v-pick', 'aria-label': label, title: label },
@@ -1435,6 +1398,8 @@
     try {
       await WBViewer.openRun(thePlayer(), {
         load, me, dock: true,
+        // What it is, for somebody presenting it (present.js).
+        scene: () => ({ k: 'run', seq, task, empty: withEmpty, view: in3d ? '' : view }),
         ...(preview3d && preview3d.model && {
           view3d: { ...preview3d, key: project.id },
           onMode3d: (on) => { in3d = on; reloadRun({ keep: true }); },
@@ -1530,6 +1495,8 @@
     $('q').disabled = view.page === 'timeline';
     const makesBoards = rt.kind !== 'folder' || !inProjectHere || view.page === 'boards' || view.page === 'home';
     $('new').hidden = !makesBoards;
+    // Present, in a project (and wherever you are while presenting, to get to the link and to stop).
+    if (presentBtn) presentBtn.hidden = !(projectHere() || WBPresent.token());
     $('newfolder').hidden = !makesBoards;
     // Searching from a project's home looks through its boards.
     if (view.page === 'home' && $('q').value.trim()) view.page = 'boards';
@@ -2908,6 +2875,15 @@
     }
   });
   window.addEventListener('hashchange', render);
+  // ---- presenting the project you are in (present.js): whoever has its link sees what you open in the
+  // player, the catalogue's versions or the timeline, as you show it; the lists in between they are not shown.
+  if (WB.info().canShare) {
+    WBPresent.init({ me: () => me, viewer: thePlayer, project: projectHere, page: () => ({ k: 'idle' }) });
+    presentBtn = WBPresent.button();
+    presentBtn.hidden = true;
+    $('presentslot').replaceWith(presentBtn);
+    WBPresent.onChange(() => render());
+  }
   await refresh();
   if (!feed) loadFeed();
   setInterval(() => { if (!document.hidden && !dragging && !document.querySelector('dialog[open], .menu:not([hidden])')) refresh(true); }, 15000);

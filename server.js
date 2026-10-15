@@ -452,6 +452,7 @@ function spreadNotes(versionIds, from) {
     if (ops.length) broadcast(board, { t: 'op', ops, from: null });
   }
   tellRooms(versionIds);
+  retellPresentations([...versionIds]);
 }
 
 // What was drawn for a comment, kept with it: strokes measured against the piece, whose width is 1000.
@@ -1861,8 +1862,9 @@ function sharedBoard(token) {
   return board;
 }
 
+// Those holding the board's read-only link (not those watching a presentation of it).
 const closeViewers = (board, code, reason) => {
-  for (const peer of [...board.peers.values()]) if (peer.viewer) peer.ws.close(code, reason);
+  for (const peer of [...board.peers.values()]) if (peer.share) peer.ws.close(code, reason);
 };
 
 function revokeShare(board) {
@@ -2010,11 +2012,19 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { auth: auth.mode, user: req.user || null, admin: admin.allows(req), canShare: SHARING, maxUpload: MAX_UPLOAD, publicUrl: auth.publicUrl || null, shareBases: shareBases(), signOut: !!auth.interactive, ai: ai.enabled ? { model: ai.model } : null });
   }
   if (parts[1] === 'admin') return admin.handle(req, res, parts.slice(2));
+  if (parts[1] === 'projects' && parts[3] === 'present' && parts.length <= 5) {
+    const project = visibleFolder(req.user, parts[2]) && folders.get(parts[2]).project ? folders.get(parts[2]) : null;
+    if (!project) return sendJson(res, 404, { error: 'Project not found' });
+    return handlePresentApi(req, res, url, project, parts[4] || '');
+  }
   if (['projects', 'entities', 'versions', 'people', 'feed'].includes(parts[1])) return handleCatalogue(req, res, parts);
   if (parts[1] === 'library' && req.method === 'GET') {
     return sendJson(res, 200, {
       folders: [...folders.values()].filter((f) => canSee(req.user, f.workspace)).map(publicFolder),
       boards: [...boards.values()].filter((b) => visible(req.user, b)).map(boardMeta).sort((a, b) => b.updatedAt - a.updatedAt),
+      // Who of the team is presenting a project, and the link to watch them by.
+      presenting: [...presentations.values()].filter((p) => p.live && presentationFor(p.token) && visibleFolder(req.user, p.projectId))
+        .map((p) => ({ projectId: p.projectId, name: p.ownerName, color: p.color, token: p.token })),
     });
   }
   if (parts[1] === 'folders') {
@@ -2306,6 +2316,15 @@ async function handleRequest(req, res) {
       const board = sharedBoard(shared[1]);
       return board ? sendJson(res, 200, { name: board.name, access: board.shareAccess }) : sendJson(res, 404, { error: 'This link is not shared any more' });
     }
+    // A link to watch a project being presented: its page, and a board shown through it (in a frame of that page).
+    const watching = /^\/p\/([\w-]{16,64})(?:\/b\/([\w-]+))?\/?$/.exec(pathname);
+    if (watching) {
+      const headers = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
+      if (!watching[2] && presentationFor(watching[1])) headers['Set-Cookie'] = `${WATCH_COOKIE}=${watching[1]}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400${secureCookie(req)}`;
+      return sendFile(req, res, path.join(PUBLIC_DIR, watching[2] ? 'board.html' : 'watch.html'), headers);
+    }
+    const watchApi = /^\/api\/watch\/([\w-]{16,64})(?:\/(.+))?$/.exec(pathname);
+    if (watchApi) return handleWatchApi(req, res, url, watchApi[1], watchApi[2] || '');
   }
   if (auth.handle && (await auth.handle(req, res, url))) return;
 
@@ -2314,7 +2333,7 @@ async function handleRequest(req, res) {
   const guarded = auth.mode === 'iap' || isPage || pathname.startsWith('/api/') || pathname.startsWith('/uploads/');
   if (guarded) {
     const who = await auth.authenticate(req);
-    if (who.status && !(pathname.startsWith('/uploads/') && sharedFile(req, path.basename(pathname)))) {
+    if (who.status && !(pathname.startsWith('/uploads/') && (sharedFile(req, path.basename(pathname)) || watchedFile(req, path.basename(pathname))))) {
       if (auth.interactive && isPage) {
         res.writeHead(302, { Location: who.status === 403 ? '/auth/login?error=not-allowed' : `/auth/login?next=${encodeURIComponent(url.pathname + url.search)}`, 'Cache-Control': 'no-store' });
         return res.end();
@@ -2452,7 +2471,26 @@ server.on('upgrade', async (req, socket, head) => {
     if (shared) {
       const viewed = sharedBoard(shared);
       if (!viewed) return socket.destroy();
-      return wss.handleUpgrade(req, socket, head, (ws) => onConnect(ws, viewed, null, shared));
+      return wss.handleUpgrade(req, socket, head, (ws) => onConnect(ws, viewed, null, { share: shared }));
+    }
+    // Watching a presentation: its own page, or a board it shows.
+    const watched = url.searchParams.get('watch');
+    if (watched) {
+      const pres = presentationFor(watched);
+      if (!pres) return socket.destroy();
+      if (!url.searchParams.has('board')) return wss.handleUpgrade(req, socket, head, (ws) => presentWatcher(ws, pres));
+      const board = boards.get(url.searchParams.get('board'));
+      if (!board || !wasShown(pres, 'board', board.id)) return socket.destroy();
+      return wss.handleUpgrade(req, socket, head, (ws) => onConnect(ws, board, null, { watch: pres }));
+    }
+    // Presenting: the presenter's own page, signed in.
+    const presenting = url.searchParams.get('present');
+    if (presenting) {
+      const pres = presentationFor(presenting);
+      if (!pres || !fromOurPages(req)) return socket.destroy();
+      const who = await auth.authenticate(req);
+      if (who.status || !visibleFolder(who.user, pres.projectId)) return socket.destroy();
+      return wss.handleUpgrade(req, socket, head, (ws) => presentHost(ws, pres, who.user));
     }
     const entityId = url.searchParams.get('entity');
     if (entityId) {
@@ -2482,42 +2520,45 @@ function send(ws, msg) {
 
 // What people holding a link are shown: the board, and the team's comments only if the link includes them.
 // A link shows the notes made on its own board, not those made about the same version on others.
-const hiddenNote = (board, c) => !!c && c.type === 'comment' && (board.shareAccess === 'view' || c.ob !== undefined);
-const hiddenFromViewers = (board, op) => (op.t === 'add' ? hiddenNote(board, op.item) : op.t === 'set' && hiddenNote(board, board.items.get(op.id)));
+// Somebody watching a presentation sees what it allows: the board, and its comments only if it includes them.
+const accessOf = (board, peer) => (peer.watch ? peer.watch.access : board.shareAccess);
+const hiddenNote = (access, c) => !!c && c.type === 'comment' && (access === 'view' || c.ob !== undefined);
+const hiddenFromViewers = (board, op, access) => (op.t === 'add' ? hiddenNote(access, op.item) : op.t === 'set' && hiddenNote(access, board.items.get(op.id)));
 
 // All that somebody commenting through a link can send: new comments and replies on what is there.
 function guestOps(board, ops) {
   if (!Array.isArray(ops)) return [];
   return ops.filter((op) => op && op.t === 'add' && op.item && op.item.type === 'comment' && !board.items.has(op.item.id)
     && board.items.has(op.item.on) && board.items.get(op.item.on).type !== 'comment'
-    && (!op.item.re || (board.items.get(op.item.re)?.type === 'comment' && !hiddenNote(board, board.items.get(op.item.re)))));
+    && (!op.item.re || (board.items.get(op.item.re)?.type === 'comment' && !hiddenNote(board.shareAccess, board.items.get(op.item.re)))));
 }
 
 function broadcast(board, msg, except) {
   const data = JSON.stringify(msg);
-  let viewerData;
+  const viewerData = new Map(); // what they may see -> the message as they are sent it
   for (const peer of board.peers.values()) {
     if (peer === except || peer.ws.readyState !== 1) continue;
     if (!peer.viewer || msg.t !== 'op') {
       peer.ws.send(data);
       continue;
     }
-    if (viewerData === undefined) {
-      const ops = forViewers(board, msg.ops);
-      viewerData = ops.length ? JSON.stringify({ ...msg, ops }) : null;
+    const access = accessOf(board, peer);
+    if (!viewerData.has(access)) {
+      const ops = forViewers(board, msg.ops, access);
+      viewerData.set(access, ops.length ? JSON.stringify({ ...msg, ops }) : null);
     }
-    if (viewerData) peer.ws.send(viewerData);
+    if (viewerData.get(access)) peer.ws.send(viewerData.get(access));
   }
 }
 
 // Ops as somebody holding a link may see them: no notes the link does not show, nothing of originals.
-const forViewers = (board, ops) => ops.filter((op) => !hiddenFromViewers(board, op))
+const forViewers = (board, ops, access = board.shareAccess) => ops.filter((op) => !hiddenFromViewers(board, op, access))
   .map((op) => (op.t === 'add' ? { ...op, item: withoutOriginal(op.item) } : op.t === 'set' ? { ...op, patch: withoutOriginal(op.patch) } : op))
   .filter((op) => op.t !== 'set' || Object.keys(op.patch).length);
 
 // What a pointer says, as the pages send it: where it is (c), the laser held (l), and for the board's
-// own people also their view (v), what they have selected (s), the piece open (f) and the thread read
-// in it (t), a video playing there (m) and files on their way in (u). Anything else, or not of its
+// own people also their view (v), what they have selected (s), the piece open (f), the thread read in it
+// (t) and how far it is zoomed into (z), a video playing there (m) and files on their way in (u). Anything else, or not of its
 // shape, is left out, so nobody can hand everybody else whatever they like.
 function cleanPresence(p, viewer) {
   const out = {};
@@ -2531,6 +2572,7 @@ function cleanPresence(p, viewer) {
   if ('f' in p && (p.f === null || id(p.f))) out.f = p.f;
   if ('t' in p && (p.t === null || id(p.t))) out.t = p.t;
   if ('m' in p && (p.m === null || (Array.isArray(p.m) && id(p.m[0]) && Number.isFinite(p.m[1])))) out.m = p.m && [p.m[0], p.m[1], p.m[2] ? 1 : 0];
+  if ('z' in p && (p.z === null || numbers(p.z, 3))) out.z = p.z;
   if ('u' in p && Array.isArray(p.u)) {
     out.u = p.u.slice(0, 50).filter((u) => u && id(u.i))
       .map((u) => ({ i: u.i, k: Number.isFinite(u.k) ? u.k : 0, ...(typeof u.ph === 'string' && { ph: u.ph.slice(0, 20) }) }));
@@ -2546,14 +2588,16 @@ const VIEWER_COLORS = ['#8bb6e8', '#74c2b9', '#aa9ce6', '#e4c978', '#e090b8', '#
 // The board as somebody is given it when they join, and again if it is put back to an older snapshot
 // (`restored`, which tells their page that what it could undo no longer applies).
 function sendInit(board, peer, restored = false) {
-  const access = board.shareAccess;
+  const access = accessOf(board, peer);
   const project = boardProject(board);
   send(peer.ws, peer.viewer ? {
     t: 'init',
     you: peer.id,
     board: { name: board.name, settings: board.settings || {} },
     access,
-    items: [...board.items.values()].filter((it) => !hiddenNote(board, it)).map(withoutOriginal),
+    // Watching a presentation: who presents, as their peer here is known.
+    ...(peer.watch && { lead: peer.watch.lead }),
+    items: [...board.items.values()].filter((it) => !hiddenNote(access, it)).map(withoutOriginal),
     versions: boardVersions(board),
     peers: [...board.peers.values()].filter((p) => p !== peer).map(publicPeer),
     ...(restored && { restored: true }),
@@ -2570,13 +2614,17 @@ function sendInit(board, peer, restored = false) {
 }
 
 function publicPeer(peer) {
-  return { id: peer.id, name: peer.name, color: peer.color, p: peer.p, viewer: !!peer.viewer };
+  return { id: peer.id, name: peer.name, color: peer.color, p: peer.p, viewer: !!peer.viewer, ...(peer.lead && { lead: peer.lead }) };
 }
 
-// `viewToken` is the secret of the read-only link the connection came in through, if it did.
-function onConnect(ws, board, user, viewToken = null) {
-  const viewer = viewToken !== null;
-  const peer = { id: newId(4), ws, user, name: 'Guest', color: '#888888', p: {}, joined: false, viewer };
+// `via` is how somebody who is not on the team came in, if they did: a board's read-only link (`share`, its
+// secret), or a presentation that shows the board (`watch`).
+function onConnect(ws, board, user, via = null) {
+  const viewer = !!via;
+  const peer = { id: newId(4), ws, user, name: 'Guest', color: '#888888', p: {}, joined: false, viewer, share: via && via.share, watch: via && via.watch };
+  // Whether the way they came in still opens the board.
+  const stillOpen = () => (peer.watch ? presentationFor(peer.watch.token) === peer.watch && wasShown(peer.watch, 'board', board.id)
+    : board.shareToken === peer.share && !!sharedBoard(peer.share));
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
 
@@ -2585,7 +2633,7 @@ function onConnect(ws, board, user, viewToken = null) {
       if (peer.joined) return;
       // Between connecting and saying hello the board may have been deleted, unshared or moved out of reach.
       if (boards.get(board.id) !== board) return ws.close(4004, 'Board deleted');
-      if (viewer && (board.shareToken !== viewToken || !sharedBoard(viewToken))) return ws.close(4005, 'Link no longer shared');
+      if (viewer && !stillOpen()) return ws.close(4005, 'Link no longer shared');
       if (!viewer && !visible(user, board)) return ws.close(4003, 'Board moved');
       openItems(board);
       peer.joined = true;
@@ -2599,7 +2647,7 @@ function onConnect(ws, board, user, viewToken = null) {
         peer.name = String(msg.name || '').replace(/\s+/g, ' ').trim().slice(0, 32) || `Viewer ${board.viewerSeq}`;
         peer.color = /^#[0-9a-f]{6}$/i.test(msg.color) ? msg.color : VIEWER_COLORS[(board.viewerSeq - 1) % VIEWER_COLORS.length];
         sendInit(board, peer);
-        note(board, peer.name, 'link');
+        note(board, peer.name, peer.watch ? 'watch' : 'link');
         board.peers.set(peer.id, peer);
         broadcast(board, { t: 'join', peer: publicPeer(peer) }, peer);
         return;
@@ -2612,6 +2660,9 @@ function onConnect(ws, board, user, viewToken = null) {
         peer.name = String(msg.name || 'Guest').slice(0, 32);
         if (/^#[0-9a-f]{6}$/i.test(msg.color)) peer.color = msg.color;
       }
+      // Presenting the project this board is in: the people watching follow this peer.
+      const pres = typeof msg.present === 'string' && presentationFor(msg.present);
+      if (pres && pres.projectId === boardProject(board)?.id && ownerKey(user, peer.name) === pres.owner) peer.lead = pres.lead;
       sendInit(board, peer);
       note(board, peer.name, 'open');
       board.peers.set(peer.id, peer);
@@ -2620,7 +2671,7 @@ function onConnect(ws, board, user, viewToken = null) {
     }
     if (!peer.joined) return;
     // A viewer may show a pointer and use the laser, and comment when the link allows it. Nothing else.
-    if (peer.viewer && msg.t !== 'laser' && msg.t !== 'p' && !(msg.t === 'op' && board.shareAccess === 'comment')) return;
+    if (peer.viewer && msg.t !== 'laser' && msg.t !== 'p' && !(msg.t === 'op' && peer.share && board.shareAccess === 'comment')) return;
 
     if (msg.t === 'op') {
       // Each round of changes a page sends is numbered (`seq`, counting up for its `cid`). One already
@@ -2652,7 +2703,7 @@ function onConnect(ws, board, user, viewToken = null) {
       // Where the server made something else of what was sent (a comment stamped with its author, a
       // version it may not show, a change refused), the sender is given the server's version first...
       const fix = fixesFor(board, sent);
-      const told = peer.viewer ? forViewers(board, fix) : fix;
+      const told = peer.viewer ? forViewers(board, fix, accessOf(board, peer)) : fix;
       if (told.length) send(ws, { t: 'op', ops: told, fix: true });
       // ...then the ack, always, even when nothing applied, so the sender's outbox stays in step.
       send(ws, ack);
@@ -2674,6 +2725,13 @@ function onConnect(ws, board, user, viewToken = null) {
     } else if (msg.t === 'media') {
       if (typeof msg.id !== 'string' || !ID_RE.test(msg.id)) return;
       broadcast(board, { t: 'media', from: peer.id, id: msg.id, playing: !!msg.playing, time: Number(msg.time) || 0 }, peer);
+    } else if (msg.t === 'lead') {
+      // Presenting started or stopped on this page: whoever watches it follows this peer, or no longer.
+      const pres = typeof msg.present === 'string' && presentationFor(msg.present);
+      const lead = pres && pres.projectId === boardProject(board)?.id && ownerKey(user, peer.name) === pres.owner ? pres.lead : null;
+      if ((peer.lead || null) === lead) return;
+      peer.lead = lead;
+      broadcast(board, { t: 'lead', id: peer.id, lead }, peer);
     }
   };
 
@@ -2825,14 +2883,483 @@ function joinRoom(ws, entity, user) {
   ws.on('error', () => {});
 }
 
+// ---------------------------------------------------------------- presenting a project
+//
+// Somebody on the team presents a project: whoever opens its link (/p/<token>) sees what they show, as
+// they show it, and can do nothing else: no going elsewhere, no looking about. One board, then an asset's
+// versions, then the timeline: the link follows them through all of it. Each person has one link per
+// project, kept, so it can be sent ahead of every review; it is live only while they present.
+//
+// The presenter's pages (present.js) keep a connection here while they present (`hosts`), each page in
+// turn, and say what they show (`scene`): a board, an asset, set or shot's versions in the player, the
+// timeline, or nothing that can be shown (a list of the catalogue, say: `idle`). With it goes what the
+// player is doing (`p`: the piece open, its moment, the thread read, the zoom, 3D) and the laser. The people
+// watching (`watchers`) are told all of it. A board is watched as a board is through a read-only link:
+// its page, in a frame of the watching page, joined through this link (see onConnect), following the
+// presenter's own place on it (their peer there carries `lead`).
+//
+// What the people watching can load is what has been shown since the link was made live (`shown`): the
+// boards' files as a read-only link has them, the versions of the assets, sets and shots opened, the
+// shots of a timeline played, and the project's model of its venue. Never a file a video was made from.
+
+const PRESENT_ACCESS = ['view', 'comments'];
+const WATCH_COOKIE = 'wb_watch';
+// A presenter's page that goes (to open the next one) is given this long to come back before the people
+// watching are told they have stepped away.
+const AWAY_AFTER = 5000;
+// Away this long (the presenter's browser closed, say), presenting ends, as if they had stopped.
+const ENDS_AFTER = Number(process.env.WIPBOARD_PRESENT_AWAY_MS) || 30 * 60e3;
+const SHOWN_KEPT = 100;
+const presentations = new Map(); // token -> the link and, while somebody presents through it, its live state
+
+// Who presents: their sign-in, or where nobody signs in, the name they go by.
+const ownerKey = (user, name) => (user ? `u:${user.id}` : `n:${String(name || '').replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 32)}`);
+
+function presentationRuntime(record) {
+  return {
+    ...record,
+    hosts: new Set(),   // the presenter's connections, a page each
+    leader: null,       // the one whose word goes: the page that last said what it shows
+    color: '#888888',
+    live: false,
+    away: false,
+    awayTimer: 0,
+    scene: null,
+    p: {},
+    watchers: new Set(), // { ws, name, color }
+    shown: [],           // scenes shown since it was made live, as { k, id, task }
+    files: null,         // what may be loaded through it, worked out from `shown` when asked (see presentedFiles)
+    filesAt: 0,
+    notesOf: null,       // the entity whose notes the people watching are shown
+    lead: newId(6),      // how the presenter's own peer on a board is known to the people watching it
+  };
+}
+
+function loadPresentations() {
+  for (const r of store.presentations()) presentations.set(r.token, presentationRuntime(r));
+}
+
+// The link, while it works: sharing is on here, it has not run out, and its project is still a project.
+function presentationFor(token) {
+  const pres = SHARING && typeof token === 'string' ? presentations.get(token) : null;
+  if (!pres || (pres.expiresAt && pres.expiresAt <= Date.now())) return null;
+  const project = folders.get(pres.projectId);
+  return project && project.project ? pres : null;
+}
+
+const presentInfo = (pres) => (pres
+  ? { token: pres.token, access: pres.access, expiresAt: pres.expiresAt || null, live: pres.live, watching: pres.watchers.size }
+  : { token: null });
+
+const tellWatchers = (pres, msg) => {
+  const data = JSON.stringify(msg);
+  for (const w of pres.watchers) if (w.ws.readyState === 1) w.ws.send(data);
+};
+const tellHosts = (pres, msg) => {
+  for (const ws of pres.hosts) send(ws, msg);
+};
+const tellWatching = (pres) => tellHosts(pres, { t: 'watchers', list: [...pres.watchers].map((w) => ({ name: w.name, color: w.color })) });
+
+// Everybody watching through it, on the link's own page or on a board's, is shown the door.
+function closeWatchers(pres, code, reason) {
+  for (const w of [...pres.watchers]) w.ws.close(code, reason);
+  for (const board of boards.values()) {
+    for (const peer of [...board.peers.values()]) if (peer.watch === pres) peer.ws.close(code, reason);
+  }
+}
+
+function endPresenting(pres) {
+  clearTimeout(pres.awayTimer);
+  pres.live = false;
+  pres.away = false;
+  pres.leader = null;
+  pres.scene = null;
+  pres.p = {};
+  pres.shown = [];
+  pres.files = null;
+  pres.notesOf = null;
+  tellWatchers(pres, { t: 'ended' });
+  // A board being watched through it is not, any more.
+  for (const board of boards.values()) {
+    for (const peer of [...board.peers.values()]) if (peer.watch === pres) peer.ws.close(4007, 'Presenting ended');
+  }
+}
+
+function dropPresentation(pres, code = 4005) {
+  presentations.delete(pres.token);
+  store.deletePresentation(pres.token);
+  for (const ws of [...pres.hosts]) ws.close(4005, 'Link no longer shared');
+  closeWatchers(pres, code, 'Link no longer shared');
+}
+
+// Links that ran out stop working for whoever has them open, presenting or watching.
+function closeExpiredPresentations() {
+  for (const pres of [...presentations.values()]) {
+    if (pres.expiresAt && pres.expiresAt <= Date.now() && (pres.hosts.size || pres.watchers.size)) {
+      for (const ws of [...pres.hosts]) ws.close(4005, 'Link no longer shared');
+      closeWatchers(pres, 4005, 'Link no longer shared');
+    }
+  }
+}
+
+// What a presenter's page says it shows, if it is something of this project they may see. Anything else
+// is shown as nothing (`idle`): the people watching wait.
+function cleanScene(pres, user, s) {
+  const idle = { k: 'idle' };
+  if (!s || typeof s !== 'object') return idle;
+  const token = (v) => (typeof v === 'string' ? viewName(v) || '' : '');
+  if (s.k === 'board') {
+    const board = typeof s.board === 'string' && boards.get(s.board);
+    if (!board || !visible(user, board) || boardProject(board)?.id !== pres.projectId) return idle;
+    return { k: 'board', board: board.id };
+  }
+  if (s.k === 'entity') {
+    const e = typeof s.entity === 'string' && store.entity(s.entity);
+    if (!e || e.projectId !== pres.projectId) return idle;
+    return { k: 'entity', entity: e.id, view: token(s.view) };
+  }
+  if (s.k === 'run') {
+    return {
+      k: 'run', seq: typeof s.seq === 'string' ? s.seq.slice(0, 80) : '', task: typeof s.task === 'string' ? naming.tokenize(s.task) || '' : '',
+      empty: s.empty !== false, view: token(s.view),
+    };
+  }
+  return idle;
+}
+
+// What the player is doing, as the presenter's page says it: the piece open (f), the thread read (t), the
+// moment of the video (m), the zoom on the piece (z: its middle, in drawing units, and how far in), and in
+// 3D, how it is seen (d: on, the model's camera held, a comment's frame held, or the view flown).
+function cleanPlayer(p) {
+  const out = {};
+  const id = (v) => typeof v === 'string' && v.length <= 60;
+  const numbers = (v, n) => Array.isArray(v) && v.length === n && v.every(Number.isFinite);
+  const pose = (v) => v && typeof v === 'object' && numbers(v.p, 3) && numbers(v.q, 4) && Number.isFinite(v.fov) && { p: v.p, q: v.q, fov: v.fov };
+  if ('f' in p && (p.f === null || id(p.f))) out.f = p.f;
+  if ('t' in p && (p.t === null || id(p.t))) out.t = p.t;
+  if ('m' in p && (p.m === null || (Array.isArray(p.m) && id(p.m[0]) && Number.isFinite(p.m[1])))) out.m = p.m && [p.m[0], p.m[1], p.m[2] ? 1 : 0];
+  if ('z' in p && (p.z === null || numbers(p.z, 3))) out.z = p.z;
+  if ('d' in p && (p.d === null || (p.d && typeof p.d === 'object'))) {
+    out.d = p.d && {
+      on: p.d.on ? 1 : 0,
+      ...(Number.isInteger(p.d.c) && p.d.c >= 0 && p.d.c < 100 && { c: p.d.c }),
+      ...(pose(p.d.q) && { q: pose(p.d.q) }),
+      ...(pose(p.d.f) && { f: pose(p.d.f) }),
+    };
+  }
+  return out;
+}
+
+const shownKey = (s) => `${s.k}:${s.id || ''}:${s.task || ''}`;
+
+// The entity whose notes go with what is shown: the one open, or on the timeline, the shot on screen.
+function notesEntity(pres) {
+  const s = pres.scene;
+  if (!s || pres.access !== 'comments') return null;
+  if (s.k === 'entity') return s.entity;
+  if (s.k !== 'run' || typeof pres.p.f !== 'string') return null;
+  const v = store.version(pres.p.f);
+  return v && v.entityId;
+}
+// Notes as the people watching are shown them: never which board they were made on.
+const watcherNotes = (entityId) => roomNotes(entityId, null).map(({ ob, obn, ...n }) => n);
+function retellWatcherNotes(pres, force = false) {
+  const entityId = notesEntity(pres);
+  if (!force && entityId === pres.notesOf) return;
+  pres.notesOf = entityId;
+  tellWatchers(pres, { t: 'notes', notes: entityId ? watcherNotes(entityId) : [] });
+}
+// Notes on these versions changed: whoever watches them being shown is told.
+function retellPresentations(versionIds) {
+  let entities = null;
+  for (const pres of presentations.values()) {
+    if (!pres.live || !pres.notesOf || !pres.watchers.size) continue;
+    entities = entities || new Set(versionIds.map((id) => store.version(id)?.entityId).filter(Boolean));
+    if (entities.has(pres.notesOf)) retellWatcherNotes(pres, true);
+  }
+}
+
+// The newest version of each of the project's shots, as the timeline plays them (of `task`, or of any).
+function timelineShots(projectId, task) {
+  const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+  return store.entities(projectId).filter((e) => e.tier === 'shot').sort(byName).map((e) => {
+    const v = task ? store.newestOfTask(e.id, naming.tokenize(task) || null) : e.newest;
+    return { e, v };
+  });
+}
+
+// The files that may be loaded through the link: those of what has been shown. Worked out again every few
+// seconds, so a piece put on a board, or a version filed, while it is being shown can be loaded too.
+const FILES_FOR = 5000;
+function presentedFiles(pres) {
+  if (pres.files && Date.now() - pres.filesAt < FILES_FOR) return pres.files;
+  const out = new Set();
+  const add = (src) => {
+    const name = uploadName(src);
+    if (name) out.add(name);
+  };
+  const addLook = (look) => {
+    if (!look) return;
+    for (const key of ['src', 'th', 'poster', 'prev']) add(look[key]);
+    if (look.wf && typeof look.wf === 'object') Object.values(look.wf).forEach(add);
+    for (const v of look.views || []) addLook(v);
+  };
+  const project = folders.get(pres.projectId);
+  add(project && project.settings && project.settings.preview3d && project.settings.preview3d.model);
+  for (const s of pres.shown) {
+    if (s.k === 'board') {
+      const board = boards.get(s.id);
+      if (!board) continue;
+      openItems(board);
+      for (const it of board.items.values()) if (it.type !== 'comment') addLook(it);
+      for (const v of boardVersions(board)) add(v.thumb);
+    } else if (s.k === 'entity') {
+      for (const v of store.versionsOf(s.id)) {
+        addLook(v.look);
+        add(v.thumb);
+      }
+    } else if (s.k === 'run') {
+      for (const { v } of timelineShots(pres.projectId, s.task)) {
+        if (!v) continue;
+        addLook(v.look);
+        add(v.thumb);
+      }
+    }
+  }
+  pres.files = out;
+  pres.filesAt = Date.now();
+  return out;
+}
+
+// Whether somebody who opened a live presentation's link may load this file.
+function watchedFile(req, name) {
+  const pres = presentationFor(parseCookies(req.headers.cookie)[WATCH_COOKIE]);
+  return !!pres && pres.live && presentedFiles(pres).has(name);
+}
+const wasShown = (pres, k, id, task = '') => pres.live && pres.shown.some((s) => shownKey(s) === shownKey({ k, id, task }));
+
+// GET /api/watch/<token>[/entity/<id> | /timeline?task=]: what the link's page needs, without sign-in.
+// What it is (whose, of what), and only for what is being shown or has been, its pieces.
+function handleWatchApi(req, res, url, token, rest) {
+  const pres = presentationFor(token);
+  if (!pres) return sendJson(res, 404, { error: 'This link is not shared any more' });
+  const project = folders.get(pres.projectId);
+  if (!rest) {
+    return sendJson(res, 200, { project: { name: project.name }, presenter: { name: pres.ownerName || 'Somebody', color: pres.color }, access: pres.access, live: pres.live });
+  }
+  const preview3d = project.settings && project.settings.preview3d;
+  const projectOut = { id: project.id, name: project.name, settings: preview3d ? { preview3d } : {} };
+  const versionOut = (v, e) => ({ id: v.id, kind: v.kind, task: v.task, number: v.number, hidden: v.hidden, originalName: v.originalName, look: v.look, label: naming.label(e.name, v.task, v.number) });
+  const entity = /^entity\/([\w-]{4,40})$/.exec(rest);
+  if (entity) {
+    const e = store.entity(entity[1]);
+    if (!e || e.projectId !== pres.projectId || !wasShown(pres, 'entity', e.id)) return sendJson(res, 404, { error: 'Not shown' });
+    return sendJson(res, 200, {
+      entity: { id: e.id, name: e.name, tier: e.tier, projectId: e.projectId }, project: projectOut,
+      versions: store.versionsOf(e.id).map((v) => versionOut(v, e)), notes: [],
+    });
+  }
+  if (rest === 'timeline') {
+    const task = url.searchParams.get('task') || '';
+    if (!wasShown(pres, 'run', null, naming.tokenize(task) || '')) return sendJson(res, 404, { error: 'Not shown' });
+    return sendJson(res, 200, {
+      project: projectOut, tasks: store.projectTasks(project.id), views: store.projectViews(project.id),
+      shots: timelineShots(project.id, task).map(({ e, v }) => ({ id: e.id, name: e.name, seq: naming.seqOf(e.name), version: v && versionOut(v, e) })),
+    });
+  }
+  return sendJson(res, 404, { error: 'Not found' });
+}
+
+// /api/projects/:id/present: the link of the person asking, to present this project through. GET says
+// what it is, POST makes it (or gives the one there is), PATCH changes who sees what and when it ends,
+// POST .../reset makes a new one that stops the old at once, DELETE takes it away.
+async function handlePresentApi(req, res, url, project, rest) {
+  const body = req.method === 'POST' || req.method === 'PATCH' ? await readJson(req) : {};
+  const name = req.user ? req.user.name : cleanName(body.by || url.searchParams.get('by'), '').slice(0, 32);
+  if (!req.user && !name) return sendJson(res, 400, { error: 'Say who is presenting' });
+  const owner = ownerKey(req.user, name);
+  const mine = [...presentations.values()].find((p) => p.projectId === project.id && p.owner === owner) || null;
+  if (!SHARING) return sendJson(res, 403, { error: 'Links are turned off on this server' });
+  if (!rest && req.method === 'GET') return sendJson(res, 200, presentInfo(mine && presentationFor(mine.token)));
+  if (!rest && req.method === 'POST') {
+    if (mine && presentationFor(mine.token)) return sendJson(res, 200, presentInfo(mine));
+    if (mine) dropPresentation(mine);
+    const access = PRESENT_ACCESS.includes(body.access) ? body.access : 'view';
+    const pres = presentationRuntime({ token: newId(18), projectId: project.id, owner, ownerName: name, access, expiresAt: null, createdAt: Date.now() });
+    presentations.set(pres.token, pres);
+    store.savePresentation(pres);
+    return sendJson(res, 200, presentInfo(pres));
+  }
+  if (!mine) return sendJson(res, 404, { error: 'There is no link to present this project yet' });
+  if (!rest && req.method === 'PATCH') {
+    const before = mine.access;
+    if (PRESENT_ACCESS.includes(body.access)) mine.access = body.access;
+    if ('expiresAt' in body) mine.expiresAt = Number.isSafeInteger(body.expiresAt) && body.expiresAt > Date.now() ? body.expiresAt : null;
+    mine.ownerName = name;
+    store.savePresentation(mine);
+    if (mine.access !== before) {
+      // The people watching are shown the notes, or no longer, from now on.
+      mine.notesOf = undefined;
+      retellWatcherNotes(mine);
+      tellWatchers(mine, { t: 'access', access: mine.access });
+      for (const board of boards.values()) {
+        for (const peer of [...board.peers.values()]) if (peer.watch === mine) peer.ws.close(4006, 'Link settings changed');
+      }
+    }
+    return sendJson(res, 200, presentInfo(mine));
+  }
+  if (rest === 'reset' && req.method === 'POST') {
+    dropPresentation(mine);
+    const { projectId, ownerName, access, expiresAt } = mine;
+    const pres = presentationRuntime({ token: newId(18), projectId, owner, ownerName, access, expiresAt, createdAt: Date.now() });
+    presentations.set(pres.token, pres);
+    store.savePresentation(pres);
+    return sendJson(res, 200, presentInfo(pres));
+  }
+  if (!rest && req.method === 'DELETE') {
+    dropPresentation(mine);
+    return sendJson(res, 200, { token: null });
+  }
+  return sendJson(res, 404, { error: 'Not found' });
+}
+
+// The presenter's page, presenting: it says what it shows, and the people watching are told.
+function presentHost(ws, pres, user) {
+  let joined = false;
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+  const receive = (msg) => {
+    if (msg.t === 'hello') {
+      if (joined) return;
+      if (presentationFor(pres.token) !== pres) return ws.close(4005, 'Link no longer shared');
+      if (!visibleFolder(user, pres.projectId) || ownerKey(user, msg.name) !== pres.owner) return ws.close(4003, 'Not yours to present');
+      joined = true;
+      pres.hosts.add(ws);
+      pres.color = user ? user.color : /^#[0-9a-f]{6}$/i.test(msg.color) ? msg.color : pres.color;
+      if (user && user.name !== pres.ownerName) {
+        pres.ownerName = user.name;
+        store.savePresentation(pres);
+      }
+      clearTimeout(pres.awayTimer);
+      const starting = !pres.live;
+      pres.live = true;
+      if (starting) tellWatchers(pres, { t: 'live', presenter: { name: pres.ownerName, color: pres.color }, access: pres.access });
+      else if (pres.away) {
+        pres.away = false;
+        tellWatchers(pres, { t: 'back' });
+      }
+      send(ws, { t: 'init', ...presentInfo(pres) });
+      tellWatching(pres);
+      return;
+    }
+    if (!joined || !pres.live) return;
+    if (msg.t === 'end') return endPresenting(pres);
+    if (msg.t === 'scene') {
+      pres.leader = ws;
+      const scene = cleanScene(pres, user, msg.scene);
+      const p = msg.p && typeof msg.p === 'object' ? cleanPlayer(msg.p) : {};
+      const shown = scene.k === 'idle' ? null : { k: scene.k, id: scene.board || scene.entity || null, task: scene.task || '' };
+      if (shown && !pres.shown.some((s) => shownKey(s) === shownKey(shown))) {
+        pres.shown.push(shown);
+        if (pres.shown.length > SHOWN_KEPT) pres.shown.shift();
+        pres.files = null;
+      }
+      pres.scene = scene;
+      pres.p = p;
+      pres.mAt = Date.now();
+      tellWatchers(pres, { t: 'scene', scene, p });
+      retellWatcherNotes(pres);
+      return;
+    }
+    // Only the page whose word goes: another tab of theirs, left open, says nothing to anyone.
+    if (ws !== pres.leader) return;
+    if (msg.t === 'p') {
+      if (!msg.p || typeof msg.p !== 'object' || Array.isArray(msg.p)) return;
+      const p = cleanPlayer(msg.p);
+      if (!Object.keys(p).length) return;
+      Object.assign(pres.p, p);
+      if ('m' in p) pres.mAt = Date.now();
+      tellWatchers(pres, { t: 'p', p });
+      if ('f' in p) retellWatcherNotes(pres);
+    } else if (msg.t === 'laser') {
+      if (!Array.isArray(msg.pts) || typeof msg.on !== 'string' || msg.on.length > 60) return;
+      const pts = msg.pts.slice(0, 200).filter((n) => Number.isFinite(n));
+      if (pts.length >= 2) tellWatchers(pres, { t: 'laser', on: msg.on, pts: pts.slice(0, pts.length - (pts.length % 2)) });
+    }
+  };
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw);
+      if (msg && typeof msg === 'object') receive(msg);
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) console.error(`A message from a presenter could not be handled: ${err.message}`);
+    }
+  });
+  ws.on('close', () => {
+    if (!pres.hosts.delete(ws)) return;
+    if (pres.leader === ws) pres.leader = null;
+    if (pres.hosts.size || !pres.live) return;
+    clearTimeout(pres.awayTimer);
+    pres.awayTimer = setTimeout(() => {
+      if (pres.hosts.size || !pres.live) return;
+      pres.away = true;
+      tellWatchers(pres, { t: 'away' });
+      pres.awayTimer = setTimeout(() => {
+        if (!pres.hosts.size && pres.live) endPresenting(pres);
+      }, ENDS_AFTER);
+    }, AWAY_AFTER);
+  });
+  ws.on('error', () => {});
+}
+
+// Somebody watching through the link, on its own page.
+function presentWatcher(ws, pres) {
+  const w = { ws, name: 'Guest', color: VIEWER_COLORS[0] };
+  let joined = false;
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+  ws.on('message', (raw) => {
+    let msg;
+    try {
+      msg = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (!msg || msg.t !== 'hello' || joined) return;
+    if (presentationFor(pres.token) !== pres) return ws.close(4005, 'Link no longer shared');
+    joined = true;
+    w.name = String(msg.name || '').replace(/\s+/g, ' ').trim().slice(0, 32) || `Viewer ${pres.watchers.size + 1}`;
+    w.color = /^#[0-9a-f]{6}$/i.test(msg.color) ? msg.color : VIEWER_COLORS[pres.watchers.size % VIEWER_COLORS.length];
+    pres.watchers.add(w);
+    const entityId = notesEntity(pres);
+    send(ws, {
+      t: 'init',
+      project: { name: folders.get(pres.projectId).name },
+      presenter: { name: pres.ownerName || 'Somebody', color: pres.color },
+      access: pres.access, live: pres.live, away: pres.away,
+      scene: pres.live ? pres.scene : null, p: pres.live ? pres.p : {}, mAge: pres.mAt ? Date.now() - pres.mAt : 0,
+      notes: entityId ? watcherNotes(entityId) : [],
+    });
+    tellWatching(pres);
+  });
+  ws.on('close', () => {
+    if (pres.watchers.delete(w)) tellWatching(pres);
+  });
+  ws.on('error', () => {});
+}
+
 // ---------------------------------------------------------------- start
 
 loadBoards();
 loadFolders();
+loadPresentations();
 cleanStaleUploads();
 setInterval(cleanStaleUploads, 10 * 60e3).unref();
 setInterval(unloadIdle, Math.min(60e3, IDLE_UNLOAD)).unref();
-setInterval(closeExpiredLinks, 30e3).unref();
+setInterval(() => {
+  closeExpiredLinks();
+  closeExpiredPresentations();
+}, 30e3).unref();
 
 // A copy of the database a day, the last week of them kept, in data/backups.
 function dailyBackup() {

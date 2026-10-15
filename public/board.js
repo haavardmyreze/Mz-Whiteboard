@@ -7,8 +7,13 @@
   const $ = (id) => document.getElementById(id);
 
   // /s/<secret> is a read-only link: anyone holding it can watch the board and nothing else.
-  const viewOnly = location.pathname.startsWith('/s/');
+  // /p/<secret>/b/<board> is a board somebody is presenting (see watch.js, which holds it in a frame): it
+  // is watched as through a read-only link, but only ever where the presenter is, following them.
+  const watchToken = (/^\/p\/([\w-]+)\/b\/[\w-]+\/?$/.exec(location.pathname) || [])[1] || null;
+  const spectating = !!watchToken;
+  const viewOnly = location.pathname.startsWith('/s/') || spectating;
   document.body.classList.toggle('viewonly', viewOnly);
+  document.body.classList.toggle('spectating', spectating);
   // What a link lets its holder do: 'view', also read comments ('comments'), or also comment ('comment').
   let shareAccess = 'view';
   const guestReads = () => viewOnly && shareAccess !== 'view';
@@ -18,7 +23,7 @@
     document.body.classList.toggle('guest-reads', guestReads());
     document.body.classList.toggle('guest-writes', guestWrites());
   }
-  const boardId = location.pathname.split('/').filter(Boolean)[1];
+  const boardId = location.pathname.split('/').filter(Boolean)[spectating ? 3 : 1];
   const vp = $('viewport');
   const world = $('world');
   const framesLayer = $('frames');
@@ -175,6 +180,7 @@
   let snapOn = store('wb:snap') !== false;
   let cmDirty = false;
   let project = null;            // the project this board is in, if it is in one: { id, name, naming }
+  let showPresent = () => {};    // the bar's Present button, shown on a board in a project (see presenting, below)
 
   // ------------------------------------------------------------- helpers
 
@@ -443,7 +449,7 @@
   }
 
   function stopFollowing() {
-    if (!following) return;
+    if (!following || spectating) return;
     following = null;
     updateFollowUI();
   }
@@ -1821,9 +1827,26 @@
     onThread: (id) => sendP({ t: id }),
     onLaser: (id, pts) => wsSend({ t: 'laser', pts, on: id }),
     onInteract: () => stopFollowing(),
+    locked: spectating,
     onWhole: (id, url) => mendStrip(id, url),
   };
   const viewer = WBViewer.create(boardHost);
+  // How far into the open piece the view is, for whoever follows: they see what is zoomed in on.
+  let zoomSent = 'null';
+  viewer.watch((type) => {
+    if (type === 'zoom' && viewer.isOpen() && viewer.host() === boardHost) {
+      const z = viewer.zoom();
+      if (JSON.stringify(z) !== zoomSent) sendP({ z });
+      zoomSent = JSON.stringify(z);
+    }
+    // Watching a presentation, the page around this one is told the sound had to go.
+    if (type === 'muted' && spectating) window.parent.postMessage({ wb: 'muted' }, location.origin);
+  });
+  if (spectating) {
+    window.addEventListener('message', (e) => {
+      if (e.origin === location.origin && e.data && e.data.wb === 'sound') viewer.sound(!!e.data.on);
+    });
+  }
 
   // An asset, set or shot's versions, from the catalogue, in the same player; closed, it is the board's again.
   async function lookAtEntity(entityId, version) {
@@ -3225,6 +3248,7 @@
   let padUntil = 0;
   vp.addEventListener('wheel', (e) => {
     e.preventDefault();
+    if (spectating) return;
     const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? vp.clientHeight : 1;
     const dx = e.deltaX * unit;
     const dy = e.deltaY * unit;
@@ -3688,7 +3712,8 @@
   //   , and .     one frame back or on (with Shift, a second), on the open or the selected video
   //   Space, K    play or pause
   window.addEventListener('keydown', (e) => {
-    if (!booted || isTyping(e.target)) return;
+    // Watching a presentation, nothing here is to be steered.
+    if (!booted || isTyping(e.target) || spectating) return;
     // With something open the keys are the viewer's, bar the shortcuts list.
     if (viewer.isOpen() && e.key !== '?') return;
     // A dialog is open over the board: its keys are its own, and Delete must not reach what is selected behind it.
@@ -3918,6 +3943,7 @@
       followFocus(peer.p.f);
       followThread(peer.p.t);
       catchUp(peer);
+      followZoom(peer.p.z);
     } else {
       viewer.close();
       if (peer && peer.p.v) followView(peer.p.v, 380);
@@ -3935,6 +3961,20 @@
     let at = m[1] + (m[2] ? (performance.now() - (peer.mAt || performance.now())) / 1000 : 0);
     if (it && it.dur > 0) at %= it.dur;
     viewer.followMedia(openId, !!m[2], at);
+  }
+
+  // Following someone means seeing as much of the piece as they do: zoomed in where they are.
+  function followZoom(z) {
+    if (openId) requestAnimationFrame(() => viewer.followZoom(z === undefined ? null : z));
+  }
+
+  // Watching a presentation, the presenter is followed from the moment they are on the board, and again
+  // whenever they come back to it.
+  let lead = null;
+  function followLead() {
+    if (!spectating || !lead) return;
+    const peer = [...peers.values()].find((p) => p.lead === lead);
+    if (peer && following !== peer.id) follow(peer.id);
   }
 
   // Following someone means reading the thread they are reading: a drawing only shows with its thread.
@@ -3972,9 +4012,9 @@
     const list = [...peers.values()].filter((peer) => !peer.viewer);
     const nodes = [
       ...list.slice(0, 8).map((peer) => el('button', {
-        class: `avatar${following === peer.id ? ' following' : ''}`,
+        class: `avatar${following === peer.id ? ' following' : ''}${peer.lead ? ' presenting' : ''}`,
         style: { background: peer.color },
-        title: `${peer.name}. Click to ${following === peer.id ? 'stop following' : 'follow their view'}`,
+        title: `${peer.name}${peer.lead ? ', presenting the project' : ''}. Click to ${following === peer.id ? 'stop following' : 'follow their view'}`,
         text: WB.initials(peer.name),
         onclick: () => (following === peer.id ? userMovedView() : follow(peer.id)),
       })),
@@ -4023,7 +4063,7 @@
   }
 
   function addPeer(data) {
-    peers.set(data.id, { id: data.id, name: data.name, color: data.color, p: data.p || {}, mAt: performance.now(), cur: null, viewer: !!data.viewer });
+    peers.set(data.id, { id: data.id, name: data.name, color: data.color, p: data.p || {}, mAt: performance.now(), cur: null, viewer: !!data.viewer, lead: data.lead || null });
     placeCursor(peers.get(data.id));
     if (data.p && data.p.u) showRemoteStandIns(peers.get(data.id));
   }
@@ -4200,6 +4240,7 @@
     for (const v of msg.versions || []) versionInfo.set(v.id, v);
     project = msg.project || null;
     $('catalogue').hidden = !project || viewOnly;
+    showPresent();
     if (!project && !catPanel.hidden) toggleCatalogue(false);
     for (const it of msg.items) {
       if (it.type === 'comment') {
@@ -4216,6 +4257,7 @@
 
     for (const id of [...peers.keys()]) dropPeer(id);
     for (const p of msg.peers) addPeer(p);
+    lead = msg.lead || null;
 
     // Anything done while disconnected is sent again, with the numbers it had: what the server already
     // applied before the connection dropped it acks and leaves alone. It is laid over the server's state
@@ -4244,7 +4286,7 @@
         history.replaceState(null, '', location.pathname);
         viewer.openComment(asked[1]);
       }
-      if (viewOnly && [...items.values()].some((it) => it.type === 'image' || it.type === 'video')) {
+      if (viewOnly && !spectating && [...items.values()].some((it) => it.type === 'image' || it.type === 'video')) {
         toast('Click an image or video to look closer', { ms: 7000 });
       }
     } else {
@@ -4254,6 +4296,7 @@
     // After a dropped connection the others have forgotten what is on its way in from here.
     if (standIns.size) shareStandIns();
     updateFollowUI();
+    followLead();
   }
 
   function onMessage(msg) {
@@ -4271,10 +4314,19 @@
     } else if (msg.t === 'join') {
       addPeer(msg.peer);
       updateFollowUI();
+      followLead();
+    } else if (msg.t === 'lead') {
+      const peer = peers.get(msg.id);
+      if (peer) peer.lead = msg.lead || null;
+      renderPeers();
+      followLead();
     } else if (msg.t === 'leave') {
+      // Whoever was being followed went: said, rather than the view just stopping.
+      const gone = following === msg.id && !spectating && peers.get(msg.id);
       dropPeer(msg.id);
       refreshPeerSel();
       updateFollowUI();
+      if (gone) toast(`${gone.name} left the board`, { ms: 3500 });
     } else if (msg.t === 'p') {
       const peer = peers.get(msg.id);
       if (!peer) return;
@@ -4291,6 +4343,7 @@
         catchUp(peer);
       }
       if ('t' in msg.p && following === peer.id) followThread(peer.p.t);
+      if ('z' in msg.p && following === peer.id) followZoom(peer.p.z);
       if ('v' in msg.p && following === peer.id && !gesture) followView(peer.p.v);
     } else if (msg.t === 'laser') {
       const peer = peers.get(msg.id);
@@ -4309,13 +4362,15 @@
     }
   }
 
-  const metaUrl = viewOnly ? `/api/shared/${boardId}` : `/api/boards/${boardId}`;
+  const metaUrl = spectating ? `/api/watch/${watchToken}` : viewOnly ? `/api/shared/${boardId}` : `/api/boards/${boardId}`;
   let dead = false;
 
   function connect() {
     if (dead) return;
-    ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?${viewOnly ? 'share' : 'board'}=${boardId}`);
-    ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', name: me.name, color: me.color, cid }));
+    const where = spectating ? `watch=${watchToken}&board=${boardId}` : `${viewOnly ? 'share' : 'board'}=${boardId}`;
+    ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?${where}`);
+    // Presenting the project, this page is where the people watching follow you on the board.
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', name: me.name, color: me.color, cid, ...(!viewOnly && WBPresent.token() && { present: WBPresent.token() }) }));
     ws.onmessage = (e) => onMessage(JSON.parse(e.data));
     ws.onclose = (e) => {
       online = false;
@@ -4323,6 +4378,8 @@
       if (e.code === 4003) return fatal('This board was moved to a workspace you cannot open.');
       if (e.code === 4004) return fatal('This board was deleted.');
       if (e.code === 4005) return fatal('This link is not shared any more.');
+      // Watching a presentation that has gone on to something else: the page around this one moves on.
+      if (spectating && e.code === 4007) return void (dead = true);
       // What the link allows changed: open it again as it is now.
       if (e.code === 4006) return location.reload();
       $('conn').hidden = false;
@@ -4862,6 +4919,24 @@
     $('share').addEventListener('click', () => openShare(meta));
   }
 
+  // ---- presenting the project this board is in (present.js): the people watching see the board where you
+  // are on it, and follow you off it to the catalogue's player or the timeline, and back.
+  if (!viewOnly && WB.info().canShare) {
+    WBPresent.init({
+      me: () => me,
+      viewer: () => viewer,
+      project: () => project,
+      page: () => (project ? { k: 'board', board: boardId } : { k: 'idle' }),
+    });
+    const presentBtn = WBPresent.button();
+    presentBtn.classList.add('board-only');
+    presentBtn.hidden = true;
+    $('share').before(presentBtn);
+    showPresent = () => { presentBtn.hidden = !project; };
+    showPresent();
+    WBPresent.onChange((token) => wsSend({ t: 'lead', present: token }));
+  }
+
   // Who can open the board: its workspace says who on the team, and a link, when it is on, who else
   // and what they may do there. Everything here takes effect at once; Done only closes.
   const ACCESS = [
@@ -4872,12 +4947,7 @@
   const EXPIRY = [['never', 'Never', 0], ['1d', 'In 1 day', 864e5], ['7d', 'In 7 days', 7 * 864e5], ['30d', 'In 30 days', 30 * 864e5]];
 
   function openShare(meta) {
-    // Never a localhost address: it would only open on this computer.
-    // A configured public address first, then the address this page was opened from (a tunnel, say), then this computer's network addresses.
-    const served = WB.info().shareBases || [];
-    const here = /^(localhost$|127\.|\[::1\])/.test(location.hostname) ? [] : [location.origin];
-    const bases = [...new Set([...served.filter((b) => b.startsWith('https:')), ...here, ...served])];
-    if (!bases.length) bases.push(location.origin);
+    const bases = WB.shareBases();
     let base = bases.includes(store('wb:sharebase')) ? store('wb:sharebase') : bases[0];
     let share = meta.share || { token: null };
     let busy = false;

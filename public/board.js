@@ -1779,10 +1779,22 @@
     }));
   }
 
-  const pieceOf = (it) => ({
-    id: it.id, type: it.type, src: it.src, prev: it.prev, pw: it.pw, th: it.th, poster: it.poster, nw: it.nw || it.w, nh: it.nh || it.h,
-    fps: it.fps, dur: it.dur, wf: it.wf, name: it.name, orig: it.orig, label: it.ver && versionInfo.get(it.ver) ? versionInfo.get(it.ver).label : null,
-  });
+  // In a project with a model of its venue, a catalogued piece can be seen on it in the player: in 3D it
+  // shows the version's view the project puts on the model (see boardVersion in server.js), which may be
+  // another file than the one on the board. A piece that is not a version, or has no such view, is not.
+  let board3d = null;  // the project's model: { model, screen, view, key }, or null
+  let shown3d = false; // the player is in 3D
+  const look3dOf = (it) => (it && it.ver && versionInfo.get(it.ver) && versionInfo.get(it.ver).look3d) || null;
+  const pieceOf = (it) => {
+    const piece = {
+      id: it.id, type: it.type, src: it.src, prev: it.prev, pw: it.pw, th: it.th, poster: it.poster, nw: it.nw || it.w, nh: it.nh || it.h,
+      fps: it.fps, dur: it.dur, wf: it.wf, name: it.name, orig: it.orig, label: it.ver && versionInfo.get(it.ver) ? versionInfo.get(it.ver).label : null,
+    };
+    const look = shown3d && look3dOf(it);
+    if (!look || look.src === it.src || look.type !== it.type) return piece;
+    const { view, ...media } = look;
+    return { ...piece, prev: undefined, pw: undefined, th: undefined, poster: undefined, ...media, wf: undefined, orig: undefined, shownView: view || '3d' };
+  };
 
   let openId = null; // what is open in the viewer
   const boardHost = {
@@ -1815,7 +1827,8 @@
       openId = null;
       $('topbar').querySelector('.bar-group.board-only').before($('peers'));
       renderPanel();
-      sendP({ f: null, t: null });
+      sendP({ f: null, t: null, d: null });
+      sent3d = 'null';
       const leader = following && peers.get(following);
       if (leader && leader.p.v) followView(leader.p.v, 0);
     },
@@ -1829,6 +1842,12 @@
     onInteract: () => stopFollowing(),
     locked: spectating,
     onWhole: (id, url) => mendStrip(id, url),
+    get view3d() { return board3d; },
+    can3d: (p) => !!look3dOf(items.get(p.id)),
+    onMode3d: (on) => {
+      shown3d = on;
+      viewer.refresh();
+    },
   };
   const viewer = WBViewer.create(boardHost);
   // How far into the open piece the view is, for whoever follows: they see what is zoomed in on.
@@ -1839,9 +1858,20 @@
       if (JSON.stringify(z) !== zoomSent) sendP({ z });
       zoomSent = JSON.stringify(z);
     }
+    if (type === '3d' && viewer.isOpen() && viewer.host() === boardHost) send3d();
     // Watching a presentation, the page around this one is told the sound had to go.
     if (type === 'muted' && spectating) window.parent.postMessage({ wb: 'muted' }, location.origin);
   });
+  // How the open piece is seen in 3D, for whoever follows: 2D or 3D, the camera, a comment's frame, or
+  // flying (sent as the view moves).
+  let sent3d = 'null';
+  function send3d() {
+    const d = viewer.isOpen() && viewer.host() === boardHost ? viewer.view3d() : null;
+    const sig = JSON.stringify(d);
+    if (sig !== sent3d) sendP({ d });
+    sent3d = sig;
+  }
+  setInterval(() => { if (shown3d) send3d(); }, 150);
   if (spectating) {
     window.addEventListener('message', (e) => {
       if (e.origin === location.origin && e.data && e.data.wb === 'sound') viewer.sound(!!e.data.on);
@@ -3944,6 +3974,7 @@
       followThread(peer.p.t);
       catchUp(peer);
       followZoom(peer.p.z);
+      follow3d(peer.p.d);
     } else {
       viewer.close();
       if (peer && peer.p.v) followView(peer.p.v, 380);
@@ -3961,6 +3992,11 @@
     let at = m[1] + (m[2] ? (performance.now() - (peer.mAt || performance.now())) / 1000 : 0);
     if (it && it.dur > 0) at %= it.dur;
     viewer.followMedia(openId, !!m[2], at);
+  }
+
+  // ...and seeing it as they do, in 2D or on the model in 3D.
+  function follow3d(d) {
+    if (openId) viewer.follow3d(d || null);
   }
 
   // Following someone means seeing as much of the piece as they do: zoomed in where they are.
@@ -4238,6 +4274,7 @@
     comments.clear();
     versionInfo.clear();
     for (const v of msg.versions || []) versionInfo.set(v.id, v);
+    board3d = msg.view3d || null;
     project = msg.project || null;
     $('catalogue').hidden = !project || viewOnly;
     showPresent();
@@ -4311,6 +4348,11 @@
       onAck(msg);
     } else if (msg.t === 'versions') {
       learnVersions(msg.list);
+      viewer.refresh();
+    } else if (msg.t === 'view3d') {
+      board3d = msg.view3d || null;
+      learnVersions(msg.versions);
+      viewer.refresh();
     } else if (msg.t === 'join') {
       addPeer(msg.peer);
       updateFollowUI();
@@ -4341,9 +4383,11 @@
       if ('f' in msg.p && following === peer.id) {
         followFocus(peer.p.f);
         catchUp(peer);
+        follow3d(peer.p.d);
       }
       if ('t' in msg.p && following === peer.id) followThread(peer.p.t);
       if ('z' in msg.p && following === peer.id) followZoom(peer.p.z);
+      if ('d' in msg.p && following === peer.id) follow3d(peer.p.d);
       if ('v' in msg.p && following === peer.id && !gesture) followView(peer.p.v);
     } else if (msg.t === 'laser') {
       const peer = peers.get(msg.id);

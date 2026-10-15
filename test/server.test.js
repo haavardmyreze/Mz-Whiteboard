@@ -2751,3 +2751,82 @@ test('a project is presented through a link of its presenter: live only while th
   assert.equal((await call(null, 'GET', `/p/${fresh.token}`)).headers.get('set-cookie'), null);
   editor.ws.close();
 });
+
+test("on a board in a project with a model of its venue, a catalogued piece that has the model's view can be seen on it", async (t) => {
+  const WebSocket = require('ws');
+  const port = 4932;
+  const s = start(port);
+  t.after(s.stop);
+  await s.ready;
+  const call = async (method, p, body) => {
+    const res = await fetch(s.base + p, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    return { status: res.status, body: await res.json().catch(() => null) };
+  };
+  const upload = async (name) => (await (await fetch(`${s.base}/api/upload?name=${name}&uid=up${name.replace(/\W/g, '')}&offset=0&done=1`, { method: 'POST', body: crypto.randomBytes(2000) })).json()).url;
+  const open = (query) => new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?${query}`);
+    const conn = { ws, seen: [] };
+    ws.on('open', () => ws.send(JSON.stringify({ t: 'hello', name: 'Anna' })));
+    ws.on('message', (raw) => {
+      const msg = JSON.parse(raw);
+      conn.seen.push(msg);
+      if (msg.t === 'init') resolve(conn);
+    });
+    ws.on('error', reject);
+  });
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  const kilo = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${kilo.id}`, { project: true });
+  const board = (await call('POST', '/api/boards', { name: 'Review', folderId: kilo.id })).body;
+  const [cmp, bty, other, model] = [await upload('cmp.webm'), await upload('bty.webm'), await upload('other.webm'), await upload('venue.glb')];
+  const look = (src, name) => ({ type: 'video', src, nw: 1920, nh: 1080, name });
+  // kilo-0010 v1 in two views, cmp and bty; kilo-0020 v1 in bty only.
+  await call('POST', `/api/projects/${kilo.id}/versions`, { files: [
+    { look: look(cmp, 'kilo-0010_comp_v001_cmp.webm'), entity: { name: 'kilo-0010', tier: 'shot' }, task: 'comp', number: 1, view: 'cmp' },
+    { look: look(bty, 'kilo-0010_comp_v001_bty.webm'), entity: { name: 'kilo-0010', tier: 'shot' }, task: 'comp', number: 1, view: 'bty' },
+    { look: look(other, 'kilo-0020_comp_v001_bty.webm'), entity: { name: 'kilo-0020', tier: 'shot' }, task: 'comp', number: 1, view: 'bty' },
+  ] });
+  const shots = (await call('GET', `/api/projects/${kilo.id}`)).body.entities;
+  const versionOf = async (name) => (await call('GET', `/api/entities/${shots.find((e) => e.name === name).id}`)).body.versions[0];
+  const [v10, v20] = [await versionOf('kilo-0010'), await versionOf('kilo-0020')];
+  assert.deepEqual(v10.look.views.map((x) => x.view), ['bty']);
+
+  // Without a model, nothing is said of 3D.
+  await call('POST', `/api/projects/${kilo.id}/place`, { board: board.id, versions: [v10.id, v20.id] });
+  const before = await open(`board=${board.id}`);
+  const init0 = before.seen.find((m) => m.t === 'init');
+  assert.equal(init0.view3d, null);
+  assert.ok(init0.versions.every((v) => !v.look3d));
+
+  // With one that shows the cmp view, the board is told so, and kilo-0010 is seen in its cmp view; kilo-0020,
+  // which has none, is not seen in 3D.
+  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { preview3d: { model, screen: 'screen', view: 'cmp' } } });
+  await wait(150);
+  const told = before.seen.find((m) => m.t === 'view3d');
+  assert.equal(told.view3d.model, model);
+  assert.equal(told.view3d.view, 'cmp');
+  const byId = (list) => Object.fromEntries(list.map((v) => [v.id, v]));
+  assert.equal(byId(told.versions)[v10.id].look3d.src, cmp);
+  assert.equal(byId(told.versions)[v10.id].look3d.view, 'cmp');
+  assert.equal(byId(told.versions)[v20.id].look3d, undefined);
+  const after = await open(`board=${board.id}`);
+  const init1 = after.seen.find((m) => m.t === 'init');
+  assert.equal(init1.view3d.key, kilo.id);
+  assert.equal(byId(init1.versions)[v10.id].look3d.src, cmp);
+
+  // A project whose model takes the main view shows every catalogued picture and video in it.
+  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { preview3d: { model, screen: 'screen', view: '' } } });
+  await wait(150);
+  const main = byId(before.seen.filter((m) => m.t === 'view3d').pop().versions);
+  assert.equal(main[v20.id].look3d.src, other);
+
+  // How the open piece is seen in 3D goes to whoever follows, and nothing that is not its shape.
+  before.ws.send(JSON.stringify({ t: 'p', p: { d: { on: 1, c: 1, junk: 'x' } } }));
+  before.ws.send(JSON.stringify({ t: 'p', p: { d: { on: 1, f: { p: [0, 1, 2], q: [0, 0, 0, 1], fov: 50 } } } }));
+  await wait(150);
+  const seen = after.seen.filter((m) => m.t === 'p').map((m) => m.p.d);
+  assert.deepEqual(seen, [{ on: 1, c: 1 }, { on: 1, f: { p: [0, 1, 2], q: [0, 0, 0, 1], fov: 50 } }]);
+  before.ws.close();
+  after.ws.close();
+});

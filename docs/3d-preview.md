@@ -29,9 +29,15 @@ How it fits together:
   it. Comments drawn before this through the main camera say `pov: 'main'` and still open on it.
 - **Which view goes on the screens** is the project's setting (its main one unless said), not the
   player's view dropdown, which hides in 3D.
-- **Not yet:** the player opened from a board does not offer 3D (the board's pieces are its own copies,
-  not the project's versions). A model replaced or moved after comments were made in it would leave their
-  views (and drawings) off target; keep a model once it is in use.
+- **On a board** in such a project, the player offers 3D for a piece that is a version (catalogued) and
+  has the view the project puts on the model (any version, when the project uses the main view). In 3D it
+  shows that view's file, which may not be the one on the board; a piece that is not a version, or lacks
+  that view, is shown as it is, and stepping to it turns the player back to 2D. The server sends each
+  version a board shows with its `look3d` (boardVersion in server.js), and the board's model as `view3d`
+  with its init, and again when the project's setting changes. Following someone on a board, or watching
+  a presentation, follows 2D or 3D, the camera and the flight (`d` in the presence).
+- **Not yet:** a model replaced or moved after comments were made in it would leave their views (and
+  drawings) off target; keep a model once it is in use.
 
 ---
 

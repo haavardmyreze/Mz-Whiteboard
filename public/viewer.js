@@ -25,6 +25,7 @@
 //     onOpen(id), onClose(), onMedia(id, playing, time), onThread(id), onLaser(id, pts), onInteract(), onWhole(id, url)
 //     view3d: { key, model, screen }      a project with a model of its venue: the piece can be seen on it in 3D
 //     onMode3d(on)                        it has turned to 3D or back (the host may show the pieces another way)
+//     can3d(piece)                        whether a piece can be seen on the model at all (all of them, if not said)
 //     scene: () => ({ k, ... })           what is shown, for somebody presenting it (see present.js)
 //     locked: true                        it only follows somebody else (who presents): nothing here moves it
 //   })
@@ -555,8 +556,10 @@ const WBViewer = (() => {
         open = piece;
         mount(piece);
       }
-      // The player always opens on the picture itself (2D); 3D is a switch away.
-      if (!was) paintDims();
+      // The player always opens on the picture itself (2D); 3D is a switch away. A piece that cannot be seen
+      // on the model is shown as it is.
+      if (in3d && !has3d()) set3d(false);
+      paintDims();
       document.body.classList.toggle('focus-video', piece.type === 'video');
       if (runMode() && (!was || was.id !== id)) {
         stillAt = 0;
@@ -679,7 +682,7 @@ const WBViewer = (() => {
     let three = null; // the 3D view, made the first time it is asked for
     let busy3d = false; // following somebody into 3D (see follow3d)
     let next3d = null;
-    const has3d = () => !!(opts.view3d && opts.view3d.model);
+    const has3d = () => !!(opts.view3d && opts.view3d.model) && (!opts.can3d || (!!open && opts.can3d(open)));
     async function set3d(on) {
       on = !!on && has3d() && !!open;
       if (on === in3d) return;

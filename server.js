@@ -802,7 +802,7 @@ function settle(board, applied) {
     if (ops.length) broadcast(board, { t: 'op', ops, from: null, sync: true });
   }
   spreadNotes(applied.notes, board);
-  if (applied.versions.size) broadcast(board, { t: 'versions', list: [...applied.versions].map(versionInfo).filter(Boolean) });
+  if (applied.versions.size) broadcast(board, { t: 'versions', list: [...applied.versions].map((id) => boardVersion(id, board3d(board))).filter(Boolean) });
 }
 
 // ---------------------------------------------------------------- folders
@@ -973,7 +973,32 @@ function publicVersion(v, user) {
 function boardVersions(board) {
   const ids = new Set();
   for (const it of board.items.values()) if (it.type !== 'comment' && typeof it.ver === 'string') ids.add(it.ver);
-  return [...ids].map(versionInfo).filter(Boolean);
+  const model = board3d(board);
+  return [...ids].map((id) => boardVersion(id, model)).filter(Boolean);
+}
+
+// The model of its venue the project a board is in has, if it has one (see cleanProjectSettings).
+function board3d(board) {
+  const p = boardProject(board);
+  const preview3d = p && p.settings && p.settings.preview3d;
+  return preview3d && preview3d.model ? { ...preview3d, key: p.id } : null;
+}
+// A version as a board shows it, and in a project with a model of its venue, what goes on the model's
+// screens (`look3d`): the version's view the project puts there (its main one, unless the project names
+// one). A version without that view is not seen in 3D. Only what the player needs, not its timeline strip.
+const LOOK3D_KEYS = ['type', 'src', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'name', 'view'];
+function boardVersion(ref, model) {
+  const info = versionInfo(ref);
+  if (!info || !model) return info;
+  const v = typeof ref === 'string' ? liveVersion(ref) : ref;
+  const look = v && v.look;
+  if (!look || (look.type !== 'image' && look.type !== 'video')) return info;
+  const shown = !model.view || look.view === model.view ? look : (look.views || []).find((x) => x.view === model.view);
+  if (!shown) return info;
+  const look3d = {};
+  for (const k of LOOK3D_KEYS) if (shown[k] !== undefined) look3d[k] = shown[k];
+  if (!look3d.type) look3d.type = look.type;
+  return { ...info, look3d };
 }
 
 // Some entities have a new version, or one hidden or shown again: the boards that show any of their
@@ -1991,7 +2016,9 @@ function sharedFile(req, name) {
     for (const key of ['src', 'th', 'poster', 'prev']) if (uploadName(it[key]) === name) return true;
     if (it.wf && typeof it.wf === 'object' && Object.values(it.wf).some((v) => uploadName(v) === name)) return true;
   }
-  return boardVersions(board).some((v) => uploadName(v.thumb) === name);
+  const model = board3d(board);
+  if (model && uploadName(model.model) === name) return true;
+  return boardVersions(board).some((v) => uploadName(v.thumb) === name || (v.look3d && ['src', 'th', 'poster', 'prev'].some((k) => uploadName(v.look3d[k]) === name)));
 }
 
 // Where a read-only link can be opened from: the public address when there is one, otherwise this
@@ -2070,7 +2097,14 @@ async function handleApi(req, res, url) {
             folder.project = false;
           }
         }
-        if ('settings' in body && folder.project) folder.settings = cleanProjectSettings(body.settings, folder.settings);
+        if ('settings' in body && folder.project) {
+          folder.settings = cleanProjectSettings(body.settings, folder.settings);
+          // The boards in it that are open are told what its model of its venue now is, and what of theirs goes on it.
+          for (const board of boards.values()) {
+            if (!board.items || !board.peers.size || boardProject(board) !== folder) continue;
+            broadcast(board, { t: 'view3d', view3d: board3d(board), versions: boardVersions(board) });
+          }
+        }
         if ('workspace' in body) {
           const key = spaceKey(body.workspace, req.user);
           if (key !== folder.workspace) moveFolderToSpace(folder, key);
@@ -2558,7 +2592,8 @@ const forViewers = (board, ops, access = board.shareAccess) => ops.filter((op) =
 
 // What a pointer says, as the pages send it: where it is (c), the laser held (l), and for the board's
 // own people also their view (v), what they have selected (s), the piece open (f), the thread read in it
-// (t) and how far it is zoomed into (z), a video playing there (m) and files on their way in (u). Anything else, or not of its
+// (t), how far it is zoomed into (z) and how it is seen in 3D (d, see cleanPlayer), a video playing there
+// (m) and files on their way in (u). Anything else, or not of its
 // shape, is left out, so nobody can hand everybody else whatever they like.
 function cleanPresence(p, viewer) {
   const out = {};
@@ -2573,6 +2608,7 @@ function cleanPresence(p, viewer) {
   if ('t' in p && (p.t === null || id(p.t))) out.t = p.t;
   if ('m' in p && (p.m === null || (Array.isArray(p.m) && id(p.m[0]) && Number.isFinite(p.m[1])))) out.m = p.m && [p.m[0], p.m[1], p.m[2] ? 1 : 0];
   if ('z' in p && (p.z === null || numbers(p.z, 3))) out.z = p.z;
+  if ('d' in p && (p.d === null || (p.d && typeof p.d === 'object'))) out.d = cleanPlayer({ d: p.d }).d;
   if ('u' in p && Array.isArray(p.u)) {
     out.u = p.u.slice(0, 50).filter((u) => u && id(u.i))
       .map((u) => ({ i: u.i, k: Number.isFinite(u.k) ? u.k : 0, ...(typeof u.ph === 'string' && { ph: u.ph.slice(0, 20) }) }));
@@ -2599,6 +2635,7 @@ function sendInit(board, peer, restored = false) {
     ...(peer.watch && { lead: peer.watch.lead }),
     items: [...board.items.values()].filter((it) => !hiddenNote(access, it)).map(withoutOriginal),
     versions: boardVersions(board),
+    view3d: board3d(board),
     peers: [...board.peers.values()].filter((p) => p !== peer).map(publicPeer),
     ...(restored && { restored: true }),
   } : {
@@ -2608,6 +2645,7 @@ function sendInit(board, peer, restored = false) {
     project: project ? { id: project.id, name: project.name, naming: (project.settings && project.settings.naming) || naming.DEFAULT } : null,
     items: [...board.items.values()],
     versions: boardVersions(board),
+    view3d: board3d(board),
     peers: [...board.peers.values()].filter((p) => p !== peer).map(publicPeer),
     ...(restored && { restored: true }),
   });
@@ -3112,7 +3150,10 @@ function presentedFiles(pres) {
       if (!board) continue;
       openItems(board);
       for (const it of board.items.values()) if (it.type !== 'comment') addLook(it);
-      for (const v of boardVersions(board)) add(v.thumb);
+      for (const v of boardVersions(board)) {
+        add(v.thumb);
+        addLook(v.look3d);
+      }
     } else if (s.k === 'entity') {
       for (const v of store.versionsOf(s.id)) {
         addLook(v.look);

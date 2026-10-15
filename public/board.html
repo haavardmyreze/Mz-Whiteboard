@@ -11,6 +11,8 @@
   <link rel="preload" href="/fonts/rift-demi.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/rift-light.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
+  <!-- three.js, for a project's 3D view (view3d.js): only fetched when it is asked for. -->
+  <script type="importmap">{ "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/addons/" } }</script>
 </head>
 <body class="board">
   <div id="viewport">

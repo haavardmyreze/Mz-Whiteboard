@@ -397,6 +397,11 @@ filed in it.
   comment, so what is drawn lands on the same thing for everyone. Picking the comment glides back to it
   (turning the player to 3D if need be); a drawing shows only from there. Such a comment says
   "Drawing in 3D", or "In 3D" with no drawing. The player always opens in 2D. The room is lit from all round so nothing in it is black.
+  On the project's boards the player has the same switch, for a piece that is a version and has the view
+  the project puts on its model (with the main view, any catalogued picture or video): in 3D it shows that
+  view's file, whichever view is on the board. A piece that is not a version, or lacks that view, shows
+  no switch, and stepping to one goes back to 2D. Whoever follows you, there or through a presentation,
+  goes into 3D with you.
 - **Views of a version.** A version can be shown more than one way, each its own file: on projection
   work, say, the unwrapped picture (cmp, or vr) and how it looks projected (bty, or bty-left, top,
   side...). A word after the version in a file's name is its view (`ch04-0030_comp_erik_v110_bty.mov`),

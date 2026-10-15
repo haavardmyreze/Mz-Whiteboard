@@ -692,10 +692,15 @@ const WBViewer = (() => {
     // the wait: switching is then only showing it.
     const warmed = new Set();
     function warm3d() {
-      if (!has3d() || warmed.has(opts.view3d.model)) return;
-      const setting = opts.view3d;
+      if (has3d()) prepare3d(opts.view3d, 1500);
+    }
+    // Made ready for a project's model whether or not anything is open: a page that knows its project has one
+    // asks for this as it opens, so a refresh does not leave the whole of it to the moment 3D is pressed.
+    // (What is fetched is in the browser's cache after the first time; what is made has to be made again.)
+    function prepare3d(setting, delay = 0) {
+      if (!setting || !setting.model || warmed.has(setting.model)) return;
       warmed.add(setting.model);
-      setTimeout(async () => {
+      const run = async () => {
         try {
           const mod = await import('/view3d.js');
           await mod.preload(setting.model);
@@ -703,7 +708,9 @@ const WBViewer = (() => {
         } catch {
           warmed.delete(setting.model);
         }
-      }, 1500);
+      };
+      // When the page has nothing better to do, and soon whatever it is doing.
+      setTimeout(() => (window.requestIdleCallback ? requestIdleCallback(run, { timeout: 2500 }) : run()), delay);
     }
     // The 3D view, made the first time it is wanted, with the project's model in it.
     async function readyThree(mod, setting, warm = false) {
@@ -782,7 +789,16 @@ const WBViewer = (() => {
       const names = three.cameras();
       const main = three.mainCamera();
       const on = three.camera();
-      WB.menu(camMore, names.map((name, i) => i !== main && [`${i === on ? '✓ ' : ''}${name}`, () => toCamera(i)]));
+      // Every camera of the model, the main one too (marked so), with a tick on the one looked through.
+      WB.menu(camMore, names.map((name, i) => el('button', {
+        type: 'button', class: `menu-item menu-check${i === on ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(i === on),
+        onclick: (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          WB.closeMenus();
+          toCamera(i);
+        },
+      }, el('span', { class: 'menu-tick', html: i === on ? ICON.check : '' }), el('span', { text: name || 'Camera' }), i === main && !/^main$/i.test(name) && el('span', { class: 'menu-note', text: 'main' }))));
     }
     // In 3D a comment is made from where the view is: the moment one is begun (the pen taken up, the box
     // clicked into, a comment sent), the view holds still there, framed 16:9, and that frame goes with the
@@ -2607,6 +2623,7 @@ const WBViewer = (() => {
         if (video) video.muted = !soundWanted;
         if (spare) spare.video.muted = !soundWanted;
       },
+      prepare3d: (setting) => prepare3d(setting),
       // Hears what the player does, whatever host it has; returns how to stop.
       watch(fn) {
         watchers.add(fn);

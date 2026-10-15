@@ -4275,6 +4275,8 @@
     versionInfo.clear();
     for (const v of msg.versions || []) versionInfo.set(v.id, v);
     board3d = msg.view3d || null;
+    // The board's project has a model of its venue: the 3D view is made ready now, so it is there when asked for.
+    if (board3d && [...versionInfo.values()].some((v) => v.look3d)) viewer.prepare3d(board3d);
     project = msg.project || null;
     $('catalogue').hidden = !project || viewOnly;
     showPresent();

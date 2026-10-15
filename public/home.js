@@ -1548,6 +1548,10 @@
   let shownProject = '';
   let shownEntity = null; // the asset, set or shot whose page is showing, for the crumbs before its catalogue is in
   async function renderProject(project, view) {
+    // A project with a model of its venue: the player's 3D view is made ready as the project opens, so it is
+    // there at once in the catalogue's player and on the timeline.
+    const model = project.settings && project.settings.preview3d;
+    if (model && model.model) thePlayer().prepare3d({ ...model, key: project.id });
     const sig = `${project.id}|${view.page}|${view.entity}`;
     const fresh = shownProject !== sig;
     shownProject = sig;

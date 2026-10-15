@@ -721,7 +721,7 @@ const WBViewer = (() => {
         }
       };
       // When the page has nothing better to do, and soon whatever it is doing.
-      setTimeout(() => (window.requestIdleCallback ? requestIdleCallback(run, { timeout: 2500 }) : run()), delay);
+      setTimeout(() => (window.requestIdleCallback ? requestIdleCallback(run, { timeout: 600 }) : run()), delay);
     }
     // The 3D view, made the first time it is wanted, with the project's model in it.
     async function readyThree(mod, setting, warm = false) {

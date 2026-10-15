@@ -24,10 +24,29 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 const models = new Map(); // url -> Promise of the loaded glTF, shared by every view on the page
 const arrived = new Map(); // url -> how much of it has come, from 0 to 1 (null while that is not known)
+// The model's file is kept on this computer with the videos (media.js): fetched once, and after that read
+// from the disk on every page that shows it, whatever the browser's own cache keeps (a large model it may
+// not keep at all, and then every refresh fetched it again). It is held there, never the one made room for.
+// Where nothing can be kept (a plain http address), the browser fetches it as it would.
+async function modelFile(url) {
+  const media = window.WBMedia;
+  if (media && media.keepable(url) && (await media.ready)) {
+    media.want('venue', [url], { rank: media.RANK.run, hold: true });
+    let blob = null;
+    try {
+      blob = await media.get(url, { onProgress: (loaded, total) => arrived.set(url, total ? loaded / total : null) });
+    } catch (err) {
+      // Too large to keep, or no room: fetched as the browser would.
+      console.warn('The venue is not kept on this computer:', err.message);
+    }
+    if (blob) return new GLTFLoader().parseAsync(await blob.arrayBuffer(), '');
+  }
+  return new GLTFLoader().loadAsync(url, (e) => arrived.set(url, e.lengthComputable && e.total ? e.loaded / e.total : null));
+}
 const loadModel = (url) => {
   if (!models.has(url)) {
     arrived.set(url, 0);
-    const p = new GLTFLoader().loadAsync(url, (e) => arrived.set(url, e.lengthComputable && e.total ? e.loaded / e.total : null));
+    const p = modelFile(url);
     p.then(() => arrived.set(url, 1), () => {
       models.delete(url);
       arrived.delete(url);

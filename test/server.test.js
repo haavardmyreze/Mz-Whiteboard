@@ -2487,7 +2487,7 @@ test('Claude suggests names for files and renames, through the server, without c
       const body = JSON.parse(raw);
       asked.push({ key: req.headers['x-api-key'], body });
       const input = body.tool_choice.name === 'file_versions'
-        ? { files: [{ key: 'r0', entity: 'ch02-0010', tier: 'shot', task: 'anim', version: 4, note: 'v4 in the name' }] }
+        ? { files: [{ key: 'r0', entity: 'ch02-0010', tier: 'shot', task: 'anim', version: 4, view: 'bty', note: 'v4 in the name' }] }
         : { entities: [{ id: body.messages[0].content.match(/\n(\S+)\topening/)[1], name: 'ch02-0020', tier: 'shot', note: 'the opening shot' }] };
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ stop_reason: 'tool_use', content: [{ type: 'tool_use', name: body.tool_choice.name, input }] }));
@@ -2510,7 +2510,7 @@ test('Claude suggests names for files and renames, through the server, without c
 
   const files = await call('POST', `/api/projects/${kilo.id}/ai/files`, { instruction: 'all shots of ch02', files: [{ key: 'r0', filename: 'Robot walk v4.mov' }] });
   assert.equal(files.status, 200);
-  assert.deepEqual(files.body.answers.r0, { entity: 'ch02-0010', tier: 'shot', task: 'anim', version: 4, note: 'v4 in the name', fits: true });
+  assert.deepEqual(files.body.answers.r0, { entity: 'ch02-0010', tier: 'shot', task: 'anim', version: 4, view: 'bty', note: 'v4 in the name', fits: true });
   assert.equal(asked[0].key, 'sk-test');
   assert.match(asked[0].body.system, /char-robot \(asset\)/, 'the project\'s names go along');
   assert.match(asked[0].body.messages[0].content, /all shots of ch02/);

@@ -1373,7 +1373,7 @@ async function handleCatalogue(req, res, parts) {
           const files = (Array.isArray(body.files) ? body.files : []).filter((f) => f && typeof f === 'object')
             .map((f) => ({ key: String(f.key), filename: String(f.filename || ''), now: f.now && typeof f.now === 'object' ? f.now : null }));
           if (files.length > ai.MAX_FILES) return sendJson(res, 400, { error: `Ask about at most ${ai.MAX_FILES} files at a time` });
-          const answers = await ai.fileNames({ instruction: body.instruction, files, presetId, entities, tasks });
+          const answers = await ai.fileNames({ instruction: body.instruction, files, presetId, entities, tasks, views: store.projectViews(project.id) });
           return sendJson(res, 200, { model: ai.model, answers });
         }
         const ids = Array.isArray(body.ids) ? [...new Set(body.ids.map(String))] : [];

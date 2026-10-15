@@ -2433,7 +2433,7 @@
         instruction,
         files: asked.map((r) => ({
           key: r.key, filename: r.file.name,
-          now: { entity: r.fields.ent.value.trim() || null, task: r.fields.task.value.trim() || null, version: r.numTouched ? Number(r.fields.num.value) || null : null },
+          now: { entity: r.fields.ent.value.trim() || null, task: r.fields.task.value.trim() || null, version: r.numTouched ? Number(r.fields.num.value) || null : null, view: viewOf(r) },
         })),
       });
       await catalogue().catch(() => {});
@@ -2443,15 +2443,20 @@
         const a = res.answers[r.key];
         if (!a || !unfiled(r)) continue;
         const f = r.fields;
-        before.push({ r, ent: f.ent.value, task: f.task.value, tier: f.tier.value, num: f.num.value, numTouched: r.numTouched });
+        before.push({ r, ent: f.ent.value, task: f.task.value, tier: f.tier.value, num: f.num.value, numTouched: r.numTouched, view: f.view.value });
         f.ent.value = a.entity;
         f.task.value = a.task || '';
         f.tier.value = a.tier;
+        // A view only where Claude gave one: a row's own is not taken away for want of an answer.
+        if (a.view) f.view.value = a.view;
         r.numTouched = !!a.version;
         if (a.version) f.num.value = String(a.version);
         setMark(r, WBClaude.mark(a.note, a.fits));
         n++;
       }
+      // Views given show their boxes, so what was filled in is seen and can be checked.
+      const viewsBefore = viewsAsked;
+      if (asked.some((r) => res.answers[r.key] && res.answers[r.key].view)) viewsAsked = true;
       resyncAll();
       if (!n) return { text: 'Claude had nothing to suggest for these' };
       const missed = asked.length - n;
@@ -2463,9 +2468,11 @@
             b.r.fields.task.value = b.task;
             b.r.fields.tier.value = b.tier;
             b.r.fields.num.value = b.num;
+            b.r.fields.view.value = b.view;
             b.r.numTouched = b.numTouched;
             setMark(b.r, null);
           }
+          viewsAsked = viewsBefore;
           resyncAll();
         },
       };

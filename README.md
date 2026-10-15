@@ -443,7 +443,8 @@ filed in it.
   ("all shots of ch02, numbered in the order of their names, anim") and Claude reads the original file
   names, the project's naming rules and the names it already has, and suggests what each should be:
   - Importing, it fills in each row's asset, set or shot, its task and its version (a version only when
-    the file name or you give one; otherwise the next, as ever). A small sparkle beside a row says
+    the file name or you give one; otherwise the next, as ever), and its view when you ask for one or the
+    name says it ("the _p files are the bty view"); the View boxes then show, filled in. A small sparkle beside a row says
     Claude filled it in, and why on hover; it turns amber when the name is not the usual shape. Change
     any row by hand, or Undo them all, then file as usual.
   - In batch edit, it suggests a new name, and what each is, for each picked asset, set or shot that

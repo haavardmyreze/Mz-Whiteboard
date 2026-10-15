@@ -9,13 +9,13 @@
 // so no side of anything is ever black.
 //
 // It opens through the model's main camera (the camera named "main", or else its first): its place, lens
-// and frame's shape, letterboxed where the player's piece box is
-// (`frameOf()`), on bars darker than the room's ground, so it is the same picture on every screen and what is drawn on it lands on the same thing
-// for everyone. Any move of the view leaves it (a drag, the wheel, a move key), unless the player has a pen,
-// eraser or laser in hand (`holds(e)`): then the view fills the whole picture area, to fly about as in
-// Unreal Engine's viewport: W and S along the view, A and D sideways, Q and E down and up, a drag to look,
-// the wheel to glide (with a button held, to set the speed), every move easing in and out. Nothing is
-// drawn while flying.
+// and frame's shape, letterboxed where the player's piece box is (`frameOf()`), on bars darker than the
+// room's ground, so it is the same picture on every screen and what is drawn on it lands on the same thing
+// for everyone. Any move of the view leaves it (a drag, the wheel, a move key), unless the player has a
+// pen, eraser or laser in hand (`holds(e)`): then the view fills the whole picture area, to fly about as in
+// Unreal Engine's viewport: W and S along the view, A and D sideways, Q and E down and up, a drag to look
+// (with both buttons held, to slide along the view's plane), the wheel to glide (with a button held, to
+// set the speed), every move easing in and out. Nothing is drawn while flying.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -258,13 +258,24 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       // capture is a nicety
     }
   });
+  // A drag looks about; with both buttons held, as in Unreal, it slides the camera along the view's own
+  // plane instead (sideways, and up and down as the view stands), at a pace that goes with the flying speed.
+  const PAN = 0.006; // metres a pixel, for each metre a second of speed
   canvas.addEventListener('pointermove', (e) => {
     if (!drag || e.pointerId !== drag.pid) return;
     e.stopPropagation();
-    yaw -= (e.clientX - drag.x) * 0.0032;
-    pitch = THREE.MathUtils.clamp(pitch - (e.clientY - drag.y) * 0.0032, -1.55, 1.55);
+    const dx = e.clientX - drag.x;
+    const dy = e.clientY - drag.y;
     drag.x = e.clientX;
     drag.y = e.clientY;
+    if ((e.buttons & 3) === 3) {
+      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+      camera.position.addScaledVector(right, dx * speed * PAN).addScaledVector(up, -dy * speed * PAN);
+      return;
+    }
+    yaw -= dx * 0.0032;
+    pitch = THREE.MathUtils.clamp(pitch - dy * 0.0032, -1.55, 1.55);
   });
   const letGo = (e) => {
     if (!drag || e.pointerId !== drag.pid) return;

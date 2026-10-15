@@ -695,7 +695,7 @@ const WBViewer = (() => {
     }
     function backToMain() {
       if (!three || !three.isFree()) return;
-      three.setFree(false);
+      three.setFree(false, true);
       paintDims();
       paintInk();
     }

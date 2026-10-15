@@ -60,8 +60,11 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   sun.position.set(4, 10, 6);
   scene.add(sun);
 
+  // `camera` is the one flown; `view` is what is drawn through: the main camera, the flown one, or a glide
+  // between them.
   const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.05, 5000);
   camera.rotation.order = 'YXZ';
+  const view = new THREE.PerspectiveCamera(60, 16 / 9, 0.05, 5000);
   let room = null; // the model in the scene
   let modelUrl = '';
   let screenName = 'screen';
@@ -109,7 +112,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     main = cams.find((c) => c.name.toLowerCase() === 'main') || cams[0];
     speed = Math.max(1, size.length() / 12);
     applyScreens();
-    toMain();
+    settle();
   }
 
   // Every mesh with the screen's material shows the picture; a material the model does not give is fully
@@ -176,27 +179,59 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   let shift = false;
   let drag = null;
 
-  function toMain() {
-    camera.position.copy(main.position);
-    camera.quaternion.copy(main.quaternion);
+  // Between the main camera and flying the view glides: leaving, the letterbox opens out to the whole area
+  // with the room kept at its size; coming back, the camera moves and turns back to the main one as the
+  // letterbox closes in on its frame. Drawings show once it is there. Without motion, if the system asks.
+  const OUT_MS = 260;
+  const IN_MS = 480;
+  const calm = matchMedia('(prefers-reduced-motion: reduce)');
+  const FULL = { x: 0, y: 0, w: 1, h: 1 };
+  let shown = FULL; // the part of the canvas last drawn into, in fractions of it
+  let glide = null; // { to: 'free' | 'main', t0, ms, from: rect, pos, quat, tan }
+  const easeOut = (t) => 1 - (1 - t) ** 3;
+  const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+  const tanHalf = (deg) => Math.tan(THREE.MathUtils.degToRad(deg) / 2);
+  const fovOf = (tan) => THREE.MathUtils.radToDeg(2 * Math.atan(tan));
+  const mix = (a, b, p) => ({ x: a.x + (b.x - a.x) * p, y: a.y + (b.y - a.y) * p, w: a.w + (b.w - a.w) * p, h: a.h + (b.h - a.h) * p });
+  // Where the main camera's frame is on the canvas, in fractions of it.
+  function frameRect(r) {
+    const f = frameOf();
+    if (!f || !f.width || !f.height || !r.width || !r.height) return null;
+    return { x: (f.left - r.left) / r.width, y: (f.top - r.top) / r.height, w: f.width / r.width, h: f.height / r.height };
+  }
+
+  // On the main camera at once, as when a model is put up.
+  function settle() {
+    free = false;
+    glide = null;
+    shown = FULL;
     vel.set(0, 0, 0);
     held.clear();
+    view.position.copy(main.position);
+    view.quaternion.copy(main.quaternion);
+    view.fov = main.fov;
+    canvas.classList.remove('free');
   }
-  function setFree(on, tell = true) {
+  function setFree(on, { tell = true, animate = true } = {}) {
     if (on === free) return;
     free = on;
+    const ms = animate && !calm.matches ? (on ? OUT_MS : IN_MS) : 0;
     if (free) {
-      // Flying starts from where the main camera stands, looking where it looks, and with the room at the
-      // size it was in the letterbox: the lens widened from the frame's height to the whole area's.
-      const e = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+      // Flying starts from wherever the view is (on the main camera, or on its way back to it), looking
+      // where it looks, with the room at the size it was: the lens over the whole area is the one the view
+      // had over the part of it shown.
+      camera.position.copy(view.position);
+      camera.quaternion.copy(view.quaternion);
+      const e = new THREE.Euler().setFromQuaternion(view.quaternion, 'YXZ');
       yaw = viewYaw = e.y;
       pitch = viewPitch = e.x;
-      const f = frameOf();
-      const r = canvas.getBoundingClientRect();
-      const k = f && f.height && r.height ? r.height / f.height : 1;
-      const half = Math.atan(Math.tan(THREE.MathUtils.degToRad(main.fov) / 2) * k);
-      camera.fov = THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(2 * half), 20, 110);
-    } else toMain();
+      camera.fov = THREE.MathUtils.clamp(fovOf(tanHalf(view.fov) / shown.h), 20, 110);
+      glide = ms ? { to: 'free', t0: performance.now(), ms, from: { ...shown } } : null;
+    } else {
+      vel.set(0, 0, 0);
+      held.clear();
+      glide = ms ? { to: 'main', t0: performance.now(), ms, from: { ...shown }, pos: view.position.clone(), quat: view.quaternion.clone(), tan: tanHalf(view.fov) / shown.h } : null;
+    }
     canvas.classList.toggle('free', free);
     if (tell) onFree(free);
   }
@@ -304,30 +339,57 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       texture.needsUpdate = true;
       shownAt = source.currentTime;
     }
+    // What is drawn, and through what: `rect` is the part of the canvas drawn into, `tan` how tall it sees.
+    const fr = frameRect(r);
+    const p = glide ? Math.min(1, (now - glide.t0) / glide.ms) : 1;
+    let rect;
+    let tan;
+    if (free) {
+      view.position.copy(camera.position);
+      view.quaternion.copy(camera.quaternion);
+      rect = glide ? mix(glide.from, FULL, easeOut(p)) : FULL;
+      tan = tanHalf(camera.fov) * rect.h;
+    } else {
+      const target = fr || FULL;
+      const mainTan = tanHalf(main.fov) / target.h; // the main camera's lens, over the whole canvas
+      if (glide) {
+        const q = easeInOut(p);
+        rect = mix(glide.from, target, q);
+        view.position.lerpVectors(glide.pos, main.position, q);
+        view.quaternion.slerpQuaternions(glide.quat, main.quaternion, q);
+        tan = (glide.tan + (mainTan - glide.tan) * q) * rect.h;
+      } else {
+        rect = target;
+        view.position.copy(main.position);
+        view.quaternion.copy(main.quaternion);
+        tan = mainTan * rect.h;
+      }
+    }
+    if (glide && p >= 1) {
+      const back = glide.to === 'main';
+      glide = null;
+      // There: its drawings show.
+      if (back) onFree(false);
+    }
+    shown = rect;
+    view.fov = fovOf(tan);
+    view.aspect = (rect.w * r.width) / (rect.h * r.height);
+    view.updateProjectionMatrix();
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, w, h);
-    const f = !free && frameOf();
-    if (!f || !f.width || !f.height) {
-      // Flying: the whole picture area.
-      camera.aspect = r.width / r.height;
-      camera.updateProjectionMatrix();
-      renderer.render(scene, camera);
+    if (rect.x <= 0.0005 && rect.y <= 0.0005 && rect.w >= 0.999 && rect.h >= 0.999) {
+      renderer.render(scene, view);
       return;
     }
-    // Through the main camera: its frame only, letterboxed, where the piece box is (WebGL counts up from
-    // the bottom).
-    // (Drawing the room sets the clear colour to its ground, so the letterbox's is set again each time.)
+    // Letterboxed: the part drawn into, where the frame is (WebGL counts up from the bottom), and the rest
+    // dark. (Drawing the room sets the clear colour to its ground, so the letterbox's is set again each time.)
     renderer.setClearColor(LETTERBOX, 1);
     renderer.clear();
-    const px = (w / r.width);
-    const box = [(f.left - r.left) * px, h - (f.top - r.top + f.height) * px, f.width * px, f.height * px].map(Math.round);
-    camera.fov = main.fov;
-    camera.aspect = main.aspect;
-    camera.updateProjectionMatrix();
+    const box = [rect.x * w, h - (rect.y + rect.h) * h, rect.w * w, rect.h * h].map(Math.round);
     renderer.setViewport(...box);
     renderer.setScissor(...box);
     renderer.setScissorTest(true);
-    renderer.render(scene, camera);
+    renderer.render(scene, view);
     renderer.setScissorTest(false);
   }
   function start() {
@@ -350,7 +412,9 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   return {
     canvas, load, setSource, start, stop, key,
     aspect: () => main.aspect,
-    isFree: () => free,
-    setFree: (on) => setFree(on, false),
+    // Away from the main camera, or still on the way back to it: its drawings are not where they belong.
+    isFree: () => free || !!glide,
+    // From the player: at once (opening 3D), or gliding (back to the main camera).
+    setFree: (on, animate = false) => setFree(on, { tell: false, animate }),
   };
 }

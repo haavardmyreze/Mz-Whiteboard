@@ -567,7 +567,10 @@ const WBViewer = (() => {
       cancelAnimationFrame(stillRaf);
       dropSpare();
       cut.show(false);
-      if (three) three.stop();
+      if (three) {
+        three.stop();
+        three.canvas.remove();
+      }
       in3d = false;
       root.classList.remove('in3d');
       root.hidden = true;
@@ -631,12 +634,18 @@ const WBViewer = (() => {
       pieceBox.style.width = `${W}px`;
       pieceBox.style.height = `${H}px`;
       ink.setAttribute('viewBox', `0 0 ${UNITS} ${(UNITS * H) / W}`);
-      pieceBox.replaceChildren(...[media, as3d && three.canvas, ink].filter(Boolean));
+      // In 3D the venue fills the stage, under the piece box, which keeps the main camera's frame (and
+      // what is drawn in it) but shows nothing of its own.
+      pieceBox.replaceChildren(media, ink);
       root.classList.toggle('in3d', as3d);
       if (as3d) {
+        if (three.canvas.parentNode !== stage) stage.prepend(three.canvas);
         three.setSource(media);
         three.start();
-      } else if (three) three.stop();
+      } else if (three) {
+        three.stop();
+        three.canvas.remove();
+      }
     }
 
     // ---- 3D: the piece on the project's model of its venue (view3d.js)
@@ -651,7 +660,12 @@ const WBViewer = (() => {
       if (on) {
         d3Btn.disabled = true;
         try {
-          if (!three) three = (await import('/view3d.js')).create({ onFree: () => { if (tool === 'pen' || tool === 'eraser') setTool('pan'); paintDims(); paintInk(); } });
+          if (!three) {
+            three = (await import('/view3d.js')).create({
+              onFree: () => { if (tool === 'pen' || tool === 'eraser') setTool('pan'); paintDims(); paintInk(); },
+              frameOf: () => pieceBox.getBoundingClientRect(),
+            });
+          }
           await three.load(opts.view3d);
         } catch (err) {
           console.warn('The 3D view could not be opened:', err);
@@ -894,8 +908,12 @@ const WBViewer = (() => {
       requestLaser();
     }
 
+    // The scale it was last fitted at: a window that changes size keeps a fitted piece fitted, which comparing
+    // with the new window's fit would not tell (a smaller window makes the old fit look zoomed in).
+    let fittedAt = 0;
     function fit() {
       cam.s = fitS();
+      fittedAt = cam.s;
       cam.x = pad.l;
       cam.y = pad.t;
       applyCam();
@@ -919,7 +937,7 @@ const WBViewer = (() => {
 
     function relayout() {
       if (!open) return;
-      const fitted = !zoomed();
+      const fitted = cam.s <= fittedAt * 1.02;
       layout();
       if (fitted) fit();
       else applyCam();

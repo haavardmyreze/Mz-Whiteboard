@@ -2443,6 +2443,9 @@ body.viewonly #hint .hint-guest { display: inline; }
 .v-3d.free { cursor: grab; }
 .v-3d.free:active { cursor: grabbing; }
 .viewer.in3d .v-piece > video, .viewer.in3d .v-piece > img { opacity: 0; }
+/* The venue fills the stage edge to edge; the piece box over it keeps the main camera's frame for drawings,
+   with no picture, ground or edge of its own, and lets the pointer through to the stage. */
+.viewer.in3d .v-piece { background: transparent; box-shadow: none; pointer-events: none; }
 .viewer.in3d .v-viewpick { display: none; }
 .v-dims .btn { border-color: transparent; background: transparent; color: var(--text-2); font-weight: 600; }
 .v-dims .btn:hover { color: var(--text); }

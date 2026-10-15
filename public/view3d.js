@@ -10,7 +10,9 @@
 //
 // The view is through the model's main camera (the camera named "main", or else its first): its place,
 // lens and frame's shape, so it is the same picture on every screen, and what is drawn on it lands on the
-// same thing for everyone. It can be left to fly about as in Unreal Engine's viewport: W and S along the
+// same thing for everyone. The venue fills the whole of the player's picture area all the same: the camera's
+// frame is where the player's piece box is (`frameOf()`, which the player's zoom moves and scales), and the
+// view is widened around it to the edges, so nothing frames the room and drawings stay put. It can be left to fly about as in Unreal Engine's viewport: W and S along the
 // view, A and D sideways, Q and E down and up, a drag to look, the wheel to glide (with a button held, to
 // set the speed), every move easing in and out. Nothing is drawn while flying.
 import * as THREE from 'three';
@@ -33,8 +35,9 @@ const LOOK_EASE = 0.035;
 const UP = new THREE.Vector3(0, 1, 0);
 const MOVE = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE']);
 
-// `onFree(on)` hears when the view leaves the main camera to fly, or comes back to it.
-export function create({ onFree = () => {} } = {}) {
+// `onFree(on)` hears when the view leaves the main camera to fly, or comes back to it; `frameOf()` says
+// where on the page the main camera's frame is (a DOMRect).
+export function create({ onFree = () => {}, frameOf = () => null } = {}) {
   const canvas = document.createElement('canvas');
   canvas.className = 'v-3d';
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -170,20 +173,40 @@ export function create({ onFree = () => {} } = {}) {
   function toMain() {
     camera.position.copy(main.position);
     camera.quaternion.copy(main.quaternion);
-    camera.fov = main.fov;
-    camera.aspect = main.aspect;
-    camera.updateProjectionMatrix();
     vel.set(0, 0, 0);
     held.clear();
+  }
+  // Through the main camera: its frame where the player's piece box is, and the view carried on around it
+  // to the edges of the canvas, as the same lens would see it. Off centre when the frame is.
+  let lensH = 60; // how tall, in degrees, the whole canvas sees through the main camera: flying starts at it
+  function mainLens(r) {
+    const f = frameOf();
+    const near = camera.near;
+    const ht = near * Math.tan(THREE.MathUtils.degToRad(main.fov) / 2);
+    const wt = ht * main.aspect;
+    if (!f || !f.width || !f.height) {
+      camera.fov = main.fov;
+      camera.aspect = r.width / r.height;
+      camera.updateProjectionMatrix();
+      lensH = main.fov;
+      return;
+    }
+    const u = (2 * wt) / f.width; // near-plane units in a pixel on screen
+    const left = -wt - (f.left - r.left) * u;
+    const top = ht + (f.top - r.top) * u;
+    camera.projectionMatrix.makePerspective(left, left + r.width * u, top, top - r.height * u, near, camera.far);
+    camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+    lensH = THREE.MathUtils.radToDeg(2 * Math.atan((r.height * u) / 2 / near));
   }
   function setFree(on, tell = true) {
     if (on === free) return;
     free = on;
     if (free) {
-      // Flying starts from where the main camera stands, looking where it looks.
+      // Flying starts from where the main camera stands, looking where it looks, as wide as it was seen.
       const e = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
       yaw = viewYaw = e.y;
       pitch = viewPitch = e.x;
+      camera.fov = THREE.MathUtils.clamp(lensH, 20, 100);
     } else toMain();
     canvas.classList.toggle('free', free);
     if (tell) onFree(free);
@@ -275,13 +298,17 @@ export function create({ onFree = () => {} } = {}) {
       if (!want.lengthSq() && vel.lengthSq() < 1e-6) vel.set(0, 0, 0);
       camera.position.addScaledVector(vel, dt);
     }
-    // As sharp as it is on screen, the player's zoom included.
     const r = canvas.getBoundingClientRect();
+    if (!r.width || !r.height) return;
     const dpr = window.devicePixelRatio || 1;
     const scale = Math.min(1, 4096 / Math.max(1, r.width * dpr, r.height * dpr));
     const w = Math.max(1, Math.round(r.width * dpr * scale));
     const h = Math.max(1, Math.round(r.height * dpr * scale));
     if (canvas.width !== w || canvas.height !== h) renderer.setSize(w, h, false);
+    if (free) {
+      camera.aspect = r.width / r.height;
+      camera.updateProjectionMatrix();
+    } else mainLens(r);
     renderer.render(scene, camera);
   }
   function start() {

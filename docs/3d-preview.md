@@ -11,8 +11,10 @@ How it fits together:
   (or `<img>`), which plays on unseen beneath the canvas. Time, stepping, scrubbing, the run's cuts and the
   cache are the player's, unchanged.
 - **The main camera is the frame.** In 3D the piece box takes the main camera's shape (glTF's
-  `aspectRatio`, 16:9 if none) and the venue is drawn into it through that camera. So the player's own
-  zoom, pan, laser and pen work as on any picture, and a drawing is kept in the same units as ever; it
+  `aspectRatio`, 16:9 if none) but shows nothing itself: the venue fills the whole stage, edge to edge,
+  through a lens that puts the main camera's frame exactly where the piece box is and carries the view on
+  around it. So the player's own zoom, pan, laser and pen work as on any picture (zooming the piece box
+  zooms the view), and a drawing is kept in the same units as ever; it
   is marked `pov: 'main'` and shown only in 3D through the main camera. Flying off hides drawings and
   takes the pen away.
 - **Which view goes on the screens** is the project's setting (its main one unless said), not the

@@ -9,8 +9,8 @@
 // so no side of anything is ever black.
 //
 // It opens through the model's main camera (the camera named "main", or else its first): its place, lens
-// and frame's shape, letterboxed on the player's own dark ground where the player's piece box is
-// (`frameOf()`), so it is the same picture on every screen and what is drawn on it lands on the same thing
+// and frame's shape, letterboxed where the player's piece box is
+// (`frameOf()`), on bars darker than the room's ground, so it is the same picture on every screen and what is drawn on it lands on the same thing
 // for everyone. Any move of the view leaves it (a drag, the wheel, a move key), unless the player has a pen,
 // eraser or laser in hand (`holds(e)`): then the view fills the whole picture area, to fly about as in
 // Unreal Engine's viewport: W and S along the view, A and D sideways, Q and E down and up, a drag to look,
@@ -42,9 +42,9 @@ const MOVE = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE']);
 export function create({ onFree = () => {}, frameOf = () => null, holds = () => false } = {}) {
   const canvas = document.createElement('canvas');
   canvas.className = 'v-3d';
-  // See-through where nothing is drawn: around the main camera's frame, the player's own ground shows.
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.setClearColor(0x000000, 0);
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // The letterbox around the main camera's frame: darker than the room's own ground, so the frame reads.
+  const LETTERBOX = new THREE.Color(0x09090a);
   renderer.setPixelRatio(1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   // The room is tone mapped softly; the screens are not, so the picture is as filed.
@@ -141,9 +141,11 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
 
   // ---- the picture: the player's own <video> or <img>
 
+  let shownAt = -1; // the moment of the video the screens last took a frame of
   function setSource(el) {
     if (el === source) return;
     source = el;
+    shownAt = -1;
     if (texture) texture.dispose();
     texture = null;
     if (el && el.tagName === 'VIDEO') texture = new THREE.VideoTexture(el);
@@ -293,6 +295,15 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     const w = Math.max(1, Math.round(r.width * dpr * scale));
     const h = Math.max(1, Math.round(r.height * dpr * scale));
     if (canvas.width !== w || canvas.height !== h) renderer.setSize(w, h, false);
+    // The screens take the video's frame only once it has one to give: not while it seeks, nor while it
+    // changes to another source (the player swaps a video for the whole of it, see switchSource), when it
+    // has none. Till then they keep the last, so a scrub, a pause or a swap never blinks. (three.js takes
+    // each frame the video shows as well, where the browser says so.)
+    if (texture && source && source.tagName === 'VIDEO' && source.readyState >= 2 && !source.seeking
+      && (!source.paused || source.currentTime !== shownAt)) {
+      texture.needsUpdate = true;
+      shownAt = source.currentTime;
+    }
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, w, h);
     const f = !free && frameOf();
@@ -305,6 +316,8 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     }
     // Through the main camera: its frame only, letterboxed, where the piece box is (WebGL counts up from
     // the bottom).
+    // (Drawing the room sets the clear colour to its ground, so the letterbox's is set again each time.)
+    renderer.setClearColor(LETTERBOX, 1);
     renderer.clear();
     const px = (w / r.width);
     const box = [(f.left - r.left) * px, h - (f.top - r.top + f.height) * px, f.width * px, f.height * px].map(Math.round);

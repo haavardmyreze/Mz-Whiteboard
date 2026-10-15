@@ -2443,8 +2443,9 @@ body.viewonly #hint .hint-guest { display: inline; }
 .v-3d.free { cursor: grab; }
 .viewer:is([data-tool="pen"], [data-tool="eraser"], [data-tool="laser"]) .v-3d:not(.free) { cursor: crosshair; }
 .v-3d.free:active { cursor: grabbing; }
-.viewer.in3d .v-piece > video, .viewer.in3d .v-piece > img { opacity: 0; }
-/* The venue is drawn on the stage: through the main camera in its frame, where the piece box is (which keeps
+/* All of the picture is unseen in 3D, the still held over a video while it changes source too. */
+.viewer.in3d .v-piece > video, .viewer.in3d .v-piece > img, .viewer.in3d .v-piece > .vhold { opacity: 0; }
+/* The venue is drawn on the stage: through the main camera in its frame (on near-black bars), where the piece box is (which keeps
    the frame for drawings, with no picture, ground or edge of its own), letterboxed; flying, edge to edge.
    The pointer goes through the piece box to the stage. */
 .viewer.in3d .v-piece { background: transparent; box-shadow: none; pointer-events: none; }

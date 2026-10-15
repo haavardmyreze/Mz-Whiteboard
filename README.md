@@ -423,8 +423,11 @@ filed in it.
   everyone the app knows (who signed in, filed, wrote a note or was named before) or typed. Its card
   shows its artists.
 - **Versions, as they came in.** A project's Versions (in the sidebar) lists every version filed in it,
-  newest first: by day, and within a day by who filed a run of them, each with its still (which scrubs
-  under the pointer and opens in the player), what it is, and the boards it is on. Click to pick, Shift
+  newest first: by day, and within a day by who filed a run of them, each run a grid of the same version
+  cards an asset, set or shot's page has (cards or compact rows, as the button in the bar says): its
+  still (which scrubs under the pointer and opens in the player), its shot (a link to it) and the rest
+  of its label, when it was filed, and the boards it is on. Click a card to pick it (its box shows on a
+  hover), Shift
   and a click for a run, or drag a box; once something is picked, a day's or a run's box picks all of
   it, and Esc lets go (as it does wherever things are picked); then "Add to board" puts them on one of
   the project's boards, in rows below what is there, or "New board" makes one in the project with them
@@ -443,7 +446,8 @@ filed in it.
   ("all shots of ch02, numbered in the order of their names, anim") and Claude reads the original file
   names, the project's naming rules and the names it already has, and suggests what each should be:
   - Importing, it fills in each row's asset, set or shot, its task and its version (a version only when
-    the file name or you give one; otherwise the next, as ever). A small sparkle beside a row says
+    the file name or you give one; otherwise the next, as ever), and its view when you ask for one or the
+    name says it ("the _p files are the bty view"); the View boxes then show, filled in. A small sparkle beside a row says
     Claude filled it in, and why on hover; it turns amber when the name is not the usual shape. Change
     any row by hand, or Undo them all, then file as usual.
   - In batch edit, it suggests a new name, and what each is, for each picked asset, set or shot that

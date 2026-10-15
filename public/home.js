@@ -971,43 +971,6 @@
         },
       });
     };
-    const row = (v) => {
-      const thumb = scrubber(el('button', {
-        type: 'button', class: `card-thumbs vl-thumb n${v.thumb ? 1 : 0}`, title: 'Open it, to look, comment and draw',
-        onclick: (e) => { e.stopPropagation(); lookAt(v.entityId, v.id); },
-      }, v.thumb && el('img', { src: v.thumb, alt: '', loading: 'lazy', draggable: 'false' }), v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })), v.look, v.label);
-      const toggle = (e) => {
-        if (e.shiftKey && vpick.last && vpick.order.includes(vpick.last)) {
-          const [a, b] = [vpick.order.indexOf(vpick.last), vpick.order.indexOf(v.id)].sort((x, y) => x - y);
-          for (const id of vpick.order.slice(a, b + 1)) vpick.ids.add(id);
-        } else if (vpick.ids.has(v.id)) vpick.ids.delete(v.id);
-        else vpick.ids.add(v.id);
-        vpick.last = v.id;
-        paintVersionPick(project);
-      };
-      return el('div', {
-        class: `vl-row${vpick.ids.has(v.id) ? ' picked' : ''}`, 'data-id': v.id, tabindex: '0', 'aria-label': `${v.label}: press Space to select`,
-        // From the keyboard too: Space or Enter selects it, as a click does.
-        onkeydown: (e) => {
-          if (e.target !== e.currentTarget || (e.key !== ' ' && e.key !== 'Enter')) return;
-          e.preventDefault();
-          toggle(e);
-        },
-        onclick: (e) => {
-          if (e.target.closest('a')) return;
-          toggle(e);
-        },
-      },
-      box([v.id], `Select ${v.label}`),
-      thumb,
-      el('div', { class: 'vl-main' },
-        el('div', { class: 'vl-label' }, el('a', { href: WB.href.catalogue(project.id, { entity: v.entityId }), text: v.entity, title: `${v.entity}: its page` }), el('span', { text: v.label.slice(v.entity.length) })),
-        el('div', { class: 'vl-meta', text: [tierName(v.tier), v.artist && v.artist !== (v.createdBy || '').toLowerCase() && `by ${v.artist}`].filter(Boolean).join(' · ') })),
-      el('div', { class: 'vl-boards' }, v.boards.slice(0, 3).map((b) => el('a', { class: 'ver-board', href: WB.href.board(b.id), text: b.name, onclick: (e) => e.stopPropagation() })),
-        v.boards.length > 3 && el('span', { class: 'vl-more', text: `+${v.boards.length - 3}` })),
-      el('div', { class: 'vl-time', text: clock(v.createdAt), title: new Date(v.createdAt).toLocaleString() }),
-      menuButton(versionActions(project, { id: v.entityId, name: v.entity, tier: v.tier }, v)));
-    };
     const out = [];
     for (const d of days) {
       const ids = d.runs.flatMap((r) => r.list.map((v) => v.id));
@@ -1021,7 +984,7 @@
           el('div', { class: 'vl-runhead' }, box(runIds, `Select what ${r.by || 'somebody'} filed then`),
             WB.avatar(r.by),
             el('b', { text: r.by || 'Somebody' }), el('span', { text: `${plural(r.list.length, 'version')}${span}` })),
-          el('div', { class: 'vl-list' }, r.list.map(row))));
+          el('div', { class: 'board-grid ent-grid vl-grid' }, r.list.map((v) => versionCard(project, { id: v.entityId, name: v.entity, tier: v.tier }, v, { list: true, tierName })))));
       }
     }
     if (!list.length) out.push(el('p', { class: 'home-empty', text: q ? `No version matches "${$('q').value.trim()}".` : 'Nothing is filed in this project yet.' }));
@@ -1048,7 +1011,7 @@
   }
 
   function paintVersionPick(project) {
-    for (const node of document.querySelectorAll('.vl-row[data-id], .card.ver[data-id]')) node.classList.toggle('picked', vpick.ids.has(node.dataset.id));
+    for (const node of document.querySelectorAll('.card.ver[data-id]')) node.classList.toggle('picked', vpick.ids.has(node.dataset.id));
     for (const b of document.querySelectorAll('.vl-box[data-ids]')) {
       const ids = b.dataset.ids.split(' ');
       const n = ids.filter((id) => vpick.ids.has(id)).length;
@@ -1244,7 +1207,7 @@
     if (v.page === 'boards') return { project: f, sel: '.card[data-pick]', kind: 'items' };
     if (v.page === 'catalogue' && v.entity) return { project: f, sel: '.card.ver[data-id]', kind: 'vers' };
     if (v.page === 'catalogue') return { project: f, sel: '.card.ent[data-id]', kind: 'ents' };
-    if (v.page === 'versions') return { project: f, sel: '.vl-row[data-id]', kind: 'vers' };
+    if (v.page === 'versions') return { project: f, sel: '.card.ver[data-id]', kind: 'vers' };
     return null;
   }
   let marquee = null;
@@ -1254,7 +1217,7 @@
     if (e.button !== 0 || e.pointerType === 'touch') return;
     if (!(e.target instanceof Element) || e.target.closest('.home-bar, .side, .side-scrim, .viewer, .menu, .combo-list, #toasts, .notices')) return;
     if (document.querySelector('dialog[open]') || (document.querySelector('.viewer') && !document.querySelector('.viewer').hidden)) return;
-    if (e.target.closest('a, button, input, select, textarea, label, .card, .vl-row, .imp, .cat-tools, .ent-people, .pick-bar, #crumbs, dialog')) return;
+    if (e.target.closest('a, button, input, select, textarea, label, .card, .imp, .cat-tools, .ent-people, .pick-bar, #crumbs, dialog')) return;
     // What people wrote can still be selected, to copy it; dragging anywhere else never selects text.
     if (e.target.closest('.ent-msg-text, .feed-text, .msg-text')) return;
     e.preventDefault();
@@ -2231,24 +2194,77 @@
       el('div', { class: 'ent-pp' }, el('span', { class: 'ent-pp-label', text: 'CC' }), namesField(entity.cc || [], save('cc'), { placeholder: 'Keep someone in the loop' })));
   }
 
+  // Picking versions, on the Versions page and an asset, set or shot's own: a click on a card picks it
+  // (Shift and a click, every one between it and the last), and the bar at the foot says what can be done.
+  function pickVersion(project, id, range) {
+    if (range && vpick.last && vpick.order.includes(vpick.last)) {
+      const [a, b] = [vpick.order.indexOf(vpick.last), vpick.order.indexOf(id)].sort((x, y) => x - y);
+      for (const x of vpick.order.slice(a, b + 1)) vpick.ids.add(x);
+    } else if (vpick.ids.has(id)) vpick.ids.delete(id);
+    else vpick.ids.add(id);
+    vpick.last = id;
+    paintVersionPick(project);
+  }
+
+  // A version's card, the same wherever versions are listed: its picture (scrubbed under the pointer,
+  // opened in the player with a click), its shot and the rest of its label, what is known of it, the
+  // boards it is on, and its menu. A click anywhere else on it picks it. On the Versions page (`list`) it
+  // says which asset, set or shot it is (a link to it) and when it was filed, as the page groups by who
+  // filed it; on the asset, set or shot's own page, who filed it and when.
+  function versionCard(project, entity, v, { list = false, tierName = (t) => t } = {}) {
+    const rest = v.label.startsWith(entity.name) ? v.label.slice(entity.name.length).trim() : v.label;
+    const views = v.look && (v.look.views || []).length ? [v.look.view || 'main', ...v.look.views.map((x) => x.view)] : null;
+    const about = [
+      list && clock(v.createdAt),
+      list && tierName(v.tier),
+      v.artist && !(list && v.artist === (v.createdBy || '').toLowerCase()) && `by ${v.artist}`,
+      v.descriptor,
+    ].filter(Boolean).join(' · ') || (!list && v.originalName) || '';
+    const label = v.label;
+    return el('div', {
+      class: `card ver${v.hidden ? ' hidden-ver' : ''}${vpick.ids.has(v.id) ? ' picked' : ''}`, 'data-id': v.id, tabindex: '0',
+      'aria-label': `${label}: press Space to select`,
+      // From the keyboard too: Space or Enter picks it, as a click does.
+      onkeydown: (e) => {
+        if (e.target !== e.currentTarget || (e.key !== ' ' && e.key !== 'Enter')) return;
+        e.preventDefault();
+        pickVersion(project, v.id, e.shiftKey);
+      },
+      onclick: (e) => {
+        if (e.target.closest('a, button')) return;
+        pickVersion(project, v.id, e.shiftKey);
+      },
+    },
+    el('button', {
+      type: 'button', class: `vl-box${vpick.ids.has(v.id) ? ' on' : ''}`, 'data-ids': v.id, title: `Select ${label}`, 'aria-label': `Select ${label}`,
+      onclick: (e) => { e.stopPropagation(); pickVersion(project, v.id, e.shiftKey); },
+    }),
+    scrubber(el('button', {
+      type: 'button', class: `card-thumbs n${v.thumb ? 1 : 0}`, title: 'Open it, to look, comment and draw',
+      onclick: (e) => { e.stopPropagation(); lookAt(entity.id, v.id); },
+    },
+    v.thumb && el('img', { src: v.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
+    v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })), v.look, v.label),
+    el('div', { class: 'card-body' },
+      el('div', { class: 'card-name', title: v.label },
+        list ? el('a', { class: 'ver-ent', href: WB.href.catalogue(project.id, { entity: entity.id }), text: entity.name, title: `${entity.name}: its page` }) : el('span', { class: 'ver-ent', text: entity.name }),
+        rest && el('span', { class: 'ver-rest', text: ` ${rest}` })),
+      el('div', { class: 'card-meta', text: about }),
+      // Shown more than one way: its views, the main one first.
+      views && el('div', { class: 'card-meta', text: `Views: ${views.join(', ')}` }),
+      !list && el('div', { class: 'card-meta', text: `Filed ${ago(v.createdAt)}${v.createdBy ? ` by ${v.createdBy}` : ''}${v.hidden ? ' · archived' : ''}` }),
+      list && v.hidden && el('div', { class: 'card-meta', text: 'Archived' }),
+      v.boards.length > 0 && el('div', { class: 'ver-boards' }, v.boards.slice(0, 4).map((b) => el('a', { class: 'ver-board', href: WB.href.board(b.id), text: b.name })),
+        v.boards.length > 4 && el('span', { class: 'ver-more', text: `+${v.boards.length - 4}` }))),
+    menuButton(versionActions(project, entity, v)));
+  }
+
   let showHidden = false;
   function entityPage(project, page) {
     const { entity } = page;
     const hidden = page.versions.filter((v) => v.hidden).length;
     const versions = page.versions.filter((v) => showHidden || !v.hidden);
     const byVersion = new Map(page.versions.map((v) => [v.id, v]));
-    const card = (v) => el('div', { class: `card ver${v.hidden ? ' hidden-ver' : ''}${vpick.ids.has(v.id) ? ' picked' : ''}`, 'data-id': v.id },
-      scrubber(el('button', { type: 'button', class: `card-thumbs n${v.thumb ? 1 : 0}`, title: 'Open it, to look, comment and draw', onclick: () => lookAt(entity.id, v.id) },
-        v.thumb && el('img', { src: v.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
-        v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })), v.look, v.label),
-      el('div', { class: 'card-body' },
-        el('div', { class: 'card-name', text: v.label }),
-        // Shown more than one way: its views, the main one first.
-        v.look && (v.look.views || []).length > 0 && el('div', { class: 'card-meta', text: `Views: ${[v.look.view || 'main', ...v.look.views.map((x) => x.view)].join(', ')}` }),
-        el('div', { class: 'card-meta', text: [v.artist, v.descriptor].filter(Boolean).join(' · ') || v.originalName || '' }),
-        el('div', { class: 'card-meta', text: `Filed ${ago(v.createdAt)}${v.createdBy ? ` by ${v.createdBy}` : ''}${v.hidden ? ' · archived' : ''}` }),
-        v.boards.length > 0 && el('div', { class: 'ver-boards' }, v.boards.map((b) => el('a', { class: 'ver-board', href: WB.href.board(b.id), text: b.name })))),
-      menuButton(versionActions(project, entity, v)));
     // What was said, by thread, newest version first.
     const roots = page.notes.filter((n) => !n.re);
     const replies = (id) => page.notes.filter((n) => n.re === id).sort((a, b) => a.t - b.t);
@@ -2282,7 +2298,7 @@
         el('button', { type: 'button', class: 'card new', title: `Add new versions of ${entity.name}: choose files, or drop them anywhere here`, onclick: () => importer(project).pick(entity) },
           el('span', { class: 'new-thumb' }, el('span', { class: 'plus', html: ICON_PLUS })),
           el('span', { class: 'card-body' }, el('span', { class: 'card-name', text: 'Add versions' }), el('span', { class: 'card-meta', text: 'Choose files, or drop them here' }))),
-        ...versions.map(card)),
+        ...versions.map((v) => versionCard(project, entity, v))),
       label('Notes', roots.length),
       roots.length ? el('div', { class: 'ent-threads' }, threads) : el('p', { class: 'home-empty', text: 'Nothing said about it yet. Notes made on any board it is on show here.' }));
   }
@@ -2433,7 +2449,7 @@
         instruction,
         files: asked.map((r) => ({
           key: r.key, filename: r.file.name,
-          now: { entity: r.fields.ent.value.trim() || null, task: r.fields.task.value.trim() || null, version: r.numTouched ? Number(r.fields.num.value) || null : null },
+          now: { entity: r.fields.ent.value.trim() || null, task: r.fields.task.value.trim() || null, version: r.numTouched ? Number(r.fields.num.value) || null : null, view: viewOf(r) },
         })),
       });
       await catalogue().catch(() => {});
@@ -2443,15 +2459,20 @@
         const a = res.answers[r.key];
         if (!a || !unfiled(r)) continue;
         const f = r.fields;
-        before.push({ r, ent: f.ent.value, task: f.task.value, tier: f.tier.value, num: f.num.value, numTouched: r.numTouched });
+        before.push({ r, ent: f.ent.value, task: f.task.value, tier: f.tier.value, num: f.num.value, numTouched: r.numTouched, view: f.view.value });
         f.ent.value = a.entity;
         f.task.value = a.task || '';
         f.tier.value = a.tier;
+        // A view only where Claude gave one: a row's own is not taken away for want of an answer.
+        if (a.view) f.view.value = a.view;
         r.numTouched = !!a.version;
         if (a.version) f.num.value = String(a.version);
         setMark(r, WBClaude.mark(a.note, a.fits));
         n++;
       }
+      // Views given show their boxes, so what was filled in is seen and can be checked.
+      const viewsBefore = viewsAsked;
+      if (asked.some((r) => res.answers[r.key] && res.answers[r.key].view)) viewsAsked = true;
       resyncAll();
       if (!n) return { text: 'Claude had nothing to suggest for these' };
       const missed = asked.length - n;
@@ -2463,9 +2484,11 @@
             b.r.fields.task.value = b.task;
             b.r.fields.tier.value = b.tier;
             b.r.fields.num.value = b.num;
+            b.r.fields.view.value = b.view;
             b.r.numTouched = b.numTouched;
             setMark(b.r, null);
           }
+          viewsAsked = viewsBefore;
           resyncAll();
         },
       };

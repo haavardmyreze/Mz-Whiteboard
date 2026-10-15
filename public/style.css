@@ -2266,26 +2266,22 @@ body.picking main { padding-bottom: 120px; }
 .vl-day { display: flex; align-items: center; gap: 10px; margin: 28px 0 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); font-size: 14px; }
 .vl-day .tally { color: var(--muted); font-weight: 400; }
 #content > .vl-day:first-child { margin-top: 12px; }
-.vl-run { margin: 0 0 6px; }
-.vl-runhead { display: flex; align-items: center; gap: 8px; padding: 8px 0 4px; color: var(--muted); font-size: 12.5px; user-select: none; -webkit-user-select: none; }
+.vl-run { margin: 0 0 16px; }
+.vl-runhead { display: flex; align-items: center; gap: 8px; padding: 8px 0 10px; color: var(--muted); font-size: 12.5px; user-select: none; -webkit-user-select: none; }
 .vl-runhead b { color: var(--text-2); font-weight: 600; }
 .vl-runhead .avatar.sm { width: 20px; height: 20px; font-size: 9px; background: var(--surface-3); color: var(--text-2); }
-.vl-list { display: flex; flex-direction: column; }
-.vl-row { display: grid; grid-template-columns: 22px 96px minmax(0, 1fr) auto auto; user-select: none; -webkit-user-select: none; align-items: center; gap: 14px; padding: 6px 10px 6px 0; border-radius: var(--r-2); cursor: pointer; }
-.vl-row:hover { background: var(--hover); }
-.vl-row.picked { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.vl-thumb { position: relative; width: 96px; height: 54px; padding: 0; border: 0; border-radius: var(--r-1); overflow: hidden; aspect-ratio: auto; cursor: zoom-in; }
-.vl-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.vl-thumb .ver-kind { left: 4px; bottom: 4px; padding: 1px 5px; font-size: 9.5px; }
-.vl-main { min-width: 0; }
-.vl-label { overflow: hidden; font-size: 13.5px; text-overflow: ellipsis; white-space: nowrap; }
-.vl-label a { color: var(--text); font-weight: 600; text-decoration: none; }
-.vl-label a:hover { text-decoration: underline; }
-.vl-label span { color: var(--text-2); }
-.vl-meta { color: var(--muted); font-size: 12px; }
-.vl-boards { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; max-width: 320px; }
-.vl-more { color: var(--muted); font-size: 11.5px; }
-.vl-time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.vl-grid { margin-bottom: 8px; }
+/* A version's card (the same on an asset, set or shot's page): its shot strong, the rest of its label quieter. */
+.card.ver { cursor: pointer; user-select: none; -webkit-user-select: none; }
+.card.ver:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card.ver .card-name { color: var(--text-2); font-weight: 500; }
+.card.ver .ver-ent { color: var(--text); font-weight: 650; text-decoration: none; }
+.card.ver a.ver-ent:hover { text-decoration: underline; }
+.ver-more { align-self: center; color: var(--muted); font-size: 11.5px; }
+/* Its box, over the picture's corner: there on a hover, and on every card once something is picked. */
+.card.ver > .vl-box { position: absolute; z-index: 2; top: 8px; left: 8px; border-color: rgba(255, 255, 255, 0.85); background: rgba(0, 0, 0, 0.45); }
+.card.ver > .vl-box.on { border-color: var(--accent); background: var(--accent); }
+[data-density="compact"] .card.ver > .vl-box { top: 50%; left: 6px; margin-top: -9px; }
 .vl-box { flex: none; position: relative; width: 18px; height: 18px; padding: 0; border: 1.5px solid var(--line-strong); border-radius: var(--r-2); background: transparent; cursor: pointer; }
 .vl-box:hover { border-color: var(--muted); }
 .vl-box.on, .vl-box.some { border-color: var(--accent); background: var(--accent); }
@@ -2293,11 +2289,6 @@ body.picking main { padding-bottom: 120px; }
 .vl-box.some::after { content: ""; position: absolute; left: 3px; right: 3px; top: 7px; height: 2px; background: #fff; }
 body.vpicking main { padding-bottom: 120px; }
 
-@media (max-width: 760px) {
-  .vl-row { grid-template-columns: 22px 72px minmax(0, 1fr) auto; }
-  .vl-thumb { width: 72px; height: 40px; }
-  .vl-boards { display: none; }
-}
 
 .ent-thread-open { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .ent-thread-open:hover { color: var(--text); text-decoration: underline; }
@@ -2310,12 +2301,10 @@ body.marqueeing, body.marqueeing * { user-select: none !important; -webkit-user-
 .card[data-pick].picked, .card.ver.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface-1)); }
 .pick-bar .btn[hidden] { display: none; }
 
-/* The Versions list shows its boxes only while something is selected. */
+/* The boxes for picking versions show only while something is picked, or on a card under the pointer. */
 body:not(.vpicking) .vl-box { display: none; }
-body:not(.vpicking) .vl-row { grid-template-columns: 96px minmax(0, 1fr) auto auto; }
-@media (max-width: 760px) {
-  body:not(.vpicking) .vl-row { grid-template-columns: 72px minmax(0, 1fr) auto; }
-}
+body:not(.vpicking) .card.ver:is(:hover, :focus-visible) > .vl-box { display: block; }
+@media (hover: none) { body:not(.vpicking) .card.ver > .vl-box { display: none; } }
 
 /* The player docked in the page (the timeline): the page's bar and sidebar stay, seen and usable. */
 .viewer.docked { --dock-l: 252px; --dock-t: 48px; clip-path: inset(var(--dock-t) 0 0 var(--dock-l)); }
@@ -2357,11 +2346,11 @@ body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
 .cache-badge[data-state="cached"] { color: var(--ok); }
 .cache-badge[data-state="cached"] svg { stroke-width: 3; }
 .cache-badge[data-state="remote"] { opacity: 0; }
-.card:hover .cache-badge, .vl-row:hover .cache-badge { opacity: 1; }
+.card:hover .cache-badge { opacity: 1; }
 .cache-badge[data-state="coming"] { background: conic-gradient(rgba(255, 255, 255, 0.75) var(--p, 0%), rgba(0, 0, 0, 0.35) 0); }
 .cache-badge[data-state="coming"]::after { content: ''; width: 9px; height: 9px; border-radius: 50%; background: rgba(0, 0, 0, 0.55); }
-.vl-thumb .cache-badge, [data-density="compact"] .cache-badge { bottom: 3px; right: 3px; width: 12px; height: 12px; }
-.vl-thumb .cache-badge svg, [data-density="compact"] .cache-badge svg { width: 8px; height: 8px; }
+[data-density="compact"] .cache-badge { bottom: 3px; right: 3px; width: 12px; height: 12px; }
+[data-density="compact"] .cache-badge svg { width: 8px; height: 8px; }
 
 /* A link-like button in running text (Try again). */
 .linkbtn { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
@@ -2374,9 +2363,6 @@ body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
 /* A board's folders in its bar, before its name. */
 .bar-crumb.board-folder { display: inline-flex; align-items: center; text-decoration: none; }
 @media (max-width: 760px) { .bar-crumb.board-folder, .bar-crumb.board-folder + .bar-slash { display: none; } }
-/* The versions list keeps to a readable width rather than leaving a gulf between name and time. */
-.vl-run, .vl-day { max-width: 1040px; }
-.vl-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .cat-tip { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 12px 8px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .cat-tip svg { width: 14px; height: 14px; }
 /* Artists and CC: a field that looks like one, quietly, until it is used. */
@@ -2386,10 +2372,6 @@ body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
 /* An empty board says how to add to it, except to someone looking through a link. */
 #hint .hint-guest, body.viewonly #hint .hint-edit { display: none; }
 body.viewonly #hint .hint-guest { display: inline; }
-/* A row's menu sits at its end, shown on hover or focus like a card's. */
-.vl-row { position: relative; }
-.vl-row .card-menu { position: static; flex: none; transform: none; border-color: transparent; background: transparent; box-shadow: none; }
-.vl-row:hover .card-menu, .vl-row:focus-within .card-menu { opacity: 1; }
 /* A phone's board bar: Activity and Share live in Board settings, beside the guide. */
 @media (max-width: 640px) {
   #activity, #share { display: none !important; }

@@ -90,9 +90,10 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
     return call.input;
   }
 
-  // What each file should be filed as. `files`: [{ key, filename, now: { entity, task, version } }] where
-  // `now` is what its row says at the moment. Returns { key -> { entity, tier, task, version, note, fits } }.
-  async function fileNames({ instruction, files, presetId, entities, tasks }) {
+  // What each file should be filed as. `files`: [{ key, filename, now: { entity, task, version, view } }] where
+  // `now` is what its row says at the moment; `views` are the views the project's versions are shown in
+  // already. Returns { key -> { entity, tier, task, version, view, note, fits } }.
+  async function fileNames({ instruction, files, presetId, entities, tasks, views = [] }) {
     const list = (files || []).slice(0, MAX_FILES).filter((f) => f && f.key != null && f.filename);
     if (!list.length) throw new AiError('No files to ask about', 400);
     const tiers = naming.preset(presetId).tiers.map((t) => t.id);
@@ -106,6 +107,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
         '- tier: what the entity is.',
         '- task: the task, from the project\'s tasks when one fits; a new task only when the file name or the instruction clearly names one; otherwise null.',
         '- version: the version number, only when the original file name or the instruction gives one (v3, v003, _003 at the end); otherwise null, and the catalogue numbers it.',
+        `- view: which view of its version the file is, when a version is shown more than one way: the unwrapped picture (cmp, vr) and how it looks projected (bty, bty-left, top, side...). A single lower-case token. Give one when the instruction asks for it or the file name says it (a word after the version, as in _v012_bty); otherwise null, as most files have none.${views.length ? ` The project's versions use these views already: ${views.slice(0, 40).join(', ')}.` : ''} Two files that are views of the same version (cmp and bty of v3, say) get the same version number.`,
         '- note: a few words on why, for the person checking your answer.',
         'Read everything the original file name says. The person\'s instruction comes first where it says otherwise, but every name keeps the shape the rules give.',
         'Answer for every file, with the key it was given.',
@@ -117,7 +119,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
       'Files (key, original name, and what it is set to now, if anything):',
       ...list.map((f) => {
         const now = f.now || {};
-        const said = [now.entity, now.task, now.version && `v${now.version}`].filter(Boolean).join(' ');
+        const said = [now.entity, now.task, now.version && `v${now.version}`, now.view && `view ${now.view}`].filter(Boolean).join(' ');
         return `${clip(f.key, 40)}\t${clip(f.filename, 255)}${said ? `\tnow: ${clip(said, 120)}` : ''}`;
       }),
     ].join('\n');
@@ -137,9 +139,10 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
                 tier: { type: 'string', enum: tiers },
                 task: { type: ['string', 'null'] },
                 version: { type: ['integer', 'null'] },
+                view: { type: ['string', 'null'] },
                 note: { type: 'string' },
               },
-              required: ['key', 'entity', 'tier', 'task', 'version'],
+              required: ['key', 'entity', 'tier', 'task', 'version', 'view'],
             },
           },
         },
@@ -157,7 +160,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
       const tier = tiers.includes(a.tier) ? a.tier : naming.tierOf(entity, presetId) || null;
       if (!tier) continue;
       answers[k] = {
-        entity, tier, task: naming.tokenize(a.task) || null, version: versionOf(a.version),
+        entity, tier, task: naming.tokenize(a.task) || null, version: versionOf(a.version), view: naming.tokenize(a.view).slice(0, 40) || null,
         note: clip(a.note, 200), fits: naming.tierOf(entity, presetId) === tier,
       };
     }

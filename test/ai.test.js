@@ -30,7 +30,7 @@ test('ai: asks Claude with the key, the model, the rules and the files, and must
   const claude = fakeClaude({ files: [] });
   const ai = createAi({ key: 'sk-test', base: 'http://claude.local/', fetchImpl: claude.fetchImpl });
   assert.equal(ai.model, DEFAULT_MODEL);
-  await ai.fileNames({ instruction: 'These are all shots of ch02', files: [{ key: '0', filename: 'Robot walk FINAL v3.mov', now: { entity: 'robot-walk' } }], entities: ENTITIES, tasks: ['anim'] });
+  await ai.fileNames({ instruction: 'These are all shots of ch02', files: [{ key: '0', filename: 'Robot walk FINAL v3.mov', now: { entity: 'robot-walk', view: 'cmp' } }], entities: ENTITIES, tasks: ['anim'], views: ['bty', 'cmp'] });
   const [q] = claude.asked;
   assert.equal(q.url, 'http://claude.local/v1/messages');
   assert.equal(q.headers['x-api-key'], 'sk-test');
@@ -41,26 +41,30 @@ test('ai: asks Claude with the key, the model, the rules and the files, and must
   assert.match(q.body.system, /kilo-0010 \(shot\)/);
   assert.match(q.body.system, /This project has: anim/);
   assert.match(q.body.messages[0].content, /These are all shots of ch02/);
-  assert.match(q.body.messages[0].content, /0\tRobot walk FINAL v3\.mov\tnow: robot-walk/);
+  assert.match(q.body.messages[0].content, /0\tRobot walk FINAL v3\.mov\tnow: robot-walk view cmp/);
+  // It is asked which view each is, and told the views the project has.
+  assert.ok(q.body.tools[0].input_schema.properties.files.items.properties.view);
+  assert.match(q.body.system, /use these views already: bty, cmp/);
   assert.equal(createAi({ key: 'k', model: 'claude-sonnet-5-5', fetchImpl: claude.fetchImpl }).model, 'claude-sonnet-5-5');
 });
 
 test('ai: what Claude says is made to fit before it is shown', async () => {
   const claude = fakeClaude({
     files: [
-      { key: '0', entity: 'CH02 0010', tier: 'shot', task: 'Anim', version: 3, note: 'from the name' },
+      { key: '0', entity: 'CH02 0010', tier: 'shot', task: 'Anim', version: 3, view: null, note: 'from the name' },
       { key: '1', entity: 'ch02-10', tier: 'shot', task: null, version: 0 }, // not the shape of a shot; no version 0
       { key: '0', entity: 'twice', tier: 'shot', task: null, version: null }, // the first answer stands
       { key: 'x', entity: 'ch02-0030', tier: 'shot', task: null, version: null }, // not asked about
       { key: '2', entity: '', tier: 'shot', task: null, version: null }, // no name: no answer
-      { key: '3', entity: 'set-kitchen', tier: 'nonsense', task: null, version: 12345 }, // tier from its shape
+      { key: '3', entity: 'set-kitchen', tier: 'nonsense', task: null, version: 12345, view: 'BTY Left' }, // tier from its shape; the view as a token
     ],
   });
   const ai = createAi({ key: 'k', fetchImpl: claude.fetchImpl });
   const files = ['0', '1', '2', '3'].map((key) => ({ key, filename: `${key}.mov` }));
   const out = await ai.fileNames({ files, entities: [] });
   assert.deepEqual(Object.keys(out).sort(), ['0', '1', '3']);
-  assert.deepEqual(out['0'], { entity: 'ch02-0010', tier: 'shot', task: 'anim', version: 3, note: 'from the name', fits: true });
+  assert.deepEqual(out['0'], { entity: 'ch02-0010', tier: 'shot', task: 'anim', version: 3, view: null, note: 'from the name', fits: true });
+  assert.equal(out['3'].view, 'bty-left');
   assert.equal(out['1'].fits, false);
   assert.equal(out['1'].version, null);
   assert.deepEqual([out['3'].tier, out['3'].version], ['set', null]);

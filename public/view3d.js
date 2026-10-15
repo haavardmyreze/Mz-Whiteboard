@@ -260,7 +260,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   });
   // A drag looks about; with both buttons held, as in Unreal, it slides the camera along the view's own
   // plane instead (sideways, and up and down as the view stands), at a pace that goes with the flying speed.
-  const PAN = 0.006; // metres a pixel, for each metre a second of speed
+  const PAN = 0.0015; // metres a pixel, for each metre a second of flying speed (which the wheel, a button held, sets)
   canvas.addEventListener('pointermove', (e) => {
     if (!drag || e.pointerId !== drag.pid) return;
     e.stopPropagation();

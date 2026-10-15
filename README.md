@@ -68,6 +68,16 @@ private networks, otherwise only the host machine can connect.
   key frame every quarter of a second. A browser can only show a frame by decoding from the key frame before
   it, and renders and camera files often have one every few seconds, so stepping or scrubbing
   backwards through them stalls; through the review copy it is instant in both directions.
+- **Phone copies.** A review copy is made for looking closely at a desk, so every video also gets a phone
+  copy: the same frames at the same moments, at most 720p and about 2.5 Mbit/s, a fifth of the size or less
+  (a 6-second 1080p test came down from 7.2 MB to 1.6 MB). Phones (a touch screen, and a small one) and
+  browsers saving data or on a slow mobile line play and keep it instead, so it arrives several times
+  sooner; everybody else plays the review copy. Nobody makes them by hand: any desk browser of the team
+  that can make video and has a video without one on its page (a board, the catalogue, the timeline) makes
+  it in the background, one at a time, never while a video is open or while presenting. The server makes
+  sure only one browser makes each, and once it has one it is put on every board and every version that
+  shows that file. A review copy already as light as a phone copy is its own. Following somebody (or
+  watching a presentation) on a phone stays on the same frame as on the desk, as both copies have the same.
 - **The originals, kept and given back.** The file a video was made from is uploaded too, behind the
   review copy and behind anything else the board is waiting for; the video says so in its corner until
   it is there. A selected image or video, or the one that is open, downloads as it was uploaded, and

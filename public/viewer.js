@@ -929,7 +929,9 @@ const WBViewer = (() => {
         // Another view of the same version is the same moment seen another way: it stays on that moment.
         if (now.src !== open.src || now.type !== open.type) {
           const was = videoOpen();
-          const keepAt = was && now.shownView !== open.shownView ? whereOf(was) : null;
+          // The same video in another copy (its phone copy arriving) stays on its moment, as another view does.
+          const sameVideo = now.type === open.type && !!now.full && now.full === open.full;
+          const keepAt = was && (now.shownView !== open.shownView || sameVideo) ? whereOf(was) : null;
           leavePiece(open);
           open = now;
           mount(now);
@@ -2970,9 +2972,10 @@ const WBViewer = (() => {
     // Each in the view last chosen in this project, where it has that view.
     const viewKey = `wb:view:${page.entity.projectId}`;
     let view = follow ? follow.view || '' : WB.store(viewKey) || '';
+    // Each played from its phone copy on a phone (WB.playable); `full` is its review copy.
     const piecesIn = (name) => versions.map((v) => {
       const look = inView(v.look, name);
-      return { ...look, id: v.id, type: look.type || v.kind, label: v.label, name: look.name || v.originalName };
+      return { ...look, src: WB.playable(look), full: look.src, id: v.id, type: look.type || v.kind, label: v.label, name: look.name || v.originalName };
     });
     // In 3D, each is shown in the view the project puts on its model (its main one unless the project says).
     const preview3d = page.project && page.project.settings && page.project.settings.preview3d;
@@ -3166,7 +3169,7 @@ const WBViewer = (() => {
         };
       }
       const shown = inView(x.version.look, view);
-      return { ...shown, id: x.version.id, type: shown.type, label: x.version.label, name: x.name, seq: x.seq, entityId: x.id };
+      return { ...shown, src: WB.playable(shown), full: shown.src, id: x.version.id, type: shown.type, label: x.version.label, name: x.name, seq: x.seq, entityId: x.id };
     });
   }
   // A project whose versions are all named views (every one a cmp, say) starts on the one most have.

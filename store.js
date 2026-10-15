@@ -450,6 +450,8 @@ function openStore(dataDir) {
   // needs; what a board is set to (see BOARD_SETTINGS in server.js); whether a folder is a project and
   // what it is set to; and which catalogue version an item on a board shows.
   if (!hasColumn('media', 'crc')) db.exec('ALTER TABLE media ADD COLUMN crc INTEGER');
+  // A video's phone copy: the smaller file phones and slow connections play instead (see "phone copies" in server.js).
+  if (!hasColumn('media', 'phone')) db.exec('ALTER TABLE media ADD COLUMN phone TEXT');
   if (!hasColumn('boards', 'settings')) db.exec('ALTER TABLE boards ADD COLUMN settings TEXT');
   if (!hasColumn('folders', 'project')) db.exec('ALTER TABLE folders ADD COLUMN project INTEGER NOT NULL DEFAULT 0');
   if (!hasColumn('folders', 'settings')) db.exec('ALTER TABLE folders ADD COLUMN settings TEXT');
@@ -737,6 +739,11 @@ function openStore(dataDir) {
   const setMediaCrc = (name, crc) => putCrc.run(crc, name);
   const readMedia = db.prepare('SELECT * FROM media WHERE name = ?');
   const media = (name) => readMedia.get(name) || null;
+  const putPhone = db.prepare('UPDATE media SET phone = ? WHERE name = ?');
+  const setMediaPhone = (name, phone) => putPhone.run(phone, name).changes > 0;
+  // The pieces on boards that show an uploaded file, as last written: [{ boardId, id }].
+  const readItemsWith = db.prepare('SELECT board_id, id FROM items WHERE media = ?');
+  const itemsWithMedia = (name) => readItemsWith.all(name).map((r) => ({ boardId: r.board_id, id: r.id }));
 
   // ---------------------------------------------------------------- catalogue
 
@@ -1014,6 +1021,10 @@ function openStore(dataDir) {
   }
   // Another view of a version (see glanceOf): kept with its look, under its name.
   const putLook = db.prepare('UPDATE versions SET look = ? WHERE id = ?');
+  const setLook = (id, look) => putLook.run(JSON.stringify(look), id).changes > 0;
+  // The versions whose look (or one of its views) shows an uploaded file, deleted ones too.
+  const readWithFile = db.prepare('SELECT id FROM versions WHERE look LIKE ?');
+  const versionsWithFile = (src) => readWithFile.all(`%${JSON.stringify(src).slice(1, -1)}%`).map((r) => r.id);
   function addView(id, look) {
     const v = version(id);
     if (!v) return null;
@@ -1174,7 +1185,7 @@ function openStore(dataDir) {
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,
     grants, setGrant, removeGrant, removeGrantsOn,
-    presentations, savePresentation, deletePresentation,
+    presentations, savePresentation, deletePresentation, setMediaPhone, itemsWithMedia, setLook, versionsWithFile,
   };
 }
 

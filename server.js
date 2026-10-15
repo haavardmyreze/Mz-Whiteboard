@@ -592,6 +592,8 @@ const MEDIA_FIELDS = {
   poster: (v) => UPLOADED.test(v) || inline(v),
   prev: (v) => UPLOADED.test(v) || inline(v),
   orig: (v) => UPLOADED.test(v),
+  // A video's phone copy (see "phone copies" below).
+  lo: (v) => UPLOADED.test(v),
 };
 const cleanStrip = (v) => (v && typeof v === 'object' && typeof v.c === 'string' && v.c.length < 100000 && (v.p === undefined || (typeof v.p === 'string' && v.p.length < 100000)) ? { c: v.c, ...(v.p !== undefined && { p: v.p }) } : null);
 // Checks those fields of an item, or of a patch to one (where null clears a field), in place.
@@ -901,9 +903,9 @@ function holdsAnything(folder) {
 // catalogue page. A piece on a board that shows a version says which (`ver`); the board shows what it is
 // called, and when there is a newer one.
 
-const LOOK_KEYS = ['type', 'src', 'orig', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'wf', 'name', 'view'];
+const LOOK_KEYS = ['type', 'src', 'lo', 'orig', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'wf', 'name', 'view'];
 const MAX_VIEWS = 16;
-const UPLOAD_KEYS = new Set(['src', 'orig', 'prev', 'th', 'poster']);
+const UPLOAD_KEYS = new Set(['src', 'lo', 'orig', 'prev', 'th', 'poster']);
 
 // What a board needs to show a file, taken from a piece on a board or from a file brought into the catalogue, keeping
 // only what such a piece has: addresses of uploaded files, its size, length and rate, its name.
@@ -986,7 +988,7 @@ function board3d(board) {
 // A version as a board shows it, and in a project with a model of its venue, what goes on the model's
 // screens (`look3d`): the version's view the project puts there (its main one, unless the project names
 // one). A version without that view is not seen in 3D. Only what the player needs, not its timeline strip.
-const LOOK3D_KEYS = ['type', 'src', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'name', 'view'];
+const LOOK3D_KEYS = ['type', 'src', 'lo', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'name', 'view'];
 function boardVersion(ref, model) {
   const info = versionInfo(ref);
   if (!info || !model) return info;
@@ -2107,12 +2109,12 @@ function sharedFile(req, name) {
   openItems(board);
   for (const it of board.items.values()) {
     if (it.type === 'comment') continue;
-    for (const key of ['src', 'th', 'poster', 'prev']) if (uploadName(it[key]) === name) return true;
+    for (const key of ['src', 'lo', 'th', 'poster', 'prev']) if (uploadName(it[key]) === name) return true;
     if (it.wf && typeof it.wf === 'object' && Object.values(it.wf).some((v) => uploadName(v) === name)) return true;
   }
   const model = board3d(board);
   if (model && uploadName(model.model) === name) return true;
-  return boardVersions(board).some((v) => uploadName(v.thumb) === name || (v.look3d && ['src', 'th', 'poster', 'prev'].some((k) => uploadName(v.look3d[k]) === name)));
+  return boardVersions(board).some((v) => uploadName(v.thumb) === name || (v.look3d && ['src', 'lo', 'th', 'poster', 'prev'].some((k) => uploadName(v.look3d[k]) === name)));
 }
 
 // Where a read-only link can be opened from: the public address when there is one, otherwise this
@@ -2397,6 +2399,7 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { items: found });
   }
   if (parts[1] === 'upload' && req.method === 'POST') return handleUpload(req, res, url);
+  if (parts[1] === 'phone-copy' && req.method === 'POST' && parts.length <= 3) return handlePhoneCopy(req, res, parts[2] || '');
   sendJson(res, 404, { error: 'Not found' });
 }
 
@@ -3022,6 +3025,90 @@ function joinRoom(ws, entity, user) {
   ws.on('error', () => {});
 }
 
+// ---------------------------------------------------------------- phone copies
+//
+// A review copy is made for looking at closely on a desk: up to 1080p and 12 Mbit/s. A phone, or anybody on
+// a slow line, waits on that, and stutters until it has all of it. So each video also gets a phone copy:
+// the same frames at the same moments, at most 720p and about a fifth of the size, which they play (and keep)
+// instead. It is made in the browser, as review copies are, by a desk browser of the team's that has a video
+// without one on its page, one at a time when it has nothing better to do (see phoneCopies in ingest.js).
+//
+// A browser asks first (claim), so two do not make the same one; the server says to go ahead, that it is
+// somebody else's for now, or that there is one already (which it then puts everywhere it belongs). Once
+// made and uploaded it says so (POST /api/phone-copy { src, lo }), and the server puts `lo` on every piece
+// on every board, and every version (and view of one), showing that file.
+const PHONE_CLAIM_FOR = 20 * 60e3;
+const phoneClaims = new Map(); // upload name -> when a browser said it would make its phone copy
+
+// Puts a file's phone copy everywhere the file is shown that does not have it yet.
+function spreadPhoneCopy(src, lo) {
+  const name = uploadName(src);
+  let pieces = 0;
+  const ids = new Map(); // board id -> item ids, as last written
+  for (const r of store.itemsWithMedia(name)) (ids.get(r.boardId) || ids.set(r.boardId, new Set()).get(r.boardId)).add(r.id);
+  for (const board of boards.values()) {
+    if (!board.items && !ids.has(board.id)) continue;
+    openItems(board);
+    const ops = [];
+    for (const it of board.items.values()) {
+      if (it.type !== 'video' || it.src !== src || it.lo === lo) continue;
+      it.lo = lo;
+      board.changed.add(it.id);
+      ops.push({ t: 'set', id: it.id, patch: { lo } });
+    }
+    if (!ops.length) continue;
+    pieces += ops.length;
+    scheduleSave(board, false);
+    broadcast(board, { t: 'op', ops, from: null });
+  }
+  let versions = 0;
+  for (const id of store.versionsWithFile(src)) {
+    const v = store.version(id);
+    if (!v || !v.look) continue;
+    let touched = false;
+    const look = { ...v.look };
+    if (look.src === src && look.lo !== lo) {
+      look.lo = lo;
+      touched = true;
+    }
+    if (Array.isArray(look.views)) {
+      look.views = look.views.map((x) => (x.src === src && x.lo !== lo ? ((touched = true), { ...x, lo }) : x));
+    }
+    if (touched && store.setLook(id, look)) versions++;
+  }
+  return { pieces, versions };
+}
+
+async function handlePhoneCopy(req, res, rest) {
+  const body = await readJson(req);
+  const src = typeof body.src === 'string' ? body.src : '';
+  const name = uploadName(src);
+  const known = name && store.media(name);
+  if (!known || !/\.(mp4|m4v|webm|mov)$/i.test(name)) return sendJson(res, 404, { error: 'Not a video here' });
+  // POST /api/phone-copy/claim { src }: may this browser make it?
+  if (rest === 'claim') {
+    if (known.phone) return sendJson(res, 200, { lo: known.phone, ...spreadPhoneCopy(src, known.phone) });
+    const at = phoneClaims.get(name);
+    if (at && Date.now() - at < PHONE_CLAIM_FOR) return sendJson(res, 200, { busy: true });
+    phoneClaims.set(name, Date.now());
+    return sendJson(res, 200, { go: true });
+  }
+  // POST /api/phone-copy { src, lo }: made.
+  if (!rest) {
+    const loName = uploadName(body.lo);
+    const lo = loName && store.media(loName);
+    if (!lo || !/\.(mp4|m4v|webm)$/i.test(loName)) return sendJson(res, 400, { error: 'That is not a phone copy here' });
+    // Only ever smaller: a "phone copy" no lighter than the review copy would only cost a download. A review
+    // copy already as light as a phone copy is its own (lo the same as src), and is not asked about again.
+    if (loName !== name && known.size && lo.size >= known.size) return sendJson(res, 400, { error: 'It is not smaller than the review copy' });
+    phoneClaims.delete(name);
+    if (!known.phone) store.setMediaPhone(name, body.lo);
+    const now = store.media(name).phone;
+    return sendJson(res, 200, { lo: now, ...spreadPhoneCopy(src, now) });
+  }
+  return sendJson(res, 404, { error: 'Not found' });
+}
+
 // ---------------------------------------------------------------- presenting a project
 //
 // Somebody on the team presents a project: whoever opens its link (/p/<token>) sees what they show, as
@@ -3239,7 +3326,7 @@ function presentedFiles(pres) {
   };
   const addLook = (look) => {
     if (!look) return;
-    for (const key of ['src', 'th', 'poster', 'prev']) add(look[key]);
+    for (const key of ['src', 'lo', 'th', 'poster', 'prev']) add(look[key]);
     if (look.wf && typeof look.wf === 'object') Object.values(look.wf).forEach(add);
     for (const v of look.views || []) addLook(v);
   };

@@ -2830,3 +2830,59 @@ test("on a board in a project with a model of its venue, a catalogued piece that
   before.ws.close();
   after.ws.close();
 });
+
+test('a video is given a phone copy by one browser, and it is put everywhere the video is shown', async (t) => {
+  const WebSocket = require('ws');
+  const port = 4933;
+  const s = start(port);
+  t.after(s.stop);
+  await s.ready;
+  const call = async (method, p, body) => {
+    const res = await fetch(s.base + p, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    return { status: res.status, body: await res.json().catch(() => null) };
+  };
+  const upload = async (name, size) => (await (await fetch(`${s.base}/api/upload?name=${name}&uid=up${name.replace(/\W/g, '')}&offset=0&done=1`, { method: 'POST', body: crypto.randomBytes(size) })).json()).url;
+  const kilo = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${kilo.id}`, { project: true });
+  const board = (await call('POST', '/api/boards', { name: 'Review', folderId: kilo.id })).body;
+  const [review, phone, bigger, light] = [await upload('review.webm', 50000), await upload('phone.webm', 9000), await upload('bigger.webm', 60000), await upload('light.webm', 4000)];
+  await call('POST', `/api/projects/${kilo.id}/versions`, { files: [{ look: { type: 'video', src: review, nw: 1920, nh: 1080, name: 'a.webm' }, entity: { name: 'kilo-0010', tier: 'shot' }, task: 'anim' }] });
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?board=${board.id}`);
+  const seen = [];
+  await new Promise((resolve) => {
+    ws.on('open', () => ws.send(JSON.stringify({ t: 'hello', name: 'Anna' })));
+    ws.on('message', (raw) => {
+      const msg = JSON.parse(raw);
+      seen.push(msg);
+      if (msg.t === 'init') resolve();
+    });
+  });
+  t.after(() => ws.close());
+  ws.send(JSON.stringify({ t: 'op', ops: [
+    { t: 'add', item: { id: 'videoone', type: 'video', x: 0, y: 0, w: 100, h: 56, src: review } },
+    { t: 'add', item: { id: 'videotwo', type: 'video', x: 200, y: 0, w: 100, h: 56, src: review } },
+  ] }));
+  await new Promise((r) => setTimeout(r, 200));
+
+  // One browser at a time makes it.
+  assert.deepEqual((await call('POST', '/api/phone-copy/claim', { src: review })).body, { go: true });
+  assert.deepEqual((await call('POST', '/api/phone-copy/claim', { src: review })).body, { busy: true });
+  assert.equal((await call('POST', '/api/phone-copy/claim', { src: '/uploads/nothere.webm' })).status, 404);
+  // Only ever a lighter file than the review copy.
+  assert.equal((await call('POST', '/api/phone-copy', { src: review, lo: bigger })).status, 400);
+  const done = (await call('POST', '/api/phone-copy', { src: review, lo: phone })).body;
+  assert.deepEqual(done, { lo: phone, pieces: 2, versions: 1 });
+  // Everybody on the board is told, and the version has it.
+  await new Promise((r) => setTimeout(r, 150));
+  const told = seen.filter((m) => m.t === 'op' && m.from === null).flatMap((m) => m.ops);
+  assert.deepEqual(told.map((op) => [op.id, op.patch.lo]).sort(), [['videoone', phone], ['videotwo', phone]]);
+  const shot = (await call('GET', `/api/projects/${kilo.id}`)).body.entities[0];
+  assert.equal((await call('GET', `/api/entities/${shot.id}`)).body.versions[0].look.lo, phone);
+  // Asked again (the same file put on another board, say), it is there already, and put there too.
+  ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'videothree', type: 'video', x: 400, y: 0, w: 100, h: 56, src: review } }] }));
+  await new Promise((r) => setTimeout(r, 150));
+  assert.deepEqual((await call('POST', '/api/phone-copy/claim', { src: review })).body, { lo: phone, pieces: 1, versions: 0 });
+  // A review copy as light as a phone copy is its own.
+  assert.deepEqual((await call('POST', '/api/phone-copy/claim', { src: light })).body, { go: true });
+  assert.equal((await call('POST', '/api/phone-copy', { src: light, lo: light })).body.lo, light);
+});

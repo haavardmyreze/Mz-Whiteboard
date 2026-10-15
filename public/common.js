@@ -260,6 +260,25 @@ const WB = (() => {
 
   // What /api/me said (after identity() or askName() has run): whether read-only links, a public address and sign-out exist here.
   const info = () => session;
+  // Whether this screen plays videos' phone copies (see "phone copies" in server.js): a phone (a touch
+  // screen and a small one), or a browser asked to save data or on a slow mobile line. Decided once a page,
+  // so it does not change copy part way through.
+  let phoneSized = null;
+  function usesPhoneCopies() {
+    if (phoneSized === null) {
+      try {
+        const c = navigator.connection;
+        phoneSized = !!(c && (c.saveData || /(^|-)(2g|3g)$/.test(c.effectiveType || '')))
+          || (matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820);
+      } catch {
+        phoneSized = false;
+      }
+    }
+    return phoneSized;
+  }
+  // The file a video is played from here: its phone copy on a phone, when it has one; its review copy otherwise.
+  const playable = (look) => (look ? (look.lo && usesPhoneCopies() ? look.lo : look.src) : null);
+
   // The addresses a link can be opened at, best first: a configured public address, then the address this
   // page was opened from (a tunnel, say), then this computer's network addresses. Never a localhost
   // address: it would only open on this computer.
@@ -608,7 +627,7 @@ const WB = (() => {
   }
 
   return {
-    el, store, remember, combo, rank, user, dialog, askName, info, shareBases, offline, waiting, watchServer, initials, ago, api, theme, setTheme, themeButton,
+    el, store, remember, combo, rank, user, dialog, askName, info, shareBases, offline, waiting, playable, usesPhoneCopies, watchServer, initials, ago, api, theme, setTheme, themeButton,
     media: null, colors: USER_COLORS, saveUser, signOut, clamp, uid, hexOk, isTyping, bytes, plural, avatar, menu, closeMenus, toast, href, KEYS,
   };
 })();

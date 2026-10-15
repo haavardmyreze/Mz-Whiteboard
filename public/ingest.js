@@ -788,8 +788,103 @@ const WBIngest = (() => {
   }
 
 
+  // ---- phone copies (see "phone copies" in server.js)
+  //
+  // The same frames at the same moments as the review copy, at most 720p, about 2.5 Mbit/s and a key frame
+  // every half second: a fifth of the size or less, which phones and slow lines play and keep instead.
+  const PHONE_LONG_SIDE = 1280;
+  const PHONE_SHORT_SIDE = 720;
+  const PHONE_BITRATE = 2.5e6;
+  const PHONE_MIN_BITRATE = 0.8e6;
+  const PHONE_KEY_INTERVAL = 0.5;
+  // The phone copy of a review copy, as a File; null when the review copy is as light as one already.
+  async function phoneCopy(file) {
+    const mb = mediabunny || (mediabunny = await import('/vendor/mediabunny.mjs'));
+    const input = new mb.Input({ source: new mb.BlobSource(file), formats: mb.ALL_FORMATS });
+    try {
+      const track = await input.getPrimaryVideoTrack();
+      if (!track || !canCopyVideo || !(await track.canDecode())) throw new Error('This browser cannot read it');
+      const w = track.displayWidth;
+      const h = track.displayHeight;
+      const duration = await input.computeDuration();
+      const bitrate = duration > 0 ? (file.size * 8) / duration : PHONE_BITRATE * 4;
+      const k = Math.min(1, PHONE_LONG_SIDE / Math.max(w, h), PHONE_SHORT_SIDE / Math.min(w, h));
+      if (k === 1 && bitrate <= PHONE_BITRATE * 1.3) return null;
+      const width = Math.max(2, Math.round((w * k) / 2) * 2);
+      const height = Math.max(2, Math.round((h * k) / 2) * 2);
+      const target = Math.round(Math.max(PHONE_MIN_BITRATE, Math.min(PHONE_BITRATE, bitrate * 0.5)));
+      const codec = await mb.getFirstEncodableVideoCodec(['avc', 'vp9'], { width, height, bitrate: target });
+      if (!codec) throw new Error('This browser cannot make one');
+      const mp4 = codec === 'avc';
+      const encode = async (hardwareAcceleration) => {
+        const format = mp4 ? new mb.Mp4OutputFormat({ fastStart: 'in-memory' }) : new mb.WebMOutputFormat();
+        const output = new mb.Output({ format, target: new mb.BufferTarget() });
+        const conversion = await mb.Conversion.init({
+          input, output,
+          video: { codec, width, height, fit: 'contain', bitrate: target, keyFrameInterval: PHONE_KEY_INTERVAL, forceTranscode: true, hardwareAcceleration },
+        });
+        if (!conversion.isValid) return null;
+        await conversion.execute();
+        return output.target.buffer;
+      };
+      let buffer = null;
+      if (await mb.canEncodeVideo(codec, { width, height, bitrate: target, hardwareAcceleration: 'prefer-hardware' }).catch(() => false)) {
+        try {
+          buffer = await encode('prefer-hardware');
+        } catch (err) {
+          console.warn('The hardware encoder failed on a phone copy, using the processor:', err);
+        }
+      }
+      if (!buffer) buffer = await encode('no-preference');
+      if (!buffer) throw new Error('The phone copy could not be made');
+      const ext = mp4 ? 'mp4' : 'webm';
+      return new File([buffer], `${(file.name || 'video').replace(/\.[^.]+$/, '')}-phone.${ext}`, { type: `video/${ext}` });
+    } finally {
+      input.dispose();
+    }
+  }
+
+  // Makes phone copies of the videos a page shows that have none, one at a time, on a desk browser that can
+  // and only when the page has nothing better to do (`list()` gives none while a video is being watched, or
+  // somebody presents). It asks the server first (another browser may be making it), and tells it once made.
+  // `list()` gives the review copies' addresses wanting one; `poke()` says to look again soon.
+  function phoneCopies(list) {
+    const able = canCopyVideo && !matchMedia('(pointer: coarse)').matches && !(navigator.connection && navigator.connection.saveData);
+    if (!able) return { poke() {} };
+    const tried = new Set();
+    let busy = false;
+    let timer = 0;
+    const poke = (ms = 5000) => {
+      if (busy) return;
+      clearTimeout(timer);
+      timer = setTimeout(next, ms);
+    };
+    async function next() {
+      if (document.hidden) return poke(15000);
+      const src = (list() || []).find((s) => typeof s === 'string' && /^\/uploads\//.test(s) && !tried.has(s));
+      if (!src) return;
+      tried.add(src);
+      busy = true;
+      try {
+        const claim = await WB.api('POST', '/api/phone-copy/claim', { src });
+        if (claim.go) {
+          const blob = WB.media.available ? await WB.media.get(src) : await (await fetch(src)).blob();
+          const made = await phoneCopy(new File([blob], src.split('/').pop(), { type: blob.type }));
+          const lo = made ? (await upload(made, fileExt(made), () => {}, true)).url : src;
+          await WB.api('POST', '/api/phone-copy', { src, lo });
+        }
+      } catch (err) {
+        console.warn('No phone copy of', src, err);
+      }
+      busy = false;
+      poke(2000);
+    }
+    poke();
+    return { poke };
+  }
+
   return {
-    IMG_EXT, VID_EXT, EXT_BY_TYPE, canCopyVideo, OTHER_BROWSERS, TRIES,
+    IMG_EXT, VID_EXT, EXT_BY_TYPE, canCopyVideo, OTHER_BROWSERS, TRIES, phoneCopy, phoneCopies,
     fileExt, upload, loadImage, probeVideo, brightness, pickFrame, beyondThisBrowser, tellRefused, ingest, videoWave, readRate, snapRate,
   };
 })();

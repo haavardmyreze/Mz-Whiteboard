@@ -610,11 +610,13 @@
         else post.removeAttribute('src');
         post.hidden = !still;
       }
-      if (video.dataset.src !== it.src) {
-        video.dataset.src = it.src;
+      // Its phone copy on a phone (see WB.playable), its review copy otherwise.
+      const plays = WB.playable(it);
+      if (video.dataset.src !== plays) {
+        video.dataset.src = plays;
         delete video.dataset.whole;
         delete video.dataset.parked;
-        video.src = it.src;
+        video.src = plays;
         queueAhead();
         scheduleCull();
       }
@@ -1787,13 +1789,14 @@
   const look3dOf = (it) => (it && it.ver && versionInfo.get(it.ver) && versionInfo.get(it.ver).look3d) || null;
   const pieceOf = (it) => {
     const piece = {
-      id: it.id, type: it.type, src: it.src, prev: it.prev, pw: it.pw, th: it.th, poster: it.poster, nw: it.nw || it.w, nh: it.nh || it.h,
+      // Played from its phone copy on a phone; `full` is the review copy, the same video whichever is played.
+      id: it.id, type: it.type, src: WB.playable(it), full: it.src, prev: it.prev, pw: it.pw, th: it.th, poster: it.poster, nw: it.nw || it.w, nh: it.nh || it.h,
       fps: it.fps, dur: it.dur, wf: it.wf, name: it.name, orig: it.orig, label: it.ver && versionInfo.get(it.ver) ? versionInfo.get(it.ver).label : null,
     };
     const look = shown3d && look3dOf(it);
     if (!look || look.src === it.src || look.type !== it.type) return piece;
     const { view, ...media } = look;
-    return { ...piece, prev: undefined, pw: undefined, th: undefined, poster: undefined, ...media, wf: undefined, orig: undefined, shownView: view || '3d' };
+    return { ...piece, prev: undefined, pw: undefined, th: undefined, poster: undefined, ...media, src: WB.playable(look), full: look.src, wf: undefined, orig: undefined, shownView: view || '3d' };
   };
 
   let openId = null; // what is open in the viewer
@@ -1931,7 +1934,8 @@
       // From the piece that is open onwards, since the next one is the likeliest to be wanted next.
       const order = mediaOrder().filter(wholeable);
       const from = Math.max(0, order.findIndex((it) => it.id === openId));
-      media.want(`board:${boardId}`, [...order.slice(from), ...order.slice(0, from)].map((it) => it.src), { rank: media.RANK.board, kind: 'boards', hold: true });
+      media.want(`board:${boardId}`, [...order.slice(from), ...order.slice(0, from)].map((it) => WB.playable(it)), { rank: media.RANK.board, kind: 'boards', hold: true });
+      phones.poke();
     }, 1000);
   }
 
@@ -1942,7 +1946,7 @@
   keptRing = media.ring($('kept'), () => {
     if (orderDirty) {
       orderDirty = false;
-      ringItems = mediaOrder().filter((it) => it.type === 'video').map((it) => ({ src: it.src, name: it.name }));
+      ringItems = mediaOrder().filter((it) => it.type === 'video').map((it) => ({ src: WB.playable(it), name: it.name }));
       // Watching a presentation, the page around this one shows how much of the board is cached.
       if (spectating) window.parent.postMessage({ wb: 'scope', items: ringItems }, location.origin);
     }
@@ -1953,25 +1957,30 @@
   }
 
   // Only what this server keeps: anything else may not let itself be fetched.
-  const wholeable = (it) => !!it && it.type === 'video' && media.keepable(it.src);
+  const wholeable = (it) => !!it && it.type === 'video' && media.keepable(WB.playable(it));
   media.onEvict((src) => {
     for (const [nid, node] of els) {
       const v = node.classList.contains('video') ? node.firstChild : null;
       if (!v || v.dataset.whole !== src) continue;
       delete v.dataset.whole;
-      WBViewer.switchSource(v, items.get(nid).src);
+      WBViewer.switchSource(v, WB.playable(items.get(nid)));
     }
   });
+
+  // The board's videos without a phone copy get one, made here when this is a desk browser that can and
+  // has nothing better to do (ingest.js): not while a video is open, nor while presenting.
+  const phones = WBIngest.phoneCopies(() => (viewOnly || viewer.isOpen() || WBPresent.token() ? []
+    : mediaOrder().filter((it) => it.type === 'video' && !it.lo && media.keepable(it.src)).map((it) => it.src)));
 
   async function holdWhole(id) {
     const it = items.get(id);
     if (!wholeable(it)) return;
-    const src = it.src;
+    const src = WB.playable(it);
     const url = await media.whole(src).ready;
     // Not in the middle of a scrub, which would be thrown back to where it started.
     while (boardScrub === id) await new Promise((resolve) => setTimeout(resolve, 120));
     const video = videoOf(id);
-    if (!url || !video || items.get(id)?.src !== src || video.dataset.whole === src) return;
+    if (!url || !video || WB.playable(items.get(id)) !== src || video.dataset.whole === src) return;
     video.dataset.whole = src;
     WBViewer.switchSource(video, url);
     mendStrip(id, url);

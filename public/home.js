@@ -71,6 +71,10 @@
     return (id && trailTo(id).reverse().find((f) => f.project)) || null;
   };
   let presentBtn = null; // the bar's Present button (see presenting, at the end)
+  // The videos the pages here show that have no phone copy yet: made here, one at a time, when this desk
+  // browser can and has nothing better to do (ingest.js); never while the player is open, or presenting.
+  const needsPhoneCopy = new Set();
+  const phoneCopies = WBIngest.phoneCopies(() => (WBPresent.token() || (player && player.isOpen()) ? [] : [...needsPhoneCopy]));
   const childrenOf = (id, ws = space) => (id ? everything.folders : everything.folders.filter((f) => f.workspace === ws)).filter((f) => (f.parentId || null) === id).sort(byName);
   const boardsIn = (id, ws = space) => (id ? everything.boards : everything.boards.filter((b) => b.workspace === ws)).filter((b) => (b.folderId || null) === id);
 
@@ -811,7 +815,7 @@
   // The newest version of your work, of what you are cc'd on, and of what you pinned, is fetched ahead
   // and kept on this computer (media.js), so it opens and scrubs at once when you get to it. So is what
   // the page you are on shows. Each can be turned off in your settings.
-  const videoOf = (n) => (n && n.look && n.look.type === 'video' ? n.look.src : null);
+  const videoOf = (n) => (n && n.look && n.look.type === 'video' ? WB.playable(n.look) : null);
   function keepAhead() {
     const R = WB.media.RANK;
     if (feed) {
@@ -1384,6 +1388,8 @@
       const pieces = await WBViewer.runPieces(data, { seq, task, withEmpty, view: in3d ? preview3d.view : view });
       // All of it is cached, after the next few shots the player asks for first; the ring says how far.
       const videos = pieces.filter((x) => x.type === 'video' && !x.empty);
+      for (const x of videos) if (!x.lo) needsPhoneCopy.add(x.full);
+      phoneCopies.poke();
       tlScope = { label: 'this timeline', items: videos.map((x) => ({ src: x.src, name: x.label })) };
       WB.media.want('timeline', tlScope.items.map((x) => x.src), { rank: WB.media.RANK.timeline, hold: true });
       cacheRing.paint();
@@ -1872,9 +1878,15 @@
   // the video fetched at all.
   function scrubber(box, look, name) {
     if (!look || look.type !== 'video' || !look.src) return box;
-    keepForPage(look.src, name || look.name);
+    // Its phone copy on a phone (WB.playable); one is made here if it has none and this browser can.
+    const src = WB.playable(look);
+    if (!look.lo && !needsPhoneCopy.has(look.src)) {
+      needsPhoneCopy.add(look.src);
+      phoneCopies.poke();
+    }
+    keepForPage(src, name || look.name);
     // In its corner: whether it is cached on this computer (media.js).
-    box.append(WB.media.badge(look.src));
+    box.append(WB.media.badge(src));
     let video = null;
     let head = null;
     let want = null;
@@ -1889,7 +1901,7 @@
     box.classList.add('scrubs');
     box.addEventListener('pointerenter', (e) => {
       if (e.pointerType === 'touch' || video) return;
-      video = el('video', { class: 'scrub-video', playsinline: '', preload: 'auto', src: look.src });
+      video = el('video', { class: 'scrub-video', playsinline: '', preload: 'auto', src });
       video.muted = true;
       head = el('i', { class: 'scrub-head' });
       video.addEventListener('seeked', () => {

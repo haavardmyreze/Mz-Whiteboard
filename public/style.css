@@ -2439,12 +2439,14 @@ body.viewonly #hint .hint-guest { display: inline; }
 
 /* The player's 3D view (view3d.js): the venue drawn over the picture, which plays on unseen beneath it
    and is what the venue shows. The 2D / 3D switch is in the bar only in a project with a model. */
-.v-3d { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.v-3d { position: absolute; inset: 0; display: block; width: 100%; height: 100%; cursor: grab; }
 .v-3d.free { cursor: grab; }
+.viewer:is([data-tool="pen"], [data-tool="eraser"], [data-tool="laser"]) .v-3d:not(.free) { cursor: crosshair; }
 .v-3d.free:active { cursor: grabbing; }
 .viewer.in3d .v-piece > video, .viewer.in3d .v-piece > img { opacity: 0; }
-/* The venue fills the stage edge to edge; the piece box over it keeps the main camera's frame for drawings,
-   with no picture, ground or edge of its own, and lets the pointer through to the stage. */
+/* The venue is drawn on the stage: through the main camera in its frame, where the piece box is (which keeps
+   the frame for drawings, with no picture, ground or edge of its own), letterboxed; flying, edge to edge.
+   The pointer goes through the piece box to the stage. */
 .viewer.in3d .v-piece { background: transparent; box-shadow: none; pointer-events: none; }
 .viewer.in3d .v-viewpick { display: none; }
 .v-dims .btn { border-color: transparent; background: transparent; color: var(--text-2); font-weight: 600; }

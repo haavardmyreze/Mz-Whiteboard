@@ -8,13 +8,14 @@
 // "screen-left") shows the picture through its own UVs, unlit. The rest of the room is lit from all round,
 // so no side of anything is ever black.
 //
-// The view is through the model's main camera (the camera named "main", or else its first): its place,
-// lens and frame's shape, so it is the same picture on every screen, and what is drawn on it lands on the
-// same thing for everyone. The venue fills the whole of the player's picture area all the same: the camera's
-// frame is where the player's piece box is (`frameOf()`, which the player's zoom moves and scales), and the
-// view is widened around it to the edges, so nothing frames the room and drawings stay put. It can be left to fly about as in Unreal Engine's viewport: W and S along the
-// view, A and D sideways, Q and E down and up, a drag to look, the wheel to glide (with a button held, to
-// set the speed), every move easing in and out. Nothing is drawn while flying.
+// It opens through the model's main camera (the camera named "main", or else its first): its place, lens
+// and frame's shape, letterboxed on the player's own dark ground where the player's piece box is
+// (`frameOf()`), so it is the same picture on every screen and what is drawn on it lands on the same thing
+// for everyone. Any move of the view leaves it (a drag, the wheel, a move key), unless the player has a pen,
+// eraser or laser in hand (`holds(e)`): then the view fills the whole picture area, to fly about as in
+// Unreal Engine's viewport: W and S along the view, A and D sideways, Q and E down and up, a drag to look,
+// the wheel to glide (with a button held, to set the speed), every move easing in and out. Nothing is
+// drawn while flying.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -36,11 +37,14 @@ const UP = new THREE.Vector3(0, 1, 0);
 const MOVE = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE']);
 
 // `onFree(on)` hears when the view leaves the main camera to fly, or comes back to it; `frameOf()` says
-// where on the page the main camera's frame is (a DOMRect).
-export function create({ onFree = () => {}, frameOf = () => null } = {}) {
+// where on the page the main camera's frame is (a DOMRect); `holds(e)` says a press is the player's own
+// (drawing, erasing, pointing), not a move of the view.
+export function create({ onFree = () => {}, frameOf = () => null, holds = () => false } = {}) {
   const canvas = document.createElement('canvas');
   canvas.className = 'v-3d';
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // See-through where nothing is drawn: around the main camera's frame, the player's own ground shows.
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setClearColor(0x000000, 0);
   renderer.setPixelRatio(1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   // The room is tone mapped softly; the screens are not, so the picture is as filed.
@@ -176,47 +180,30 @@ export function create({ onFree = () => {}, frameOf = () => null } = {}) {
     vel.set(0, 0, 0);
     held.clear();
   }
-  // Through the main camera: its frame where the player's piece box is, and the view carried on around it
-  // to the edges of the canvas, as the same lens would see it. Off centre when the frame is.
-  let lensH = 60; // how tall, in degrees, the whole canvas sees through the main camera: flying starts at it
-  function mainLens(r) {
-    const f = frameOf();
-    const near = camera.near;
-    const ht = near * Math.tan(THREE.MathUtils.degToRad(main.fov) / 2);
-    const wt = ht * main.aspect;
-    if (!f || !f.width || !f.height) {
-      camera.fov = main.fov;
-      camera.aspect = r.width / r.height;
-      camera.updateProjectionMatrix();
-      lensH = main.fov;
-      return;
-    }
-    const u = (2 * wt) / f.width; // near-plane units in a pixel on screen
-    const left = -wt - (f.left - r.left) * u;
-    const top = ht + (f.top - r.top) * u;
-    camera.projectionMatrix.makePerspective(left, left + r.width * u, top, top - r.height * u, near, camera.far);
-    camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
-    lensH = THREE.MathUtils.radToDeg(2 * Math.atan((r.height * u) / 2 / near));
-  }
   function setFree(on, tell = true) {
     if (on === free) return;
     free = on;
     if (free) {
-      // Flying starts from where the main camera stands, looking where it looks, as wide as it was seen.
+      // Flying starts from where the main camera stands, looking where it looks, and with the room at the
+      // size it was in the letterbox: the lens widened from the frame's height to the whole area's.
       const e = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
       yaw = viewYaw = e.y;
       pitch = viewPitch = e.x;
-      camera.fov = THREE.MathUtils.clamp(lensH, 20, 100);
+      const f = frameOf();
+      const r = canvas.getBoundingClientRect();
+      const k = f && f.height && r.height ? r.height / f.height : 1;
+      const half = Math.atan(Math.tan(THREE.MathUtils.degToRad(main.fov) / 2) * k);
+      camera.fov = THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(2 * half), 20, 110);
     } else toMain();
     canvas.classList.toggle('free', free);
     if (tell) onFree(free);
   }
 
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-  // Flying, the pointer is the view's; through the main camera a press goes on to the player (to move
-  // the picture, or draw), except a right-drag, which starts flying, as in Unreal.
+  // A press moves the view (and so leaves the main camera), unless it is the player's: a pen, eraser or
+  // laser at work through the main camera.
   canvas.addEventListener('pointerdown', (e) => {
-    if (!free && e.button !== 2) return;
+    if (!free && holds(e)) return;
     e.stopPropagation();
     e.preventDefault();
     if (!free) setFree(true);
@@ -243,9 +230,10 @@ export function create({ onFree = () => {}, frameOf = () => null } = {}) {
   canvas.addEventListener('pointerup', letGo);
   canvas.addEventListener('pointercancel', letGo);
   canvas.addEventListener('wheel', (e) => {
-    if (!free) return;
+    if (e.ctrlKey || e.metaKey) return;
     e.preventDefault();
     e.stopPropagation();
+    if (!free) setFree(true);
     if (drag) {
       speed = THREE.MathUtils.clamp(speed * (e.deltaY > 0 ? 0.85 : 1.18), 0.1, 500);
       return;
@@ -305,11 +293,29 @@ export function create({ onFree = () => {}, frameOf = () => null } = {}) {
     const w = Math.max(1, Math.round(r.width * dpr * scale));
     const h = Math.max(1, Math.round(r.height * dpr * scale));
     if (canvas.width !== w || canvas.height !== h) renderer.setSize(w, h, false);
-    if (free) {
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, w, h);
+    const f = !free && frameOf();
+    if (!f || !f.width || !f.height) {
+      // Flying: the whole picture area.
       camera.aspect = r.width / r.height;
       camera.updateProjectionMatrix();
-    } else mainLens(r);
+      renderer.render(scene, camera);
+      return;
+    }
+    // Through the main camera: its frame only, letterboxed, where the piece box is (WebGL counts up from
+    // the bottom).
+    renderer.clear();
+    const px = (w / r.width);
+    const box = [(f.left - r.left) * px, h - (f.top - r.top + f.height) * px, f.width * px, f.height * px].map(Math.round);
+    camera.fov = main.fov;
+    camera.aspect = main.aspect;
+    camera.updateProjectionMatrix();
+    renderer.setViewport(...box);
+    renderer.setScissor(...box);
+    renderer.setScissorTest(true);
     renderer.render(scene, camera);
+    renderer.setScissorTest(false);
   }
   function start() {
     if (running) return;

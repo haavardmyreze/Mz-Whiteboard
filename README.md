@@ -379,10 +379,12 @@ filed in it.
   beside the star on the project's home, or Project settings in its menu: a `.glb`, the name of the
   material its screens have, and which view of a version goes on them) has a 2D / 3D switch in the
   player's bar, in the catalogue and on the timeline. In 3D the picture plays on the model's screens
-  (through their own UVs), seen through the model's camera named `main`, filling the whole picture area; the
-  timeline, comments, strip and sidebar are as ever, since it is the same video drawn another way. W A S D
-  (along the view, wherever it points), Q and E (down, up) or a right-drag fly off from the main camera,
-  easing in and out as in Unreal's viewport, and "Main camera" or V goes back. Drawing is done through
+  (through their own UVs), seen through the model's camera named `main`, letterboxed at that camera's frame;
+  the timeline, comments, strip and sidebar are as ever, since it is the same video drawn another way. Any
+  move of the view leaves the main camera: a drag, the wheel, W A S D (along the view, wherever it points)
+  or Q and E (down, up), easing in and out as in Unreal's viewport, with the view filling the whole picture
+  area and the room kept at the size it was; "Main camera" or V goes back. A pen, eraser or laser in hand
+  works through the main camera without leaving it. Drawing is done through
   the main camera only, so what is drawn in 3D lands on the same thing for everyone; such a comment says
   "Drawing in 3D", shows only in 3D, and opening it turns the player to 3D. Whether a project was last
   looked at in 3D is remembered per browser. The room is lit from all round so nothing in it is black.

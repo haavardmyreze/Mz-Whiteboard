@@ -664,6 +664,8 @@ const WBViewer = (() => {
             three = (await import('/view3d.js')).create({
               onFree: () => { if (tool === 'pen' || tool === 'eraser') setTool('pan'); paintDims(); paintInk(); },
               frameOf: () => pieceBox.getBoundingClientRect(),
+              // Drawing, erasing and pointing are done through the main camera; any other press moves the view.
+              holds: (e) => e.button === 0 && !spaceDown && (tool === 'pen' || tool === 'eraser' || tool === 'laser'),
             });
           }
           await three.load(opts.view3d);

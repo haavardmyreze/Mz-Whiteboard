@@ -4472,7 +4472,15 @@
 
   // ------------------------------------------------------------- start
 
-  me = await WB.askName();
+  // Watching a presentation, this page goes by the name given on the page around it (watch.js), never asks.
+  const watcher = (() => {
+    try {
+      return spectating && JSON.parse(sessionStorage.getItem('wb:watcher'));
+    } catch {
+      return null;
+    }
+  })();
+  me = watcher && watcher.name ? watcher : spectating ? { name: 'Viewer', color: WB.colors[0] } : await WB.askName();
   let meta;
   try {
     meta = await WB.api('GET', metaUrl);

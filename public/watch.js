@@ -289,14 +289,23 @@
   }
   document.title = `${info.project.name} · Boards`;
   // Who is watching, for the presenter to see: a name, typed once and kept. Joining is a click, so the
-  // browser lets what is played here have its sound.
-  const known = WB.user();
-  const name = el('input', { type: 'text', maxlength: 32, placeholder: 'Your name', value: known ? known.name : '', autocomplete: 'name', 'aria-label': 'Your name' });
+  // browser lets what is played here have its sound. It is kept apart from the name this browser goes by in
+  // the app (wb:user): somebody on the team opening a link in their own browser stays who they are there.
+  // The board's page in the frame here is told it for the tab (sessionStorage), and goes by it.
+  const known = WB.store('wb:watcher') || WB.user();
+  const name = el('input', { type: 'text', maxlength: 32, placeholder: 'Your name', value: known && known.name ? known.name : '', autocomplete: 'name', 'aria-label': 'Your name' });
   await new Promise((resolve) => {
     const join = (e) => {
       e.preventDefault();
       if (!name.value.trim()) return name.focus();
-      me = WB.saveUser(name.value.trim());
+      const color = known && WB.hexOk(known.color) ? known.color : WB.colors[Math.floor(Math.random() * WB.colors.length)];
+      me = { name: name.value.trim().slice(0, 32), color };
+      WB.store('wb:watcher', me);
+      try {
+        sessionStorage.setItem('wb:watcher', JSON.stringify(me));
+      } catch {
+        // the board in the frame goes by a name of its own
+      }
       resolve();
     };
     showCard(info.project.name, info.live ? `${info.presenter.name} is presenting. Say who you are, and join.` : `${info.presenter.name} presents it here. Say who you are, and you are in when they start.`,

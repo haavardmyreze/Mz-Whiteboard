@@ -1688,6 +1688,13 @@ const WBViewer = (() => {
       }
     }
 
+    // In 3D a press on the view is the view's, even one that flies it (which goes no further): whatever has the
+    // keyboard (a comment half typed, say) lets go of it first, so the keys move the view. What was typed stays.
+    stage.addEventListener('pointerdown', () => {
+      if (!open || !in3d) return;
+      const held = document.activeElement;
+      if (held && held !== document.body && (WB.isTyping(held) || !root.contains(held) || held.matches('button, a[href], select'))) held.blur();
+    }, true);
     stage.addEventListener('pointerdown', (e) => {
       if (!open) return;
       const held = document.activeElement;

@@ -2191,8 +2191,6 @@ button.imp-row:hover { background: var(--hover); }
 .tl-clipname span { overflow: hidden; color: rgba(255, 255, 255, 0.7); text-overflow: ellipsis; }
 @container (max-width: 120px) { .tl-clipname span { display: none; } }
 .tl-clip.empty .tl-clipname b { color: #9a9a9a; }
-/* The stretch the close-up track under it shows, as a lens over the whole run. */
-.tl-window { position: absolute; z-index: 1; top: 0; bottom: 0; left: clamp(0%, calc(var(--p, 0%) - var(--w, 0%) / 2), calc(100% - var(--w, 0%))); width: var(--w, 0%); min-width: 6px; box-sizing: border-box; border: 1px solid rgba(255, 255, 255, 0.55); border-radius: 3px; background: rgba(255, 255, 255, 0.07); pointer-events: none; }
 /* Over the picture in a run: the shot, and the version of it. */
 .v-runcap { position: absolute; z-index: 3; top: calc(var(--bar) + 14px); left: 24px; display: flex; align-items: baseline; gap: 10px; padding: 6px 12px; border-radius: var(--r-2); background: rgba(0, 0, 0, 0.62); color: #fff; pointer-events: none; }
 .v-runcap[hidden] { display: none; }

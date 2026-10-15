@@ -423,7 +423,7 @@ filed in it.
   playhead, and with the sequence's name where one begins), so the frames under it are never written
   over, and every cut is a gap down the whole height. On the whole run above it the sequences are a
   row of bands, named where there is room, the shots under them their stills, named only where wide
-  enough, and a box marks the stretch the close-up shows. Its
+  enough. Its
   frames are taken from the shots in the browser as they come into view, nearest the playhead first;
   until one is in, its place has the colour the shot has there. The arrows step from shot to shot, Space plays
   and pauses, loop goes round to the first shot, and what is written is about the shot under the

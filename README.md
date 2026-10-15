@@ -450,8 +450,19 @@ filed in it.
   with you, and your laser. They cannot go elsewhere or look about: the corner is no way out, and their
   keys, wheel and pointer move nothing. Only what is their screen's own is in reach: the sound, full
   screen, and folding the strip and the comments away. Lists (the catalogue, Versions, a project's home)
-  are never shown: while you look for the next thing, what they saw last stays, and a line says you are
-  finding what to show next. Anything outside the project is shown the same way, as nothing.
+  are never shown: while you look for the next thing, what they saw last stays behind the same cover a
+  lost connection has, saying you are finding what to show next. Anything outside the project is shown
+  the same way, as nothing.
+  - *Smooth to watch.* A scrub reaches them as it is made (up to thirty moments a second, always the last);
+    a video playing stays with yours by playing a touch quicker or slower (a tenth at most) rather than
+    jumping, and only jumps when a second or more off. A video still loading (a phone on a mobile network,
+    say) is not sent on to the next moment until it can play, then goes straight to where you are. Phones are
+    only ever put right by a jump. Flying in 3D, your view is sent twenty times a second and played back a
+    moment behind, in between, so it moves as smoothly there as here.
+  - *Cached as for you.* What is shown (a board's videos, an asset's versions, the timeline's shots) is
+    fetched ahead on their computer from the piece open on, and a ring in their corner says how much is
+    there. The 3D view is made ready as soon as a project with a model is shown; should you turn to 3D
+    before it is, they see "Loading the venue in 3D" and how much has come, over everything.
   - *One link each, per project, kept.* The same link every time, so it can go in the invitation to every
     review; it is live only while you present, and between times it says it is waiting for you (and
     picks you up once you start, without a reload). It can show only what you show, or also the

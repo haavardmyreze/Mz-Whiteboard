@@ -169,11 +169,30 @@ const WBPresent = (() => {
       }
       return;
     }
-    if (type === 'media') tellPlayer({ m: [args[0], Math.round(args[2] * 1000) / 1000, args[1] ? 1 : 0] }, true);
+    if (type === 'media') tellMoment([args[0], Math.round(args[2] * 1000) / 1000, args[1] ? 1 : 0]);
     else if (type === 'thread') tellPlayer({ t: args[0] });
     else if (type === 'zoom') tellPlayer({ z: v.zoom() });
     else if (type === '3d') tellPlayer({ d: v.view3d() });
     else if (type === 'laser') send({ t: 'laser', on: args[0], pts: args[1] });
+  }
+
+  // Where the video is, as it is moved: at once, but no more than thirty times a second however quickly a
+  // scrub sends it, and always the last of a run of them.
+  let momentNext = null;
+  let momentAt = 0;
+  let momentTimer = 0;
+  function tellMoment(m) {
+    momentNext = m;
+    if (momentTimer) return;
+    const flush = () => {
+      momentTimer = 0;
+      momentAt = performance.now();
+      if (momentNext) send({ t: 'p', p: { m: momentNext } });
+      momentNext = null;
+    };
+    const wait = 33 - (performance.now() - momentAt);
+    if (wait <= 0) flush();
+    else momentTimer = setTimeout(flush, wait);
   }
 
   // While presenting: now and then the moment of a video playing (so the people watching never drift), and
@@ -185,19 +204,21 @@ const WBPresent = (() => {
       const v = host && host.viewer && host.viewer();
       if (!v || !v.isOpen()) return;
       const m = v.moment();
-      if (m && m[2]) tellPlayer({ m });
-    }, 2000);
+      if (m && m[2]) tellMoment(m);
+    }, 1000);
     let flown = '';
     poll = setInterval(() => {
       report();
       const v = host && host.viewer && host.viewer();
       const d = v && v.isOpen() ? v.view3d() : null;
+      // Flying: the view as it moves, twenty times a second, each place with when it was taken (view3d.js
+      // plays them back at that pace); nothing while it is still.
       if (d && d.f) {
-        const sig = JSON.stringify(d.f);
-        if (sig !== flown) tellPlayer({ d });
+        const sig = JSON.stringify([d.f.p, d.f.q, d.f.fov]);
+        if (sig !== flown) send({ t: 'p', p: { d } });
         flown = sig;
       }
-    }, 120);
+    }, 50);
   }
 
   // ---- starting and stopping

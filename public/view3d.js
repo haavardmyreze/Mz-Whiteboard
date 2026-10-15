@@ -259,7 +259,8 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   function holdOn(target, animate = true) {
     const ms = animate && !calm.matches ? IN_MS : 0;
     free = false;
-    track = null;
+    track.length = 0;
+    lag = Infinity;
     fixed = target;
     vel.set(0, 0, 0);
     held.clear();
@@ -311,21 +312,57 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     return { p: fixed.position.toArray().map((v) => r(v, 4)), q: fixed.quaternion.toArray().map((v) => r(v, 6)), fov: r(fixed.fov, 3) };
   }
 
-  // Flying, where the view is and where it looks, as somebody following it is sent it (see steer).
+  // Flying, where the view is and where it looks, as somebody following it is sent it (see steer), and when
+  // (`t`, this page's clock in milliseconds), so the moves can be played back at the pace they were made.
   function flight() {
     if (!free) return null;
     const r = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
-    return { p: camera.position.toArray().map((v) => r(v, 3)), q: camera.quaternion.toArray().map((v) => r(v, 5)), fov: r(camera.fov, 2) };
+    return { p: camera.position.toArray().map((v) => r(v, 3)), q: camera.quaternion.toArray().map((v) => r(v, 5)), fov: r(camera.fov, 2), t: Math.round(performance.now()) };
   }
-  // Flies to where somebody else's view is (from flight()), easing there as their moves come in.
-  let track = null;
+  // Following somebody's flight: the places they were sent from are kept, and the view is put where they were
+  // a moment ago (BEHIND), in between the two places either side of then. Played back that way, a move
+  // is as smooth here as it was there, whatever the network did to when each place arrived.
+  const BEHIND = 120; // milliseconds
+  const track = [];   // { t: their clock, p, q, fov }
+  let lag = Infinity; // how far behind their clock ours is, at the least seen: the time it takes to get here
   function steer(pov) {
     if (!pov || !Array.isArray(pov.p) || !Array.isArray(pov.q)) return;
     fly();
-    track = { p: new THREE.Vector3(...pov.p), q: new THREE.Quaternion(...pov.q).normalize(), fov: pov.fov };
-    const e = new THREE.Euler().setFromQuaternion(track.q, 'YXZ');
-    yaw = e.y;
-    pitch = e.x;
+    const now = performance.now();
+    const t = Number.isFinite(pov.t) ? pov.t : now;
+    if (track.length && t <= track[track.length - 1].t) {
+      // A clock started again (they reloaded): what was kept is no use against it.
+      if (track[track.length - 1].t - t > 1000) {
+        track.length = 0;
+        lag = Infinity;
+      } else return;
+    }
+    // The least delay seen of late: one place that came quickly says how quickly they can.
+    lag = Math.min(lag + 0.5, now - t);
+    track.push({ t, p: new THREE.Vector3(...pov.p), q: new THREE.Quaternion(...pov.q).normalize(), fov: pov.fov });
+    while (track.length > 2 && track[1].t < t - 2000) track.shift();
+  }
+  // Where the view goes this frame, following a flight: true when it was put there.
+  const here = { p: new THREE.Vector3(), q: new THREE.Quaternion() };
+  function followFlight(now) {
+    if (!track.length) return false;
+    const when = now - lag - BEHIND;
+    let i = track.length - 1;
+    while (i > 0 && track[i - 1].t > when) i--;
+    const b = track[i];
+    const a = i > 0 ? track[i - 1] : b;
+    const k = b === a || b.t <= a.t ? 1 : THREE.MathUtils.clamp((when - a.t) / (b.t - a.t), 0, 1);
+    here.p.lerpVectors(a.p, b.p, k);
+    here.q.slerpQuaternions(a.q, b.q, k);
+    camera.position.copy(here.p);
+    camera.quaternion.copy(here.q);
+    if (Number.isFinite(a.fov) && Number.isFinite(b.fov)) camera.fov = a.fov + (b.fov - a.fov) * k;
+    // Where flying would carry on from, should they stop being followed.
+    const e = new THREE.Euler().setFromQuaternion(here.q, 'YXZ');
+    yaw = viewYaw = e.y;
+    pitch = viewPitch = e.x;
+    vel.set(0, 0, 0);
+    return true;
   }
 
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -411,7 +448,9 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     last = now;
     // While the view is being steered (a drag that looks, a move key held), the pointer is out of the way.
     canvas.classList.toggle('steering', !!drag || held.size > 0);
-    if (free) {
+    if (free && followFlight(now)) {
+      // Following somebody's flight: put where they were (above).
+    } else if (free) {
       const ease = 1 - Math.exp(-dt / LOOK_EASE);
       viewYaw += (yaw - viewYaw) * ease;
       viewPitch += (pitch - viewPitch) * ease;
@@ -428,11 +467,6 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       vel.lerp(want, 1 - Math.exp(-dt / (want.lengthSq() ? EASE_IN : EASE_OUT)));
       if (!want.lengthSq() && vel.lengthSq() < 1e-6) vel.set(0, 0, 0);
       camera.position.addScaledVector(vel, dt);
-      // Following somebody's flight: on to where they are, a little behind, so their moves come in smoothly.
-      if (track) {
-        camera.position.lerp(track.p, 1 - Math.exp(-dt / 0.12));
-        if (Number.isFinite(track.fov)) camera.fov += (track.fov - camera.fov) * (1 - Math.exp(-dt / 0.12));
-      }
     }
     const r = canvas.getBoundingClientRect();
     if (!r.width || !r.height) return;
@@ -520,7 +554,8 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       applyScreens();
     }
     try {
-      if (renderer.compileAsync) await renderer.compileAsync(scene, view);
+      // In the background where the graphics card can; otherwise at once (still before it is shown).
+      if (renderer.compileAsync && renderer.extensions.has('KHR_parallel_shader_compile')) await renderer.compileAsync(scene, view);
       else renderer.compile(scene, view);
     } finally {
       if (!had && !running) {

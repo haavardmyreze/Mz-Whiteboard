@@ -31,7 +31,8 @@
 //   })
 //
 // Whoever wants to know what the player does, whatever host it has, listens with `watch(fn)`: fn('open', id),
-// ('close'), ('media', id, playing, time), ('thread', id), ('laser', id, pts), ('zoom'), ('3d').
+// ('close'), ('media', id, playing, time), ('thread', id), ('laser', id, pts), ('zoom'), ('3d'), ('muted'),
+// ('3dload', k): the venue is loading, k of it come (null while that is not known), false once it is there.
 //
 // Drawings are measured against the piece: its width is 1000, its height in proportion. A stroke is a
 // box (x, y, w, h), its points within the box from 0 to 1, how wide its line is along them (ws, times
@@ -380,6 +381,16 @@ const WBViewer = (() => {
     // A video starts again from the top when it reaches the end, unless that is turned off (remembered).
     let looping = store('wb:loop') !== false;
     let soundWanted = true;
+    // Following somebody's video (followMedia): a phone, and the catch-up waiting for a video to be able to play.
+    const coarse = matchMedia('(pointer: coarse)').matches;
+    const followWait = new WeakMap();
+    const clearFollowWait = (video) => {
+      const go = followWait.get(video);
+      if (!go) return;
+      followWait.delete(video);
+      video.removeEventListener('playing', go);
+      video.removeEventListener('canplay', go);
+    };
     let editingId = null;
     const typed = new Map(); // piece id -> what its comment box held
     const fullRes = new Set();
@@ -734,10 +745,13 @@ const WBViewer = (() => {
         d3Btn.classList.add('loading');
         d3Btn.title = 'Loading the venue…';
         let mod = null;
+        // (Whoever watches is told too: following somebody into 3D, the button is not there to see.)
         const counting = setInterval(() => {
           const k = mod ? mod.progress(opts.view3d.model) : 0;
           d3Pct.textContent = k == null ? '…' : `${Math.round(k * 100)}%`;
+          emit('3dload', k);
         }, 150);
+        emit('3dload', 0);
         try {
           mod = await import('/view3d.js');
           await readyThree(mod, opts.view3d);
@@ -747,6 +761,7 @@ const WBViewer = (() => {
           return;
         } finally {
           clearInterval(counting);
+          emit('3dload', false);
           d3Btn.disabled = false;
           d3Btn.classList.remove('loading');
           d3Pct.textContent = '';
@@ -2680,7 +2695,39 @@ const WBViewer = (() => {
           }
         }
         if (!video) return;
-        if (Math.abs(whereOf(video) - time) > (playing ? 0.25 : 0.001)) goTo(video, time);
+        // Stopped, it is on their frame exactly. Playing, a little behind or ahead is made up by playing a
+        // touch quicker or slower (a tenth at most, which nobody hears) rather than by jumping, which shows;
+        // only a second or more off, or starting to play, is gone to at once.
+        //
+        // A video still finding its moment, or waiting for more of itself to arrive (a phone on a mobile
+        // network, scrubbing through what it has not got yet), is not asked for another moment on top: each
+        // one would throw away what it was getting, and it would never catch up. It goes, once, to where
+        // they are by then, as soon as it can play. A phone (a coarse pointer) is not sped up or slowed down
+        // either: some of their browsers stop showing new frames when that changes while playing.
+        clearFollowWait(video);
+        if (!playing) {
+          video.playbackRate = 1;
+          if (Math.abs(whereOf(video) - time) > 0.001) goTo(video, time);
+        } else if (!video.paused && (video.seeking || bound.has(video) || video.readyState < 3)) {
+          const asked = performance.now();
+          const go = () => {
+            clearFollowWait(video);
+            if (videoOpen() !== video || video.paused) return;
+            const now = time + (performance.now() - asked) / 1000;
+            if (Math.abs(whereOf(video) - now) > (coarse ? 0.5 : 0.25)) goTo(video, now);
+          };
+          followWait.set(video, go);
+          video.addEventListener('playing', go, { once: true });
+          video.addEventListener('canplay', go, { once: true });
+        } else {
+          let drift = time - whereOf(video);
+          const dur = video.duration;
+          if (video.loop && dur > 0 && isFinite(dur) && Math.abs(drift) > dur / 2) drift -= Math.sign(drift) * dur;
+          if (video.paused || Math.abs(drift) > (coarse ? 0.5 : 1)) {
+            video.playbackRate = 1;
+            goTo(video, time);
+          } else video.playbackRate = coarse || Math.abs(drift) < 0.04 ? 1 : clamp(1 + drift * 0.25, 0.9, 1.1);
+        }
         // A browser that will not play sound unasked plays it without, and says so.
         if (playing) {
           video.play().catch(() => {

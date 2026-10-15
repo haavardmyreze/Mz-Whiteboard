@@ -3173,7 +3173,7 @@ function cleanPlayer(p) {
   const out = {};
   const id = (v) => typeof v === 'string' && v.length <= 60;
   const numbers = (v, n) => Array.isArray(v) && v.length === n && v.every(Number.isFinite);
-  const pose = (v) => v && typeof v === 'object' && numbers(v.p, 3) && numbers(v.q, 4) && Number.isFinite(v.fov) && { p: v.p, q: v.q, fov: v.fov };
+  const pose = (v) => v && typeof v === 'object' && numbers(v.p, 3) && numbers(v.q, 4) && Number.isFinite(v.fov) && { p: v.p, q: v.q, fov: v.fov, ...(Number.isFinite(v.t) && { t: v.t }) };
   if ('f' in p && (p.f === null || id(p.f))) out.f = p.f;
   if ('t' in p && (p.t === null || id(p.t))) out.t = p.t;
   if ('m' in p && (p.m === null || (Array.isArray(p.m) && id(p.m[0]) && Number.isFinite(p.m[1])))) out.m = p.m && [p.m[0], p.m[1], p.m[2] ? 1 : 0];

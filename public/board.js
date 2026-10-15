@@ -1852,26 +1852,29 @@
   const viewer = WBViewer.create(boardHost);
   // How far into the open piece the view is, for whoever follows: they see what is zoomed in on.
   let zoomSent = 'null';
-  viewer.watch((type) => {
+  viewer.watch((type, ...args) => {
     if (type === 'zoom' && viewer.isOpen() && viewer.host() === boardHost) {
       const z = viewer.zoom();
       if (JSON.stringify(z) !== zoomSent) sendP({ z });
       zoomSent = JSON.stringify(z);
     }
     if (type === '3d' && viewer.isOpen() && viewer.host() === boardHost) send3d();
-    // Watching a presentation, the page around this one is told the sound had to go.
+    // Watching a presentation, the page around this one is told the sound had to go, and how far the venue
+    // has come while 3D loads (it says so over everything).
     if (type === 'muted' && spectating) window.parent.postMessage({ wb: 'muted' }, location.origin);
+    if (type === '3dload' && spectating) window.parent.postMessage({ wb: '3dload', k: args[0] }, location.origin);
   });
   // How the open piece is seen in 3D, for whoever follows: 2D or 3D, the camera, a comment's frame, or
   // flying (sent as the view moves).
   let sent3d = 'null';
   function send3d() {
     const d = viewer.isOpen() && viewer.host() === boardHost ? viewer.view3d() : null;
-    const sig = JSON.stringify(d);
+    // (When a place in a flight was taken does not make it another place.)
+    const sig = JSON.stringify(d && d.f ? { ...d, f: { ...d.f, t: 0 } } : d);
     if (sig !== sent3d) sendP({ d });
     sent3d = sig;
   }
-  setInterval(() => { if (shown3d) send3d(); }, 150);
+  setInterval(() => { if (shown3d) send3d(); }, 50);
   if (spectating) {
     window.addEventListener('message', (e) => {
       if (e.origin === location.origin && e.data && e.data.wb === 'sound') viewer.sound(!!e.data.on);
@@ -1921,7 +1924,8 @@
   function queueAhead() {
     paintKept();
     // Somebody looking through a link is not given gigabytes they did not ask for: what they open is kept.
-    if (viewOnly) return;
+    // Watching a presentation is different: whoever presents is about to open them.
+    if (viewOnly && !spectating) return;
     clearTimeout(aheadTimer);
     aheadTimer = setTimeout(() => {
       // From the piece that is open onwards, since the next one is the likeliest to be wanted next.
@@ -1939,6 +1943,8 @@
     if (orderDirty) {
       orderDirty = false;
       ringItems = mediaOrder().filter((it) => it.type === 'video').map((it) => ({ src: it.src, name: it.name }));
+      // Watching a presentation, the page around this one shows how much of the board is cached.
+      if (spectating) window.parent.postMessage({ wb: 'scope', items: ringItems }, location.origin);
     }
     return { label: 'this board', items: ringItems };
   });

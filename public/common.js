@@ -297,6 +297,8 @@ const WB = (() => {
 
   function welcome() {
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    // A page shown inside another (a board being presented, in the page that watches it) is no arrival.
+    if (window.top !== window) return;
     // Opening the app or refreshing it, not moving around inside it (home to a board and back).
     const nav = performance.getEntriesByType('navigation')[0];
     const type = nav ? nav.type : 'navigate';
@@ -340,6 +342,22 @@ const WB = (() => {
       dismiss(idle);
       idle = null;
     }
+  }
+
+  // The same cover for anything else that is waited on (the presenter finding what to show next, see
+  // watch.js): `waiting(text)` puts it up, or changes what it says, and `waiting(null)` takes it away.
+  let waitingNode = null;
+  function waiting(text) {
+    if (text == null) {
+      if (waitingNode) dismiss(waitingNode);
+      waitingNode = null;
+      return;
+    }
+    if (waitingNode) {
+      waitingNode.querySelector('.splash-msg').textContent = text;
+      return;
+    }
+    waitingNode = splash('idle', text);
   }
 
   // For pages without a live connection: ask the server now and then, and reload once it is back.
@@ -590,7 +608,7 @@ const WB = (() => {
   }
 
   return {
-    el, store, remember, combo, rank, user, dialog, askName, info, shareBases, offline, watchServer, initials, ago, api, theme, setTheme, themeButton,
+    el, store, remember, combo, rank, user, dialog, askName, info, shareBases, offline, waiting, watchServer, initials, ago, api, theme, setTheme, themeButton,
     media: null, colors: USER_COLORS, saveUser, signOut, clamp, uid, hexOk, isTyping, bytes, plural, avatar, menu, closeMenus, toast, href, KEYS,
   };
 })();

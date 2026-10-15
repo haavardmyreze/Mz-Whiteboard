@@ -2540,6 +2540,7 @@ body.watch { overflow: hidden; background: var(--viewer-bg, var(--bg)); }
 .watch-project { color: var(--text-2); }
 .watch-status .iconbtn { width: 28px; height: 28px; }
 .watch-status .iconbtn.off { color: var(--muted); }
+.watch-status .kept-ring[hidden] { display: none; }
 @media (max-width: 699px) { .watch-project { display: none; } .watch-status { top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); right: 8px; } }
 /* Between things to show: what was shown last stays, and this says why. */
 .watch-note { position: fixed; left: 50%; bottom: 24px; z-index: 50; transform: translateX(-50%); padding: 8px 14px; border: 1px solid var(--tip-line); border-radius: var(--r-3); background: var(--tip-bg); box-shadow: var(--shadow-pop); color: var(--tip-fg); font-weight: 500; white-space: nowrap; }

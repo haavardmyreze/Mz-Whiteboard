@@ -33,16 +33,72 @@
   let soundOn = false;
 
   const viewer = WBViewer.create({ me: () => me, title: () => '', media: () => [], notes: () => [], locked: true, add() {}, set() {}, remove() {} });
-  viewer.watch((type) => {
+  viewer.watch((type, k) => {
+    if (type === '3dload') return void loading3d(k);
+    if (type === 'open') keptRing.paint();
     if (type !== 'muted' || !soundOn) return;
     soundOn = false;
     paintStatus();
   });
 
+  // How much of what is shown is cached on this computer (media.js's ring, as in the app's own bar): the
+  // board's videos, an asset's versions, the timeline's shots. What is shown is fetched ahead too, from the
+  // piece open on, so the presenter's next one is likelier to be here already.
+  let frameItems = [];
+  const shownItems = () => {
+    if (scene && scene.k === 'board') return frameItems;
+    if (!viewer.isOpen()) return [];
+    return (viewer.host().media() || []).filter((p) => p.type === 'video' && !p.empty).map((p) => ({ src: p.src, name: p.label || p.name }));
+  };
+  const keptBtn = el('button', { class: 'watch-kept' });
+  const keptRing = WB.media.ring(keptBtn, () => ({ label: 'what is shown', items: shownItems() }));
+  function fetchAhead() {
+    keptRing.paint();
+    if (!scene || scene.k === 'board') return;
+    const items = shownItems().map((x) => x.src);
+    const open = items.indexOf((viewer.host().media() || []).find((p) => p.id === viewer.current())?.src);
+    const from = Math.max(0, open);
+    WB.media.want('watch', [...items.slice(from), ...items.slice(0, from)], { rank: WB.media.RANK.board, hold: true });
+  }
+  window.addEventListener('message', (e) => {
+    if (e.origin !== location.origin || !e.data) return;
+    if (e.data.wb === 'scope' && Array.isArray(e.data.items)) {
+      frameItems = e.data.items.filter((x) => x && typeof x.src === 'string');
+      keptRing.paint();
+    } else if (e.data.wb === '3dload') loading3d(e.data.k);
+  });
+
+  // The venue loading for 3D (here, or on the board in the frame): over everything, how much has come.
+  // Only when it takes a moment: 3D made ready ahead (as it usually is) comes up without a flash of it.
+  let venue = false;
+  let venueTimer = 0;
+  let venueSaid = '';
+  function loading3d(k) {
+    const on = k !== false && k !== undefined;
+    venueSaid = `Loading the venue in 3D…${typeof k === 'number' ? ` ${Math.round(k * 100)}%` : ''}`;
+    if (!on) {
+      clearTimeout(venueTimer);
+      venueTimer = 0;
+      const was = venue;
+      venue = false;
+      if (was) paintNote();
+      return;
+    }
+    if (venue) return void WB.waiting(venueSaid);
+    if (!venueTimer) {
+      venueTimer = setTimeout(() => {
+        venueTimer = 0;
+        venue = true;
+        WB.waiting(venueSaid);
+      }, 300);
+    }
+  }
+
   // ---- what is said on the screen besides what is shown
 
   function fatal(text) {
     dead = true;
+    WB.waiting(null);
     if (ws) ws.close();
     viewer.close();
     stage.replaceChildren();
@@ -65,6 +121,7 @@
     status.replaceChildren(dot,
       el('span', { class: 'watch-says', text: says }),
       el('span', { class: 'watch-project', text: info ? info.project.name : '' }),
+      keptBtn,
       el('button', {
         class: `iconbtn${soundOn ? '' : ' off'}`, html: soundOn ? ICON.sound : ICON.muted,
         title: soundOn ? 'Sound on. Click to turn it off (M)' : 'Sound off. Click to turn it on (M)', onclick: () => setSound(!soundOn),
@@ -95,10 +152,15 @@
   });
 
   // Between things to show (a list of the catalogue, say), what was shown last stays, and a line says why.
+  // Over the whole of it, the same cover a lost connection has (WB.waiting): what was shown last stays behind
+  // it, blurred, until the next thing.
   function paintNote() {
+    note.hidden = true;
+    if (venue) return;
     const idle = live && !away && scene && scene.k === 'idle' && shownKey;
-    note.hidden = !idle && !(live && away && shownKey);
-    note.textContent = away ? `${presenter()} stepped away. It goes on when they are back.` : `${presenter()} is finding what to show next…`;
+    if (live && away && shownKey) WB.waiting(`${presenter()} stepped away. It goes on when they are back.`);
+    else if (idle) WB.waiting(`${presenter()} is finding what to show next…`);
+    else WB.waiting(null);
   }
   function paintWaiting() {
     if (dead) return;
@@ -115,6 +177,9 @@
   // ---- what is shown
 
   function tearDown() {
+    frameItems = [];
+    WB.media.want('watch', []);
+    if (venue) loading3d(false);
     shownKey = '';
     mounting = null;
     viewer.close();
@@ -144,6 +209,9 @@
       } else if (next.k === 'entity') {
         const page = await WB.api('GET', `/api/watch/${token}/entity/${next.entity}`);
         if (mounting !== job) return;
+        // The project has a model of its venue: 3D is made ready now, before the presenter turns to it.
+        const venue3d = page.project.settings && page.project.settings.preview3d;
+        if (venue3d && venue3d.model) viewer.prepare3d({ ...venue3d, key: page.project.id });
         await WBViewer.openEntity(viewer, next.entity, {
           version: typeof state.f === 'string' ? state.f : null, me, title: info.project.name,
           follow: { page, view: next.view, room: noteRoom, read: info.access === 'comments' },
@@ -152,6 +220,7 @@
         const data = await WB.api('GET', `/api/watch/${token}/timeline${next.task ? `?task=${encodeURIComponent(next.task)}` : ''}`);
         if (mounting !== job) return;
         const preview3d = data.project.settings && data.project.settings.preview3d;
+        if (preview3d && preview3d.model) viewer.prepare3d({ ...preview3d, key: data.project.id });
         let in3d = false;
         let reload = () => {};
         const load = () => WBViewer.runPieces(data, { seq: next.seq, task: next.task, withEmpty: next.empty, view: in3d ? preview3d.view : next.view });
@@ -177,6 +246,7 @@
     viewer.sound(soundOn);
     paintWaiting();
     apply();
+    fetchAhead();
   }
 
   // Whoever is watching is shown what the presenter's player does: the piece, 2D or 3D, the moment, the

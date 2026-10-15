@@ -258,11 +258,33 @@
     });
   }
 
+  // A download given up on part of the way (fetching ahead gives way to whatever is opened, which on a
+  // slow line, a phone's say, is every shot of a timeline) keeps what it had, and the next one for the same
+  // file carries on from there. An uploaded file never changes under its name, so the pieces always fit.
+  const partials = new Map(); // src -> { pieces, loaded, size, type }
+  const PARTIAL_MAX = 512 * 1024 * 1024;
+  function keepPartial(src, part) {
+    if (!part.loaded || part.loaded >= part.size) return;
+    partials.delete(src);
+    partials.set(src, part);
+    let sum = 0;
+    for (const p of partials.values()) sum += p.loaded;
+    for (const [s, p] of partials) {
+      if (sum <= PARTIAL_MAX) break;
+      partials.delete(s);
+      sum -= p.loaded;
+    }
+  }
+
   // Fetches a video whole, with how far it has come, into a Blob. `room(size)` is asked once the size is
   // known, before anything is read: no room, and nothing more is fetched.
   async function download(src, signal, onProgress, room) {
-    const res = await fetch(src, { signal });
-    const size = Number(res.headers.get('content-length')) || 0;
+    const had = partials.get(src);
+    partials.delete(src);
+    const res = await fetch(src, { signal, ...(had && { headers: { Range: `bytes=${had.loaded}-` } }) });
+    // Carried on from where the last one stopped, or (the server sent it all) from the start.
+    const goesOn = !!had && res.status === 206 && new RegExp(`^bytes ${had.loaded}-\\d+/${had.size}$`).test(res.headers.get('content-range') || '');
+    const size = goesOn ? had.size : Number(res.headers.get('content-length')) || 0;
     const refuse = (why, permanent) => {
       if (res.body) res.body.cancel().catch(() => {});
       throw Object.assign(new Error(why), { permanent });
@@ -271,17 +293,30 @@
     if (!res.body || !size || size > ITEM_MAX) refuse('not one to keep', true);
     if (room && !(await room(size))) refuse('no room', false);
     const reader = res.body.getReader();
-    const pieces = [];
-    let loaded = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      pieces.push(value);
-      loaded += value.length;
-      if (onProgress) onProgress(loaded, size);
+    const type = (goesOn && had.type) || res.headers.get('content-type') || 'video/mp4';
+    const pieces = goesOn ? had.pieces : [];
+    let loaded = goesOn ? had.loaded : 0;
+    if (onProgress && loaded) onProgress(loaded, size);
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        pieces.push(value);
+        loaded += value.length;
+        if (onProgress) onProgress(loaded, size);
+      }
+    } catch (err) {
+      keepPartial(src, { pieces, loaded, size, type });
+      throw err;
     }
-    return new Blob(pieces, { type: res.headers.get('content-type') || 'video/mp4' });
+    if (loaded !== size) {
+      keepPartial(src, { pieces, loaded, size, type });
+      throw new Error('cut short');
+    }
+    return new Blob(pieces, { type });
   }
+  // How far a file has come, counting what a download given up on had.
+  const partialOf = (src) => (partials.has(src) ? partials.get(src).loaded / partials.get(src).size : 0);
 
   const withLock = (src, fn) => (navigator.locks ? navigator.locks.request(`wb-media:${src}`, fn) : fn());
 
@@ -574,9 +609,9 @@
   function progressOf(src) {
     if (index.has(src)) return 1;
     const job = inflight.get(src);
-    return job && job.total ? job.loaded / job.total : 0;
+    return job && job.total ? job.loaded / job.total : partialOf(src);
   }
-  const coming = (src) => !index.has(src) && inflight.has(src);
+  const coming = (src) => !index.has(src) && (inflight.has(src) || partials.has(src));
 
   function ring(button, scope) {
     const el = WB.el;
@@ -635,7 +670,8 @@
         el('div', { class: 'kp-head' }, big,
           el('div', { class: 'kp-title' }, el('b', { text: `${m.here.length} of ${m.srcs.length} ${m.srcs.length === 1 ? 'video' : 'videos'}` }), el('span', { text: `cached from ${m.label}` })),
           el('b', { class: 'kp-size', text: sizeLabel(hereBytes) })),
-        paused() && m.here.length < m.srcs.length && el('div', { class: 'kp-warn', title: 'Turned off in your settings, the disk is full, or the browser is saving data' }, el('span', { html: ICON.pause }), 'Paused'),
+        paused() && m.here.length < m.srcs.length && el('div', { class: 'kp-warn' }, el('span', { html: ICON.pause }),
+          { off: 'Paused: turned off in your settings', data: 'Paused: the browser is saving data', full: 'Paused: no more room on this device', unavailable: 'Not kept: this browser cannot' }[paused()] || 'Paused'),
         list.length > 0 && el('div', { class: 'kp-list' }, list.map(([src, f]) => el('div', { class: 'kp-item' },
           el('span', { class: 'kp-name', text: m.nameOf(src) }), el('span', { class: 'kp-pct', text: `${Math.floor(f * 100)}%` }), bar(f)))),
         m.remote > 0 && el('div', { class: 'kp-line', title: 'Too large to cache, or could not be cached' },
@@ -666,10 +702,11 @@
       button.querySelector('.kept-label').textContent = full ? 'Cached' : `${done}/${n} cached`;
       button.classList.toggle('full', full);
       button.classList.toggle('off', !!paused() && !full);
+      const why = { off: 'it is turned off in your settings', data: 'the browser is saving data (data saver, or low data mode)', full: 'this device has no more room for it', unavailable: 'this browser cannot keep videos here' }[paused()];
       const tip = full
         ? `${n === 1 ? 'The video' : `All ${n} videos`} of ${m.label} ${n === 1 ? 'is' : 'are'} cached on this computer, so ${n === 1 ? 'it opens and scrubs' : 'they open and scrub'} instantly`
         : paused()
-          ? `${done} of ${n} ${videos} of ${m.label} cached on this computer. Caching has stopped: it is turned off, the disk is full, or the browser is saving data`
+          ? `${done} of ${n} ${videos} of ${m.label} cached on this computer. Caching has stopped: ${why}`
           : `Caching the videos of ${m.label} on this computer so they open and scrub instantly: ${done} of ${n} done`;
       if (button.dataset.tip !== tip) {
         button.dataset.tip = tip;

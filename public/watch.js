@@ -52,19 +52,32 @@
   };
   const keptBtn = el('button', { class: 'watch-kept' });
   const keptRing = WB.media.ring(keptBtn, () => ({ label: 'what is shown', items: shownItems() }));
+  // Once a video is on this device it plays and scrubs without waiting on the network, which on a phone is
+  // the whole difference. So everything shown in this visit stays wanted, not only what is shown now: what
+  // is shown now first (from the piece open on), then what was shown before, latest first, in case the
+  // presenter goes back to it.
+  const shownBefore = []; // src, the latest shown first
   function fetchAhead() {
     keptRing.paint();
-    if (!scene || scene.k === 'board') return;
+    if (!scene) return;
     const items = shownItems().map((x) => x.src);
     const open = items.indexOf((viewer.host().media() || []).find((p) => p.id === viewer.current())?.src);
     const from = Math.max(0, open);
-    WB.media.want('watch', [...items.slice(from), ...items.slice(0, from)], { rank: WB.media.RANK.board, hold: true });
+    const now = [...items.slice(from), ...items.slice(0, from)];
+    for (const src of [...now].reverse()) {
+      const i = shownBefore.indexOf(src);
+      if (i >= 0) shownBefore.splice(i, 1);
+      shownBefore.unshift(src);
+    }
+    // A board fetches its own (board.js, in the frame); the rest of the visit comes after what is shown now.
+    if (scene.k !== 'board') WB.media.want('watch', now, { rank: WB.media.RANK.board, hold: true });
+    WB.media.want('watch:before', shownBefore.filter((src) => !now.includes(src)), { rank: WB.media.RANK.page, hold: true });
   }
   window.addEventListener('message', (e) => {
     if (e.origin !== location.origin || !e.data) return;
     if (e.data.wb === 'scope' && Array.isArray(e.data.items)) {
       frameItems = e.data.items.filter((x) => x && typeof x.src === 'string');
-      keptRing.paint();
+      fetchAhead();
     } else if (e.data.wb === '3dload') loading3d(e.data.k);
   });
 

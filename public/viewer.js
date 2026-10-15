@@ -534,11 +534,8 @@ const WBViewer = (() => {
         open = piece;
         mount(piece);
       }
-      // A project last looked at in 3D opens in 3D.
-      if (!was) {
-        paintDims();
-        if (has3d() && store(key3d()) === true) set3d(true, { remember: false });
-      }
+      // The player always opens on the picture itself (2D); 3D is a switch away.
+      if (!was) paintDims();
       document.body.classList.toggle('focus-video', piece.type === 'video');
       if (runMode() && (!was || was.id !== id)) {
         stillAt = 0;
@@ -658,8 +655,7 @@ const WBViewer = (() => {
     let in3d = false;
     let three = null; // the 3D view, made the first time it is asked for
     const has3d = () => !!(opts.view3d && opts.view3d.model);
-    const key3d = () => `wb:3d:${opts.view3d.key || ''}`;
-    async function set3d(on, { remember = true } = {}) {
+    async function set3d(on) {
       on = !!on && has3d() && !!open;
       if (on === in3d) return;
       if (on) {
@@ -689,7 +685,6 @@ const WBViewer = (() => {
         toast('The drawing was taken away: it was made in the other view', { ms: 3500 });
       }
       in3d = on;
-      if (remember) store(key3d(), on);
       if (three) three.goTo('main', false);
       if (opts.onMode3d) opts.onMode3d(on);
       arrange();

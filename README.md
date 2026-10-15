@@ -392,8 +392,7 @@ filed in it.
   box clicked into) the view holds still where it is, letterboxed 16:9, and that view is kept with the
   comment, so what is drawn lands on the same thing for everyone. Picking the comment glides back to it
   (turning the player to 3D if need be); a drawing shows only from there. Such a comment says
-  "Drawing in 3D", or "In 3D" with no drawing. Whether a project was last
-  looked at in 3D is remembered per browser. The room is lit from all round so nothing in it is black.
+  "Drawing in 3D", or "In 3D" with no drawing. The player always opens in 2D. The room is lit from all round so nothing in it is black.
 - **Views of a version.** A version can be shown more than one way, each its own file: on projection
   work, say, the unwrapped picture (cmp, or vr) and how it looks projected (bty, or bty-left, top,
   side...). A word after the version in a file's name is its view (`ch04-0030_comp_erik_v110_bty.mov`),

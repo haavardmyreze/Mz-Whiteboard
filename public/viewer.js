@@ -423,11 +423,11 @@ const WBViewer = (() => {
       const coming = [...runClips.slice(i), ...(looping ? runClips.slice(0, i) : [])].slice(0, 6);
       WB.media.want('run', coming.filter((c) => c.piece.type === 'video').map((c) => c.piece.src), { rank: WB.media.RANK.run, hold: true });
       const next = runClips[i + 1] || (looping ? runClips[0] : null);
-      if (spare && (!next || spare.id !== next.id)) dropSpare();
+      if (spare && (!next || spare.id !== next.id || spare.src !== next.piece.src)) dropSpare();
       if (!next || next.piece.type !== 'video' || next.id === open.id || spare) return;
       const video = makeVideo(next.piece);
       video.muted = !!(videoOpen() && videoOpen().muted);
-      spare = { id: next.id, video };
+      spare = { id: next.id, src: next.piece.src, video };
       spareBox.replaceChildren(video);
     }
     function dropSpare() {
@@ -588,7 +588,7 @@ const WBViewer = (() => {
       fullRes.delete(piece.id);
       if (piece.type === 'video') {
         let video;
-        if (spare && spare.id === piece.id) {
+        if (spare && spare.id === piece.id && spare.src === piece.src) {
           video = spare.video;
           spare = null;
         } else video = makeVideo(piece);
@@ -694,12 +694,23 @@ const WBViewer = (() => {
         const now = pieces.find((p) => p.id === open.id);
         if (!now) return void close();
         // Another file under the same piece (a newer version swapped in, a video given its original): shown afresh.
+        // Another view of the same version is the same moment seen another way: it stays on that moment.
         if (now.src !== open.src || now.type !== open.type) {
+          const was = videoOpen();
+          const keepAt = was && now.shownView !== open.shownView ? whereOf(was) : null;
           leavePiece(open);
           open = now;
           mount(now);
           layout();
           fit();
+          const video = videoOpen();
+          if (video && keepAt != null) {
+            video.addEventListener('loadedmetadata', () => {
+              goTo(video, keepAt);
+              if (runMode() && runPlaying && media === video) playOpen();
+            }, { once: true });
+          } else if (runMode() && runPlaying) playOpen();
+          if (runMode()) prepareSpare();
         } else {
           open = now;
         }
@@ -713,8 +724,10 @@ const WBViewer = (() => {
     const versionPart = (p) => (p.empty ? 'nothing filed yet' : (p.label || '').startsWith(`${p.name} `) ? p.label.slice(p.name.length + 1) : p.label || '');
     function paintAll() {
       if (!open) return;
-      nameEl.textContent = runMode() && open.name ? [open.name, versionPart(open)].filter(Boolean).join(' · ')
-        : open.label || open.name || (open.type === 'video' ? 'Video' : 'Image');
+      // Shown one of several ways: which, since a shot without the view chosen shows its main one.
+      const way = open.viewNames && open.viewNames.length > 1 ? open.shownView || 'main' : '';
+      nameEl.textContent = [runMode() && open.name ? [open.name, versionPart(open)].filter(Boolean).join(' · ')
+        : open.label || open.name || (open.type === 'video' ? 'Video' : 'Image'), way].filter(Boolean).join(' · ');
       // A version's file name is still there, on a hover over its label.
       nameEl.title = open.label && open.name && open.name !== open.label ? open.name : '';
       runCap.hidden = !runMode();
@@ -960,23 +973,39 @@ const WBViewer = (() => {
       const sig = runClips.map((c) => `${c.id}:${c.dur.toFixed(2)}:${c.piece.poster || c.piece.th || ''}`).join('|');
       if (force || sig !== runSig) {
         runSig = sig;
+        const pct = (at) => `${(at / runTotal) * 100}%`;
+        // Along the top, the sequences: a band each, shaded in turn, named where there is room.
+        const seqs = [];
+        for (const c of runClips) {
+          const last = seqs[seqs.length - 1];
+          if (last && last.seq === (c.piece.seq || '')) last.end = c.start + c.dur;
+          else seqs.push({ seq: c.piece.seq || '', start: c.start, end: c.start + c.dur });
+        }
+        const band = el('span', { class: 'tl-seqs' }, seqs.map((q, i) => el('i', {
+          class: `tl-seq${i % 2 ? ' odd' : ''}`, 'data-seq': q.seq, title: q.seq,
+          style: { left: pct(q.start), width: pct(q.end - q.start) },
+        }, el('b', { text: q.seq }))));
+        // Under it, every shot as its stills, cut from the next by a line; its name only where it fits.
         let seq = null;
-        tlRun.replaceChildren(...runClips.map((c) => {
+        const clipEls = runClips.map((c) => {
           const still = stillOf(c.piece);
-          const starts = c.piece.seq && c.piece.seq !== seq;
+          const starts = !!c.piece.seq && c.piece.seq !== seq;
           seq = c.piece.seq;
-          // Its stills along the top, at their own shape, and under them, on a plain band, its shot and version.
           return el('i', {
             class: `tl-clip${starts ? ' seq-start' : ''}${c.piece.empty ? ' empty' : ''}`, 'data-id': c.id, title: c.piece.label || c.piece.name || '',
-            style: { left: `${(c.start / runTotal) * 100}%`, width: `${(c.dur / runTotal) * 100}%` },
+            style: { left: pct(c.start), width: pct(c.dur) },
           },
-          el('span', { class: 'tl-clippic', style: still && !c.piece.empty ? { backgroundImage: `url("${still}")` } : {} }, starts && el('b', { class: 'tl-seqname', text: c.piece.seq })),
+          el('span', { class: 'tl-clippic', style: still && !c.piece.empty ? { backgroundImage: `url("${still}")` } : {} }),
           el('span', { class: 'tl-clipname' }, el('b', { text: c.piece.name || '' }), !c.piece.empty && el('span', { text: versionPart(c.piece) })));
-        }));
+        });
+        tlRun.classList.toggle('one-seq', seqs.length < 2 && !seqs[0]?.seq);
+        tlRun.replaceChildren(band, el('span', { class: 'tl-clips' }, clipEls), el('i', { class: 'tl-window' }));
         cut.setClips(runClips, runTotal);
         paintCutMarks();
       }
-      for (const n of tlRun.children) n.classList.toggle('at', n.dataset.id === (open && open.id));
+      const atClip = runClips.find((c) => c.id === (open && open.id));
+      for (const n of tlRun.querySelectorAll('.tl-clip')) n.classList.toggle('at', n.dataset.id === (open && open.id));
+      for (const n of tlRun.querySelectorAll('.tl-seq')) n.classList.toggle('at', !!atClip && n.dataset.seq === (atClip.piece.seq || ''));
       const i = runClips.findIndex((c) => c.id === (open && open.id));
       posEl.textContent = `${i + 1} / ${runClips.length}`;
       posEl.style.minWidth = `${String(runClips.length).length * 2 + 3}ch`;
@@ -1005,6 +1034,7 @@ const WBViewer = (() => {
         syncTimeline();
         told();
       },
+      onZoom: () => syncTimeline(),
     });
     // Comments on any shot of the run, where they are in it.
     function paintCutMarks() {
@@ -1047,7 +1077,11 @@ const WBViewer = (() => {
       const here = c ? c.start + (video ? at : stillAt) : at;
       const span = c ? runTotal : dur;
       tlTrack.style.setProperty('--p', `${(span > 0 && isFinite(span) ? clamp(here / span, 0, 1) : 0) * 100}%`);
-      if (c) cut.setTime(here);
+      if (c) {
+        cut.setTime(here);
+        // The stretch the close-up shows, marked on the whole run.
+        tlTrack.style.setProperty('--w', `${clamp(cut.span() / (runTotal || 1), 0, 1) * 100}%`);
+      }
       const label = timeLabel(here, span, fps);
       if (tlTime.textContent !== label) tlTime.textContent = label;
       const playing = runMode() ? runPlaying || (video && !video.paused) : !video.paused;
@@ -2192,10 +2226,21 @@ const WBViewer = (() => {
     // a frame (with Shift, a second), Space or K plays and pauses, M is the sound. Keys the viewer has no
     // use for are left to the page.
     const { isTyping } = WB;
+    // Space plays even when a control clicked a moment ago (a dropdown in the bar, a button or a link in the
+    // page's sidebar beside a docked player) still has the keyboard: it lets go, and the player takes the key.
+    // Only somewhere text is typed, a dialog or a menu keeps Space.
+    const heldControl = (t) => t instanceof Element && t.matches('select, button, a[href], input[type="checkbox"], input[type="radio"], input[type="range"]')
+      && !t.closest('dialog, .wb-menu, .notices, [role="menu"], [role="dialog"]');
     window.addEventListener('keydown', (e) => {
-      if (!open || isTyping(e.target) || document.querySelector('dialog[open]')) return;
+      let released = false;
+      if (open && e.code === 'Space' && !e.ctrlKey && !e.metaKey && !e.altKey && heldControl(e.target) && !document.querySelector('dialog[open]')
+        && (root.contains(e.target) || root.classList.contains('docked'))) {
+        e.target.blur();
+        released = true;
+      }
+      if (!open || (!released && isTyping(e.target)) || document.querySelector('dialog[open]')) return;
       // Docked beside the page's own sidebar and bar, what has the keyboard there keeps its keys.
-      if (root.classList.contains('docked') && e.target instanceof Element && e.target !== document.body && !root.contains(e.target)) return;
+      if (!released && root.classList.contains('docked') && e.target instanceof Element && e.target !== document.body && !root.contains(e.target)) return;
       const k = e.key.toLowerCase();
       // Enter works a button that has the keyboard; Space always plays and pauses, even when a button
       // clicked a moment ago still has it.
@@ -2343,6 +2388,33 @@ const WBViewer = (() => {
     };
   }
 
+  // ---------------------------------------------------------------- a version's views
+  //
+  // A version may be shown more than one way: the unwrapped picture (cmp, vr) and how it looks projected
+  // (bty, or bty-left, top, side...), each its own file. Its look is the main one, with the others in
+  // `views`. Most have none, and then nothing here is ever seen.
+  const MEDIA_KEYS = ['type', 'src', 'orig', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'wf', 'name'];
+  // Its views' names, the main one first ('' when the main one has none).
+  const viewsOf = (look) => [look.view || '', ...(look.views || []).map((v) => v.view)];
+  // The look of a version as seen in `view`: that view's file, or the main one's when it has none of that
+  // name. `shownView` says which it is.
+  function inView(look, view) {
+    const { views, ...main } = look;
+    const pick = view && view !== main.view && (views || []).find((v) => v.view === view);
+    if (!pick) return { ...main, shownView: main.view || '', viewNames: viewsOf(look) };
+    const out = { ...main };
+    for (const k of MEDIA_KEYS) delete out[k];
+    return { ...out, ...pick, name: pick.name || main.name, shownView: pick.view, viewNames: viewsOf(look) };
+  }
+  const viewLabel = (name) => name || 'Main';
+  // The picker for which view: a dropdown for the bar, of `names`, at `value`.
+  function viewPicker(names, value, onPick) {
+    const sel = el('select', { class: 'v-pick v-viewpick', 'aria-label': 'Which view', title: 'Which view of each version to show' },
+      names.map((n) => el('option', { value: n, text: viewLabel(n), ...(n === value && { selected: true }) })));
+    sel.addEventListener('change', () => onPick(sel.value));
+    return sel;
+  }
+
   // ---------------------------------------------------------------- an asset, set or shot's versions
   //
   // Opens the versions of one entity of a project's catalogue in a player, at `version` (or the newest).
@@ -2440,7 +2512,25 @@ const WBViewer = (() => {
     if (!versions.length) throw new Error('There is nothing filed under it yet');
     // Oldest first, so the arrows go forward in time; the newest of each task last.
     versions.sort((a, b) => (a.task || '').localeCompare(b.task || '') || a.number - b.number);
-    const pieces = versions.map((v) => ({ ...v.look, id: v.id, type: v.kind || v.look.type, label: v.label, name: v.look.name || v.originalName }));
+    // Each in the view last chosen in this project, where it has that view.
+    const viewKey = `wb:view:${page.entity.projectId}`;
+    let view = WB.store(viewKey) || '';
+    const piecesIn = (name) => versions.map((v) => {
+      const look = inView(v.look, name);
+      return { ...look, id: v.id, type: look.type || v.kind, label: v.label, name: look.name || v.originalName };
+    });
+    let pieces = piecesIn(view);
+    // A version shown more than one way has the way to choose in the bar; one shown one way, nothing.
+    const showPicker = (id) => {
+      const p = pieces.find((x) => x.id === id);
+      const names = p ? p.viewNames : [];
+      viewer.extras.replaceChildren(...(names.length > 1 ? [viewPicker(names, p.shownView, (name) => {
+        view = name;
+        WB.store(viewKey, name);
+        pieces = piecesIn(view);
+        viewer.refresh();
+      })] : []));
+    };
     const shape = (list) => list.map((n) => (n.type === 'comment' ? n : { ...n, type: 'comment', on: n.versionId, obn: n.board && n.board.id ? n.board.name : 'the catalogue' }));
     let notes = shape(page.notes);
     const room = entityRoom(entityId, me, (list) => {
@@ -2455,8 +2545,10 @@ const WBViewer = (() => {
       notes: () => notes,
       can: { member: () => true },
       ...roomNotes(viewer, () => room, () => notes, (next) => { notes = next; }),
+      onOpen: showPicker,
       onClose: () => {
         room.close();
+        viewer.extras.replaceChildren();
         onClose();
       },
     });
@@ -2520,19 +2612,22 @@ const WBViewer = (() => {
       },
     });
     // The run's own choices go in the bar: which sequence, which task. A new choice starts it again.
+    // A choice that only changes how the shots are seen (`keep`: which view) stays where the run is.
     if (choices) {
-      viewer.extras.replaceChildren(...choices(async () => {
+      viewer.extras.replaceChildren(...choices(async ({ keep = false } = {}) => {
         const next = await load();
         if (!next.length) return void WB.dialog({ title: 'Nothing to play', text: 'No shot there has anything filed yet.', ok: 'OK', cancellable: false });
+        const at = viewer.current();
         pieces = next;
-        viewer.open(pieces[0].id);
+        if (keep && pieces.some((p) => p.id === at)) viewer.refresh();
+        else viewer.open(pieces[0].id);
       }));
     }
     viewer.open(pieces[0].id);
   }
 
   return {
-    create, openEntity, openRun, entityRoom, ICON, INK, inkColor, pathData, outlinePath, strokeNode, fmtTime, fmtMoment, timeLabel, cycleTimeMode,
+    create, openEntity, openRun, entityRoom, inView, viewPicker, ICON, INK, inkColor, pathData, outlinePath, strokeNode, fmtTime, fmtMoment, timeLabel, cycleTimeMode,
     frameTime, frameIndex, lastFrame, goTo, whereOf, changing, switchSource, fetchWhole, releaseWhole, showWave,
     timeMode: () => timeMode,
   };

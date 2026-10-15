@@ -1376,11 +1376,14 @@ test('a board is kept as it was before each round of changes, and can be put bac
 const naming = require('../public/naming');
 
 test('a file name fills in what it can, and a name that says nothing is no trouble', () => {
-  assert.deepEqual(naming.parse('kilo-0010_anim_erik_v012.mov'), { entity: 'kilo-0010', tier: 'shot', task: 'anim', descriptor: null, artist: 'erik', hip: 12 });
-  assert.deepEqual(naming.parse('char-robot_lookdev_metal_worn_anna_v3.png'), { entity: 'char-robot', tier: 'asset', task: 'lookdev', descriptor: 'metal_worn', artist: 'anna', hip: 3 });
+  assert.deepEqual(naming.parse('kilo-0010_anim_erik_v012.mov'), { entity: 'kilo-0010', tier: 'shot', task: 'anim', descriptor: null, artist: 'erik', hip: 12, view: null });
+  assert.deepEqual(naming.parse('char-robot_lookdev_metal_worn_anna_v3.png'), { entity: 'char-robot', tier: 'asset', task: 'lookdev', descriptor: 'metal_worn', artist: 'anna', hip: 3, view: null });
   assert.equal(naming.parse('set-living-room_dressing_v001.jpg').task, 'dressing');
   assert.equal(naming.parse('set-living-room_erik_v001.jpg').artist, 'erik');
-  assert.deepEqual(naming.parse('screenshoot_090126.png'), { entity: null, tier: null, task: null, descriptor: null, artist: null, hip: null });
+  assert.deepEqual(naming.parse('screenshoot_090126.png'), { entity: null, tier: null, task: null, descriptor: null, artist: null, hip: null, view: null });
+  // A word after the version is the view the file shows.
+  assert.equal(naming.parse('ch04-0030_comp_erik_v110_bty-left.mp4').view, 'bty-left');
+  assert.equal(naming.parse('ch04-0030_comp_erik_v110_bty-left.mp4').hip, 110);
   assert.equal(naming.parse('Robot Final v3.png').hip, 3);
   assert.equal(naming.tierOf('kilo-0010'), 'shot');
   assert.equal(naming.tierOf('veh-truck'), 'asset');
@@ -1884,6 +1887,46 @@ test('a file brought in can ask for its version number, and the catalogue says w
   assert.equal((await file(null, 3)).body.versions[0].label, 'kilo-0010 v3');
   const e = (await call('GET', `/api/projects/${project.id}`)).body.entities[0];
   assert.deepEqual(e.tops, { anim: 8, '': 3 });
+});
+
+test('a version can be shown more than one way: each view is filed with it, by name, and none twice', async (t) => {
+  const s = start(4898);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const up = async () => (await (await fetch(`${s.base}/api/upload?name=a.mp4`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
+  const file = async (files) => call('POST', `/api/projects/${project.id}/versions`, { entity: { name: 'kilo-0010' }, task: 'comp', files });
+  const look = async (name) => ({ type: 'video', src: await up(), name, dur: 4 });
+  // The first is the version; a bty of the same number goes with it rather than being refused.
+  const cmp = (await file([{ view: 'cmp', look: await look('a_cmp.mp4') }])).body.versions[0];
+  assert.equal(cmp.label, 'kilo-0010 comp v1');
+  assert.equal(cmp.look.view, 'cmp');
+  const bty = (await file([{ view: 'bty', number: 1, look: await look('a_bty.mp4') }])).body.versions[0];
+  assert.equal(bty.id, cmp.id);
+  assert.equal(bty.filedView, 'bty');
+  assert.deepEqual(bty.look.views.map((v) => v.view), ['bty']);
+  // A view it has already, or a number taken without saying a view, is refused as ever.
+  assert.equal((await file([{ view: 'BTY', number: 1, look: await look('b.mp4') }])).status, 409);
+  assert.equal((await file([{ number: 1, look: await look('c.mp4') }])).status, 409);
+  // A view with no number goes with the newest version that lacks it.
+  const top = (await file([{ view: 'top', look: await look('d.mp4') }])).body.versions[0];
+  assert.equal(top.id, cmp.id);
+  // Two views of a new version brought in together: one version, two views.
+  const two = (await file([{ view: 'cmp', number: 2, look: await look('e.mp4') }, { view: 'bty', number: 2, look: await look('f.mp4') }])).body.versions;
+  assert.equal(two[0].id, two[1].id);
+  assert.deepEqual(two[1].look.views.map((v) => v.view), ['bty']);
+  // The timeline and the catalogue carry the views, and the project knows their names.
+  const tl = (await call('GET', `/api/projects/${project.id}/timeline`)).body;
+  assert.deepEqual(tl.views, ['bty', 'cmp', 'top']);
+  assert.equal(tl.shots[0].version.look.view, 'cmp');
+  assert.deepEqual(tl.shots[0].version.look.views.map((v) => v.view), ['bty']);
+  assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.views, ['bty', 'cmp', 'top']);
 });
 
 test('many assets, sets and shots are edited at once: artists and cc added, taken off or set, and what they are', async (t) => {

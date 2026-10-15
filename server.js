@@ -864,12 +864,15 @@ function holdsAnything(folder) {
 // catalogue page. A piece on a board that shows a version says which (`ver`); the board shows what it is
 // called, and when there is a newer one.
 
-const LOOK_KEYS = ['type', 'src', 'orig', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'wf', 'name'];
+const LOOK_KEYS = ['type', 'src', 'orig', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'wf', 'name', 'view'];
+const MAX_VIEWS = 16;
 const UPLOAD_KEYS = new Set(['src', 'orig', 'prev', 'th', 'poster']);
 
 // What a board needs to show a file, taken from a piece on a board or from a file brought into the catalogue, keeping
 // only what such a piece has: addresses of uploaded files, its size, length and rate, its name.
-function cleanLook(asked) {
+// A version's look may also say which view it is (`view`: cmp, bty, top...) and carry its other views
+// (`views`: a look each, every one named and none twice); a view itself carries no more views.
+function cleanLook(asked, nested = false) {
   const look = {};
   if (!asked || typeof asked !== 'object') return null;
   for (const key of LOOK_KEYS) {
@@ -881,6 +884,9 @@ function cleanLook(asked) {
       if (v === 'image' || v === 'video') look.type = v;
     } else if (key === 'name') {
       if (typeof v === 'string') look.name = v.slice(0, 200);
+    } else if (key === 'view') {
+      const view = viewName(v);
+      if (view) look.view = view;
     } else if (key === 'wf') {
       // The timeline strip: the colours of the picture and the loudness of the sound, each packed small.
       if (v && typeof v === 'object' && typeof v.c === 'string' && v.c.length < 100000 && (v.p === undefined || (typeof v.p === 'string' && v.p.length < 100000))) look.wf = { c: v.c, ...(v.p && { p: v.p }) };
@@ -889,8 +895,19 @@ function cleanLook(asked) {
     }
   }
   if (!look.src || !look.type || !store.media(uploadName(look.src))) return null;
+  if (!nested && Array.isArray(asked.views)) {
+    const views = [];
+    for (const x of asked.views.slice(0, MAX_VIEWS)) {
+      const c = cleanLook(x, true);
+      if (c && c.view && c.view !== look.view && !views.some((y) => y.view === c.view)) views.push(c);
+    }
+    if (views.length) look.views = views;
+  }
   return look;
 }
+// What a view is called: a token (bty, bty-left, cmp), short.
+const viewName = (v) => (typeof v === 'string' ? naming.tokenize(v).slice(0, 40) || null : null);
+const hasView = (look, view) => look.view === view || (look.views || []).some((x) => x.view === view);
 
 // A version as a board and the catalogue show it: what it is called, and the newest of its entity and
 // task when that is a later one.
@@ -1004,7 +1021,7 @@ function fileVersions(req, project, body) {
     const asked = f.number ?? null;
     if (asked != null && !validNumber(asked)) throw refusal(400, 'A version number is a whole number from 1');
     return {
-      board, item, look, asked,
+      board, item, look, asked, view: viewName(f.view) || look.view || null,
       entity: entityFor(project, pick('entity') ?? (parsed.entity && { name: parsed.entity, tier: parsed.tier })),
       task: pick('task') !== undefined ? tokenOrNull(pick('task')) : parsed.task,
       descriptor: pick('descriptor') !== undefined ? tokenOrNull(pick('descriptor')) : parsed.descriptor,
@@ -1012,18 +1029,44 @@ function fileVersions(req, project, body) {
     };
   });
   // A number asked for that another version has, or that two of these ask for, is refused now too.
-  const asking = new Set();
+  // Unless it is another view of that version (a file saying which view it is, bty to go with the cmp
+  // there): then it goes with that version, as long as the version has no view of that name yet. One
+  // saying its view and no number goes with the newest version of its entity and task that lacks that view.
+  const asking = new Map();
   for (const p of plan) {
+    const label = (n) => naming.label(p.entity.name, p.task, n);
+    if (p.view && p.asked == null && !p.entity.make) {
+      const newest = store.newestVersion(p.entity.id, p.task);
+      const v = newest && store.version(newest.id);
+      if (v && !hasView(v.look, p.view)) p.onto = v;
+    }
     if (p.asked == null) continue;
     const taken = !p.entity.make && store.numberHolder(p.entity.id, p.task, p.asked);
-    if (taken) throw refusal(409, takenMessage(taken));
+    if (taken) {
+      if (!p.view || taken.deletedAt) throw refusal(409, takenMessage(taken));
+      if (hasView(taken.look, p.view)) throw refusal(409, `${label(p.asked)} has a ${p.view} view already`);
+      p.onto = taken;
+    }
     const key = `${p.entity.make ? `+${p.entity.name}` : p.entity.id}|${p.task || ''}|${p.asked}`;
-    if (asking.has(key)) throw refusal(409, `${naming.label(p.entity.name, p.task, p.asked)} is asked for twice`);
-    asking.add(key);
+    const before = asking.get(key);
+    if (before) {
+      // Two views of one version brought in together: the first makes it, the others go with it.
+      const views = [before.view, ...plan.filter((o) => o.with === before).map((o) => o.view)];
+      if (!p.view || !before.view || views.includes(p.view)) throw refusal(409, `${label(p.asked)} is asked for twice`);
+      if (!p.onto) p.with = before;
+    } else asking.set(key, p);
   }
   const filed = store.transaction(() => plan.map((p) => {
     const entity = madeEntity(project, p.entity, by);
     let v;
+    const onto = p.onto || (p.with && p.with.made);
+    if (onto) {
+      v = store.addView(onto.id, { ...p.look, view: p.view });
+      // Said about the piece, it is said about the version it is now a view of.
+      if (p.board) store.fileNotes(p.board.id, p.item.id, v.id);
+      return { p, v };
+    }
+    if (p.view) p.look.view = p.view;
     try {
       v = store.addVersion({
         id: newId(), entityId: entity.id, task: p.task, number: p.asked, descriptor: p.descriptor, artist: p.artist,
@@ -1036,6 +1079,7 @@ function fileVersions(req, project, body) {
     }
     // What was said about the piece goes with it: from now on it is said about the version.
     if (p.board) store.fileNotes(p.board.id, p.item.id, v.id);
+    p.made = v;
     return { p, v };
   }));
   for (const { p, v } of filed) {
@@ -1046,7 +1090,7 @@ function fileVersions(req, project, body) {
     note(p.board, by || 'Somebody', 'file');
   }
   retellEntities(new Set(filed.map(({ v }) => v.entityId)));
-  return filed.map(({ v }) => publicVersion(v, req.user));
+  return filed.map(({ p, v }) => ({ ...publicVersion(v, req.user), ...(p.view && { filedView: p.view }) }));
 }
 
 // Who did something: the person signed in, or the name the page gives, without sign-in.
@@ -1103,6 +1147,7 @@ async function handleCatalogue(req, res, parts) {
         entities: store.entities(project.id),
         tasks: [...new Set([...preset.tasks, ...store.projectTasks(project.id)])],
         artists: store.projectArtists(project.id),
+        views: store.projectViews(project.id),
         boards: [...boards.values()].filter((b) => visible(req.user, b) && boardProject(b) === project).map((b) => ({ id: b.id, name: b.name })),
       });
     }
@@ -1230,6 +1275,7 @@ async function handleCatalogue(req, res, parts) {
       const shots = store.entities(project.id).filter((e) => e.tier === 'shot').sort(byName);
       return sendJson(res, 200, {
         tasks: store.projectTasks(project.id),
+        views: store.projectViews(project.id),
         shots: shots.map((e) => {
           const v = task ? store.newestOfTask(e.id, naming.tokenize(task) || null) : e.newest;
           return {

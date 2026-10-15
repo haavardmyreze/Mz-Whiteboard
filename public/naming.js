@@ -11,6 +11,8 @@
 //   A Houdini file is <context>_<task>[_<descriptor>]_<artist>_v###: the context first (its shape says
 //   what tier it is), then the task, the version last, the artist before it, and anything between is
 //   the descriptor. Review media is taken to be named the same way (kilo-0010_anim_erik_v012.mov).
+//   A word after the version is the view the file shows of it (kilo-0010_comp_erik_v012_bty.mov): the
+//   projected look beside the unwrapped one, say. Most files have none.
 (function (root, make) {
   if (typeof module === 'object' && module.exports) module.exports = make();
   else root.WBNaming = make();
@@ -50,11 +52,11 @@
   // ch01-0010). Asked only of shots, so a shot named by hand with a shorter number (ab-12) still has one.
   const seqOf = (name) => (/^([a-z0-9]+(?:-[a-z0-9]+)*)-\d+$/.exec(name || '') || [])[1] || null;
 
-  // Whatever can be read from a file name: { entity, tier, task, descriptor, artist, hip }, each null
+  // Whatever can be read from a file name: { entity, tier, task, descriptor, artist, hip, view }, each null
   // when the name does not say. `hip` is the number after v; nothing is made of it, since the catalogue
   // counts versions itself, but it is read so that the rest of the name is.
   function parse(filename, presetId) {
-    const out = { entity: null, tier: null, task: null, descriptor: null, artist: null, hip: null };
+    const out = { entity: null, tier: null, task: null, descriptor: null, artist: null, hip: null, view: null };
     const stem = String(filename || '').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '').toLowerCase().trim();
     if (!stem) return out;
     const tokens = stem.split('_').filter(Boolean);
@@ -64,6 +66,7 @@
       if (v) out.hip = Number(v[1]);
       return out;
     }
+    if (tokens.length > 2 && /^v\d{1,4}$/.test(tokens[tokens.length - 2]) && !/^v\d{1,4}$/.test(tokens[tokens.length - 1])) out.view = tokens.pop();
     const last = /^v(\d{1,4})$/.exec(tokens[tokens.length - 1]);
     if (last) {
       out.hip = Number(last[1]);

@@ -513,6 +513,14 @@ const WB = (() => {
   });
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenus(); });
 
+  // A dropdown, once something is picked from it, gives the keyboard back to the page: otherwise it keeps
+  // it, and Space (play, pan) only rings the dropdown until somewhere empty is clicked. One opened from the
+  // keyboard lets go too, once its choice is made. A dialog's fields keep it, to be tabbed through.
+  document.addEventListener('change', (e) => {
+    const t = e.target;
+    if (t instanceof HTMLSelectElement && !t.closest('dialog, form')) setTimeout(() => { if (document.activeElement === t) t.blur(); });
+  }, true);
+
   // ---- toasts: a line at the foot of the page, for a moment, with something to do about it if there is
   // anything (Undo, Open). `key` replaces the last toast of that key rather than piling up.
   function toast(text, { action, ms = 4000, sticky = false, key } = {}) {

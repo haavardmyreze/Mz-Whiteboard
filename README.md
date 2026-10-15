@@ -383,7 +383,7 @@ filed in it.
   the timeline, comments, strip and sidebar are as ever, since it is the same video drawn another way. Any
   move of the view leaves the main camera: a drag, the wheel, W A S D (along the view, wherever it points)
   or Q and E (down, up), easing in and out as in Unreal's viewport, with the view filling the whole picture
-  area and the room kept at the size it was (the lens never wider than 90° across); "Main camera" or V goes back. Both ways are a short glide: the
+  area and the room kept at the size it was (the lens never wider than 100° across); "Main camera" or V goes back. Both ways are a short glide: the
   letterbox opens out, or the camera moves back to the main one as it closes in (none, if the system asks
   for reduced motion). A pen, eraser or laser in hand
   works through the main camera without leaving it. Drawing is done through

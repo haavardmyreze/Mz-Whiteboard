@@ -192,9 +192,9 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
   const tanHalf = (deg) => Math.tan(THREE.MathUtils.degToRad(deg) / 2);
   const fovOf = (tan) => THREE.MathUtils.radToDeg(2 * Math.atan(tan));
-  // Flying, the lens is never wider than 90° across (Unreal's own), whatever the shape of the window: as
+  // Flying, the lens is never wider than 100° across, whatever the shape of the window: as
   // a lens's height in degrees, for an area of that shape.
-  const MAX_ACROSS = 90;
+  const MAX_ACROSS = 100;
   const capped = (fov, aspect) => THREE.MathUtils.clamp(fov, 20, fovOf(tanHalf(MAX_ACROSS) / aspect));
   const mix = (a, b, p) => ({ x: a.x + (b.x - a.x) * p, y: a.y + (b.y - a.y) * p, w: a.w + (b.w - a.w) * p, h: a.h + (b.h - a.h) * p });
   // Where the main camera's frame is on the canvas, in fractions of it.
@@ -229,7 +229,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       const e = new THREE.Euler().setFromQuaternion(view.quaternion, 'YXZ');
       yaw = viewYaw = e.y;
       pitch = viewPitch = e.x;
-      // (Kept to 90° across: past that the glide out eases the room in to it rather than jumping.)
+      // (Kept to 100° across: past that the glide out eases the room in to it rather than jumping.)
       const r = canvas.getBoundingClientRect();
       const keep = tanHalf(view.fov) / shown.h;
       camera.fov = capped(fovOf(keep), r.width && r.height ? r.width / r.height : 16 / 9);
@@ -357,7 +357,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     if (free) {
       view.position.copy(camera.position);
       view.quaternion.copy(camera.quaternion);
-      // A window that changes shape never takes the lens past 90° across.
+      // A window that changes shape never takes the lens past 100° across.
       camera.fov = capped(camera.fov, r.width / r.height);
       const q = glide ? easeOut(p) : 1;
       rect = glide ? mix(glide.from, FULL, q) : FULL;

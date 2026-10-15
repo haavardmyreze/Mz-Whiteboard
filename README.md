@@ -613,6 +613,7 @@ public/icons.js    Every icon, drawn once
 public/boot.js     Theme and layout set before the page paints
 public/login.html  Sign-in page (password and Google modes)
 public/style.css   All styling
+public/lab/        Spikes not yet in the app: preview3d (a version's picture on a 3D model of its venue; see docs/3d-preview.md)
 scripts/           restore-board.js: bring back a deleted board
 test/              npm test: sign-in, uploads, live sync, workspaces, links, the database, catalogue, versions, notes, notifications, snapping and asking Claude (against a stand-in)
 ```

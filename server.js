@@ -2314,6 +2314,13 @@ async function handleRequest(req, res) {
   if (pathname === '/vendor/mediabunny.mjs') {
     return sendFile(req, res, path.join(__dirname, 'node_modules', 'mediabunny', 'dist', 'bundles', 'mediabunny.min.mjs'), { 'Cache-Control': 'public, max-age=86400' });
   }
+  // three.js, for the 3D preview (public/lab): its build, and the add-ons it is used with, as modules.
+  const three = /^\/vendor\/three\/(build|addons)\/([\w/.-]+\.js)$/.exec(pathname);
+  if (three && !three[2].includes('..')) {
+    const root = path.join(__dirname, 'node_modules', 'three', three[1] === 'build' ? 'build' : path.join('examples', 'jsm'));
+    const file = path.join(root, three[2]);
+    if (file.startsWith(root + path.sep)) return sendFile(req, res, file, { 'Cache-Control': 'public, max-age=86400' });
+  }
 
   let file;
   if (pathname === '/') file = 'index.html';

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>3D preview · lab</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/lab/preview3d.css">
+  <script type="importmap">{ "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/addons/" } }</script>
+</head>
+<body class="p3">
+  <canvas id="stage"></canvas>
+  <header class="p3-bar">
+    <b>3D preview</b><span class="p3-lab">lab</span>
+    <label class="btn small">Model (.glb)<input id="pickModel" type="file" accept=".glb,.gltf,model/gltf-binary" hidden></label>
+    <label class="btn small">Video or image<input id="pickMedia" type="file" accept="video/*,image/*" hidden></label>
+    <label class="p3-field">Screen material <input id="screenName" type="text" value="screen" spellcheck="false"></label>
+    <select id="cams" class="v-pick" aria-label="Viewpoint"></select>
+    <span class="spacer"></span>
+    <span id="status" class="p3-status">Drop a .glb and a video anywhere</span>
+  </header>
+  <aside id="report" class="p3-report" hidden></aside>
+  <footer class="p3-foot">
+    <button id="play" class="iconbtn" title="Play or pause (Space)" aria-label="Play or pause">▶</button>
+    <span id="time" class="p3-time">0:00</span>
+    <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="Where in the video">
+    <span class="p3-keys">W A S D to move · Q E down / up · drag to look · Shift faster · wheel: speed · , . a frame</span>
+  </footer>
+  <script type="module" src="/lab/preview3d.js"></script>
+</body>
+</html>

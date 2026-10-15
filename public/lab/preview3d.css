@@ -26,3 +26,16 @@ body.p3.drawing .p3-ink { pointer-events: auto; cursor: crosshair; touch-action:
 .p3-report b { color: #8a8a8a; font-weight: 600; }
 @media (max-width: 760px) { .p3-keys { display: none; } }
 body.p3.main .p3-report { display: none; }
+.p3-panel { position: fixed; top: 64px; left: 12px; z-index: 3; display: flex; flex-direction: column; width: min(460px, calc(100vw - 24px)); max-height: calc(100vh - 150px); border: 1px solid #2a2a2a; border-radius: 10px; background: rgba(16, 16, 16, 0.96); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
+.p3-panel-head { display: flex; gap: 8px; padding: 10px; border-bottom: 1px solid #262626; }
+.p3-panel-head input { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border: 1px solid #333; border-radius: 6px; background: #161616; color: #f2f2f2; }
+.p3-panel-head input:focus { border-color: var(--accent); outline: none; }
+.p3-vers { overflow: auto; padding: 4px; }
+.p3-vers p { margin: 12px; color: #8a8a8a; font-size: 12px; }
+.p3-ver { display: flex; align-items: center; gap: 10px; width: 100%; padding: 5px 6px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.p3-ver:hover, .p3-ver:focus-visible { background: #232323; outline: none; }
+.p3-ver img { flex: none; width: 64px; height: 36px; border-radius: 4px; background: #222; object-fit: cover; }
+.p3-ver img:not([src]) { visibility: hidden; }
+.p3-ver span { display: flex; flex-direction: column; min-width: 0; }
+.p3-ver b { overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.p3-ver i { color: #8a8a8a; font-size: 11.5px; font-style: normal; }

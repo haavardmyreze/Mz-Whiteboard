@@ -2093,6 +2093,8 @@
   function versionActions(project, entity, v) {
     return [
       ['Open', () => lookAt(entity.id, v.id)],
+      // The 3D preview spike (public/lab), with this version on the venue's model.
+      ['Preview in 3D (lab)', () => window.open(`/lab/preview3d.html?version=${encodeURIComponent(v.id)}`, '_blank')],
       ['Edit…', () => editVersion(project, entity, v)],
       [v.hidden ? 'Bring back from the archive' : 'Archive', () => archiveVersion(v, !v.hidden)],
       v.look && ['Download', () => { location.href = v.look.orig || v.look.src; }],

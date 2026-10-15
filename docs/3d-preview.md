@@ -8,9 +8,15 @@ projection area ("screen").
 **Short answer: feasible, and cheap to do well for the common case.** A working spike is in
 `public/lab/preview3d.html` (open `/lab/preview3d.html` on a running server, then drop a `.glb` and a
 video on it). It loads a glTF/GLB, finds every mesh whose material is named `screen` (or `screen-…`),
-shows the video on it through the mesh's own UVs, unlit, and lets you walk about: W A S D, Q/E down and
-up, drag to look, Shift for faster, the wheel for speed, the model's own cameras as viewpoints, and an
-overview. It was tried with a small test venue (a curved 150° wall, a floor, steps) and a test video:
+shows the video on it through the mesh's own UVs, unlit, and lets you fly about as in Unreal Engine's
+viewport: W and S along the view wherever it points, A and D sideways, Q/E straight down and up, a drag
+to look, Shift for faster, the wheel to glide (or, with a button held, to set the speed), every move
+easing in and out; the model's own cameras are viewpoints, with an overview. The picture is a version
+filed in a project ("Filed version", "Preview in 3D (lab)" in a version's menu in the app, or
+`?version=…`), its main view to start with and its other views in a dropdown, or any file dropped on
+the page. The model is kept in the browser for next time. The room is lit from all round (a soft
+environment, hemisphere and ambient light, and a sun for shape), and nothing in it is more than half
+metal, so no side of anything comes out black. It was tried with a small test venue (a curved 150° wall, a floor, steps) and a test video:
 the picture lands on the wall the right way up and the right way round, and plays.
 
 **One main camera.** The model has one camera that is *the* view: the one named `main`, or else its

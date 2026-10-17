@@ -344,27 +344,40 @@ filed in it.
   for one piece, the last choice made (its task only along with it). With several, "For all" fills
   every row at once to start from; each still goes where its own row says.
   - **One line.** The first box takes a whole line: `kilo-0010 anim v12 bty` puts the task, number and
-    view in their own boxes, and a file name pasted in is read the way a file's name is. Until it is a
+    view in their own boxes (on a board, which has none, the row keeps them and says so, each with a
+    way back to the next number or no view; changing the name lets them go), and a file name pasted in
+    is read the way a file's name is. Until it is a
     name the project has or one to the styleguide, more words are more of the name (`living room` is
     `living-room`). A shot can be said short, by the sequence of the row above (or of the last filing):
     `20` is its shot 0020, `+` its next shot on its step (`kilo+` the next of kilo), and `.` the same as
     the row above.
-  - **Suggestions** come before anything is typed: what a video looks like a new version of (as long
-    as, at the same rate and size as, and looking like the newest version of a shot and task: see
-    `likely.js`), then the row above, the sequence's next shot, and what had versions lately. Enter takes
-    the first. As you type, the project's names that fit, each with its tasks and how far each has
+  - **Suggestions** come before anything is typed: what a video looks like a new version of (looking like
+    the newest version of a shot and task along its length, and as long, at the same rate and size: see
+    `likely.js`), then the row above, the sequence's next shot, then a shot it is only as long as (two
+    shots of a sequence often are, so that alone only hints), and what had versions lately. In an empty
+    box, Enter puts in the first of the first two kinds, and the box and the line under it say what that
+    would be. The list opens on a click, on ↓ or as you type, not when the dialog opens, so it never
+    covers the rows below. As you type, the project's names that fit, each with its tasks and how far each has
     counted (`kilo-0010 › anim  v12 → v13`), so one pick fills both; `kilo-` lists kilo's shots and its
     next one.
   - **Under each row** a line says what it will be: where it goes (`Shots › kilo › kilo-0010 › anim`),
-    the version it follows, with its still beside the piece's own, and the number it gets. And
-    anything that looks wrong, each with its fix a click away: a name a letter or two from one the
+    the version it follows, with its still beside the piece's own, and the number it gets (in the
+    import strip, which has a box for the number, only what it follows). It is there from the start, so
+    nothing below moves as you type. And anything that looks wrong, the worst first with the rest a
+    click away ("+2 more"), each with its fix: a name a letter or two from one the
     project has (`klio-0010`, `kilo-010`), a name not to the styleguide (`robot`: char-robot,
     prop-robot...), a shot far past its sequence's last, a new task beside versions with none (or the
     other way round), and a video that looks like another shot than the one typed. A new sequence is
-    said too, and asked about once before it is made, since a typo there makes a whole sequence.
+    said too, and asked about once before it is made, since a typo there makes a whole sequence. A
+    short line with nothing to go by (`.` with nothing above or filed before) says so. A row cannot be
+    filed while it has words that could not be read, or is a new name whose shape does not say what it
+    is until that is chosen (nothing is assumed). Escape asks before closing over what was typed.
   - **Keys.** Ctrl+D copies the row above. Shift+Enter fills the rows below on from this one: shots
-    go on in their sequence's step (kilo-0010, kilo-0020...), anything else is the same for each.
-  - **Taking it back.** The message that says what was filed has Undo and Change. Both take the
+    go on in their sequence's step (kilo-0010, kilo-0020...), anything else is the same for each. A row
+    its own file's name named is kept as it is, and what was done is said with an Undo. The keys are
+    said in a line under the rows, and in the board's keyboard help.
+  - **Taking it back.** On a board, the message that says what was filed has Undo and Change; in the
+    import strip, a filed row has Undo, and is then as it was, to file again. Both take the
     filing back as if it had not been: the versions are gone, numbers and all, and so is any asset,
     set or shot made for them. Change then opens the rows again as they were. This is for straight
     after: within half an hour, and not once a version has been talked about, put on another board or
@@ -372,7 +385,7 @@ filed in it.
   - **Names from elsewhere.** A file not named to the styleguide and filed by hand
     (`KLO_040_anim_v3.mov` as `kilo-0040`) offers to teach the project how such names read: from then
     on, `KLO_050` is `kilo-0050` wherever files are filed, and the rows still to go are filled in at
-    once. Only the first word is learned, as a sequence (`klo` → `kilo`) or one asset or set (`robot`
+    once (on a board, asked once the message about the filing has gone). Only the first word is learned, as a sequence (`klo` → `kilo`) or one asset or set (`robot`
     → `char-robot`), never a word that says nothing (screenshot, render, final...). The project's
     settings list what it has learned, to forget any.
 - **Numbering.** The catalogue counts versions itself: `kilo-0010 anim v1`, `v2`, `v3`, per asset, set

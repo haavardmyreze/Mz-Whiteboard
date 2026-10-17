@@ -9,15 +9,18 @@
 // pasted in, or a short way to say a shot (20, +, .). Under each row a line says what it will be: where
 // it goes, the version it follows (with its still, beside the piece's own) and the number it gets, and
 // anything that looks wrong (a near miss of a name the project has, a name not to the styleguide, a new
-// sequence, a second count for one shot), each with the fix a click away. Suggestions come before
-// anything is typed: what the piece looks like a new version of (by its length and picture, asked of
-// the server), the row above, the next shot. Ctrl+D copies the row above; Shift+Enter numbers the rows
-// below on from this one.
+// sequence, a second count for one shot), the worst of it first, each with the fix a click away; and
+// before anything is typed, what Enter would put in. Suggestions come before anything is typed: what
+// the piece looks like a new version of (by its picture, asked of the server), the row above, the next
+// shot. Ctrl+D copies the row above; Shift+Enter numbers the rows below on from this one.
 // Loaded after naming.js, before the pages that file.
 const WBFiling = (() => {
   const { el } = WB;
   const N = WBNaming;
   const SHORT_HELP = 'Type a name, or a whole line: kilo-0010 anim v12. 20 is shot 0020 of the sequence above, + its next shot, . the same as the last. Ctrl+D copies the row above; Shift+Enter numbers the rows below on from this one';
+  // A likeness that is more than the same length: two shots of a sequence are often as long as each
+  // other, so that alone only ever hints.
+  const looksAlike = (l) => l.why.includes('looks alike');
 
   // The newest version of each task of an entity, newest first: [{ task, number, thumb, at }].
   const streamsOf = (e) => Object.entries((e && e.heads) || {}).map(([task, h]) => ({ task: task || null, ...h })).sort((a, b) => b.at - a.at);
@@ -28,6 +31,8 @@ const WBFiling = (() => {
   // in fields). A page that writes into a row's boxes itself says so with changed().
   let edits = 0;
   const changed = () => { edits++; };
+  // How long a filing can be taken back as if it had not been (as the server says: UNFILE_WITHIN in server.js).
+  const UNFILE_WITHIN = 30 * 60 * 1000;
 
   // A suggestion of an entity and one of its tasks (or of the entity alone): what it is called, its
   // newest still, and the number the next gets.
@@ -64,10 +69,12 @@ const WBFiling = (() => {
     };
     const likely = ctx.likely || [];
     const text = String(typed || '').trim();
+    const likeOption = (l) => streamOption(byName.get(l.entity), streamsOf(byName.get(l.entity)).find((s) => s.task === l.task), `like its v${l.number}: ${l.why.join(', ')}`, useTasks);
     if (!text) {
       // Before anything is typed: what the piece looks like a version of, then the row above (or what
-      // was filed last), the next shot after it, and what had versions lately.
-      for (const l of likely) if (byName.has(l.entity)) push(streamOption(byName.get(l.entity), streamsOf(byName.get(l.entity)).find((s) => s.task === l.task), `like its v${l.number}: ${l.why.join(', ')}`, useTasks));
+      // was filed last), the next shot after it, what is only as long as the piece, and what had
+      // versions lately. Enter takes the first, when it is one of the first two kinds.
+      for (const l of likely) if (looksAlike(l) && byName.has(l.entity)) push(likeOption(l));
       const last = ctx.line && ctx.line.last;
       if (last && last.entity) {
         const e = byName.get(last.entity);
@@ -75,13 +82,13 @@ const WBFiling = (() => {
         push(e ? { ...streamOption(e, s, ctx.above ? 'same as above' : 'same as last', useTasks), task: useTasks ? last.task || null : null }
           : { ...newOption(last.entity, ctx.presetId, ctx.above ? 'same as above' : 'same as last'), task: useTasks ? last.task || null : null });
       }
+      if (out.length) out[0].first = true;
       const seq = ctx.line && ctx.line.seq;
       if (seq) {
         const next = N.nextShot([...names, ...((ctx.line && ctx.line.taken) || [])], seq);
         push({ ...newOption(next, ctx.presetId, `next shot in ${seq}`), task: useTasks && last ? last.task || null : undefined });
       }
-      // What it looks like, or the row above, is taken by Enter straight away.
-      if (out.length) out[0].first = true;
+      for (const l of likely) if (!looksAlike(l) && byName.has(l.entity)) push(likeOption(l));
       for (const e of [...list].filter((x) => x.latestAt).sort((a, b) => b.latestAt - a.latestAt)) push(streamOption(e, streamsOf(e).find((s) => useTasks || !s.task), 'lately', useTasks));
       return out;
     }
@@ -101,7 +108,7 @@ const WBFiling = (() => {
       if (line.task && !streamsOf(e).some((s) => s.task === line.task)) push({ value: e.name, task: line.task, label: `${e.name} › ${line.task}`, thumb: e.thumb || null, hint: 'new task: v1', make: true });
     }
     // The names that start with or hold what was typed, those it looks like first. Few of them: each with its tasks.
-    const like = new Set(likely.map((l) => l.entity));
+    const like = new Set(likely.filter(looksAlike).map((l) => l.entity));
     const ranked = WB.rank(list, words.length > 1 && name ? name : text, (e) => e.name, 40).sort((a, b) => like.has(b.name) - like.has(a.name));
     for (const e of ranked.slice(0, 6)) {
       if (ranked.length <= 3) streamsFor(e);
@@ -129,17 +136,34 @@ const WBFiling = (() => {
   // the task only when the project counts by task (`useTasks`). `peers()` are the fields of the rows
   // still to be filed, in order, this one among them: what is above says what a short line means, and
   // the keys that fill rows in work on those below. `remembered` is what was filed last ({ entity, task }).
-  // `numberOf()`, when the page has a number field, is its number; `onLine(line)` hears a line's number
-  // and view when one is typed. `filename` and `rules` let the project's learned rules read the piece's name.
+  // `numberOf()`, when the page has a number field, is its number, and `onLine(line)` hears a line's
+  // number and view to put in its fields; a page without them (a board) keeps what a line says here, in
+  // `typedNumber()` and `typedView()`, starting from `number` and `view`. `named` says the entity given
+  // was read from the piece's own file name. `rules` let the project's learned rules read pasted names;
+  // `say(text, undo)` tells the person something the keys did (a toast unless the page says otherwise).
   function fields({
     entity = '', task = '', presetId, getEntities, getTasks, getViews = () => [], label = 'it', onChange = () => {},
-    useTasks = true, peers = () => [], remembered = null, numberOf = null, onLine = () => {}, rules = () => [],
+    useTasks = true, peers = () => [], remembered = null, numberOf = null, onLine = null, rules = () => [],
+    number: typedNumber = null, view: typedView = null, named = false, say = null,
   }) {
-    const ent = el('input', { type: 'text', value: entity, placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': `What ${label} is`, title: SHORT_HELP });
+    const readout = el('div', { class: 'file-says', id: `fs-${WB.uid()}` });
+    const ent = el('input', { type: 'text', value: entity, placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': `What ${label} is`, 'aria-describedby': readout.id, title: SHORT_HELP });
     const taskIn = el('input', { type: 'text', value: task, placeholder: 'Task', spellcheck: 'false', 'aria-label': 'Task', hidden: !useTasks });
-    const tier = el('select', { 'aria-label': 'What it is', title: 'A new one: what is it?' }, N.preset(presetId).tiers.map((t) => el('option', { value: t.id, text: t.one })));
-    const readout = el('div', { class: 'file-says', hidden: true });
+    // A new name whose shape does not say what it is has to be told: nothing is assumed.
+    const tier = el('select', { 'aria-label': 'What it is', title: 'A new one: what is it?' },
+      el('option', { value: '', text: 'what is it?' }), N.preset(presetId).tiers.map((t) => el('option', { value: t.id, text: t.one })));
     let likely = [];
+    let fromName = named && !!entity;
+    let expanded = false;
+    // What a line said of the number and view, on a page with no fields for them. Said by a line, they
+    // go when the name is changed (they were said of that one); given by the page, they stay.
+    const own = { number: typedNumber, view: typedView, said: false };
+    const toLine = onLine || ((l) => {
+      if (l.number != null) own.number = l.number;
+      if (l.view) own.view = l.view;
+      own.said = true;
+    });
+    const tell = say || ((text, undo) => WB.toast(text, { key: 'filing', ms: 8000, action: undo && { label: 'Undo', run: undo } }));
     const self = {};
     const entities = () => getEntities() || [];
     const have = (n) => entities().find((e) => e.name === n) || null;
@@ -192,33 +216,46 @@ const WBFiling = (() => {
     };
 
     // The line, said in the fields: the name in the first, the task in its own, and a number and view
-    // to the page (when it has such fields). A line with words it could not read stays as it is, said
-    // under the row, rather than lose them.
+    // to the page (or kept here). A line with words it could not read stays as it is, said under the
+    // row, rather than lose them.
     function settle() {
       const l = line();
       if (!l.entity || l.rest.length || (ent.value === l.entity && l.task === undefined && l.number == null && !l.view)) return;
       changed();
       ent.value = l.entity;
       if (useTasks && l.task !== undefined) taskIn.value = l.task || '';
-      if (l.number != null || l.view) onLine(l);
+      if (l.number != null || l.view) toLine(l);
       sync();
       onChange();
     }
     // Put in by a key, a suggestion or the page: a name and (when given) a task.
     function setLine(n, t) {
       changed();
+      fromName = false;
       ent.value = n || '';
       if (useTasks && t !== undefined) taskIn.value = t || '';
       sync();
     }
 
+    // What Enter puts in a box with nothing in it: what the piece looks like a new version of, or else
+    // the row above (or what was filed last). Said under the row and in the box, before anything is typed.
+    function topPick() {
+      const like = likely.find((l) => looksAlike(l) && have(l.entity));
+      if (like) return { entity: like.entity, task: useTasks ? like.task || null : null, why: `like its v${like.number}` };
+      const last = lineContext().last;
+      if (last && last.entity) return { entity: last.entity, task: useTasks ? last.task || null : null, why: lineContext().above ? 'as above' : 'as last filed' };
+      return null;
+    }
+
     const combo = WB.combo(ent, (typed) => suggest({
       entities: entities(), presetId, useTasks, likely, line: lineContext(), above: lineContext().above,
     }, typed), {
+      quiet: true,
       onPick: (o) => {
         changed();
+        fromName = false;
         if (useTasks && o.task !== undefined) taskIn.value = o.task || '';
-        if (o.number != null || o.view) onLine({ number: o.number, view: o.view });
+        if (o.number != null || o.view) toLine({ number: o.number, view: o.view });
         settle();
         sync();
         onChange();
@@ -227,16 +264,17 @@ const WBFiling = (() => {
     WB.combo(taskIn, (typed) => {
       // The tasks of the one named first, with how far each has counted, then the project's.
       const e = have(name());
-      const own = streamsOf(e).filter((s) => s.task).map((s) => ({ value: s.task, label: s.task, hint: `v${s.number} → v${s.number + 1}` }));
-      const rest = WB.rank(getTasks() || [], typed).filter((t) => !own.some((o) => o.value === t)).map((t) => ({ value: t, label: t }));
-      return [...WB.rank(own, typed, (o) => o.value), ...rest].slice(0, 9);
-    });
+      const ownTasks = streamsOf(e).filter((st) => st.task).map((st) => ({ value: st.task, label: st.task, hint: `v${st.number} → v${st.number + 1}` }));
+      const rest = WB.rank(getTasks() || [], typed).filter((t) => !ownTasks.some((o) => o.value === t)).map((t) => ({ value: t, label: t }));
+      return [...WB.rank(ownTasks, typed, (o) => o.value), ...rest].slice(0, 9);
+    }, { quiet: true });
 
-    // The keys that fill rows in (registered before the suggestions', so Shift+Enter is never taken as a pick).
+    // The keys that fill rows in (registered before the suggestions', so Shift+Enter is never taken as a
+    // pick, and Enter in an empty box with no list open takes what it would be).
     ent.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
-        const list = peers();
-        const prev = list[list.indexOf(self) - 1];
+        const { list, at } = around();
+        const prev = list[at - 1];
         if (!prev) return;
         e.preventDefault();
         setLine(prev.name(), prev.taskName());
@@ -247,14 +285,22 @@ const WBFiling = (() => {
         e.stopImmediatePropagation();
         settle();
         combo.hide();
-        series(self, peers(), entities(), presetId);
+        const done = series(self, peers(), entities(), presetId);
+        if (done) tell(done.text, done.undo);
+        onChange();
+      } else if (e.key === 'Enter' && !ent.value.trim() && combo.list.hidden) {
+        const top = topPick();
+        if (!top) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setLine(top.entity, top.task === null ? '' : top.task);
         onChange();
       }
     }, true);
     taskIn.addEventListener('keydown', (e) => {
       if (!((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D'))) return;
-      const list = peers();
-      const prev = list[list.indexOf(self) - 1];
+      const { list, at } = around();
+      const prev = list[at - 1];
       if (!prev) return;
       e.preventDefault();
       changed();
@@ -268,94 +314,141 @@ const WBFiling = (() => {
 
     // ---- what the row will be, said under it
 
-    // The things that look wrong about the row, each { text, fixes: [{ label, run }], warn }.
+    // What there is to say about the row, each { text, fixes: [{ label, run }] } and how much it
+    // matters: `warn` (with its `rank`, the worst lowest), `ok`, or neither (only telling).
     function checks() {
       const n = name();
       if (!n) return [];
       const out = [];
       const list = entities();
-      const names = list.map((e) => e.name);
+      const names = list.map((x) => x.name);
       const l = line();
       const e = have(n);
       const typed = ent.value.trim();
       if (l.short) out.push({ text: `${typed} is ${l.short}: ${n}` });
       else if (typed !== n && l.task === undefined && l.number == null && !l.view && !l.rest.length) out.push({ text: `Called ${n}` });
-      if (l.rest.length) out.push({ text: `Not read: ${l.rest.join(' ')}`, warn: true });
+      if (l.rest.length) out.push({ text: `Not read: ${l.rest.join(' ')}. Take it out${useTasks ? ' or put it in the task' : ''} to file`, warn: true, rank: 0 });
+      const e0 = have(n);
+      if (!numberOf && own.number && !(e0 && own.number <= ((e0.tops || {})[taskName() || ''] || 0))) out.push({ text: `v${own.number} as typed`, fixes: [{ label: 'The next instead', run: () => { changed(); own.number = null; sync(); } }] });
+      if (!numberOf && own.view) out.push({ text: `View: ${own.view}`, fixes: [{ label: 'No view', run: () => { changed(); own.view = null; sync(); } }] });
       if (!e) {
         const misses = N.nearMisses(n, names);
-        if (misses.length) out.push({ text: 'Not in the project. Did you mean', fixes: misses.map((m) => ({ label: m, run: () => setLine(m) })), warn: true });
+        if (misses.length) out.push({ text: 'Not in the project. Did you mean', fixes: misses.map((m) => ({ label: m, run: () => setLine(m) })), warn: true, rank: 1 });
         const tierNow = N.tierOf(n, presetId);
         if (!tierNow) {
           const fixes = N.corrections(n, presetId, names).filter((c) => !misses.includes(c.name)).slice(0, 4);
-          if (fixes.length || !misses.length) out.push({ text: fixes.length ? 'Not to the styleguide. Perhaps' : 'Not to the styleguide: say what it is', fixes: fixes.map((c) => ({ label: c.name, run: () => setLine(c.name) })), warn: true });
+          if (fixes.length || !misses.length) out.push({ text: fixes.length ? 'Not to the styleguide. Perhaps' : 'Not to the styleguide: say what it is', fixes: fixes.map((c) => ({ label: c.name, run: () => setLine(c.name) })), warn: true, rank: 2 });
         }
         if (tierNow === 'shot') {
           const seq = N.seqOf(n);
           const seqs = [...new Set(names.filter((x) => N.tierOf(x, presetId) === 'shot').map(N.seqOf))];
           const above = lineContext().taken.some((x) => N.seqOf(x) === seq && N.tierOf(x, presetId) === 'shot');
           if (!seqs.includes(seq) && !above) {
+            // Only worth a warning when it is a letter or two from one there is; otherwise it is said, and asked about when filed.
             const like = N.nearMisses(seq, seqs);
-            out.push({ text: like.length ? `A new sequence, ${seq}. Did you mean` : `A new sequence: ${seq}`, fixes: like.map((s) => ({ label: s, run: () => setLine(`${s}-${N.pad(N.shotNumber(n))}`) })), warn: true, newSeq: seq });
+            out.push({ text: like.length ? `A new sequence, ${seq}. Did you mean` : `Starts a new sequence: ${seq}`, fixes: like.map((q) => ({ label: q, run: () => setLine(`${q}-${N.pad(N.shotNumber(n))}`) })), warn: like.length > 0, rank: 1, newSeq: seq });
           } else {
-            const s = N.sequence(names, seq);
+            const sq = N.sequence(names, seq);
             const num = N.shotNumber(n);
-            if (s.last && num > s.last + 10 * s.step) out.push({ text: `Far past the last shot of ${seq} (${N.pad(s.last)})`, warn: true });
+            if (sq.last && num > sq.last + 10 * sq.step) out.push({ text: `Far past the last shot of ${seq} (${N.pad(sq.last)})`, warn: true, rank: 5 });
           }
         }
-      } else if (useTasks) {
+      }
+      // A number typed that the count has passed already: most likely someone's, or was (numbers are never
+      // given twice), unless it was skipped. The server says for sure when it is filed.
+      const top = e ? (e.tops || {})[taskName() || ''] || 0 : 0;
+      if (e && !numberOf && own.number && own.number <= top) {
+        out.push({ text: `${N.label(n, taskName(), own.number)} is probably taken: the count is at v${top}`, fixes: [{ label: 'The next instead', run: () => { changed(); own.number = null; sync(); } }], warn: true, rank: 0 });
+      }
+      if (e && useTasks) {
         // A second count for one asset, set or shot: with a task beside one without, or the other way.
         const t = taskName();
         const tops = e.tops || {};
         const counted = Object.keys(tops).filter((k) => k);
         if (t && !tops[t] && tops['']) {
-          out.push({ text: `${n} has ${tops[''] > 1 ? `v1–v${tops['']}` : 'a v1'} with no task: this starts ${t} at v1`, fixes: [{ label: `File as v${tops[''] + 1} with no task`, run: () => { changed(); taskIn.value = ''; sync(); } }], warn: true });
+          out.push({ text: `${n} has ${tops[''] > 1 ? `v1–v${tops['']}` : 'a v1'} with no task: this starts ${t} at v1`, fixes: [{ label: `File as v${tops[''] + 1} with no task`, run: () => { changed(); taskIn.value = ''; sync(); } }], warn: true, rank: 4 });
         } else if (!t && !tops[''] && counted.length) {
-          out.push({ text: `${n} is counted by task (${counted.map((k) => `${k} v${tops[k]}`).join(', ')}): this starts a count with no task`, fixes: counted.slice(0, 3).map((k) => ({ label: k, run: () => { changed(); taskIn.value = k; sync(); } })), warn: true });
+          out.push({ text: `${n} is counted by task (${counted.map((k) => `${k} v${tops[k]}`).join(', ')}): this starts a count with no task`, fixes: counted.slice(0, 3).map((k) => ({ label: k, run: () => { changed(); taskIn.value = k; sync(); } })), warn: true, rank: 4 });
         }
       }
-      // What the piece itself looks like it is: said when it agrees, and when it seems to be something else.
-      const best = likely[0];
+      // What the piece itself looks like it is, by its picture: said when it agrees, and when it seems
+      // to be something else. Being as long as a shot is not enough to say either.
+      const best = likely.find(looksAlike);
       if (best) {
         const same = best.entity === n && (!useTasks || (best.task || null) === taskName());
         if (same) out.push({ text: `Like its v${best.number}: ${best.why.join(', ')}`, ok: true });
-        else if (best.score >= 0.75) out.push({ text: 'It looks like', fixes: [{ label: N.label(best.entity, useTasks ? best.task : null, best.number), run: () => setLine(best.entity, useTasks ? best.task || '' : undefined) }], warn: true });
+        else if (best.score >= 0.75) out.push({ text: 'It looks like', fixes: [{ label: N.label(best.entity, useTasks ? best.task : null, best.number), run: () => setLine(best.entity, useTasks ? best.task || '' : undefined) }], warn: true, rank: 3 });
       }
       return out;
     }
+    // Ready to file: it says what it is, every word of it is read, and a new one says what it is.
+    const ready = () => {
+      const n = name();
+      return !!n && !line().rest.length && (!!have(n) || !!N.tierOf(n, presetId) || !!tier.value);
+    };
 
-    // The number it gets: the page's, or the next of its entity and task after the rows above going there.
+    // The number it gets: the page's, or the one typed, or one past the highest of its entity and task,
+    // counting what the rows above going there will get (as the server numbers them, in order).
+    // (Kept until something changes, as a line is: each row asks those above.)
+    let counted = null;
     function number() {
       if (numberOf) return numberOf();
+      if (own.number) return own.number;
+      const { list, at } = around();
+      const key = `${edits}|${list.length}|${at}|${entities().length}|${ent.value}|${taskIn.value}`;
+      if (counted && counted.key === key) return counted.n;
       const n = name();
       const t = taskName();
-      const { list, at } = around();
-      const before = list.slice(0, Math.max(0, at)).filter((p) => p.name() === n && p.taskName() === t).length;
-      return nextOf(have(n), t, before);
+      let top = nextOf(have(n), t) - 1;
+      for (const p of list.slice(0, Math.max(0, at))) if (p.name() === n && p.taskName() === t) top = Math.max(top, p.number());
+      counted = { key, n: top + 1 };
+      return counted.n;
     }
+
+    const note = (c) => el('span', { class: `file-note${c.warn ? ' warn' : ''}${c.ok ? ' ok' : ''}` },
+      el('span', { text: c.text }),
+      (c.fixes || []).map((f) => el('button', { type: 'button', class: 'file-fix', text: f.label, onpointerdown: (ev) => ev.preventDefault(), onclick: () => { f.run(); onChange(); } })));
 
     function paintReadout() {
       const n = name();
-      readout.hidden = !n;
-      if (!n) return readout.replaceChildren();
+      const typed = ent.value.trim();
+      readout.classList.toggle('empty', !n);
+      if (!n) {
+        // Nothing to say yet: what Enter would put in; or why a short line says nothing.
+        if (typed === '.') return readout.replaceChildren(note({ text: 'Nothing above, or filed before, to repeat', warn: true }));
+        if (typed && (/^[+]$|^\d{1,4}$/.test(typed.split(/\s+/)[0]))) return readout.replaceChildren(note({ text: 'No sequence above to go by: say it, as kilo+ or kilo-0020', warn: true }));
+        const top = topPick();
+        ent.placeholder = 'Asset, set or shot';
+        if (top) ent.placeholder = `${[top.entity, top.task].filter(Boolean).join(' ')} ↵`;
+        // (How to type a line is said once, under the rows: on every row it would only be noise.)
+        return readout.replaceChildren(top ? el('span', { class: 'file-help', text: `Enter: ${[top.entity, top.task].filter(Boolean).join(' ')} (${top.why})` }) : '');
+      }
+      ent.placeholder = 'Asset, set or shot';
       const e = have(n);
       const t = taskName();
-      const tierId = e ? e.tier : N.tierOf(n, presetId) || tier.value;
+      const tierId = e ? e.tier : N.tierOf(n, presetId) || tier.value || null;
       const seq = tierId === 'shot' ? N.seqOf(n) : null;
       const head = e && e.heads ? e.heads[t || ''] : null;
       const num = number();
-      const path = [tierLabel(presetId, tierId), seq, n, t].filter(Boolean);
+      const path = [tierId && tierLabel(presetId, tierId), seq, n, t].filter(Boolean);
       const parts = [];
       parts.push(el('span', { class: 'file-path' }, path.flatMap((p, i) => [i ? el('i', { text: '›' }) : null, el('span', { class: i === path.length - 1 || p === n ? 'b' : '', text: p })])));
+      // Where the page shows the number in a field of its own, this only says what it follows.
       if (head) {
         parts.push(el('span', { class: 'file-prev', title: `Follows ${N.label(n, t, head.number)}` },
-          head.thumb ? el('img', { src: head.thumb, alt: '' }) : null, el('span', { text: `v${head.number}` }), el('i', { text: '→' })));
+          head.thumb ? el('img', { src: head.thumb, alt: '' }) : null, el('span', { text: numberOf ? `after v${head.number}` : `v${head.number}` }), numberOf ? null : el('i', { text: '→' })));
       }
-      parts.push(el('b', { class: `file-num${e ? '' : ' new'}`, text: num ? `v${num}` : 'next' }));
-      if (!e) parts.push(el('span', { class: 'file-new', text: `new ${tierId}` }));
-      const notes = checks().map((c) => el('span', { class: `file-note${c.warn ? ' warn' : ''}${c.ok ? ' ok' : ''}` },
-        el('span', { text: c.text }),
-        (c.fixes || []).map((f) => el('button', { type: 'button', class: 'file-fix', text: f.label, onpointerdown: (ev) => ev.preventDefault(), onclick: () => { f.run(); onChange(); } }))));
-      readout.replaceChildren(el('div', { class: 'file-what' }, parts), ...notes);
+      if (!numberOf) parts.push(el('b', { class: `file-num${e ? '' : ' new'}`, text: `v${num}${own.view ? ` ${own.view}` : ''}` }));
+      if (!e) parts.push(el('span', { class: `file-new${tierId ? '' : ' ask'}`, text: tierId ? `new ${tierId}` : 'new: say what it is' }));
+      // The worst warning and what only tells; the other warnings a click away.
+      const all = checks();
+      const warns = all.filter((c) => c.warn).sort((a, b) => a.rank - b.rank);
+      const shown = [...all.filter((c) => !c.warn), ...(expanded ? warns : warns.slice(0, 1))];
+      const more = !expanded && warns.length > 1 && el('button', {
+        type: 'button', class: 'file-more', text: `+${warns.length - 1} more`, onpointerdown: (ev) => ev.preventDefault(),
+        onclick: () => { expanded = true; paintReadout(); },
+      });
+      readout.replaceChildren(el('div', { class: 'file-what' }, parts), ...shown.map(note), more || '');
     }
 
     const sync = () => {
@@ -366,6 +459,9 @@ const WBFiling = (() => {
     for (const input of [ent, taskIn]) {
       input.addEventListener('input', () => {
         changed();
+        if (input === ent) fromName = false;
+        if (input === ent && own.said) Object.assign(own, { number: null, view: null, said: false });
+        expanded = false;
         sync();
         onChange();
       });
@@ -373,7 +469,10 @@ const WBFiling = (() => {
     tier.addEventListener('change', () => { sync(); onChange(); });
     sync();
     return Object.assign(self, {
-      ent, task: taskIn, tier, readout, sync, name, have, taskName, settle, setLine, checks,
+      ent, task: taskIn, tier, readout, sync, name, have, taskName, settle, setLine, checks, ready, number,
+      typedNumber: () => (numberOf ? null : own.number), typedView: () => (numberOf ? null : own.view),
+      // Its name was read from its own file's name, and has not been changed since.
+      fromName: () => fromName,
       // What the server is told it is: one the project has, by id, or a new one, by name and tier.
       entity: () => {
         const n = name();
@@ -389,28 +488,54 @@ const WBFiling = (() => {
         likely = list || [];
         sync();
         // Suggestions open already, before this came: shown again with it first.
-        if (likely.length && document.activeElement === ent && !ent.value.trim()) combo.show();
+        if (likely.length && document.activeElement === ent && !ent.value.trim() && !combo.list.hidden) combo.show();
       },
     });
   }
 
   // Shift+Enter: the rows below `from` are filled in on from it. Shots go on in their sequence's step
-  // (kilo-0010, kilo-0020...), skipping any the project has; anything else is the same for them all.
+  // (kilo-0010, kilo-0020...), skipping any the project has; anything else is the same for them all. A
+  // row whose own file's name said what it is keeps it. Gives what to say about it, and how to undo it.
   function series(from, list, entities, presetId) {
     const at = list.indexOf(from);
     const n = from.name();
-    if (at < 0 || !n) return;
+    if (at < 0 || !n) return null;
     const task = from.taskName();
     const names = entities.map((e) => e.name);
     const shot = N.tierOf(n, presetId) === 'shot' ? N.seqOf(n) : null;
     const step = shot ? N.sequence(names, shot).step : 0;
     let num = shot ? N.shotNumber(n) : 0;
+    const before = [];
+    let kept = 0;
     for (const p of list.slice(at + 1)) {
+      if (p.fromName()) {
+        kept++;
+        continue;
+      }
+      before.push({ p, ent: p.ent.value, task: p.task.value });
       if (shot) {
         do num += step; while (names.includes(`${shot}-${N.pad(num)}`) && num < 9999);
         p.setLine(`${shot}-${N.pad(num)}`, task || '');
       } else p.setLine(n, task || '');
     }
+    if (!before.length && !kept) return null;
+    const first = before.length ? before[0].p.name() : '';
+    const last = before.length ? before[before.length - 1].p.name() : '';
+    const text = [
+      before.length ? `Filled in ${WB.plural(before.length, 'row')}${shot ? `: ${first}${before.length > 1 ? ` to ${last}` : ''}` : ` as ${n}`}` : '',
+      kept ? `${before.length ? 'kept' : 'Kept'} ${kept === 1 ? 'the row' : `${kept} rows`} named by ${kept === 1 ? 'its file' : 'their files'}` : '',
+    ].filter(Boolean).join('; ');
+    return {
+      text,
+      undo: before.length ? () => {
+        changed();
+        for (const b of before) {
+          b.p.ent.value = b.ent;
+          b.p.task.value = b.task;
+          b.p.sync();
+        }
+      } : null,
+    };
   }
 
   // "For all": one answer to start every row from. `apply(entity, task)` fills the rows (either may be '').
@@ -477,6 +602,9 @@ const WBFiling = (() => {
     });
   }
 
+  // The keys that work where pieces are filed, said once under the rows.
+  const keysHint = () => el('p', { class: 'file-keys', text: 'Type a whole line: kilo-0010 anim v12 · 20, + and . say a shot short · Enter takes what is suggested · Ctrl+D copies the row above · Shift+Enter fills in the rows below' });
+
   // Suggestions for a name or a task typed anywhere else (a version's Edit), the same as a row's.
   const entitySource = (getEntities, presetId) => (typed) => {
     const list = getEntities() || [];
@@ -490,5 +618,5 @@ const WBFiling = (() => {
     return !max || file.size <= max;
   };
 
-  return { suggest, entitySource, taskSource, fields, changed, series, forAll, confirmSequences, findLikely, offerRule, originalFits, streamsOf, nextOf };
+  return { UNFILE_WITHIN, suggest, entitySource, taskSource, fields, changed, series, keysHint, forAll, confirmSequences, findLikely, offerRule, originalFits, streamsOf, nextOf };
 })();

@@ -3892,6 +3892,8 @@
       ['Duplicate', combo('mod', 'D'), '~or', combo('alt'), '~+ drag'],
       ['Tidy into a grid', combo('mod', 'P')],
       ['File as a version', combo('shift', 'V')],
+      ['…then copy the row above', combo('mod', 'D')],
+      ['…then fill in the rows below', combo('shift', 'Enter')],
       ['Bring to front', ']'],
       ['Send to back', '['],
       ['Scale a note with its text', combo('shift'), '~+ drag a corner'],
@@ -4692,8 +4694,9 @@
   // is, and the task if any: filled in ahead from its name (or what the project has learned about names
   // like it), else the frame it is in, else (for one piece) the last choice, and its task with that only
   // when it is the last choice's. Several pieces are never lumped together: each goes where its row
-  // says. `prefill` (by piece) is what the rows said before, when filing is changed straight after.
-  function openFiling(list, cat, prefill = null) {
+  // says. `prefill` (by piece) is what the rows said before, when filing is changed straight after or
+  // was refused (`problem` then says why).
+  function openFiling(list, cat, prefill = null, problem = null) {
     const presetId = project.naming;
     const settings = (cat.project && cat.project.settings) || {};
     const useTasks = settings.tasks !== false;
@@ -4709,6 +4712,15 @@
 
     const dlg = el('dialog', { class: `dlg file-dlg${list.length > 1 ? ' many' : ''}` });
     const hint = el('p', { class: 'file-hint' });
+    // What a key did to the rows, with its Undo: said here, since a toast would be behind the dialog.
+    const status = el('p', { class: 'file-status', role: 'status', hidden: true });
+    let statusGone = 0;
+    shared.say = (text, undo) => {
+      clearTimeout(statusGone);
+      status.replaceChildren(el('span', { text }), undo ? el('button', { type: 'button', class: 'file-fix', text: 'Undo', onclick: () => { undo(); status.hidden = true; paint(); } }) : '');
+      status.hidden = false;
+      statusGone = setTimeout(() => { status.hidden = true; }, 10000);
+    };
     const ok = el('button', { type: 'submit', class: 'btn primary', text: list.length > 1 ? `File ${list.length}` : 'File' });
     for (const it of list) {
       const parsed = N.parse(it.name || '', presetId);
@@ -4723,6 +4735,9 @@
         label: it.name || 'it',
         entity,
         task: before ? before.task || '' : parsed.task || (ruled && ruled.task) || (entity && remembered && entity === remembered.entity && entity === lastOne ? remembered.task || '' : ''),
+        named: !before && !!(parsed.entity || ruled),
+        number: before ? before.number : null,
+        view: before ? before.view : parsed.view,
       });
       const row = { it, f, ent: f.ent, task: f.task, tier: f.tier, taught: !parsed.entity && !ruled };
       row.node = el('div', { class: 'file-row' },
@@ -4757,10 +4772,12 @@
     function paint() {
       for (const row of rows) row.f.sync();
       const missing = rows.filter((row) => !nameOf(row)).length;
-      ok.disabled = missing > 0;
+      const unsure = rows.filter((row) => nameOf(row) && !row.f.ready()).length;
+      ok.disabled = missing + unsure > 0;
       const made = [...new Set(rows.map(nameOf).filter((n) => n && !cat.entities.some((e) => e.name === n)))];
-      hint.textContent = missing ? (list.length === 1 ? 'Which asset, set or shot is it? Type a name, or pick one.' : `${missing === rows.length ? 'Say' : `${missing} still need to say`} which asset, set or shot ${missing === 1 ? 'it is' : 'each is'}.`)
-        : made.length ? `New in the catalogue: ${made.join(', ')}.` : 'Each is filed as the version its row says.';
+      const sortOut = unsure ? `${unsure === 1 ? 'A row' : `${unsure} rows`} ${missing ? 'also' : 'still'} ${unsure === 1 ? 'has' : 'have'} something to sort out: see under ${unsure === 1 ? 'it' : 'them'}.` : '';
+      hint.textContent = missing ? `${list.length === 1 ? 'Which asset, set or shot is it? Type a name, or pick one.' : `${missing === rows.length ? 'Say' : `${missing} still need to say`} which asset, set or shot ${missing === 1 ? 'it is' : 'each is'}.`} ${sortOut}`.trim()
+        : sortOut || (made.length ? `New in the catalogue: ${made.join(', ')}.` : 'Each is filed as the version its row says.');
     }
 
     let confirmed = false;
@@ -4769,7 +4786,7 @@
       onsubmit: async (e) => {
         e.preventDefault();
         for (const row of rows) row.f.settle();
-        if (rows.some((row) => !nameOf(row))) return paint();
+        if (rows.some((row) => !row.f.ready())) return paint();
         // A new sequence is said out loud once before it is made.
         if (!(await WBFiling.confirmSequences(rows.map((row) => row.f)))) return;
         confirmed = true;
@@ -4779,14 +4796,20 @@
     el('h2', { text: list.length > 1 ? `File ${list.length} pieces as versions` : 'File as a version' }),
     list.length > 1 && fill,
     el('div', { class: 'file-rows' }, rows.map((row) => row.node)),
+    status,
     hint,
+    WBFiling.keysHint(),
     el('div', { class: 'dlg-actions' },
       el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }), ok)));
     dlg.addEventListener('close', async () => {
       dlg.remove();
       if (!confirmed) return;
-      const files = rows.map((row) => ({ board: boardId, item: row.it.id, entity: row.f.entity(), task: row.f.taskName() }));
-      const said = new Map(rows.map((row) => [row.it.id, { entity: nameOf(row), task: row.f.taskName() }]));
+      // A version number or view typed on a row's line goes with it; otherwise the next, with none.
+      const files = rows.map((row) => ({
+        board: boardId, item: row.it.id, entity: row.f.entity(), task: row.f.taskName(),
+        ...(row.f.typedNumber() && { number: row.f.typedNumber() }), ...(row.f.typedView() && { view: row.f.typedView() }),
+      }));
+      const said = new Map(rows.map((row) => [row.it.id, { entity: nameOf(row), task: row.f.taskName(), number: row.f.typedNumber(), view: row.f.typedView() }]));
       try {
         const res = await WB.api('POST', `/api/projects/${project.id}/versions`, { files, by: me.name });
         const last = rows[rows.length - 1];
@@ -4796,26 +4819,48 @@
         const unfile = async () => {
           for (const v of res.versions) await WB.api('POST', `/api/versions/${v.id}/unfile`, { by: me.name });
         };
-        toast(res.versions.length === 1 ? `Filed as ${res.versions[0].label}` : `Filed ${res.versions.length} versions: ${res.versions.map((v) => v.label).join(', ')}`, {
-          ms: 10000, key: 'filed',
+        let takenBack = false;
+        const filed = toast(res.versions.length === 1 ? `Filed as ${res.versions[0].label}` : `Filed ${res.versions.length} versions: ${res.versions.map((v) => v.label).join(', ')}`, {
+          ms: 20000, key: 'filed',
           action: [
-            { label: 'Undo', run: async () => { await unfile(); toast(res.versions.length === 1 ? 'Not filed after all' : `${res.versions.length} not filed after all`); } },
-            { label: 'Change…', run: async () => { await unfile(); openFiling(list, await WB.api('GET', `/api/projects/${project.id}`), said); } },
+            { label: 'Undo', run: async () => { takenBack = true; await unfile(); toast(res.versions.length === 1 ? 'Not filed after all' : `${res.versions.length} not filed after all`); } },
+            { label: 'Change…', run: async () => { takenBack = true; await unfile(); openFiling(list, await WB.api('GET', `/api/projects/${project.id}`), said); } },
           ],
         });
-        // A piece named some other way teaches how such names are read, if it is wanted.
+        // A piece named some other way teaches how such names are read, if it is wanted: asked once the
+        // message about the filing has gone, so the two do not ask at once (and not if it was taken back).
         const taught = rows.find((row) => row.taught && row.it.name);
         if (taught) {
-          WBFiling.offerRule({
+          const ask = () => WBFiling.offerRule({
             filename: taught.it.name, entity: nameOf(taught), presetId, rules, tasks: cat.tasks,
             save: (next) => WB.api('PATCH', `/api/folders/${project.id}`, { settings: { rules: next } }),
           });
+          const wait = setInterval(() => {
+            if (filed.node.isConnected) return;
+            clearInterval(wait);
+            if (!takenBack) ask();
+          }, 500);
         }
       } catch (err) {
-        toast(err.message, { ms: 6000 });
+        // Nothing was filed: the rows come back as they were, to put right, saying why.
+        openFiling(list, cat, said, err.message);
       }
     });
+    // Escape closes it, but not over what has been typed without asking.
+    let typed = false;
+    dlg.addEventListener('input', () => { typed = true; });
+    dlg.addEventListener('cancel', async (e) => {
+      if (!typed) return;
+      e.preventDefault();
+      const sure = await WB.dialog({ title: 'Close without filing?', text: 'What the rows say is not kept.', ok: 'Close', danger: true });
+      if (sure) dlg.close();
+    });
     paint();
+    if (problem) {
+      status.replaceChildren(el('span', { text: `Nothing was filed: ${problem}` }));
+      status.classList.add('warn');
+      status.hidden = false;
+    }
     document.body.append(dlg);
     dlg.showModal();
     const first = rows.find((row) => !nameOf(row));

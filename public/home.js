@@ -2495,7 +2495,7 @@
       onclick: () => { viewsAsked = true; resyncAll(); },
     });
     const head = el('div', { class: 'imp-head' }, title, fillAll, el('span', { class: 'imp-gap' }), viewsBtn, aiBtn, clearBtn, fileAll);
-    const tray = el('div', { class: 'imp', hidden: true }, head, ai && ai.node, list);
+    const tray = el('div', { class: 'imp', hidden: true }, head, ai && ai.node, list, WBFiling.keysHint());
     const picker = el('input', { type: 'file', multiple: true, accept: 'image/*,video/mp4,video/webm,video/quicktime', hidden: true });
     document.body.append(picker);
     let pickFor = null;
@@ -2602,7 +2602,7 @@
       r.fields.mark = mark;
       if (mark) r.fields.box.prepend(mark);
     }
-    const canFile = (r) => (r.status === 'ready' || r.status === 'uploading' || r.status === 'queued' || (r.status === 'failed' && r.look)) && !r.fileWhenReady && !!choiceOf(r).name;
+    const canFile = (r) => (r.status === 'ready' || r.status === 'uploading' || r.status === 'queued' || (r.status === 'failed' && r.look)) && !r.fileWhenReady && !!r.fields && r.fields.f.ready();
 
     function makeRow(r) {
       // Which asset, set or shot, what it is if new, and the task: the fields a board files with too.
@@ -2614,6 +2614,7 @@
       const f = WBFiling.fields({
         presetId, getEntities: () => (cat ? cat.entities : []), getTasks: tasks, getViews: () => (cat && cat.views) || [], label: r.file.name,
         entity: r.entity ? r.entity.name : r.parsed.entity || (ruled && ruled.entity) || '', task: r.parsed.task || (ruled && ruled.task) || '', onChange: resyncAll,
+        named: !r.entity && !!(r.parsed.entity || ruled),
         useTasks: useTasks(), rules, peers, remembered: store(`wb:file:${project.id}`) || null,
         numberOf: () => Number(num.value) || null,
         onLine: (l) => {
@@ -2641,6 +2642,8 @@
       const bar = el('i', { class: 'imp-bar' }, el('i'));
       const thumb = el('span', { class: 'imp-thumb' });
       const said = el('button', { type: 'button', class: 'imp-filed', hidden: true, title: 'Open it, to look, comment and draw', onclick: () => r.version && lookAt(r.version.entityId, r.version.id) });
+      // Taken back straight after, as if it had not been filed: the row is as it was, to file again.
+      const undo = el('button', { type: 'button', class: 'btn small ghost imp-undo', text: 'Undo', hidden: true, title: 'Take it back, as if it had not been filed', onclick: () => unfileRow(r) });
       const fields = el('span', { class: 'imp-fields' }, ent, tier, task, el('span', { class: 'imp-v' }, el('span', { text: 'v' }), num), view, go);
       const sync = () => {
         const { name } = choiceOf(r);
@@ -2662,7 +2665,7 @@
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented && canFile(r)) fileRow(r); });
         input.addEventListener('input', () => setMark(r, null));
       }
-      r.fields = { f, ent, task, num, view, tier, go, status, bar, thumb, said, box: fields, sync };
+      r.fields = { f, ent, task, num, view, tier, go, status, bar, thumb, said, undo, box: fields, sync };
       // Taken back: whatever is under way for it stops, and the row goes.
       const drop = el('button', {
         type: 'button', class: 'iconbtn imp-x', html: icon('close', 14), title: `Take ${r.file.name} back`,
@@ -2687,7 +2690,7 @@
       });
       r.fields.retry = retry;
       // What it is doing is said under its bar, so nothing on the row moves while it comes in.
-      r.node = el('div', { class: 'imp-row' }, thumb, el('span', { class: 'imp-file' }, el('span', { class: 'imp-name', text: r.file.name, title: r.file.name }), bar, status), fields, said, el('span', { class: 'imp-end' }, retry, drop), f.readout);
+      r.node = el('div', { class: 'imp-row' }, thumb, el('span', { class: 'imp-file' }, el('span', { class: 'imp-name', text: r.file.name, title: r.file.name }), bar, status), fields, said, el('span', { class: 'imp-end' }, undo, retry, drop), f.readout);
       sync();
       return r.node;
     }
@@ -2705,6 +2708,8 @@
       f.box.hidden = r.status === 'filed';
       f.said.hidden = r.status !== 'filed';
       f.said.textContent = r.label ? `Filed as ${r.label}` : '';
+      // Only while the server would take it back: a view put with a version there already is not.
+      f.undo.hidden = !(r.status === 'filed' && r.version && !r.version.filedView && Date.now() - r.filedAt < WBFiling.UNFILE_WITHIN);
       f.go.textContent = r.status === 'filing' ? 'Filing…' : 'File';
       f.drop.hidden = r.status === 'filed' || r.status === 'filing';
       f.retry.hidden = !(r.status === 'failed' && !r.look);
@@ -2737,6 +2742,22 @@
       }, 300);
     };
 
+    async function unfileRow(r) {
+      if (r.status !== 'filed' || !r.version) return;
+      try {
+        await api('POST', `/api/versions/${r.version.id}/unfile`, { by: me.name });
+      } catch (err) {
+        r.fields.undo.hidden = true;
+        return fail(err);
+      }
+      Object.assign(r, { status: 'ready', label: null, version: null, filedAt: 0 });
+      cat = null;
+      await catalogue().catch(() => {});
+      resyncAll();
+      paintRow(r);
+      showFiled();
+    }
+
     async function fileRow(r) {
       if (!canFile(r)) return;
       r.fields.f.settle();
@@ -2757,7 +2778,7 @@
         const view = viewOf(r);
         const res = await api('POST', `/api/projects/${project.id}/versions`, { files: [{ look: r.look, entity, task, ...(view && { view }), ...(Number.isSafeInteger(number) && number >= 1 && { number }) }], by: me.name });
         const v = res.versions[0];
-        Object.assign(r, { status: 'filed', label: v.filedView ? `${v.label} · ${v.filedView}` : v.label, version: v });
+        Object.assign(r, { status: 'filed', label: v.filedView ? `${v.label} · ${v.filedView}` : v.label, version: v, filedAt: Date.now() });
         store(`wb:file:${project.id}`, { entity: name, task });
         // What is filed now has its number: the rows still to go count on from it.
         cat = null;

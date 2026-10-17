@@ -398,8 +398,9 @@ const WB = (() => {
   // A list of suggestions under a text box, as it is typed in: the arrows walk it, Enter or a click takes
   // one, Esc puts it away. `source(text)` gives the suggestions: { value, label, hint, thumb, make }; one
   // with `make` is the way to make something new of what was typed. Taking one puts its value in the box
-  // and tells the box (an "input" event), then `onPick`.
-  function combo(input, source, { onPick } = {}) {
+  // and tells the box (an "input" event), then `onPick`. With `quiet`, the box being given the keyboard
+  // by the page (rather than clicked into) does not open the list: it would cover what is below.
+  function combo(input, source, { onPick, quiet = false } = {}) {
     const list = el('div', { class: 'combo-list', role: 'listbox', hidden: true });
     let options = [];
     let at = -1;
@@ -444,7 +445,15 @@ const WB = (() => {
       hide();
       if (onPick) onPick(o);
     };
-    input.addEventListener('focus', show);
+    let pressed = false;
+    input.addEventListener('pointerdown', () => {
+      pressed = true;
+      if (document.activeElement === input && list.hidden) show();
+    });
+    input.addEventListener('focus', () => {
+      if (!quiet || pressed) show();
+      pressed = false;
+    });
     input.addEventListener('input', () => { if (document.activeElement === input) show(); });
     input.addEventListener('blur', () => setTimeout(hide, 100));
     input.addEventListener('keydown', (e) => {

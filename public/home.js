@@ -2495,7 +2495,12 @@
       onclick: () => { viewsAsked = true; resyncAll(); },
     });
     const head = el('div', { class: 'imp-head' }, title, fillAll, el('span', { class: 'imp-gap' }), viewsBtn, aiBtn, clearBtn, fileAll);
-    const tray = el('div', { class: 'imp', hidden: true }, head, ai && ai.node, list, WBFiling.keysHint());
+    // The rows that need nothing from anyone, folded into one line over the rest (filing.js).
+    const fold = WBFiling.readyFold({
+      items: () => rows.filter((o) => o.fields && unfiled(o) && o.status !== 'failed').map((o) => ({ f: o.fields.f, node: o.node, r: o })),
+      file: (list) => { for (const i of list) if (canFile(i.r)) fileRow(i.r); },
+    });
+    const tray = el('div', { class: 'imp', hidden: true }, head, ai && ai.node, fold.node, list, WBFiling.keysHint());
     const picker = el('input', { type: 'file', multiple: true, accept: 'image/*,video/mp4,video/webm,video/quicktime', hidden: true });
     document.body.append(picker);
     let pickFor = null;
@@ -2614,7 +2619,7 @@
       const f = WBFiling.fields({
         presetId, getEntities: () => (cat ? cat.entities : []), getTasks: tasks, getViews: () => (cat && cat.views) || [], label: r.file.name,
         entity: r.entity ? r.entity.name : r.parsed.entity || (ruled && ruled.entity) || '', task: r.parsed.task || (ruled && ruled.task) || '', onChange: resyncAll,
-        named: !r.entity && !!(r.parsed.entity || ruled),
+        named: !!(r.entity || r.parsed.entity || ruled), piece: () => r.look,
         useTasks: useTasks(), rules, peers, remembered: store(`wb:file:${project.id}`) || null,
         numberOf: () => Number(num.value) || null,
         onLine: (l) => {
@@ -2728,6 +2733,7 @@
       fillAll.hidden = rows.filter((r) => r.status !== 'filed').length < 2;
       viewsBtn.hidden = viewsOn() || !rows.some(unfiled);
       if (aiBtn) aiBtn.hidden = !rows.some(unfiled);
+      fold.paint();
       if (ai && aiBtn.hidden) ai.node.hidden = true;
     }
 

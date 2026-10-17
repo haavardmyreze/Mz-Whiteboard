@@ -1299,21 +1299,38 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
 }
 .dlg p.file-hint { margin: 12px 0 0; font-size: 12.5px; }
 
-/* What a row being filed will be, said under it (filing.js): where it goes, the version it follows and
-   the number it gets, and anything that looks wrong, with its fix. The same on a board and in the catalogue. */
+/* What a row being filed will be, said under it (filing.js): the version it follows and the number it
+   gets, what a new one is, and anything that looks wrong, with its fix. The same on a board and in the catalogue. */
 .file-says { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; min-height: 20px; color: var(--muted); font-size: 12px; line-height: 20px; }
 /* Before a name: what Enter would put in, and how to say a shot short. Always there, so nothing below moves as you type. */
 .file-help { opacity: 0.75; }
 .file-says[hidden], .imp-row.filed .file-says { display: none; }
+/* Nothing to say: no line, except on the row being worked in, so what is typed there moves nothing. */
+.file-says:empty { display: none; }
+.imp-row:focus-within .file-says:empty, .file-row:focus-within .file-says:empty { display: flex; }
 .file-row .file-says { grid-column: 2 / -1; margin-top: 4px; }
 .imp-row .file-says { grid-column: 2 / -1; margin-top: 6px; }
 .file-what { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
-.file-path { display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; white-space: nowrap; }
-.file-path i { font-style: normal; opacity: 0.6; }
-.file-path .b { color: var(--text); font-weight: 600; }
-.file-prev { display: inline-flex; flex: none; align-items: center; gap: 5px; }
+.file-prev { position: relative; display: inline-flex; flex: none; align-items: center; gap: 5px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: zoom-in; }
 .file-prev img { width: 32px; height: 20px; border-radius: var(--r-1); background: var(--thumb-bg); object-fit: cover; }
 .file-prev i { font-style: normal; }
+.file-prev:focus-visible { outline: none; }
+.file-prev:focus-visible img { box-shadow: 0 0 0 2px var(--accent); }
+/* It looks like the version it follows: a tick on that one's still. */
+.file-prev.ok::before { content: '✓'; position: absolute; top: -5px; left: 24px; display: grid; place-items: center; width: 13px; height: 13px; border-radius: 50%; background: var(--ok); color: var(--bg); font-size: 9px; font-weight: 700; line-height: 1; }
+
+/* The version a piece follows and the piece, side by side (filing.js compareOn). */
+.file-compare { position: fixed; z-index: var(--z-popover); display: flex; gap: 8px; padding: 8px; border: 1px solid var(--line-strong); border-radius: var(--r-3); background: var(--surface-1); box-shadow: var(--shadow-pop); pointer-events: none; }
+.file-compare figure { display: flex; flex-direction: column; gap: 6px; width: min(280px, 42vw); margin: 0; }
+.file-compare video, .file-compare img { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: var(--r-2); background: var(--thumb-bg); object-fit: contain; }
+.file-compare figcaption { overflow: hidden; color: var(--muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Rows that need nothing from anyone, folded into one line over the rest (filing.js readyFold). */
+.file-ready { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 8px 0 4px; padding: 6px 10px; border-radius: var(--r-2); background: var(--surface-2); font-size: 12.5px; }
+.file-ready[hidden], .imp-row.folded, .file-row.folded { display: none; }
+.file-ready-mark { display: grid; flex: none; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: var(--ok); color: var(--bg); font-size: 10px; font-weight: 700; }
+.file-ready-text { flex: 1; min-width: 0; color: var(--muted); }
+.file-ready-text b { color: var(--text); font-weight: 600; }
 .file-num { flex: none; color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
 .file-new { flex: none; padding: 0 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; line-height: 18px; }
 .file-new.ask { background: var(--warn-bg); color: var(--warn-fg); }
@@ -2067,6 +2084,10 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .imp-status { min-width: 0; min-height: 15px; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 15px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .imp-row.failed .imp-status { color: var(--danger); white-space: normal; }
 .imp-row.soon .imp-fields .btn { opacity: 0.5; }
+/* Each row's File, where there is a pointer, only on the row it is over or working in: "File all" is for the rest. */
+@media (hover: hover) {
+  .imp-row:not(:hover):not(:focus-within) .imp-fields .btn { visibility: hidden; }
+}
 /* Another view of the version of the row above: the two read as one. */
 .imp-row.with-above { padding-top: 2px; }
 .imp-row.with-above .imp-thumb { box-shadow: -4px 0 0 -1px var(--accent); }

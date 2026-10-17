@@ -6,13 +6,14 @@
 // pieces can be given one answer to start from ("For all").
 //
 // The first field takes a whole line, read by WBNaming.readLine: "kilo-0010 anim v12 bty", a file name
-// pasted in, or a short way to say a shot (20, +, .). Under each row a line says what it will be: where
-// it goes, the version it follows (with its still, beside the piece's own) and the number it gets, and
-// anything that looks wrong (a near miss of a name the project has, a name not to the styleguide, a new
-// sequence, a second count for one shot), the worst of it first, each with the fix a click away; and
-// before anything is typed, what Enter would put in. Suggestions come before anything is typed: what
-// the piece looks like a new version of (by its picture, asked of the server), the row above, the next
-// shot. Ctrl+D copies the row above; Shift+Enter numbers the rows below on from this one.
+// pasted in, or a short way to say a shot (20, +, .). Under each row a line says only what the fields do
+// not: the version it follows (its still, which shows the two side by side) and the number it gets, what
+// a new one is and where it goes, a change of length, and anything that looks wrong (a near miss of a
+// name the project has, a name not to the styleguide, a new sequence, a second count for one shot), the
+// worst of it first, each with the fix a click away; and before anything is typed, what Enter would put
+// in. Rows that need nothing from anyone fold into one line (readyFold). Suggestions come before anything
+// is typed: what the piece looks like a new version of (by its picture, asked of the server), the row
+// above, the next shot. Ctrl+D copies the row above; Shift+Enter numbers the rows below on from this one.
 // Loaded after naming.js, before the pages that file.
 const WBFiling = (() => {
   const { el } = WB;
@@ -26,11 +27,12 @@ const WBFiling = (() => {
   const streamsOf = (e) => Object.entries((e && e.heads) || {}).map(([task, h]) => ({ task: task || null, ...h })).sort((a, b) => b.at - a.at);
   // The number the next version of an entity and task gets, `before` more being filed ahead of it.
   const nextOf = (e, task, before = 0) => ((e && e.tops ? e.tops[task || ''] || 0 : 0) + 1 + before);
-  const tierLabel = (presetId, tier) => (N.preset(presetId).tiers.find((t) => t.id === tier) || { label: '' }).label;
   // Counts what is typed or put into any row: a row's line is read again only after a change (see line
   // in fields). A page that writes into a row's boxes itself says so with changed().
   let edits = 0;
   const changed = () => { edits++; };
+  // Two keys of what something was worked out from, the same.
+  const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
   // How long a filing can be taken back as if it had not been (as the server says: UNFILE_WITHIN in server.js).
   const UNFILE_WITHIN = 30 * 60 * 1000;
 
@@ -131,6 +133,94 @@ const WBFiling = (() => {
     return out;
   }
 
+  // ---- the version a piece follows, beside it
+
+  // Under the pointer (after a moment) or the keyboard, `node` shows what `what()` gives side by side:
+  // { before, after } looks (the version followed, and the piece), their labels, and how their lengths
+  // differ. Two videos play together from the start, and both start again when either ends.
+  let compare = null;
+  function compareOn(node, what) {
+    let wait = 0;
+    const open = () => {
+      const w = what();
+      if (!w.before || !w.after) return;
+      shut();
+      const pane = (look, caption) => {
+        const src = look.type === 'video' ? WB.playable(look) : look.prev || look.src;
+        const media = look.type === 'video'
+          ? el('video', { src, poster: look.poster || null, muted: '', playsinline: '', preload: 'auto' })
+          : el('img', { src, alt: '' });
+        if (look.type === 'video') media.muted = true;
+        return { media, node: el('figure', {}, media, el('figcaption', { text: caption })) };
+      };
+      const seconds = (look) => (look.type === 'video' && look.dur > 0 ? ` · ${look.dur.toFixed(1)} s` : '');
+      const a = pane(w.before, `${w.beforeLabel}${seconds(w.before)}`);
+      const b = pane(w.after, `This${seconds(w.after)}${w.change ? ` · ${w.change.text}` : ''}${w.alike ? ' · looks alike' : ''}`);
+      const box = el('div', { class: 'file-compare', role: 'tooltip' }, a.node, b.node);
+      (node.closest('dialog') || document.body).append(box);
+      const r = node.getBoundingClientRect();
+      const bw = box.offsetWidth;
+      const bh = box.offsetHeight;
+      box.style.left = `${Math.round(Math.max(8, Math.min(r.left, innerWidth - bw - 8)))}px`;
+      box.style.top = `${Math.round(r.top - bh - 8 > 8 ? r.top - bh - 8 : Math.min(r.bottom + 8, innerHeight - bh - 8))}px`;
+      const videos = [a.media, b.media].filter((m) => m.tagName === 'VIDEO');
+      const again = () => { for (const v of videos) { v.currentTime = 0; v.play().catch(() => {}); } };
+      let loaded = 0;
+      for (const v of videos) {
+        v.addEventListener('canplay', () => { if (++loaded === videos.length) again(); }, { once: true });
+        v.addEventListener('ended', again);
+      }
+      // The still it opened from may be painted afresh under it: then it goes too.
+      const gone = setInterval(() => { if (!node.isConnected) shut(); }, 400);
+      compare = { box, node, gone };
+    };
+    const later = () => { clearTimeout(wait); wait = setTimeout(open, 250); };
+    const close = () => { clearTimeout(wait); if (compare && compare.node === node) shut(); };
+    node.addEventListener('pointerenter', later);
+    node.addEventListener('pointerleave', close);
+    node.addEventListener('focus', open);
+    node.addEventListener('blur', close);
+    node.addEventListener('keydown', (e) => { if (e.key === 'Escape' && compare) { e.preventDefault(); e.stopPropagation(); shut(); } });
+  }
+  function shut() {
+    if (!compare) return;
+    clearInterval(compare.gone);
+    for (const v of compare.box.querySelectorAll('video')) v.removeAttribute('src');
+    compare.box.remove();
+    compare = null;
+  }
+
+  // ---- rows that need nothing from anyone, folded away
+
+  // A line over the rows saying which need nothing from anyone (see certain in fields) and folding them
+  // away, so what is left in sight is what needs looking at: "✓ 4 ready: kilo-0010 anim v2, ... Show".
+  // `items()` are the rows still to be filed, each { f, node }; `file(list)`, when given, files those.
+  // A row someone is working in is never folded under them.
+  function readyFold({ items, file = null }) {
+    const node = el('div', { class: 'file-ready', hidden: true });
+    let open = false;
+    function paint() {
+      const list = items();
+      const sure = list.filter((i) => i.f.certain() && !i.node.contains(document.activeElement));
+      const fold = sure.length >= 2;
+      for (const i of list) {
+        const was = i.node.classList.contains('folded');
+        i.node.classList.toggle('folded', fold && !open && sure.includes(i));
+        if (was && !i.node.classList.contains('folded')) i.f.sync();
+      }
+      node.hidden = !fold;
+      if (!fold) return;
+      const names = sure.map((i) => i.f.summary());
+      const shown = names.slice(0, 4).join(', ') + (names.length > 4 ? `, and ${names.length - 4} more` : '');
+      node.replaceChildren(
+        el('span', { class: 'file-ready-mark', text: '✓' }),
+        el('span', { class: 'file-ready-text' }, el('b', { text: `${sure.length} ready` }), el('span', { text: open ? ': named by their files, nothing to check' : `: ${shown}` })),
+        el('button', { type: 'button', class: 'btn small ghost', text: open ? 'Fold' : 'Show', 'aria-expanded': String(open), onclick: () => { open = !open; paint(); } }),
+        file && el('button', { type: 'button', class: 'btn small', text: `File ${sure.length}`, onclick: () => file(sure) }));
+    }
+    return { node, paint };
+  }
+
   // One piece's fields. `getEntities()`, `getTasks()` and `getViews()` are the project's as last known;
   // `onChange` hears every edit. The tier is asked only for a new name whose shape does not say it, and
   // the task only when the project counts by task (`useTasks`). `peers()` are the fields of the rows
@@ -141,10 +231,11 @@ const WBFiling = (() => {
   // `typedNumber()` and `typedView()`, starting from `number` and `view`. `named` says the entity given
   // was read from the piece's own file name. `rules` let the project's learned rules read pasted names;
   // `say(text, undo)` tells the person something the keys did (a toast unless the page says otherwise).
+  // `piece()` is the look of what is being filed (to compare it with the version it follows).
   function fields({
     entity = '', task = '', presetId, getEntities, getTasks, getViews = () => [], label = 'it', onChange = () => {},
     useTasks = true, peers = () => [], remembered = null, numberOf = null, onLine = null, rules = () => [],
-    number: typedNumber = null, view: typedView = null, named = false, say = null,
+    number: typedNumber = null, view: typedView = null, named = false, say = null, piece = () => null,
   }) {
     const readout = el('div', { class: 'file-says', id: `fs-${WB.uid()}` });
     const ent = el('input', { type: 'text', value: entity, placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': `What ${label} is`, 'aria-describedby': readout.id, title: SHORT_HELP });
@@ -204,15 +295,18 @@ const WBFiling = (() => {
     let read = null;
     const line = () => {
       const { list, at } = around();
-      const key = `${edits}|${list.length}|${at}|${entities().length}|${ent.value}`;
-      if (!read || read.key !== key) read = { key, line: N.readLine(ent.value, lineContext()) };
+      const key = [edits, list.length, at, entities().length, ent.value];
+      if (!read || !same(read.key, key)) read = { key, line: N.readLine(ent.value, lineContext()) };
       return read.line;
     };
     const name = () => line().entity || '';
+    let taskRead = { value: null, name: null };
     const taskName = () => {
       if (!useTasks) return null;
       const l = line();
-      return l.task !== undefined ? l.task || null : N.tokenize(taskIn.value) || null;
+      if (l.task !== undefined) return l.task || null;
+      if (taskRead.value !== taskIn.value) taskRead = { value: taskIn.value, name: N.tokenize(taskIn.value) || null };
+      return taskRead.name;
     };
 
     // The line, said in the fields: the name in the first, the task in its own, and a number and view
@@ -315,8 +409,18 @@ const WBFiling = (() => {
     // ---- what the row will be, said under it
 
     // What there is to say about the row, each { text, fixes: [{ label, run }] } and how much it
-    // matters: `warn` (with its `rank`, the worst lowest), `ok`, or neither (only telling).
+    // matters: `warn` (with its `rank`, the worst lowest), `ok`, or neither (only telling). Asked for
+    // several times in a repaint (the line under the row, the fold, filing), and worked out once until
+    // something changes: it reads the rows above, so working it out each time would be slow with many.
+    let judged = null;
+    let likelyAt = 0;
     function checks() {
+      const { list, at } = around();
+      const key = [edits, list.length, at, entities().length, likelyAt, ent.value, taskIn.value, tier.value, own.number, own.view, (piece() || {}).dur];
+      if (!judged || !same(judged.key, key)) judged = { key, out: judge() };
+      return judged.out;
+    }
+    function judge() {
       const n = name();
       if (!n) return [];
       const out = [];
@@ -342,13 +446,16 @@ const WBFiling = (() => {
         if (tierNow === 'shot') {
           const seq = N.seqOf(n);
           const seqs = [...new Set(names.filter((x) => N.tierOf(x, presetId) === 'shot').map(N.seqOf))];
-          const above = lineContext().taken.some((x) => N.seqOf(x) === seq && N.tierOf(x, presetId) === 'shot');
+          const taken = lineContext().taken;
+          const above = taken.some((x) => N.seqOf(x) === seq && N.tierOf(x, presetId) === 'shot');
           if (!seqs.includes(seq) && !above) {
-            // Only worth a warning when it is a letter or two from one there is; otherwise it is said, and asked about when filed.
+            // A warning when it is a letter or two from one there is; otherwise said in the tag that says
+            // it is new (see paintReadout), and asked about when filed.
             const like = N.nearMisses(seq, seqs);
-            out.push({ text: like.length ? `A new sequence, ${seq}. Did you mean` : `Starts a new sequence: ${seq}`, fixes: like.map((q) => ({ label: q, run: () => setLine(`${q}-${N.pad(N.shotNumber(n))}`) })), warn: like.length > 0, rank: 1, newSeq: seq });
+            out.push({ text: like.length ? `A new sequence, ${seq}. Did you mean` : '', fixes: like.map((q) => ({ label: q, run: () => setLine(`${q}-${N.pad(N.shotNumber(n))}`) })), warn: like.length > 0, rank: 1, newSeq: seq });
           } else {
-            const sq = N.sequence(names, seq);
+            // Past the last shot there is, or that a row above is making: a run of new shots warns once, at its jump.
+            const sq = N.sequence([...names, ...taken], seq);
             const num = N.shotNumber(n);
             if (sq.last && num > sq.last + 10 * sq.step) out.push({ text: `Far past the last shot of ${seq} (${N.pad(sq.last)})`, warn: true, rank: 5 });
           }
@@ -371,8 +478,12 @@ const WBFiling = (() => {
           out.push({ text: `${n} is counted by task (${counted.map((k) => `${k} v${tops[k]}`).join(', ')}): this starts a count with no task`, fixes: counted.slice(0, 3).map((k) => ({ label: k, run: () => { changed(); taskIn.value = k; sync(); } })), warn: true, rank: 4 });
         }
       }
-      // What the piece itself looks like it is, by its picture: said when it agrees, and when it seems
-      // to be something else. Being as long as a shot is not enough to say either.
+      // How much longer or shorter it is than the version it follows: what a playblast is checked for.
+      const change = lengthChange();
+      if (change) out.push({ text: change.text });
+      // What the piece itself looks like it is, by its picture: said when it agrees (a tick on the still
+      // of the version it follows), and when it seems to be something else. Being as long as a shot is
+      // not enough to say either.
       const best = likely.find(looksAlike);
       if (best) {
         const same = best.entity === n && (!useTasks || (best.task || null) === taskName());
@@ -381,10 +492,35 @@ const WBFiling = (() => {
       }
       return out;
     }
+    // The newest version of the entity and task it goes to, which it follows.
+    const headOf = () => {
+      const e = have(name());
+      return e && e.heads ? e.heads[taskName() || ''] || null : null;
+    };
+    // How many frames longer or shorter it is than that, as { frames, text }, or null when they are as
+    // long (or either is not a video).
+    function lengthChange() {
+      const h = headOf();
+      const mine = piece();
+      const a = h && h.look;
+      if (!a || !mine || a.type !== 'video' || mine.type !== 'video' || !(a.dur > 0) || !(mine.dur > 0)) return null;
+      const fps = mine.fps || a.fps || 24;
+      const frames = Math.round(mine.dur * fps) - Math.round(a.dur * (a.fps || fps));
+      if (!frames) return null;
+      return { frames, text: `${WB.plural(Math.abs(frames), 'frame')} ${frames < 0 ? 'shorter' : 'longer'} than v${h.number}` };
+    }
     // Ready to file: it says what it is, every word of it is read, and a new one says what it is.
     const ready = () => {
       const n = name();
       return !!n && !line().rest.length && (!!have(n) || !!N.tierOf(n, presetId) || !!tier.value);
+    };
+    // Needing nothing from anyone: named by its own file (or the page), ready, nothing wrong with it, and
+    // not the first shot of a sequence. A page may fold such rows away (see readyFold).
+    const certain = () => fromName && ready() && !checks().some((c) => c.warn || c.newSeq);
+    // What it will be, in a few words: "kilo-0010 anim v2", and its change of length if any.
+    const summary = () => {
+      const change = lengthChange();
+      return `${N.label(name(), taskName(), number())}${change ? ` (${change.frames > 0 ? '+' : '−'}${Math.abs(change.frames)}f)` : ''}`;
     };
 
     // The number it gets: the page's, or the one typed, or one past the highest of its entity and task,
@@ -395,8 +531,8 @@ const WBFiling = (() => {
       if (numberOf) return numberOf();
       if (own.number) return own.number;
       const { list, at } = around();
-      const key = `${edits}|${list.length}|${at}|${entities().length}|${ent.value}|${taskIn.value}`;
-      if (counted && counted.key === key) return counted.n;
+      const key = [edits, list.length, at, entities().length, ent.value, taskIn.value];
+      if (counted && same(counted.key, key)) return counted.n;
       const n = name();
       const t = taskName();
       let top = nextOf(have(n), t) - 1;
@@ -421,39 +557,49 @@ const WBFiling = (() => {
         ent.placeholder = 'Asset, set or shot';
         if (top) ent.placeholder = `${[top.entity, top.task].filter(Boolean).join(' ')} ↵`;
         // (How to type a line is said once, under the rows: on every row it would only be noise.)
-        return readout.replaceChildren(top ? el('span', { class: 'file-help', text: `Enter: ${[top.entity, top.task].filter(Boolean).join(' ')} (${top.why})` }) : '');
+        return readout.replaceChildren(...(top ? [el('span', { class: 'file-help', text: `Enter: ${[top.entity, top.task].filter(Boolean).join(' ')} (${top.why})` })] : []));
       }
       ent.placeholder = 'Asset, set or shot';
       const e = have(n);
       const t = taskName();
       const tierId = e ? e.tier : N.tierOf(n, presetId) || tier.value || null;
       const seq = tierId === 'shot' ? N.seqOf(n) : null;
-      const head = e && e.heads ? e.heads[t || ''] : null;
+      const head = headOf();
       const num = number();
-      const path = [tierId && tierLabel(presetId, tierId), seq, n, t].filter(Boolean);
+      const all = checks();
       const parts = [];
-      parts.push(el('span', { class: 'file-path' }, path.flatMap((p, i) => [i ? el('i', { text: '›' }) : null, el('span', { class: i === path.length - 1 || p === n ? 'b' : '', text: p })])));
-      // Where the page shows the number in a field of its own, this only says what it follows.
+      // The version it follows: its still (with a tick when the piece looks like it), which shows the two
+      // side by side under the pointer or the keyboard.
       if (head) {
-        parts.push(el('span', { class: 'file-prev', title: `Follows ${N.label(n, t, head.number)}` },
-          head.thumb ? el('img', { src: head.thumb, alt: '' }) : null, el('span', { text: numberOf ? `after v${head.number}` : `v${head.number}` }), numberOf ? null : el('i', { text: '→' })));
+        const ok = all.find((c) => c.ok);
+        const still = el('button', {
+          type: 'button', class: `file-prev${ok ? ' ok' : ''}`,
+          'aria-label': `Compare with ${N.label(n, t, head.number)}${ok ? `. ${ok.text}` : ''}`, onpointerdown: (ev) => ev.preventDefault(),
+        }, head.thumb ? el('img', { src: head.thumb, alt: '' }) : null, el('span', { text: numberOf ? `after v${head.number}` : `v${head.number}` }), numberOf ? null : el('i', { text: '→' }));
+        compareOn(still, () => ({ before: head.look, after: piece(), beforeLabel: N.label(n, t, head.number), change: lengthChange(), alike: ok && ok.text }));
+        parts.push(still);
       }
       if (!numberOf) parts.push(el('b', { class: `file-num${e ? '' : ' new'}`, text: `v${num}${own.view ? ` ${own.view}` : ''}` }));
-      if (!e) parts.push(el('span', { class: `file-new${tierId ? '' : ' ask'}`, text: tierId ? `new ${tierId}` : 'new: say what it is' }));
+      // A new one says what it is and where it goes, in one tag ("new shot in kilo"); one the project has
+      // needs no saying, its fields say it all.
+      const newSeq = all.find((c) => c.newSeq && !c.warn);
+      const where = seq ? (newSeq ? ` in a new sequence, ${seq}` : ` in ${seq}`) : '';
+      if (!e) parts.push(el('span', { class: `file-new${tierId ? '' : ' ask'}`, text: tierId ? `new ${tierId}${where}` : 'new: say what it is' }));
       // The worst warning and what only tells; the other warnings a click away.
-      const all = checks();
       const warns = all.filter((c) => c.warn).sort((a, b) => a.rank - b.rank);
-      const shown = [...all.filter((c) => !c.warn), ...(expanded ? warns : warns.slice(0, 1))];
+      const shown = [...all.filter((c) => !c.warn && !c.ok && c.text), ...(expanded ? warns : warns.slice(0, 1))];
       const more = !expanded && warns.length > 1 && el('button', {
         type: 'button', class: 'file-more', text: `+${warns.length - 1} more`, onpointerdown: (ev) => ev.preventDefault(),
         onclick: () => { expanded = true; paintReadout(); },
       });
-      readout.replaceChildren(el('div', { class: 'file-what' }, parts), ...shown.map(note), more || '');
+      readout.replaceChildren(...(parts.length ? [el('div', { class: 'file-what' }, parts)] : []), ...shown.map(note), ...(more ? [more] : []));
     }
 
+    // A row folded away (see readyFold) is painted when it is shown again.
     const sync = () => {
       const n = name();
       tier.hidden = !n || !!have(n) || !!N.tierOf(n, presetId);
+      if (readout.closest('.folded')) return;
       paintReadout();
     };
     for (const input of [ent, taskIn]) {
@@ -469,7 +615,7 @@ const WBFiling = (() => {
     tier.addEventListener('change', () => { sync(); onChange(); });
     sync();
     return Object.assign(self, {
-      ent, task: taskIn, tier, readout, sync, name, have, taskName, settle, setLine, checks, ready, number,
+      ent, task: taskIn, tier, readout, sync, name, have, taskName, settle, setLine, checks, ready, number, certain, summary,
       typedNumber: () => (numberOf ? null : own.number), typedView: () => (numberOf ? null : own.view),
       // Its name was read from its own file's name, and has not been changed since.
       fromName: () => fromName,
@@ -486,6 +632,7 @@ const WBFiling = (() => {
       // What the server found it looks like (see likely.js): put first among the suggestions.
       setLikely: (list) => {
         likely = list || [];
+        likelyAt++;
         sync();
         // Suggestions open already, before this came: shown again with it first.
         if (likely.length && document.activeElement === ent && !ent.value.trim() && !combo.list.hidden) combo.show();
@@ -618,5 +765,5 @@ const WBFiling = (() => {
     return !max || file.size <= max;
   };
 
-  return { UNFILE_WITHIN, suggest, entitySource, taskSource, fields, changed, series, keysHint, forAll, confirmSequences, findLikely, offerRule, originalFits, streamsOf, nextOf };
+  return { UNFILE_WITHIN, readyFold, suggest, entitySource, taskSource, fields, changed, series, keysHint, forAll, confirmSequences, findLikely, offerRule, originalFits, streamsOf, nextOf };
 })();

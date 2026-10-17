@@ -875,12 +875,17 @@ function openStore(dataDir) {
   const readHeads = db.prepare(`SELECT v.* FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ? AND ${LIVE} AND ${HEAD}`);
   const streamHeads = (projectId) => readHeads.all(projectId).map(versionOf);
   // A project's entities, each as its card shows it (see cards above), how far each task has counted, and
-  // the newest version of each task ({ task (or ''): { id, number, thumb, at } }).
+  // the newest version of each task ({ task (or ''): { id, number, thumb, at, look } }), with enough of
+  // its look to play it beside a piece about to follow it, and to say how their lengths differ.
+  const headLook = (raw) => {
+    const { type, src, lo, poster, dur, fps, nw, nh } = JSON.parse(raw);
+    return { type, src, ...(lo && { lo }), poster, dur, fps, nw, nh };
+  };
   const entities = (projectId) => {
     const tops = new Map();
     for (const t of readTops.all(projectId)) (tops.get(t.entity_id) || tops.set(t.entity_id, {}).get(t.entity_id))[taskKey(t.task)] = t.top;
     const heads = new Map();
-    for (const r of readHeads.all(projectId)) (heads.get(r.entity_id) || heads.set(r.entity_id, {}).get(r.entity_id))[r.task] = { id: r.id, number: r.number, thumb: r.thumb, at: r.created_at };
+    for (const r of readHeads.all(projectId)) (heads.get(r.entity_id) || heads.set(r.entity_id, {}).get(r.entity_id))[r.task] = { id: r.id, number: r.number, thumb: r.thumb, at: r.created_at, look: headLook(r.look) };
     const shown = cards('SELECT id FROM entities WHERE project_id = ?', [projectId]);
     return readEntities.all(projectId).map((r) => ({ ...entityOf(r), ...(shown.get(r.id) || noCard), tops: tops.get(r.id) || {}, heads: heads.get(r.id) || {} }));
   };

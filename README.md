@@ -360,11 +360,14 @@ filed in it.
     covers the rows below. As you type, the project's names that fit, each with its tasks and how far each has
     counted (`kilo-0010 › anim  v12 → v13`), so one pick fills both; `kilo-` lists kilo's shots and its
     next one.
-  - **Under each row** a line says what it will be: where it goes (`Shots › kilo › kilo-0010 › anim`),
-    the version it follows, with its still beside the piece's own, and the number it gets (in the
-    import strip, which has a box for the number, only what it follows). It is there from the start, so
-    nothing below moves as you type. And anything that looks wrong, the worst first with the rest a
-    click away ("+2 more"), each with its fix: a name a letter or two from one the
+  - **Under each row** a line says only what its boxes do not: the version it follows, by its still,
+    and the number it gets (in the import strip, which has a box for the number, only what it follows);
+    for a new name what it is and where it goes (`new shot in kilo`); and how much longer or shorter it
+    is than the version it follows (`12 frames shorter than v1`). A tick on the still says the piece
+    looks like that version. Pointing at the still (or tabbing to it) shows the two side by side, videos
+    playing together from the start, with their lengths. A row with nothing to say has no line, except
+    the row being typed in, so nothing moves as you type. And anything that looks wrong, the worst first
+    with the rest a click away ("+2 more"), each with its fix: a name a letter or two from one the
     project has (`klio-0010`, `kilo-010`), a name not to the styleguide (`robot`: char-robot,
     prop-robot...), a shot far past its sequence's last, a new task beside versions with none (or the
     other way round), and a video that looks like another shot than the one typed. A new sequence is
@@ -372,6 +375,11 @@ filed in it.
     short line with nothing to go by (`.` with nothing above or filed before) says so. A row cannot be
     filed while it has words that could not be read, or is a new name whose shape does not say what it
     is until that is chosen (nothing is assumed). Escape asks before closing over what was typed.
+  - **Only what needs you.** Rows that need nothing from anyone (named by their own files, nothing
+    wrong, not starting a sequence) fold into one line over the rest: "✓ 4 ready: kilo-0010 anim v2
+    (−12f), kilo-0010 lighting v1, ...", with Show, and in the import strip File to file just those.
+    What is left in sight is what needs looking at. A row's own File shows on the row under the
+    pointer, or the one being worked in; "File all" is for the rest.
   - **Keys.** Ctrl+D copies the row above. Shift+Enter fills the rows below on from this one: shots
     go on in their sequence's step (kilo-0010, kilo-0020...), anything else is the same for each. A row
     its own file's name named is kept as it is, and what was done is said with an Undo. The keys are

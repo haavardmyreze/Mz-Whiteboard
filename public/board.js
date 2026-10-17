@@ -4735,7 +4735,7 @@
         label: it.name || 'it',
         entity,
         task: before ? before.task || '' : parsed.task || (ruled && ruled.task) || (entity && remembered && entity === remembered.entity && entity === lastOne ? remembered.task || '' : ''),
-        named: !before && !!(parsed.entity || ruled),
+        named: !before && !!(parsed.entity || ruled), piece: () => it,
         number: before ? before.number : null,
         view: before ? before.view : parsed.view,
       });
@@ -4769,8 +4769,11 @@
       },
     });
 
+    // The rows that need nothing from anyone, folded into one line (filing.js); File files them with the rest.
+    const fold = WBFiling.readyFold({ items: () => rows.map((row) => ({ f: row.f, node: row.node })) });
     function paint() {
       for (const row of rows) row.f.sync();
+      fold.paint();
       const missing = rows.filter((row) => !nameOf(row)).length;
       const unsure = rows.filter((row) => nameOf(row) && !row.f.ready()).length;
       ok.disabled = missing + unsure > 0;
@@ -4795,6 +4798,7 @@
     },
     el('h2', { text: list.length > 1 ? `File ${list.length} pieces as versions` : 'File as a version' }),
     list.length > 1 && fill,
+    fold.node,
     el('div', { class: 'file-rows' }, rows.map((row) => row.node)),
     status,
     hint,

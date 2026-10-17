@@ -147,6 +147,7 @@ CREATE INDEX IF NOT EXISTS entity_people_by_name ON entity_people (name_key);
 -- the file's name, kept only as a label. Its look is what a board needs to show the file (its address,
 -- stills, size, length), as JSON. An archived version (hidden) is kept out of the catalogue's way; a
 -- deleted one is marked, never removed, so its number is not given out again and it can be brought back.
+-- (One taken back straight after it was filed from a board is removed: it never was; see unfileVersion.)
 CREATE TABLE IF NOT EXISTS versions (
   id TEXT PRIMARY KEY,
   entity_id TEXT NOT NULL,
@@ -870,12 +871,18 @@ function openStore(dataDir) {
   // not given out again), so the next one can be said ahead: { task (or '' for none): number }.
   const readTops = db.prepare('SELECT v.entity_id, v.task, max(v.number) AS top FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ? GROUP BY v.entity_id, v.task');
   const readEntities = db.prepare('SELECT * FROM entities WHERE project_id = ? ORDER BY name');
-  // A project's entities, each as its card shows it (see cards above), and how far each task has counted.
+  // The newest version of each task of each entity of a project: what the next one filed there follows.
+  const readHeads = db.prepare(`SELECT v.* FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ? AND ${LIVE} AND ${HEAD}`);
+  const streamHeads = (projectId) => readHeads.all(projectId).map(versionOf);
+  // A project's entities, each as its card shows it (see cards above), how far each task has counted, and
+  // the newest version of each task ({ task (or ''): { id, number, thumb, at } }).
   const entities = (projectId) => {
     const tops = new Map();
     for (const t of readTops.all(projectId)) (tops.get(t.entity_id) || tops.set(t.entity_id, {}).get(t.entity_id))[taskKey(t.task)] = t.top;
+    const heads = new Map();
+    for (const r of readHeads.all(projectId)) (heads.get(r.entity_id) || heads.set(r.entity_id, {}).get(r.entity_id))[r.task] = { id: r.id, number: r.number, thumb: r.thumb, at: r.created_at };
     const shown = cards('SELECT id FROM entities WHERE project_id = ?', [projectId]);
-    return readEntities.all(projectId).map((r) => ({ ...entityOf(r), ...(shown.get(r.id) || noCard), tops: tops.get(r.id) || {} }));
+    return readEntities.all(projectId).map((r) => ({ ...entityOf(r), ...(shown.get(r.id) || noCard), tops: tops.get(r.id) || {}, heads: heads.get(r.id) || {} }));
   };
   // A project's versions, newest filed first (archived and deleted ones left out), each with its entity,
   // a page at a time. `after` is where the page before ended: the [created_at, number, id] of its last.
@@ -1107,6 +1114,27 @@ function openStore(dataDir) {
   // A piece filed as a version takes the notes made on it with it: from then on they are the version's.
   const putNotesFiled = db.prepare('UPDATE notes SET version_id = ? WHERE board_id = ? AND item_id = ? AND version_id IS NULL');
   const fileNotes = (boardId, itemId, versionId) => putNotesFiled.run(versionId, boardId, itemId).changes;
+  // Notes on a version that were not written on the piece it was filed from: written since, elsewhere.
+  const readNotesSince = db.prepare('SELECT count(*) AS n FROM notes WHERE version_id = ? AND NOT (board_id IS ? AND item_id IS ?)');
+  const notesBesides = (versionId, boardId, itemId) => readNotesSince.get(versionId, boardId, itemId).n;
+  // A version taken back just after it was filed from a board, as if it never had been: the notes that
+  // went with it are the piece's again, and it is gone, number and all, so the next one filed there has
+  // its number. So is the entity it was filed under, when that was made for it and has nothing else.
+  const putNotesUnfiled = db.prepare('UPDATE notes SET version_id = NULL WHERE version_id = ? AND board_id = ? AND item_id = ?');
+  const dropVersion = db.prepare('DELETE FROM versions WHERE id = ?');
+  const countVersions = db.prepare('SELECT count(*) AS n FROM versions WHERE entity_id = ?');
+  const dropEntity = db.prepare('DELETE FROM entities WHERE id = ?');
+  function unfileVersion(id, itemId, { madeSince = Infinity } = {}) {
+    return transaction(() => {
+      const v = version(id);
+      if (!v) return null;
+      putNotesUnfiled.run(id, v.boardId, itemId);
+      dropVersion.run(id);
+      const e = entity(v.entityId);
+      const dropped = !!e && e.createdAt >= madeSince && !e.artists.length && !e.cc.length && countVersions.get(e.id).n === 0 && dropEntity.run(e.id).changes > 0;
+      return { entityId: v.entityId, entityDropped: dropped };
+    });
+  }
   // Every note a board shows: those on its media that is not filed, and those on the versions it holds.
   const readLooseNotes = db.prepare('SELECT * FROM notes WHERE board_id = ? AND version_id IS NULL AND deleted_at IS NULL');
   function notesForBoard(boardId, versionIds = []) {
@@ -1179,9 +1207,9 @@ function openStore(dataDir) {
   return {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
-    transaction, entities, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, entitiesOf, entitiesFiledBy, happenings, people, entityCount,
+    transaction, entities, streamHeads, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, entitiesOf, entitiesFiledBy, happenings, people, entityCount,
     addVersion, addView, projectViews, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
-    note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesForBoard, notesOfVersions,
+    note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesBesides, unfileVersion, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,
     grants, setGrant, removeGrant, removeGrantsOn,

@@ -355,11 +355,20 @@
     if (on) location.hash = WB.href.catalogue(folder.id);
   }
 
-  // A project's settings. For now, its 3D preview: the model of the venue its work is shown on, the material
-  // its projection surface has, and which view of a version goes on it. Set here once, they are never
-  // asked about again: the player just has a 2D / 3D switch.
+  // A project's settings: whether its versions are counted by task, the names from elsewhere it has learned
+  // to read, and its 3D preview: the model of the venue its work is shown on, the material its projection
+  // surface has, and which view of a version goes on it. Set here once, they are never asked about
+  // again: the player just has a 2D / 3D switch.
   async function projectSettings(project) {
     const was = (project.settings && project.settings.preview3d) || null;
+    const byTask = el('input', { type: 'checkbox', ...(!(project.settings && project.settings.tasks === false) && { checked: true }), 'aria-label': 'Count versions by task' });
+    let rules = [...((project.settings && project.settings.rules) || [])];
+    const ruleList = el('div', { class: 'ps-rules' });
+    const paintRules = () => ruleList.replaceChildren(...(rules.length ? rules.map((r) => el('div', { class: 'ps-rule' },
+      el('span', { text: N.ruleText(r) }),
+      el('button', { type: 'button', class: 'btn small ghost', text: 'Forget', onclick: () => { rules = rules.filter((x) => x !== r); paintRules(); } })))
+      : [el('span', { class: 'ps-none', text: 'None yet. Filing a file named some other way offers to learn how to read names like it.' })]));
+    paintRules();
     let model = was ? { url: was.model, name: was.name || 'Model' } : null;
     const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`).catch(() => null);
     const views = [...new Set([...((cat && cat.views) || []), ...(was && was.view ? [was.view] : [])])];
@@ -401,7 +410,8 @@
           e.preventDefault();
           save.disabled = true;
           try {
-            await api('PATCH', `/api/folders/${project.id}`, { settings: { preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value } : null } });
+            await api('PATCH', `/api/folders/${project.id}`, { settings: { tasks: byTask.checked, rules, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value } : null } });
+            catalogues.delete(project.id);
             await refresh();
             dlg.close();
             WB.toast(model ? 'Saved. The player has a 2D / 3D switch in this project' : 'Saved');
@@ -412,6 +422,9 @@
         },
       },
       el('h2', { text: `${project.name}: settings` }),
+      el('h3', { class: 'ps-sec', text: 'Versions' }),
+      row('Count by task', 'Each task (anim, lighting...) has its own v1, v2... Off, each asset, set or shot has one count, and filing asks for no task', byTask),
+      row('Names from elsewhere', 'How file names that are not to the styleguide are read', ruleList),
       el('h3', { class: 'ps-sec', text: '3D preview' }),
       el('p', { class: 'ps-intro', text: 'Show the work on a 3D model of the venue: the player gets a 2D / 3D switch, and the picture plays on the model.' }),
       row('Model', 'A .glb of the venue, with a camera named “main”: the view the work is judged and drawn from', el('div', { class: 'ps-model' }, file, choose, remove), picker),
@@ -2135,7 +2148,8 @@
       el('h2', { text: `Edit ${v.label}` }),
       el('p', { text: 'Its notes, and every board it is on, go with it.' }),
       el('div', { class: 've-grid' },
-        field('Asset, set or shot', ent), field('Task', task), field('Version', num), field('Artist', artist), field('Description', desc)),
+        // A project that does not count by task asks for none (one filed with a task before still shows it, so it can be taken off).
+        field('Asset, set or shot', ent), (v.task || !(project.settings && project.settings.tasks === false)) && field('Task', task), field('Version', num), field('Artist', artist), field('Description', desc)),
       el('div', { class: 've-preview' }, el('span', { text: 'Called' }), name),
       error,
       el('div', { class: 'dlg-actions' },
@@ -2412,10 +2426,26 @@
     const catalogue = async () => cat || (cat = await api('GET', `/api/projects/${project.id}`));
     const tasks = () => (cat ? cat.tasks : N.preset(presetId).tasks);
     const known = (name) => cat && cat.entities.find((e) => e.name === name);
+    // What the project is set to: whether it counts by task, and the names it has learned to read.
+    const settings = () => (cat && cat.project && cat.project.settings) || project.settings || {};
+    const useTasks = () => settings().tasks !== false;
+    const rules = () => settings().rules || [];
+    // The fields of the rows still to be filed, in order: what is above a row says what a short line in it means.
+    const peers = () => rows.filter((o) => o.fields && unfiled(o)).map((o) => o.fields.f);
+    // New sequences already said yes to, so each is asked about once.
+    const seqsAsked = new Set();
 
     const list = el('div', { class: 'imp-list' });
     const title = el('b', { class: 'imp-title' });
-    const fileAll = el('button', { type: 'button', class: 'btn small primary', onclick: () => { for (const r of rows) if (canFile(r)) fileRow(r); } });
+    const fileAll = el('button', {
+      type: 'button', class: 'btn small primary',
+      onclick: async () => {
+        const ready = rows.filter(canFile);
+        for (const r of ready) r.fields.f.settle();
+        if (!(await WBFiling.confirmSequences(ready.map((r) => r.fields.f), seqsAsked))) return;
+        for (const r of ready) fileRow(r);
+      },
+    });
     const clearBtn = el('button', { type: 'button', class: 'btn small ghost', text: 'Clear done', title: 'Put away what is filed', onclick: () => {
       for (let i = rows.length - 1; i >= 0; i--) {
         if (rows[i].status === 'filed' || (rows[i].status === 'failed' && !rows[i].look)) {
@@ -2427,12 +2457,15 @@
     } });
     // The same answer for every file not yet filed, to start from (filing.js, as on a board).
     const fillAll = WBFiling.forAll({
-      presetId, getEntities: () => (cat ? cat.entities : []), getTasks: tasks, cls: 'imp-fill',
+      presetId, getEntities: () => (cat ? cat.entities : []), getTasks: tasks, cls: 'imp-fill', useTasks: useTasks(),
       apply: (ent, task) => {
+        // In order, so that a short line (+) is read by each row after the one above it.
         for (const r of rows) {
           if (r.status === 'filed' || r.status === 'filing') continue;
           if (ent) r.fields.ent.value = ent;
           if (task) r.fields.task.value = task;
+          WBFiling.changed();
+          r.fields.f.settle();
         }
         resyncAll();
       },
@@ -2472,7 +2505,7 @@
     });
 
     const PHASE = { enc: 'Preparing', up: 'Uploading', strip: 'Building timeline', orig: 'Keeping the original' };
-    const choiceOf = (r) => ({ name: N.tokenize(r.fields.ent.value), task: N.tokenize(r.fields.task.value) || null });
+    const choiceOf = (r) => ({ name: r.fields.f.name(), task: r.fields.f.taskName() });
     const viewOf = (r) => (viewsOn() && N.tokenize(r.fields.view.value)) || null;
     // The next number for a row: one past the highest its asset, set or shot and task has, counting the
     // rows above it still to be filed to the same. Another view of the row just above (the same name and
@@ -2530,6 +2563,7 @@
         before.push({ r, ent: f.ent.value, task: f.task.value, tier: f.tier.value, num: f.num.value, numTouched: r.numTouched, view: f.view.value });
         f.ent.value = a.entity;
         f.task.value = a.task || '';
+        WBFiling.changed();
         f.tier.value = a.tier;
         // A view only where Claude gave one: a row's own is not taken away for want of an answer.
         if (a.view) f.view.value = a.view;
@@ -2550,6 +2584,7 @@
           for (const b of before) {
             b.r.fields.ent.value = b.ent;
             b.r.fields.task.value = b.task;
+            WBFiling.changed();
             b.r.fields.tier.value = b.tier;
             b.r.fields.num.value = b.num;
             b.r.fields.view.value = b.view;
@@ -2571,14 +2606,29 @@
 
     function makeRow(r) {
       // Which asset, set or shot, what it is if new, and the task: the fields a board files with too.
+      // The version it is to be: the next of that asset, set or shot and task (after any rows above going
+      // to the same), unless another is typed (in its field, or at the end of the line: kilo-0010 v12).
+      const num = el('input', { type: 'number', min: '1', step: '1', class: 'imp-num', 'aria-label': 'Version', title: 'Version: the next one, unless you say another' });
+      const ruled = !r.parsed.entity && N.byRules(r.file.name, rules(), tasks());
+      r.taught = !r.entity && !r.parsed.entity && !ruled;
       const f = WBFiling.fields({
-        presetId, getEntities: () => (cat ? cat.entities : []), getTasks: tasks, label: r.file.name,
-        entity: r.entity ? r.entity.name : r.parsed.entity || '', task: r.parsed.task || '', onChange: resyncAll,
+        presetId, getEntities: () => (cat ? cat.entities : []), getTasks: tasks, getViews: () => (cat && cat.views) || [], label: r.file.name,
+        entity: r.entity ? r.entity.name : r.parsed.entity || (ruled && ruled.entity) || '', task: r.parsed.task || (ruled && ruled.task) || '', onChange: resyncAll,
+        useTasks: useTasks(), rules, peers, remembered: store(`wb:file:${project.id}`) || null,
+        numberOf: () => Number(num.value) || null,
+        onLine: (l) => {
+          if (l.number) {
+            num.value = String(l.number);
+            r.numTouched = true;
+          }
+          if (l.view) {
+            r.fields.view.value = l.view;
+            viewsAsked = true;
+          }
+          resyncAll();
+        },
       });
       const { ent, task, tier } = f;
-      // The version it is to be: the next of that asset, set or shot and task (after any rows above going
-      // to the same), unless another is typed.
-      const num = el('input', { type: 'number', min: '1', step: '1', class: 'imp-num', 'aria-label': 'Version', title: 'Version: the next one, unless you say another' });
       num.addEventListener('input', () => { r.numTouched = num.value !== ''; resyncAll(); });
       const view = el('input', {
         type: 'text', class: 'imp-view', value: r.parsed.view || '', placeholder: 'View', spellcheck: 'false', 'aria-label': 'View',
@@ -2594,13 +2644,18 @@
       const fields = el('span', { class: 'imp-fields' }, ent, tier, task, el('span', { class: 'imp-v' }, el('span', { text: 'v' }), num), view, go);
       const sync = () => {
         const { name } = choiceOf(r);
-        f.sync();
         if (!r.numTouched && r.status !== 'filed') {
           const next = name ? nextNumber(r) : '';
           if (num.value !== String(next)) num.value = String(next);
         }
+        f.sync();
         view.hidden = !viewsOn();
         go.disabled = !canFile(r);
+        // Another view of the version the row above is: shown as going with it.
+        const above = rows[rows.indexOf(r) - 1];
+        const { task } = choiceOf(r);
+        r.node?.classList.toggle('with-above', !!(above && above.fields && viewOf(r) && unfiled(r) && unfiled(above)
+          && choiceOf(above).name === name && choiceOf(above).task === task && viewOf(above) !== viewOf(r) && Number(above.fields.num.value) === Number(num.value)));
         paintHead();
       };
       for (const input of [ent, task, num, view]) {
@@ -2632,7 +2687,7 @@
       });
       r.fields.retry = retry;
       // What it is doing is said under its bar, so nothing on the row moves while it comes in.
-      r.node = el('div', { class: 'imp-row' }, thumb, el('span', { class: 'imp-file' }, el('span', { class: 'imp-name', text: r.file.name, title: r.file.name }), bar, status), fields, said, el('span', { class: 'imp-end' }, retry, drop));
+      r.node = el('div', { class: 'imp-row' }, thumb, el('span', { class: 'imp-file' }, el('span', { class: 'imp-name', text: r.file.name, title: r.file.name }), bar, status), fields, said, el('span', { class: 'imp-end' }, retry, drop), f.readout);
       sync();
       return r.node;
     }
@@ -2684,6 +2739,10 @@
 
     async function fileRow(r) {
       if (!canFile(r)) return;
+      r.fields.f.settle();
+      // A new sequence is said out loud once before it is made.
+      if (!(await WBFiling.confirmSequences([r.fields.f], seqsAsked))) return;
+      if (!canFile(r)) return;
       // Still on its way in: filed as soon as it is here.
       if (!r.look) {
         r.fileWhenReady = true;
@@ -2705,6 +2764,20 @@
         await catalogue().catch(() => {});
         resyncAll();
         showFiled();
+        // A file named some other way teaches how such names are read, if it is wanted, and fills in the rest.
+        if (r.taught) {
+          WBFiling.offerRule({
+            filename: r.file.name, entity: name, presetId, rules: rules(), tasks: tasks(),
+            others: rows.filter((o) => o !== r && o.fields && unfiled(o)).map((o) => ({ filename: o.file.name, fields: o.fields.f })),
+            save: async (next) => {
+              await api('PATCH', `/api/folders/${project.id}`, { settings: { rules: next } });
+              cat = null;
+              await catalogue().catch(() => {});
+              await refresh();
+              resyncAll();
+            },
+          });
+        }
       } catch (err) {
         Object.assign(r, { status: 'failed', error: err.message });
       }
@@ -2727,6 +2800,8 @@
           r.preview = r.look.th || (r.look.type === 'image' ? r.look.prev || r.look.src : r.look.poster) || null;
           r.status = 'ready';
           paintRow(r);
+          // What it looks like a new version of, asked as soon as it is in: first among its suggestions.
+          WBFiling.findLikely(project.id, [{ key: r.key, look: r.look }]).then((a) => { if (a[r.key] && r.fields) r.fields.f.setLikely(a[r.key]); });
           if (r.fileWhenReady) {
             r.fileWhenReady = false;
             fileRow(r);

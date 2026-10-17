@@ -1896,6 +1896,79 @@ test('a file brought in can ask for its version number, and the catalogue says w
   assert.deepEqual(e.tops, { anim: 8, '': 3 });
 });
 
+test('a project can count without tasks, learn how names from elsewhere read, and take a filing straight back', async (t) => {
+  const s = start(4860);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const up = async (name) => (await (await fetch(`${s.base}/api/upload?name=${name}`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
+  const file = async (name, task, extra = {}) => call('POST', `/api/projects/${project.id}/versions`, { entity: { name }, files: [{ task, look: { type: 'image', src: await up('a.png'), name: 'kilo-0010_anim_v3.png' }, ...extra }] });
+
+  // Without tasks, a task asked for (or read from the file's name) is not counted by.
+  const off = await call('PATCH', `/api/folders/${project.id}`, { settings: { tasks: false, rules: [{ word: 'klo', seq: 'kilo' }, { word: 'Bad Word', seq: 'x' }, { word: 'robot', name: 'char-robot' }, { word: 'x', seq: 'not a token!' }] } });
+  assert.equal(off.status, 200);
+  let settings = (await call('GET', `/api/projects/${project.id}`)).body.project.settings;
+  assert.equal(settings.tasks, false);
+  assert.deepEqual(settings.rules, [{ word: 'klo', seq: 'kilo' }, { word: 'robot', name: 'char-robot' }]);
+  assert.equal((await file('kilo-0010', 'anim')).body.versions[0].label, 'kilo-0010 v1');
+  assert.equal((await file('kilo-0010')).body.versions[0].label, 'kilo-0010 v2');
+  // Turned on again, a task counts from v1, and the catalogue says each task's newest.
+  await call('PATCH', `/api/folders/${project.id}`, { settings: { tasks: true } });
+  settings = (await call('GET', `/api/projects/${project.id}`)).body.project.settings;
+  assert.equal(settings.tasks, undefined);
+  assert.deepEqual(settings.rules.map((r) => r.word), ['klo', 'robot']);
+  const anim = (await file('kilo-0010', 'anim')).body.versions[0];
+  assert.equal(anim.label, 'kilo-0010 anim v1');
+  let e = (await call('GET', `/api/projects/${project.id}`)).body.entities[0];
+  assert.deepEqual(Object.keys(e.heads).sort(), ['', 'anim']);
+  assert.equal(e.heads[''].number, 2);
+  assert.equal(e.heads.anim.id, anim.id);
+  // An empty list forgets them all.
+  await call('PATCH', `/api/folders/${project.id}`, { settings: { rules: [] } });
+  assert.equal((await call('GET', `/api/projects/${project.id}`)).body.project.settings.rules, undefined);
+
+  // Taken back straight after: gone, number and all, and so is a shot made for it.
+  const made = (await file('kilo-0020', 'anim')).body.versions[0];
+  assert.equal((await call('POST', `/api/versions/${made.id}/unfile`, {})).body.entityDropped, true);
+  assert.equal((await call('GET', `/api/versions/${made.id}`)).status, 404);
+  e = (await call('GET', `/api/projects/${project.id}`)).body.entities;
+  assert.deepEqual(e.map((x) => x.name), ['kilo-0010']);
+  const again = (await file('kilo-0010', 'anim')).body.versions[0];
+  assert.equal(again.label, 'kilo-0010 anim v2');
+  assert.equal((await call('POST', `/api/versions/${again.id}/unfile`, {})).body.entityDropped, false);
+  assert.equal((await file('kilo-0010', 'anim')).body.versions[0].label, 'kilo-0010 anim v2');
+  // Not one that has been talked about since.
+  const talked = (await file('kilo-0010', 'anim')).body.versions[0];
+  const open = joiner(4860);
+  const room = await open(`entity=${talked.entityId}`, 'Anna');
+  t.after(() => room.ws.close());
+  room.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'note00001', type: 'comment', on: talked.id, text: 'Nice' } }] }));
+  await pause(300);
+  const refused = await call('POST', `/api/versions/${talked.id}/unfile`, {});
+  assert.equal(refused.status, 409);
+  assert.match(refused.body.error, /Something has been said about kilo-0010 anim v3/);
+
+  // What a video looks like a new version of, by its length and picture.
+  const strip = Buffer.from(Array.from({ length: 512 * 6 }, (_, i) => Math.round(128 + 100 * Math.sin(Math.floor(i / 6) / 9)))).toString('base64');
+  const video = (await call('POST', `/api/projects/${project.id}/versions`, { entity: { name: 'kilo-0030' }, files: [{ task: 'anim', look: { type: 'video', src: await up('a.mp4'), name: 'a.mp4', dur: 5, fps: 24, nw: 640, nh: 360, wf: { c: strip } } }] })).body.versions[0];
+  const like = await call('POST', `/api/projects/${project.id}/likely`, { looks: [
+    { key: 'same', type: 'video', dur: 5, fps: 24, nw: 640, nh: 360, wf: strip },
+    { key: 'longer', type: 'video', dur: 30, fps: 25, nw: 1920, nh: 1080 },
+    { key: 'still', type: 'image', nw: 640, nh: 360 },
+  ] });
+  assert.equal(like.status, 200);
+  assert.deepEqual(like.body.answers.same.map((a) => [a.entity, a.task, a.number]), [['kilo-0030', 'anim', video.number]]);
+  assert.deepEqual(like.body.answers.same[0].why, ['same length', 'looks alike']);
+  assert.deepEqual(like.body.answers.longer, []);
+  assert.deepEqual(like.body.answers.still, []);
+});
+
 test('a version can be shown more than one way: each view is filed with it, by name, and none twice', async (t) => {
   const s = start(4898);
   t.after(s.stop);

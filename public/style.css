@@ -1299,6 +1299,31 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
 }
 .dlg p.file-hint { margin: 12px 0 0; font-size: 12.5px; }
 
+/* What a row being filed will be, said under it (filing.js): where it goes, the version it follows and
+   the number it gets, and anything that looks wrong, with its fix. The same on a board and in the catalogue. */
+.file-says { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; color: var(--muted); font-size: 12px; line-height: 20px; }
+.file-says[hidden], .imp-row.filed .file-says { display: none; }
+.file-row .file-says { grid-column: 2 / -1; margin-top: 4px; }
+.imp-row .file-says { grid-column: 2 / -1; margin-top: 6px; }
+.file-what { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+.file-path { display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.file-path i { font-style: normal; opacity: 0.6; }
+.file-path .b { color: var(--text); font-weight: 600; }
+.file-prev { display: inline-flex; flex: none; align-items: center; gap: 5px; }
+.file-prev img { width: 32px; height: 20px; border-radius: var(--r-1); background: var(--thumb-bg); object-fit: cover; }
+.file-prev i { font-style: normal; }
+.file-num { flex: none; color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
+.file-new { flex: none; padding: 0 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; line-height: 18px; }
+.file-note { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.file-note.warn { color: var(--warn-fg); }
+.file-note.ok { color: var(--ok); }
+.file-fix { padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface-2); color: var(--text); font: inherit; font-size: 11.5px; line-height: 18px; cursor: pointer; }
+.file-fix:hover { background: var(--hover); }
+.file-fix:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+@media (max-width: 560px) {
+  .file-row .file-says, .imp-row .file-says { grid-column: 1 / -1; }
+}
+
 /* The catalogue beside the board. */
 #catpanel { width: 380px; }
 .cat-search { display: flex; align-items: center; gap: 8px; height: var(--h-sm); margin: 0 0 10px; padding: 0 10px; border-radius: var(--r-2); background: var(--surface-2); color: var(--muted); }
@@ -2029,6 +2054,9 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .imp-status { min-width: 0; min-height: 15px; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 15px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .imp-row.failed .imp-status { color: var(--danger); white-space: normal; }
 .imp-row.soon .imp-fields .btn { opacity: 0.5; }
+/* Another view of the version of the row above: the two read as one. */
+.imp-row.with-above { padding-top: 2px; }
+.imp-row.with-above .imp-thumb { box-shadow: -4px 0 0 -1px var(--accent); }
 @media (max-width: 760px) {
   .imp-row { grid-template-columns: 56px minmax(0, 1fr); row-gap: 6px; }
   .imp-fields, .imp-filed, .imp-end { grid-column: 2; }
@@ -2475,6 +2503,10 @@ body.viewonly #hint .hint-guest { display: inline; }
 .ps-label { display: flex; flex-direction: column; gap: 2px; }
 .ps-label b { font-size: 13px; font-weight: 600; }
 .ps-label span { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.ps-control input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.ps-rules { display: flex; flex-direction: column; gap: 4px; }
+.ps-rule { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.ps-none { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
 .ps-control input[type="text"], .ps-control select { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; }
 .ps-control input:disabled, .ps-control select:disabled { opacity: 0.5; }
 .ps-model { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

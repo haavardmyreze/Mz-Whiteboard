@@ -16,6 +16,7 @@ const { createAdmin } = require('./admin');
 const zip = require('./zip');
 const naming = require('./public/naming');
 const { createAi } = require('./ai');
+const likely = require('./likely');
 
 // Settings can live in a .env file next to this one (KEY=value per line); real environment variables win.
 try {
@@ -846,14 +847,28 @@ function holdsProject(folder) {
   for (const f of folders.values()) if (f.project && isWithin(f.id, folder.id)) return true;
   return false;
 }
-// What a project is set to: for now, which naming preset its files are read by.
 // A project's settings: its naming preset, and its 3D preview: the model of the venue its work is shown
 // on (an uploaded .glb), the name of the material its projection surface has (`screen` unless said), and
 // which view of a version goes on it (its main one unless said). `preview3d: null` takes the 3D preview away.
+// `tasks: false` says its versions are not counted by task: each asset, set or shot has one count. And
+// `rules` are what its people taught it about file names from elsewhere (see ruleFrom in naming.js),
+// the whole list each time.
 function cleanProjectSettings(asked, was = {}) {
   const out = { ...was };
   if (!asked || typeof asked !== 'object') return out;
   if (typeof asked.naming === 'string' && naming.PRESETS[asked.naming]) out.naming = asked.naming;
+  if (asked.tasks === false) out.tasks = false;
+  else if (asked.tasks === true) delete out.tasks;
+  if (Array.isArray(asked.rules)) {
+    const rules = new Map();
+    for (const r of asked.rules.slice(0, 200)) {
+      if (!r || typeof r !== 'object' || typeof r.word !== 'string' || !/^[a-z0-9]{1,40}$/.test(r.word)) continue;
+      if (typeof r.seq === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(r.seq) && r.seq.length <= 80) rules.set(r.word, { word: r.word, seq: r.seq, ...(r.glued === true && { glued: true }) });
+      else if (typeof r.name === 'string' && naming.tokenize(r.name) === r.name) rules.set(r.word, { word: r.word, name: r.name });
+    }
+    if (rules.size) out.rules = [...rules.values()];
+    else delete out.rules;
+  }
   if (asked.preview3d === null) delete out.preview3d;
   else if (asked.preview3d && typeof asked.preview3d === 'object') {
     const p = asked.preview3d;
@@ -1016,6 +1031,8 @@ function retellEntities(entityIds) {
 const retellEntity = (entityId) => retellEntities(new Set([entityId]));
 
 const presetOf = (project) => naming.preset(project.settings && project.settings.naming);
+// Whether a project counts its versions by task (see cleanProjectSettings).
+const usesTasks = (project) => !(project.settings && project.settings.tasks === false);
 
 // The entity a file is to go under, without making anything yet: one the project has, by its id or its
 // name, or one to make, by its name ({ name, tier, make: true }).
@@ -1046,6 +1063,17 @@ function takenMessage(t) {
   return t.deletedAt ? `${name} was given to a version since deleted, so it can't be used again` : `There is a ${name} already`;
 }
 const validNumber = (n) => Number.isSafeInteger(n) && n >= 1 && n <= 99999;
+// How long after it was filed a version can be taken back as if it never had been.
+const UNFILE_WITHIN = 30 * 60 * 1000;
+// A version's colour strip as bytes, kept once read (they are asked for again with every video filed).
+const strips = new Map();
+function headStrip(v) {
+  if (strips.has(v.id)) return strips.get(v.id);
+  if (strips.size > 5000) strips.delete(strips.keys().next().value);
+  const s = likely.strip(v.look.wf && v.look.wf.c);
+  strips.set(v.id, s);
+  return s;
+}
 
 // Files pieces of media as versions. Each file is a piece on a board ({ board, item }) or a file
 // brought into the catalogue ({ look }); what each says about itself (entity, task, descriptor,
@@ -1087,7 +1115,7 @@ function fileVersions(req, project, body) {
     return {
       board, item, look, asked, view: viewName(f.view) || look.view || null,
       entity: entityFor(project, pick('entity') ?? (parsed.entity && { name: parsed.entity, tier: parsed.tier })),
-      task: pick('task') !== undefined ? tokenOrNull(pick('task')) : parsed.task,
+      task: !usesTasks(project) ? null : pick('task') !== undefined ? tokenOrNull(pick('task')) : parsed.task,
       descriptor: pick('descriptor') !== undefined ? tokenOrNull(pick('descriptor')) : parsed.descriptor,
       artist: pick('artist') !== undefined ? tokenOrNull(pick('artist')) : parsed.artist,
     };
@@ -1214,6 +1242,26 @@ async function handleCatalogue(req, res, parts) {
         views: store.projectViews(project.id),
         boards: [...boards.values()].filter((b) => visible(req.user, b) && boardProject(b) === project).map((b) => ({ id: b.id, name: b.name })),
       });
+    }
+    // POST /api/projects/:id/likely { looks: [{ key, type, dur, fps, nw, nh, wf }] }: for each video about
+    // to be filed, the assets, sets and shots (and tasks) whose newest version it most likely follows,
+    // by its length, frame rate, size and picture (likely.js): { answers: { key: [{ entityId, entity,
+    // task, number, score, why }] } }. `wf` is its colour strip's colours (the `c` of its strip).
+    if (parts.length === 4 && parts[3] === 'likely' && req.method === 'POST') {
+      const body = await readJson(req, 4 * 1024 * 1024);
+      const looks = Array.isArray(body.looks) ? body.looks.slice(0, 200) : [];
+      const heads = store.streamHeads(project.id);
+      const names = new Map();
+      const nameOf = (id) => (names.has(id) ? names.get(id) : names.set(id, store.entity(id)?.name || null).get(id));
+      const answers = {};
+      for (const l of looks) {
+        if (!l || typeof l.key !== 'string') continue;
+        const look = { type: l.type, dur: Number(l.dur) || 0, fps: Number(l.fps) || 0, nw: Number(l.nw) || 0, nh: Number(l.nh) || 0, wf: typeof l.wf === 'string' ? l.wf : null };
+        answers[l.key] = likely.likelyFor(look, heads, headStrip).map(({ head, score, why }) => ({
+          entityId: head.entityId, entity: nameOf(head.entityId), task: head.task, number: head.number, score, why,
+        }));
+      }
+      return sendJson(res, 200, { answers });
     }
     // GET /api/projects/:id/versions?before=   its versions, newest filed first, a page at a time: the
     // project's Versions list. `next`, when there are more, is what to give as `before` for the next page.
@@ -1437,7 +1485,7 @@ async function handleCatalogue(req, res, parts) {
           const files = (Array.isArray(body.files) ? body.files : []).filter((f) => f && typeof f === 'object')
             .map((f) => ({ key: String(f.key), filename: String(f.filename || ''), now: f.now && typeof f.now === 'object' ? f.now : null }));
           if (files.length > ai.MAX_FILES) return sendJson(res, 400, { error: `Ask about at most ${ai.MAX_FILES} files at a time` });
-          const answers = await ai.fileNames({ instruction: body.instruction, files, presetId, entities, tasks, views: store.projectViews(project.id) });
+          const answers = await ai.fileNames({ instruction: body.instruction, files, presetId, entities, tasks, views: store.projectViews(project.id), useTasks: usesTasks(project) });
           return sendJson(res, 200, { model: ai.model, answers });
         }
         const ids = Array.isArray(body.ids) ? [...new Set(body.ids.map(String))] : [];
@@ -1549,6 +1597,38 @@ async function handleCatalogue(req, res, parts) {
   // PATCH  { hidden }                                      archived: out of the catalogue's way, and no longer the newest
   // PATCH  { deleted: false }                              a deleted one brought back
   // DELETE                                                 only one that no board shows; it is marked, not removed
+  // POST /api/versions/:id/unfile   taken back straight after it was filed (see unfileVersion in store.js)
+  if (parts[1] === 'versions' && parts.length === 4 && parts[3] === 'unfile') {
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+    const v = store.version(parts[2]);
+    const entity = v && store.entity(v.entityId);
+    const project = entity && projectFor(entity.projectId);
+    if (!project || v.deletedAt) return sendJson(res, 404, { error: 'Not found' });
+    const body = await readJson(req);
+    const label = versionInfo(v).label;
+    if (Date.now() - v.createdAt > UNFILE_WITHIN) return sendJson(res, 409, { error: `${label} was filed a while ago: archive or delete it instead` });
+    if (req.user && v.createdBy && v.createdBy !== actor(req, body)) return sendJson(res, 409, { error: `${label} was filed by ${v.createdBy}` });
+    if (Array.isArray(v.look.views) && v.look.views.length) return sendJson(res, 409, { error: `${label} has more views since` });
+    flushAll();
+    const on = store.boardsWithVersion(v.id);
+    const board = v.boardId ? boards.get(v.boardId) : null;
+    if (board) openItems(board);
+    const pieces = board ? [...board.items.values()].filter((it) => it.ver === v.id) : [];
+    if (on.some((b) => b.id !== v.boardId) || pieces.length > (board ? 1 : 0) || (v.boardId && !pieces.length)) {
+      return sendJson(res, 409, { error: `${label} is on other boards since: archive or delete it instead` });
+    }
+    const item = pieces[0] || null;
+    if (store.notesBesides(v.id, item ? board.id : null, item ? item.id : null)) return sendJson(res, 409, { error: `Something has been said about ${label} since: archive or delete it instead` });
+    if (item) {
+      const applied = applyOps(board, [{ t: 'set', id: item.id, patch: { ver: null } }], null, false);
+      if (applied.length) broadcast(board, { t: 'op', ops: applied, from: null });
+      settle(board, applied);
+    }
+    const done = store.unfileVersion(v.id, item ? item.id : null, { madeSince: v.createdAt - 60 * 1000 });
+    retellEntity(entity.id);
+    tellRoom(entity.id);
+    return sendJson(res, 200, { ok: true, entityDropped: done.entityDropped });
+  }
   if (parts[1] === 'versions' && parts.length === 3) {
     const v = store.version(parts[2]);
     const entity = v && store.entity(v.entityId);

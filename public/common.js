@@ -424,7 +424,8 @@ const WB = (() => {
     };
     const show = () => {
       options = source(input.value) || [];
-      at = options.length && input.value.trim() ? 0 : -1;
+      // Nothing typed, nothing is picked by Enter, unless the source says its first is what is meant.
+      at = options.length && (input.value.trim() || options[0].first) ? 0 : -1;
       if (!options.length) return hide();
       if (!list.isConnected) (input.closest('dialog') || document.body).append(list);
       list.hidden = false;
@@ -568,7 +569,8 @@ const WB = (() => {
   }, true);
 
   // ---- toasts: a line at the foot of the page, for a moment, with something to do about it if there is
-  // anything (Undo, Open). `key` replaces the last toast of that key rather than piling up.
+  // anything (Undo, Open). `key` replaces the last toast of that key rather than piling up. `action` may
+  // be a list of them (Undo, Change).
   function toast(text, { action, ms = 4000, sticky = false, key } = {}) {
     let box = document.getElementById('toasts');
     if (!box) {
@@ -579,11 +581,11 @@ const WB = (() => {
     const label = el('span', { text });
     const node = el('div', { class: 'toast', 'data-key': key || null }, label);
     const close = () => node.remove();
-    if (action) {
+    for (const a of [action].flat().filter(Boolean)) {
       node.classList.add('has-action');
-      node.append(action.href
-        ? el('a', { class: 'toast-act', href: action.href, text: action.label, onclick: close })
-        : el('button', { type: 'button', class: 'toast-act', text: action.label, onclick: async () => { close(); try { await action.run(); } catch (err) { toast(err.message || String(err)); } } }));
+      node.append(a.href
+        ? el('a', { class: 'toast-act', href: a.href, text: a.label, onclick: close })
+        : el('button', { type: 'button', class: 'toast-act', text: a.label, onclick: async () => { close(); try { await a.run(); } catch (err) { toast(err.message || String(err)); } } }));
     }
     box.append(node);
     if (!sticky) setTimeout(close, action ? Math.max(ms, 8000) : ms);

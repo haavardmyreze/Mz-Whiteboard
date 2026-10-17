@@ -338,15 +338,49 @@ filed in it.
 
 - **Filing a version.** On a board in a project, select images or videos and press Shift+V (or the
   button in the floating toolbar). Each piece has its own row: which asset, set or shot it is, and the
-  task if the project uses them. Typing suggests what the project has (with its newest still and how
-  many versions), and a name it does not have yet is made, as an asset, set or shot by its shape or as
-  chosen. Nothing has to be named a particular way: `screenshoot_090126.png` is filed like anything
-  else. What a file's name does say is filled in ahead, and so is the frame it sits in (a frame titled
-  `kilo-0010`) and, for one piece, the last choice made. With several, "For all" fills every row at
-  once to start from; each still goes where its own row says.
+  task if the project counts by task. Nothing has to be named a particular way: `screenshoot_090126.png`
+  is filed like anything else. What a file's name does say is filled in ahead (or what the project has
+  learned about names like it, below), and so is the frame it sits in (a frame titled `kilo-0010`) and,
+  for one piece, the last choice made (its task only along with it). With several, "For all" fills
+  every row at once to start from; each still goes where its own row says.
+  - **One line.** The first box takes a whole line: `kilo-0010 anim v12 bty` puts the task, number and
+    view in their own boxes, and a file name pasted in is read the way a file's name is. Until it is a
+    name the project has or one to the styleguide, more words are more of the name (`living room` is
+    `living-room`). A shot can be said short, by the sequence of the row above (or of the last filing):
+    `20` is its shot 0020, `+` its next shot on its step (`kilo+` the next of kilo), and `.` the same as
+    the row above.
+  - **Suggestions** come before anything is typed: what a video looks like a new version of (as long
+    as, at the same rate and size as, and looking like the newest version of a shot and task: see
+    `likely.js`), then the row above, the sequence's next shot, and what had versions lately. Enter takes
+    the first. As you type, the project's names that fit, each with its tasks and how far each has
+    counted (`kilo-0010 › anim  v12 → v13`), so one pick fills both; `kilo-` lists kilo's shots and its
+    next one.
+  - **Under each row** a line says what it will be: where it goes (`Shots › kilo › kilo-0010 › anim`),
+    the version it follows, with its still beside the piece's own, and the number it gets. And
+    anything that looks wrong, each with its fix a click away: a name a letter or two from one the
+    project has (`klio-0010`, `kilo-010`), a name not to the styleguide (`robot`: char-robot,
+    prop-robot...), a shot far past its sequence's last, a new task beside versions with none (or the
+    other way round), and a video that looks like another shot than the one typed. A new sequence is
+    said too, and asked about once before it is made, since a typo there makes a whole sequence.
+  - **Keys.** Ctrl+D copies the row above. Shift+Enter fills the rows below on from this one: shots
+    go on in their sequence's step (kilo-0010, kilo-0020...), anything else is the same for each.
+  - **Taking it back.** The message that says what was filed has Undo and Change. Both take the
+    filing back as if it had not been: the versions are gone, numbers and all, and so is any asset,
+    set or shot made for them. Change then opens the rows again as they were. This is for straight
+    after: within half an hour, and not once a version has been talked about, put on another board or
+    given another view (archive or delete it then).
+  - **Names from elsewhere.** A file not named to the styleguide and filed by hand
+    (`KLO_040_anim_v3.mov` as `kilo-0040`) offers to teach the project how such names read: from then
+    on, `KLO_050` is `kilo-0050` wherever files are filed, and the rows still to go are filled in at
+    once. Only the first word is learned, as a sequence (`klo` → `kilo`) or one asset or set (`robot`
+    → `char-robot`), never a word that says nothing (screenshot, render, final...). The project's
+    settings list what it has learned, to forget any.
 - **Numbering.** The catalogue counts versions itself: `kilo-0010 anim v1`, `v2`, `v3`, per asset, set
-  or shot and task, in the order they were filed. A version number in the file's name (`_v012`) is
-  not used or shown; the number can be changed by hand (see below).
+  or shot and task, in the order they were filed. Each task has its own count (lookdev starts at v1
+  beside model v10), and versions with no task have one of their own too. A project that has no use
+  for tasks says so in its settings ("Count by task" off): filing then asks for none and ignores any a
+  file's name gives, and each asset, set or shot has one count. A version number in the file's name
+  (`_v012`) is not used or shown; the number can be changed by hand (see below).
 - **On the board.** A piece that is a version says which in its corner. When a newer one of the same
   thing has been filed since, the chip says so; click it to swap the newer one in, or to see them all.
   The layers button in the bar opens the project's catalogue beside the board: pick an asset, set or
@@ -381,12 +415,13 @@ filed in it.
   review copy, its timeline strip, its stills and its frame rate, and the file it was made from is kept
   too. A strip above the catalogue has a row for each file, with its own asset, set or shot and task,
   filled in ahead from its name (on an asset, set or shot's own page, from that one), with the same
-  suggestions as filing on a board. Nothing is filed until you say: File on a row, Enter in its boxes,
+  suggestions, line under it and keys as filing on a board. Nothing is filed until you say: File on a row, Enter in its boxes,
   or "File all" for every row that says where it goes (one still on its way in is filed when it
   arrives). "For all" fills every row at once. Each row has its version number too, filled in as the
   next one (one past the last of that asset, set or shot and task, and past the rows above it going to
   the same); type another to use it instead, and the rows below count on from it. A number that is
-  taken is refused, with what has it. Nothing goes on a board. Click a filed one to open it in
+  taken is refused, with what has it. Another view of the row above's version is marked as going with
+  it. Nothing goes on a board. Click a filed one to open it in
   the player. What a row is doing (Preparing, Uploading...) is said under its bar, so nothing on the
   row moves while it comes in; a row that did not come in has "Try again".
 - **3D: the work on the venue.** A project whose settings have a model of its venue (the settings button
@@ -538,7 +573,8 @@ Names are read by the project's naming preset. The one there is follows the Myre
 `_` separates parts, `-` joins words, all lower case. An asset is `char-`, `prop-`, `env-`, `veh-` or
 `fx-` something, a set is `set-` something, a shot is `<sequence>-<number>` (`kilo-0010`). A file named
 `<context>_<task>[_<descriptor>]_<artist>_v###` (`kilo-0010_anim_erik_v012.mov`) says all of it. The
-rules are in `public/naming.js`, shared by the server and the pages.
+rules are in `public/naming.js`, shared by the server and the pages, with how a typed line is read,
+the corrections and near misses offered, and the rules a project learns.
 
 ## Data and backup
 
@@ -610,6 +646,13 @@ still works too), and
 `POST /api/projects/<folder>/place` takes `{ "board", "versions": [...], "layout" }` to put versions on
 one of the project's boards (`"layout": "sequences"` for a column per sequence). Filing several files
 files all of them or, if any one is refused, none; so does a `PATCH` of a version.
+`POST /api/projects/<folder>/likely` takes `{ "looks": [{ "key", "type", "dur", "fps", "nw", "nh", "wf" }] }`
+(`wf` a video's colour strip) and answers, for each key, the shots and tasks whose newest version that
+video most likely follows, with why. `POST /api/versions/<id>/unfile` takes a version back straight
+after it was filed (see Taking it back). A project's catalogue (`GET /api/projects/<folder>`) gives each
+entity's `heads`, the newest version of each task, beside `tops`. Its settings (`PATCH /api/folders/<id>`
+with `settings`) take `tasks: false` to count without tasks and `rules`, the whole list of what it has
+learned (`[{ "word", "seq" }]` or `[{ "word", "name" }]`).
 
 The newest version of an asset, set or shot and task is the one with the highest number (numbers can
 be set by hand); the newest of an asset, set or shot as a whole is the latest filed of those, one per
@@ -673,6 +716,7 @@ server.js          HTTP + WebSocket server, boards in memory
 store.js           The database: boards, items, folders, projects' catalogues and notes
 notifications.js   What each person is told about, worked out from the notes
 ai.js              Asking Claude for names: the prompt, the Claude API, checking what it answers
+likely.js          Which shot a video is most likely a new version of, by its length and picture
 auth.js            Who is asking: the four sign-in modes
 public/board.js    The canvas: rendering, input, sync, following
 public/present.js  Presenting a project: the link, the pill, and saying what is shown as you go
@@ -682,7 +726,7 @@ public/cuttrack.js A run's close-up track: the playhead held in the middle, fram
 public/viewer.js   The player: one piece at a time, its strip, timeline, comments and drawings; used by boards and the catalogue
 public/ink.js      Drawing: pen strokes, their outlines and colours; used by boards and the player
 public/ingest.js   Bringing media in: review copies of video, originals, timeline strips, stills; used by boards and the catalogue
-public/filing.js   Filing pieces as versions: the same fields on a board (Shift+V) and in the catalogue's import
+public/filing.js   Filing pieces as versions: the same fields, suggestions and line under each row on a board (Shift+V) and in the catalogue's import
 public/claude.js   Asking Claude: the box, what it said, and the mark on what it filled in
 public/media.js    The video cache on this computer, with sw.js (the service worker that plays from it)
 public/home.js     Board list, and a project's catalogue
@@ -696,5 +740,5 @@ public/login.html  Sign-in page (password and Google modes)
 public/style.css   All styling
 public/view3d.js   The player's 3D view: a project's model of its venue, with the piece on its screens (docs/3d-preview.md)
 scripts/           restore-board.js: bring back a deleted board
-test/              npm test: sign-in, uploads, live sync, workspaces, links, presenting, the database, catalogue, versions, notes, notifications, snapping and asking Claude (against a stand-in)
+test/              npm test: sign-in, uploads, live sync, workspaces, links, presenting, the database, catalogue, versions, filing (reading what is typed, learned names, likeness), notes, notifications, snapping and asking Claude (against a stand-in)
 ```

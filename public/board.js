@@ -4689,36 +4689,55 @@
   }
 
   // The dialog that files pieces as versions. Each piece says on its own row which asset, set or shot it
-  // is, and the task if any: filled in ahead from its name, else the frame it is in, else (for one piece)
-  // the last choice. Several pieces are never lumped together: each goes where its row says.
-  function openFiling(list, cat) {
+  // is, and the task if any: filled in ahead from its name (or what the project has learned about names
+  // like it), else the frame it is in, else (for one piece) the last choice, and its task with that only
+  // when it is the last choice's. Several pieces are never lumped together: each goes where its row
+  // says. `prefill` (by piece) is what the rows said before, when filing is changed straight after.
+  function openFiling(list, cat, prefill = null) {
     const presetId = project.naming;
-    const remembered = store(`wb:file:${project.id}`) || {};
+    const settings = (cat.project && cat.project.settings) || {};
+    const useTasks = settings.tasks !== false;
+    const rules = settings.rules || [];
+    const remembered = store(`wb:file:${project.id}`) || null;
     const known = (name) => !!name && (cat.entities.some((e) => e.name === name) || !!N.tierOf(name, presetId));
     // The fields are the catalogue importer's too (filing.js).
-    const shared = { presetId, getEntities: () => cat.entities, getTasks: () => cat.tasks, onChange: () => paint() };
+    const rows = [];
+    const shared = {
+      presetId, useTasks, remembered, getEntities: () => cat.entities, getTasks: () => cat.tasks, getViews: () => cat.views || [],
+      peers: () => rows.map((row) => row.f), rules: () => rules, onChange: () => paint(),
+    };
 
     const dlg = el('dialog', { class: `dlg file-dlg${list.length > 1 ? ' many' : ''}` });
     const hint = el('p', { class: 'file-hint' });
     const ok = el('button', { type: 'submit', class: 'btn primary', text: list.length > 1 ? `File ${list.length}` : 'File' });
-    const rows = list.map((it) => {
+    for (const it of list) {
       const parsed = N.parse(it.name || '', presetId);
+      const ruled = !parsed.entity && N.byRules(it.name || '', rules, cat.tasks);
       const frame = frameOf(it);
       const fromFrame = frame && known(N.tokenize(frame.title)) ? N.tokenize(frame.title) : null;
+      const before = prefill && prefill.get(it.id);
+      const lastOne = list.length === 1 && remembered ? remembered.entity || '' : '';
+      const entity = before ? before.entity : parsed.entity || (ruled && ruled.entity) || fromFrame || lastOne;
       const f = WBFiling.fields({
         ...shared,
         label: it.name || 'it',
-        entity: parsed.entity || fromFrame || (list.length === 1 ? remembered.entity || '' : ''),
-        task: parsed.task || (list.length === 1 && !parsed.entity ? remembered.task || '' : ''),
+        entity,
+        task: before ? before.task || '' : parsed.task || (ruled && ruled.task) || (entity && remembered && entity === remembered.entity && entity === lastOne ? remembered.task || '' : ''),
       });
-      const row = { it, f, ent: f.ent, task: f.task, tier: f.tier };
+      const row = { it, f, ent: f.ent, task: f.task, tier: f.tier, taught: !parsed.entity && !ruled };
       row.node = el('div', { class: 'file-row' },
         el('img', { src: it.th || it.prev || (it.type === 'image' ? it.src : it.poster) || '', alt: '' }),
         el('span', { class: 'file-name', text: it.name || (it.type === 'video' ? 'Video' : 'Image'), title: it.name || '' }),
-        el('span', { class: 'file-fields' }, f.ent, f.tier, f.task));
-      return row;
-    });
+        el('span', { class: 'file-fields' }, f.ent, f.tier, f.task),
+        f.readout);
+      rows.push(row);
+    }
     const nameOf = (row) => row.f.name();
+    for (const row of rows) row.f.sync();
+    // What each video looks like a new version of, asked of the server: first among its suggestions.
+    WBFiling.findLikely(project.id, list.map((it) => ({ key: it.id, look: it }))).then((answers) => {
+      for (const row of rows) if (answers[row.it.id]) row.f.setLikely(answers[row.it.id]);
+    });
 
     // For several, one answer for them all, to start from.
     const fill = WBFiling.forAll({
@@ -4727,6 +4746,8 @@
         for (const row of rows) {
           if (ent) row.ent.value = ent;
           if (task) row.task.value = task;
+          WBFiling.changed();
+          row.f.settle();
           row.f.sync();
         }
         paint();
@@ -4739,27 +4760,57 @@
       ok.disabled = missing > 0;
       const made = [...new Set(rows.map(nameOf).filter((n) => n && !cat.entities.some((e) => e.name === n)))];
       hint.textContent = missing ? (list.length === 1 ? 'Which asset, set or shot is it? Type a name, or pick one.' : `${missing === rows.length ? 'Say' : `${missing} still need to say`} which asset, set or shot ${missing === 1 ? 'it is' : 'each is'}.`)
-        : made.length ? `New in the catalogue: ${made.join(', ')}.` : `Each is filed as the next version of what its row says.`;
+        : made.length ? `New in the catalogue: ${made.join(', ')}.` : 'Each is filed as the version its row says.';
     }
 
     let confirmed = false;
-    dlg.append(el('form', { method: 'dialog', onsubmit: () => { confirmed = true; } },
-      el('h2', { text: list.length > 1 ? `File ${list.length} pieces as versions` : 'File as a version' }),
-      list.length > 1 && fill,
-      el('div', { class: 'file-rows' }, rows.map((row) => row.node)),
-      hint,
-      el('div', { class: 'dlg-actions' },
-        el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }), ok)));
+    dlg.append(el('form', {
+      method: 'dialog',
+      onsubmit: async (e) => {
+        e.preventDefault();
+        for (const row of rows) row.f.settle();
+        if (rows.some((row) => !nameOf(row))) return paint();
+        // A new sequence is said out loud once before it is made.
+        if (!(await WBFiling.confirmSequences(rows.map((row) => row.f)))) return;
+        confirmed = true;
+        dlg.close();
+      },
+    },
+    el('h2', { text: list.length > 1 ? `File ${list.length} pieces as versions` : 'File as a version' }),
+    list.length > 1 && fill,
+    el('div', { class: 'file-rows' }, rows.map((row) => row.node)),
+    hint,
+    el('div', { class: 'dlg-actions' },
+      el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }), ok)));
     dlg.addEventListener('close', async () => {
       dlg.remove();
       if (!confirmed) return;
       const files = rows.map((row) => ({ board: boardId, item: row.it.id, entity: row.f.entity(), task: row.f.taskName() }));
+      const said = new Map(rows.map((row) => [row.it.id, { entity: nameOf(row), task: row.f.taskName() }]));
       try {
         const res = await WB.api('POST', `/api/projects/${project.id}/versions`, { files, by: me.name });
         const last = rows[rows.length - 1];
-        store(`wb:file:${project.id}`, { entity: nameOf(last), task: N.tokenize(last.task.value) || null });
+        store(`wb:file:${project.id}`, { entity: nameOf(last), task: last.f.taskName() });
         learnVersions(res.versions);
-        toast(res.versions.length === 1 ? `Filed as ${res.versions[0].label}` : `Filed ${res.versions.length} versions: ${res.versions.map((v) => v.label).join(', ')}`, { ms: 5000 });
+        // Taken back as if it had not been: every one of them, or none.
+        const unfile = async () => {
+          for (const v of res.versions) await WB.api('POST', `/api/versions/${v.id}/unfile`, { by: me.name });
+        };
+        toast(res.versions.length === 1 ? `Filed as ${res.versions[0].label}` : `Filed ${res.versions.length} versions: ${res.versions.map((v) => v.label).join(', ')}`, {
+          ms: 10000, key: 'filed',
+          action: [
+            { label: 'Undo', run: async () => { await unfile(); toast(res.versions.length === 1 ? 'Not filed after all' : `${res.versions.length} not filed after all`); } },
+            { label: 'Change…', run: async () => { await unfile(); openFiling(list, await WB.api('GET', `/api/projects/${project.id}`), said); } },
+          ],
+        });
+        // A piece named some other way teaches how such names are read, if it is wanted.
+        const taught = rows.find((row) => row.taught && row.it.name);
+        if (taught) {
+          WBFiling.offerRule({
+            filename: taught.it.name, entity: nameOf(taught), presetId, rules, tasks: cat.tasks,
+            save: (next) => WB.api('PATCH', `/api/folders/${project.id}`, { settings: { rules: next } }),
+          });
+        }
       } catch (err) {
         toast(err.message, { ms: 6000 });
       }
@@ -4768,7 +4819,7 @@
     document.body.append(dlg);
     dlg.showModal();
     const first = rows.find((row) => !nameOf(row));
-    (first ? first.ent : rows.length === 1 ? rows[0].task : ok).focus();
+    (first ? first.ent : rows.length === 1 && useTasks ? rows[0].task : ok).focus();
   }
 
   // ---- the catalogue beside the board: the project's assets, sets and shots, and their versions, to

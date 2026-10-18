@@ -658,6 +658,14 @@ const WBFiling = (() => {
     return Object.assign(self, {
       ent, task: taskIn, tier, readout, sync, name, have, taskName, settle, setLine, checks, ready, number, certain, summary,
       typedNumber: () => (numberOf ? null : own.number), viewSel, viewName, setView,
+      // A number and view read for it from elsewhere (a learned rule), as if typed on its line; `named`
+      // when what it is was read from its own file's name so.
+      take: (l) => {
+        changed();
+        if (l.named) fromName = true;
+        toLine({ number: l.number ?? null, view: l.view || null });
+        sync();
+      },
       // Its name was read from its own file's name, and has not been changed since.
       fromName: () => fromName,
       // What the server is told it is: one the project has, by id, or a new one, by name and tier.
@@ -769,13 +777,15 @@ const WBFiling = (() => {
   // ---- what a project learns about file names from elsewhere (see ruleFrom in naming.js)
 
   // After a piece named some other way is filed: the rule it teaches, if it teaches one the project does
-  // not have, offered to be kept, and to fill in the rows still to go that it reads. `others` are those
+  // not have, offered to be kept, and to fill in the rows still to go that it reads. `filed` is what it
+  // was filed as ({ entity, task, number, view, views }: see ruleFrom in naming.js). `others` are those
   // rows, each { filename, fields }; `save(rules)` keeps the project's rules.
-  function offerRule({ filename, entity, presetId, rules, others = [], tasks = [], save }) {
-    const rule = N.ruleFrom(filename, entity, presetId);
-    if (!rule || (rules || []).some((r) => r.word === rule.word)) return;
+  function offerRule({ filename, filed, presetId, rules, others = [], tasks = [], save }) {
+    const rule = N.ruleFrom(filename, filed, presetId);
+    if (!rule || (rules || []).some((r) => N.ruleKey(r) === N.ruleKey(rule))) return;
     const reads = others.filter((o) => !o.fields.name() && N.byRules(o.filename, [rule], tasks));
-    WB.toast(`${filename} was filed as ${entity}. Read “${rule.word}” names that way from now on?`, {
+    const like = rule.pattern ? 'names like it' : `“${rule.word}” names`;
+    WB.toast(`${filename} was filed as ${N.label(filed.entity, filed.task, filed.number || '').replace(/ v$/, '')}. Read ${like} that way from now on?`, {
       key: 'rule', ms: 12000,
       action: {
         label: reads.length ? `Yes, and fill in ${WB.plural(reads.length, 'other')}` : 'Remember',
@@ -784,6 +794,7 @@ const WBFiling = (() => {
           for (const o of reads) {
             const r = N.byRules(o.filename, [rule], tasks);
             o.fields.setLine(r.entity, r.task || undefined);
+            o.fields.take({ number: r.number, view: r.view, named: true });
           }
         },
       },

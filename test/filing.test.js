@@ -62,10 +62,14 @@ test('filing: a name not to the styleguide is offered as one that is, and a near
 });
 
 test('filing: a file named some other way teaches how such names are read, and words that say nothing teach nothing', () => {
+  // A sequence named otherwise there: learned as a pattern known by that name.
   const klo = naming.ruleFrom('KLO_010_anim_v3.mov', 'kilo-0010');
-  assert.deepEqual(klo, { word: 'klo', seq: 'kilo' });
-  assert.deepEqual(naming.byRules('KLO_020_anim_v1.mov', [klo], TASKS), { entity: 'kilo-0020', task: 'anim', rule: klo });
-  assert.equal(naming.byRules('XYZ_020.mov', [klo], TASKS), null);
+  assert.deepEqual(klo.seqs, { klo: 'kilo' });
+  assert.equal(naming.byRules('KLO_020_anim_v1.mov', [klo], TASKS).entity, 'kilo-0020');
+  // Rules learned before patterns still read: the first word as a sequence, run on or not, or as one asset.
+  const word = { word: 'klo', seq: 'kilo' };
+  assert.deepEqual(naming.byRules('KLO_020_anim_v1.mov', [word], TASKS), { entity: 'kilo-0020', task: 'anim', number: null, view: null, rule: word });
+  assert.equal(naming.byRules('XYZ_020.mov', [word], TASKS), null);
   const glued = naming.ruleFrom('klo010.mov', 'kilo-0010');
   assert.deepEqual(glued, { word: 'klo', seq: 'kilo', glued: true });
   assert.equal(naming.byRules('klo030_v2.mov', [glued]).entity, 'kilo-0030');
@@ -73,9 +77,38 @@ test('filing: a file named some other way teaches how such names are read, and w
   assert.equal(naming.ruleFrom('screenshot_090126.png', 'char-robot'), null);
   // A name to the styleguide needs no rule.
   assert.equal(naming.ruleFrom('kilo-0010_anim_v3.mov', 'kilo-0010'), null);
-  assert.equal(naming.ruleText(klo), 'klo 010 → kilo-0010');
+  assert.equal(naming.ruleText(word), 'klo 010 → kilo-0010');
   // A pasted name is read by the rules too.
-  assert.equal(naming.readLine('KLO_070_anim_v1.mov', { rules: [klo], tasks: TASKS }).entity, 'kilo-0070');
+  assert.equal(naming.readLine('KLO_070_anim_v1.mov', { rules: [word], tasks: TASKS }).entity, 'kilo-0070');
+});
+
+test('filing: a whole name filed by hand teaches its pattern: the sequence, shot, version and view each in its place', () => {
+  const rule = naming.ruleFrom('NHMoc_CHAP01_010_cmp_v111.mp4', { entity: 'chap01-0010', task: null, number: 111, view: null, views: ['cmp', 'bty'] });
+  assert.deepEqual(rule.pattern, ['nhmoc', '{seq}', '{shot}', '{view}', '{version}']);
+  assert.equal(naming.ruleText(rule), 'NHMoc_CHAP01_010_cmp_v111 → chap01-0010 v111');
+  const read = (name) => {
+    const r = naming.byRules(name, [rule]);
+    return r && { entity: r.entity, number: r.number, view: r.view };
+  };
+  assert.deepEqual(read('NHMoc_CHAP03_040_cmp_v009.mp4'), { entity: 'chap03-0040', number: 9, view: 'cmp' });
+  assert.deepEqual(read('NHMoc_CHAP03_040_bty_v009.mp4'), { entity: 'chap03-0040', number: 9, view: 'bty' });
+  // Not one like it: another studio's word, or another shape.
+  assert.equal(read('Other_CHAP03_040_cmp_v009.mp4'), null);
+  assert.equal(read('NHMoc_CHAP03_040_v009.mp4'), null);
+  // Without views, the word where the view was is anything; a shot's number may run on after letters.
+  const plain = naming.ruleFrom('ABC_ep2_sh010_comp_erik_v004.mov', { entity: 'ep2-0010', task: 'comp', number: 4 });
+  assert.deepEqual(plain.pattern, ['abc', '{seq}', '{shot:sh}', '{task}', '*', '{version}']);
+  assert.deepEqual(naming.byRules('ABC_ep3_sh120_lighting_anna_v011.mov', [plain]), { entity: 'ep3-0120', task: 'lighting', number: 11, view: null, rule: plain });
+  // A sequence named otherwise there is kept as such; with no word of its own, the pattern is known by it alone.
+  const klo = naming.ruleFrom('KLO_010_anim_v3.mov', { entity: 'kilo-0010', task: 'anim', number: 3 });
+  assert.deepEqual(klo.seqs, { klo: 'kilo' });
+  assert.equal(naming.byRules('KLO_020_anim_v7.mov', [klo]).entity, 'kilo-0020');
+  assert.equal(naming.byRules('ABC_020_anim_v1.mov', [klo]), null);
+  // A pasted name is read by it, number and all.
+  const line = naming.readLine('NHMoc_CHAP02_030_cmp_v004', { rules: [rule], views: ['cmp', 'bty'] });
+  assert.deepEqual([line.entity, line.number, line.view], ['chap02-0030', 4, 'cmp']);
+  // Patterns go before the first-word rules, being surer.
+  assert.equal(naming.byRules('NHMoc_CHAP03_040_cmp_v009.mp4', [{ word: 'nhmoc', name: 'char-robot' }, rule]).entity, 'chap03-0040');
 });
 
 // A colour strip as likely.js reads it: COLS columns of top and bottom RGB, from a brightness at each moment.

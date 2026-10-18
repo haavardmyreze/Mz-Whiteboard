@@ -390,12 +390,18 @@ filed in it.
     set or shot made for them. Change then opens the rows again as they were. This is for straight
     after: within half an hour, and not once a version has been talked about, put on another board or
     given another view (archive or delete it then).
-  - **Names from elsewhere.** A file not named to the styleguide and filed by hand
-    (`KLO_040_anim_v3.mov` as `kilo-0040`) offers to teach the project how such names read: from then
-    on, `KLO_050` is `kilo-0050` wherever files are filed, and the rows still to go are filled in at
-    once (on a board, asked once the message about the filing has gone). Only the first word is learned, as a sequence (`klo` → `kilo`) or one asset or set (`robot`
-    → `char-robot`), never a word that says nothing (screenshot, render, final...). The project's
-    settings list what it has learned, to forget any.
+  - **Names from elsewhere.** A file not named to the styleguide and filed by hand offers to teach the
+    project how names like it read, and fills in the rows still to go that it reads, at once (on a
+    board, asked once the message about the filing has gone). What is learned is the whole name's
+    pattern: `NHMoc_CHAP01_010_cmp_v111.mp4` filed as chap01-0010 v111 teaches that `nhmoc` names have
+    the sequence next, then the shot, then the view (with views on), then the version, so
+    `NHMoc_CHAP03_040_cmp_v009.mp4` is chap03-0040 v9. A word that changes from file to file (an artist)
+    is anything; the task is learned where it was the task; a shot's number may run on after letters
+    (`sh010`); a sequence named otherwise there (`KLO_010` filed as kilo-0010) is kept as that. A pattern
+    needs a word of its own (`nhmoc`) or one of those sequences to know its names by. Without one, the
+    first word is learned, as a sequence or one asset or set (`robot` → `char-robot`), never a word that
+    says nothing (screenshot, render, final...). The project's settings list what it has learned, as
+    chips to forget.
 - **Numbering.** The catalogue counts versions itself: `kilo-0010 anim v1`, `v2`, `v3`, per asset, set
   or shot and task, in the order they were filed. Each task has its own count (lookdev starts at v1
   beside model v10), and versions with no task have one of their own too. A project that has no use
@@ -678,7 +684,8 @@ after it was filed (see Taking it back). A project's catalogue (`GET /api/projec
 entity's `heads`, the newest version of each task, beside `tops`. Its settings (`PATCH /api/folders/<id>`
 with `settings`) take `tasks: false` to count without tasks, `views` (`["cmp", "bty"]`, the main one
 first, or `false`; the catalogue gives the views in force as `viewList`), and `rules`, the whole list of what it has
-learned (`[{ "word", "seq" }]` or `[{ "word", "name" }]`).
+learned (patterns, `[{ "pattern": ["nhmoc", "{seq}", "{shot}", "*", "{version}"], "seqs", "like", "as" }]`, or the
+older `[{ "word", "seq" }]` and `[{ "word", "name" }]`).
 
 The newest version of an asset, set or shot and task is the one with the highest number (numbers can
 be set by hand); the newest of an asset, set or shot as a whole is the latest filed of those, one per

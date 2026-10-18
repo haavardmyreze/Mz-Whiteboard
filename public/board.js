@@ -4736,10 +4736,10 @@
         entity,
         task: before ? before.task || '' : parsed.task || (ruled && ruled.task) || (entity && remembered && entity === remembered.entity && entity === lastOne ? remembered.task || '' : ''),
         named: !before && !!(parsed.entity || ruled), piece: () => it,
-        number: before ? before.number : null,
-        view: before ? before.view : parsed.view,
+        number: before ? before.number : (ruled && ruled.number) || null,
+        view: before ? before.view : parsed.view || (ruled && ruled.view),
       });
-      const row = { it, f, ent: f.ent, task: f.task, tier: f.tier, taught: !parsed.entity && !ruled };
+      const row = { it, f, ent: f.ent, task: f.task, tier: f.tier, taught: !parsed.entity && !(ruled && ruled.rule.pattern) };
       row.node = el('div', { class: 'file-row' },
         el('img', { src: it.th || it.prev || (it.type === 'image' ? it.src : it.poster) || '', alt: '' }),
         el('span', { class: 'file-name', text: it.name || (it.type === 'video' ? 'Video' : 'Image'), title: it.name || '' }),
@@ -4837,7 +4837,8 @@
         const taught = rows.find((row) => row.taught && row.it.name);
         if (taught) {
           const ask = () => WBFiling.offerRule({
-            filename: taught.it.name, entity: nameOf(taught), presetId, rules, tasks: cat.tasks,
+            filename: taught.it.name, presetId, rules, tasks: cat.tasks,
+            filed: { entity: nameOf(taught), task: taught.f.taskName(), number: res.versions[rows.indexOf(taught)].number, view: taught.f.viewName(), views: cat.viewList || [] },
             save: (next) => WB.api('PATCH', `/api/folders/${project.id}`, { settings: { rules: next } }),
           });
           const wait = setInterval(() => {

@@ -151,7 +151,8 @@
       if (p.entity || ruled) {
         out.entity = p.entity || ruled.entity;
         if (useTasks && (p.task || (ruled && ruled.task))) out.task = p.task || ruled.task;
-        out.view = ctx.useViews === false ? null : p.view;
+        out.view = ctx.useViews === false ? null : p.view || (ruled && ruled.view) || null;
+        if (ruled && ruled.number) out.number = ruled.number;
         if (ruled) out.short = `read by the rule for “${ruled.rule.word}”`;
         return out;
       }
@@ -264,18 +265,64 @@
 
   // ---- names from elsewhere: rules learned from how they were filed
   //
-  // A file named some other way (another studio's KLO_010_anim_v3.mov) filed as kilo-0010 teaches that its
-  // first word stands for a sequence: { word: 'klo', seq: 'kilo' }, and KLO_020 is then kilo-0020. One
-  // filed as an asset or a set teaches that its first word is that one: { word: 'robot', name: 'char-robot' }.
-  // Words that say nothing about what a file shows are never learned.
+  // A file named some other way, filed by hand, teaches how names like it read. Best, the whole of its
+  // name as a pattern: NHMoc_CHAP01_010_cmp_v111 filed as chap01-0010 v111 teaches
+  //   { pattern: ['nhmoc', '{seq}', '{shot}', '*', '{version}'], like, as }
+  // each word being one to find in every name like it (nhmoc), where the sequence, the shot, the version,
+  // the task or the view is ({seq}...), or anything (*: what changes from file to file, an artist, say).
+  // NHMoc_CHAP03_040_cmp_v009 is then chap03-0040 v9. A sequence named otherwise there than here (KLO for
+  // kilo) is kept as `seqs: { klo: 'kilo' }`; a shot's number run on after letters (sh010) as `{shot:sh}`.
+  // A pattern needs a word of its own to know its names by (nhmoc, or a sequence it renames). Without one,
+  // the first word is learned, as before: as a sequence ({ word: 'klo', seq: 'kilo' }, KLO_020 being
+  // kilo-0020), or as one asset or set ({ word: 'robot', name: 'char-robot' }). Words that say nothing about
+  // what a file shows are never learned.
   const VAGUE = new Set(['screenshot', 'screen', 'shot', 'img', 'image', 'render', 'untitled', 'capture', 'export', 'final', 'comp', 'video',
     'movie', 'clip', 'frame', 'still', 'playblast', 'test', 'new', 'copy', 'scan', 'photo', 'dsc', 'pxl', 'vid', 'mov', 'output', 'out', 'preview', 'wip']);
-  const stemWords = (filename) => String(filename || '').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const stem = (filename) => String(filename || '').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
+  const stemWords = (filename) => stem(filename).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const PATTERN_TOKEN = /^(?:[a-z0-9]{1,40}|\*|\{(?:seq|version|task|view)\}|\{shot(?::[a-z]{1,10})?\})$/;
 
-  // The rule a file teaches by being filed as `entity`, or null when it teaches none (its name says it
-  // already, or says nothing that could be learned).
-  function ruleFrom(filename, entity, presetId) {
+  // The pattern a file's name teaches by being filed as `filed` ({ entity, task, number, view, views }:
+  // what it was filed as, `views` the project's, the main one first), or null.
+  function patternFrom(filename, filed, presetId) {
+    const { entity, task = null, number = null, view = null, views = [] } = filed;
+    if (tierOf(entity, presetId) !== 'shot') return null;
+    const words = stemWords(filename);
+    const seq = seqOf(entity);
+    const n = shotNumber(entity);
+    // The shot: a number of its own, or run on after letters; the sequence is the word before it.
+    let at = -1;
+    let prefix = '';
+    for (let i = 1; i < words.length && at < 0; i++) {
+      const m = /^([a-z]{0,10})(\d{1,4})$/.exec(words[i]);
+      if (m && Number(m[2]) === n && /[a-z]/.test(words[i - 1])) {
+        at = i;
+        prefix = m[1];
+      }
+    }
+    if (at < 0) return null;
+    const pattern = words.map((w, i) => {
+      if (i === at - 1) return '{seq}';
+      if (i === at) return prefix ? `{shot:${prefix}}` : '{shot}';
+      if (i > at && number != null && /^v?\d{1,5}$/.test(w) && Number(w.replace(/^v/, '')) === number) return '{version}';
+      if (i > at && task && w === task) return '{task}';
+      if (i > at && (views || []).includes(w) && (w === (view || views[0]))) return '{view}';
+      return i < at ? w : '*';
+    });
+    const seqs = words[at - 1] === seq ? null : { [words[at - 1]]: seq };
+    if (!seqs && !pattern.some((t, i) => i < at - 1 && !VAGUE.has(t) && /[a-z]/.test(t))) return null;
+    return { pattern, ...(seqs && { seqs }), like: stem(filename).slice(0, 120), as: label(entity, task, number || '') .replace(/ v$/, '') };
+  }
+
+  // The rule a file teaches by being filed as `filed` (what it was filed as: { entity, task, number, view,
+  // views }, or just the entity's name), or null when it teaches none (its name says it already, or says
+  // nothing that could be learned).
+  function ruleFrom(filename, filed, presetId) {
+    const f = typeof filed === 'string' ? { entity: filed } : filed || {};
+    const entity = f.entity;
     if (!entity || parse(filename, presetId).entity) return null;
+    const whole = patternFrom(filename, f, presetId);
+    if (whole) return whole;
     const [w0, w1] = stemWords(filename);
     if (!w0) return null;
     const seq = tierOf(entity, presetId) === 'shot' ? seqOf(entity) : null;
@@ -289,12 +336,51 @@
     if (w0.length < 3 || /^\d+$/.test(w0) || VAGUE.has(w0)) return null;
     return { word: w0, name: entity };
   }
-  // What a project's rules make of a file name: { entity, task, rule }, or null. A word of it that is one of
-  // `tasks` is its task.
+  // A rule's key: two rules with the same are the same rule.
+  const ruleKey = (rule) => (rule.pattern ? `p:${rule.pattern.join('_')}:${JSON.stringify(rule.seqs || {})}` : `w:${rule.word}`);
+
+  // What a name reads as by a pattern: { entity, task, number, view }, or null when it is not one like it.
+  function byPattern(words, rule) {
+    if (words.length !== rule.pattern.length) return null;
+    // A pattern with no word of its own is known only by the sequences it renames (KLO for kilo).
+    const anchored = rule.pattern.some((t) => !t.startsWith('{') && t !== '*');
+    const out = { entity: null, task: null, number: null, view: null };
+    let seq = null;
+    let shot = null;
+    for (let i = 0; i < words.length; i++) {
+      const t = rule.pattern[i];
+      const w = words[i];
+      if (t === '*') continue;
+      if (t === '{seq}') {
+        if (!/[a-z]/.test(w) || (!anchored && !(rule.seqs && rule.seqs[w]))) return null;
+        seq = (rule.seqs && rule.seqs[w]) || w;
+      } else if (t.startsWith('{shot')) {
+        const m = new RegExp(`^${(t.split(':')[1] || '}').slice(0, -1)}(\\d{1,4})$`).exec(w);
+        if (!m) return null;
+        shot = Number(m[1]);
+      } else if (t === '{version}') {
+        if (!/^v?\d{1,5}$/.test(w)) return null;
+        out.number = Number(w.replace(/^v/, '')) || null;
+      } else if (t === '{task}') out.task = w;
+      else if (t === '{view}') out.view = w;
+      else if (t !== w) return null;
+    }
+    if (!seq || shot == null) return null;
+    out.entity = `${tokenize(seq)}-${pad(shot)}`;
+    return out;
+  }
+  // What a project's rules make of a file name: { entity, task, number, view, rule }, or null. Patterns
+  // first, being the surer. Read by a word rule, a word of the name that is one of `tasks` is its task.
   function byRules(filename, rules = [], tasks = []) {
     const words = stemWords(filename);
     if (!words.length) return null;
-    for (const rule of rules || []) {
+    const list = [...(rules || [])].sort((a, b) => !!b.pattern - !!a.pattern);
+    for (const rule of list) {
+      if (rule.pattern) {
+        const read = byPattern(words, rule);
+        if (read) return { ...read, rule };
+        continue;
+      }
       let entity = null;
       if (rule.seq && rule.glued) {
         const m = new RegExp(`^${rule.word}(\\d{1,4})$`).exec(words[0]);
@@ -302,15 +388,17 @@
       } else if (rule.seq) {
         if (words[0] === rule.word && /^\d{1,4}$/.test(words[1] || '')) entity = `${rule.seq}-${pad(Number(words[1]))}`;
       } else if (rule.name && words[0] === rule.word) entity = rule.name;
-      if (entity) return { entity, task: words.slice(1).find((w) => (tasks || []).includes(w)) || null, rule };
+      if (entity) return { entity, task: words.slice(1).find((w) => (tasks || []).includes(w)) || null, number: null, view: null, rule };
     }
     return null;
   }
-  // A rule as it is shown: "klo 010 → kilo-0010".
-  const ruleText = (rule) => (rule.seq ? `${rule.word}${rule.glued ? '' : ' '}010 → ${rule.seq}-0010` : `${rule.word} → ${rule.name}`);
+  // A rule as it is shown: the name it was learned from and what it was filed as ("NHMoc_CHAP01_010_cmp_v111
+  // → chap01-0010 v111"), or "klo 010 → kilo-0010".
+  const ruleText = (rule) => (rule.pattern ? `${rule.like} → ${rule.as}`
+    : rule.seq ? `${rule.word}${rule.glued ? '' : ' '}010 → ${rule.seq}-0010` : `${rule.word} → ${rule.name}`);
 
   return {
     PRESETS, DEFAULT, TIERS, TOKEN, VIEWS, preset, tokenize, tierOf, seqOf, parse, label,
-    pad, shotNumber, sequence, nextShot, readLine, corrections, distance, nearMisses, ruleFrom, byRules, ruleText,
+    pad, shotNumber, sequence, nextShot, readLine, corrections, distance, nearMisses, ruleFrom, byRules, ruleText, ruleKey, PATTERN_TOKEN,
   };
 });

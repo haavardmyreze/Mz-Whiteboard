@@ -1929,6 +1929,16 @@ test('a project can count without tasks, learn how names from elsewhere read, an
   assert.deepEqual(Object.keys(e.heads).sort(), ['', 'anim']);
   assert.equal(e.heads[''].number, 2);
   assert.equal(e.heads.anim.id, anim.id);
+  // A whole name's pattern is kept as it is, with what was learned it renames; one with no sequence and
+  // shot in it, or a word that is not one, is not.
+  const nh = { pattern: ['nhmoc', '{seq}', '{shot}', '{view}', '{version}'], like: 'NHMoc_CHAP01_010_cmp_v111', as: 'chap01-0010 v111' };
+  await call('PATCH', `/api/folders/${project.id}`, { settings: { rules: [
+    nh, { pattern: ['{seq}', '{shot}', '*'], seqs: { klo: 'kilo', 'Bad!': 'x' } },
+    { pattern: ['nhmoc', '{version}'] }, { pattern: ['NH MOC', '{seq}', '{shot}'] }, { pattern: ['{seq}', '{shot}', '{nonsense}'] },
+  ] } });
+  assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.project.settings.rules, [
+    nh, { pattern: ['{seq}', '{shot}', '*'], seqs: { klo: 'kilo' }, like: '', as: '' },
+  ]);
   // An empty list forgets them all.
   await call('PATCH', `/api/folders/${project.id}`, { settings: { rules: [] } });
   assert.equal((await call('GET', `/api/projects/${project.id}`)).body.project.settings.rules, undefined);

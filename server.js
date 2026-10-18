@@ -868,10 +868,23 @@ function cleanProjectSettings(asked, was = {}) {
   }
   if (Array.isArray(asked.rules)) {
     const rules = new Map();
+    const seqName = (v) => typeof v === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(v) && v.length <= 80;
     for (const r of asked.rules.slice(0, 200)) {
-      if (!r || typeof r !== 'object' || typeof r.word !== 'string' || !/^[a-z0-9]{1,40}$/.test(r.word)) continue;
-      if (typeof r.seq === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(r.seq) && r.seq.length <= 80) rules.set(r.word, { word: r.word, seq: r.seq, ...(r.glued === true && { glued: true }) });
-      else if (typeof r.name === 'string' && naming.tokenize(r.name) === r.name) rules.set(r.word, { word: r.word, name: r.name });
+      if (!r || typeof r !== 'object') continue;
+      // A whole name's pattern (see patternFrom in naming.js): where its sequence and shot are, at least.
+      if (Array.isArray(r.pattern)) {
+        const pattern = r.pattern.slice(0, 16);
+        if (!pattern.length || !pattern.every((t) => typeof t === 'string' && naming.PATTERN_TOKEN.test(t))) continue;
+        if (!pattern.includes('{seq}') || !pattern.some((t) => t.startsWith('{shot'))) continue;
+        const seqs = Object.fromEntries(Object.entries(r.seqs && typeof r.seqs === 'object' ? r.seqs : {})
+          .filter(([from, to]) => /^[a-z0-9]{1,40}$/.test(from) && seqName(to)).slice(0, 50));
+        const rule = { pattern, ...(Object.keys(seqs).length && { seqs }), like: String(r.like || '').slice(0, 120), as: String(r.as || '').slice(0, 80) };
+        rules.set(naming.ruleKey(rule), rule);
+        continue;
+      }
+      if (typeof r.word !== 'string' || !/^[a-z0-9]{1,40}$/.test(r.word)) continue;
+      if (seqName(r.seq)) rules.set(`w:${r.word}`, { word: r.word, seq: r.seq, ...(r.glued === true && { glued: true }) });
+      else if (typeof r.name === 'string' && naming.tokenize(r.name) === r.name) rules.set(`w:${r.word}`, { word: r.word, name: r.name });
     }
     if (rules.size) out.rules = [...rules.values()];
     else delete out.rules;

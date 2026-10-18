@@ -2659,9 +2659,10 @@
       // to the same), unless another is typed (in its field, or at the end of the line: kilo-0010 v12).
       const num = el('input', { type: 'number', min: '1', step: '1', class: 'imp-num', 'aria-label': 'Version', title: 'Version: the next one, unless you say another' });
       const ruled = !r.parsed.entity && N.byRules(r.file.name, rules(), tasks());
-      r.taught = !r.entity && !r.parsed.entity && !ruled;
+      // Named some other way, and not by a pattern the project has: filing it may teach one.
+      r.taught = !r.entity && !r.parsed.entity && !(ruled && ruled.rule.pattern);
       const f = WBFiling.fields({
-        presetId, getEntities: () => (cat ? cat.entities : []), getTasks: tasks, views: viewList(), view: r.parsed.view, label: r.file.name,
+        presetId, getEntities: () => (cat ? cat.entities : []), getTasks: tasks, views: viewList(), view: r.parsed.view || (ruled && ruled.view), label: r.file.name,
         entity: r.entity ? r.entity.name : r.parsed.entity || (ruled && ruled.entity) || '', task: r.parsed.task || (ruled && ruled.task) || '', onChange: resyncAll,
         named: !!(r.entity || r.parsed.entity || ruled), piece: () => r.look,
         useTasks: useTasks(), rules, peers, remembered: store(`wb:file:${project.id}`) || null,
@@ -2675,6 +2676,11 @@
         },
       });
       const { ent, task, tier } = f;
+      // A version number read from its name by a learned pattern is its number.
+      if (ruled && ruled.number) {
+        num.value = String(ruled.number);
+        r.numTouched = true;
+      }
       num.addEventListener('input', () => { r.numTouched = num.value !== ''; resyncAll(); });
       const go = el('button', { type: 'button', class: 'btn small', text: 'File', onclick: () => fileRow(r) });
       const status = el('span', { class: 'imp-status' });
@@ -2837,7 +2843,8 @@
         // A file named some other way teaches how such names are read, if it is wanted, and fills in the rest.
         if (r.taught) {
           WBFiling.offerRule({
-            filename: r.file.name, entity: name, presetId, rules: rules(), tasks: tasks(),
+            filename: r.file.name, presetId, rules: rules(), tasks: tasks(),
+            filed: { entity: name, task, number: r.version.number, view: viewOf(r), views: viewList() || [] },
             others: rows.filter((o) => o !== r && o.fields && unfiled(o)).map((o) => ({ filename: o.file.name, fields: o.fields.f })),
             save: async (next) => {
               await api('PATCH', `/api/folders/${project.id}`, { settings: { rules: next } });

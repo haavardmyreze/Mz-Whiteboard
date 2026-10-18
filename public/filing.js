@@ -121,7 +121,7 @@ const WBFiling = (() => {
     if (seqTyped && names.some((n) => N.seqOf(n, ctx.presetId) === seqTyped[1])) push(newOption(N.nextShot(names, seqTyped[1], ctx.presetId), ctx.presetId, `next shot in ${seqTyped[1]}`));
     if (name && !byName.has(name)) {
       for (const miss of N.nearMisses(name, names)) push(streamOption(byName.get(miss), null, 'did you mean?', useTasks));
-      for (const c of N.corrections(name, ctx.presetId, names)) push(byName.has(c.name) ? streamOption(byName.get(c.name), null, 'to the styleguide', useTasks) : newOption(c.name, ctx.presetId, `new ${c.tier}`));
+      for (const c of N.corrections(name, ctx.presetId, names)) push(byName.has(c.name) ? streamOption(byName.get(c.name), null, 'to the naming', useTasks) : newOption(c.name, ctx.presetId, `new ${c.tier}`));
       push(newOption(name, ctx.presetId));
     }
     // A pick keeps what else the line said: a suggestion names only the entity (and perhaps its task).
@@ -469,9 +469,10 @@ const WBFiling = (() => {
         const misses = N.nearMisses(n, names);
         if (misses.length) out.push({ text: 'Not in the project. Did you mean', fixes: misses.map((m) => ({ label: m, run: () => setLine(m) })), warn: true, rank: 1 });
         const tierNow = N.tierOf(n, presetId);
-        if (!tierNow) {
+        // Only where every name has a shape is one of none of them not to the project's naming.
+        if (!tierNow && N.preset(presetId).strict) {
           const fixes = N.corrections(n, presetId, names).filter((c) => !misses.includes(c.name)).slice(0, 4);
-          if (fixes.length || !misses.length) out.push({ text: fixes.length ? 'Not to the styleguide. Perhaps' : 'Not to the styleguide: say what it is', fixes: fixes.map((c) => ({ label: c.name, run: () => setLine(c.name) })), warn: true, rank: 2 });
+          if (fixes.length || !misses.length) out.push({ text: fixes.length ? 'Not to the project’s naming. Perhaps' : 'Not to the project’s naming: say what it is', title: `${N.preset(presetId).name}: ${N.preset(presetId).tiers.map((t) => `a ${t.one} is ${t.shape}`).join('; ')}`, fixes: fixes.map((c) => ({ label: c.name, run: () => setLine(c.name) })), warn: true, rank: 2 });
         }
         if (tierNow === 'shot') {
           const seq = N.seqOf(n, presetId);
@@ -581,7 +582,7 @@ const WBFiling = (() => {
       return counted.n;
     }
 
-    const note = (c) => el('span', { class: `file-note${c.warn ? ' warn' : ''}${c.ok ? ' ok' : ''}` },
+    const note = (c) => el('span', { class: `file-note${c.warn ? ' warn' : ''}${c.ok ? ' ok' : ''}`, ...(c.title && { title: c.title }) },
       el('span', { text: c.text }),
       (c.fixes || []).map((f) => el('button', { type: 'button', class: 'file-fix', text: f.label, onpointerdown: (ev) => ev.preventDefault(), onclick: () => { f.run(); onChange(); } })));
 

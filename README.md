@@ -619,26 +619,55 @@ filed in it.
   files), the project's names and tasks, and what the rows say now. Haiku is used unless `AI_MODEL`
   says otherwise. The server's side is `ai.js`; the box is `public/claude.js`.
 
+### Naming conventions
+
 Names are read by the project's naming convention. Every studio's work has the same structure
 (assets, sets and shots in sequences; tasks; numbered versions; views), so a convention changes only
 the words: it is data, not code. Each tier has a template, made of literal text and `{prefix}` (one of
 the tier's prefixes), `{what}` (what it is, in words), `{seq}` (the sequence) and `{shot:N}` (the
-shot, N digits). A file's name is read by its separator and the mark before its version. The tests a
-name is checked by, the shape shown to people and told to Claude, how a shot is numbered and what is
-offered as a correction all come from these.
+shot, N digits); a tier with no template takes any name, said by hand to be one, and a hidden one is
+not offered (a studio that makes no sets). A file's name is read by its separator (`_` or `.`) and the
+letters before its version. The tests a name is checked by, the shape shown to people and told to
+Claude, how a shot is numbered and what is offered as a correction all come from these.
 
-The one convention there is follows the Myreze styleguide:
+Three are built in:
 
 ```js
-tiers: asset '{prefix}-{what}' (char prop env veh fx), set '{prefix}-{what}' (set), shot '{seq}-{shot:4}'
-file:  { sep: '_', version: 'v' }      // kilo-0010_anim_erik_v012.mov
+myreze    asset '{prefix}-{what}' (char prop env veh fx), set '{prefix}-{what}' (set), shot '{seq}-{shot:4}'
+episodic  asset '{prefix}-{what}' (chr prp env veh fx), set '{prefix}-{what}' (set), shot '{seq}-sh{shot:4}'
+free      any name: what each is is said when it is filed, and nothing is checked
+file:     { sep: '_', version: 'v' }      // kilo-0010_anim_erik_v012.mov
 ```
 
-`_` separates parts, `-` joins words, all lower case. An asset is `char-`, `prop-`, `env-`, `veh-` or
-`fx-` something, a set is `set-` something, a shot is `<sequence>-<number>` (`kilo-0010`). A file named
-`<context>_<task>[_<descriptor>]_<artist>_v###` (`kilo-0010_anim_erik_v012.mov`) says all of it. The
-conventions are in `public/naming.js`, shared by the server and the pages, with how a typed line is
-read, the corrections and near misses offered, and the rules a project learns.
+The Myreze styleguide: `_` separates parts, `-` joins words, all lower case. An asset is `char-`,
+`prop-`, `env-`, `veh-` or `fx-` something, a set is `set-` something, a shot is
+`<sequence>-<number>` (`kilo-0010`). A file named `<context>_<task>[_<descriptor>]_<artist>_v###`
+(`kilo-0010_anim_erik_v012.mov`) says all of it.
+
+- **A studio's own.** An admin makes one in a project's settings (Naming convention, *New from file
+  names…*): paste a few of the studio's file names and *Read these* fills in what they say (the
+  separator, how versions are written, the shots' shape and digits, the prefixes, which are sets
+  (`set-`, `loc-`), the tasks, and words after the version that may be views), with a note of each
+  thing found and not found, and each name pasted shown as it reads by the convention as it stands.
+  A word every name starts with (a show's code: `NHMoc_`) and a sequence and shot written apart
+  (`CHAP01_010`) are noted: names like that are read whole by what the project learns when one is
+  filed by hand (Names from elsewhere). Anything can then be changed, and is checked as it is typed;
+  a built-in one is changed by copying it (*Copy and change…*). The studio's conventions are kept by
+  the server and every page has them from the start (`/conventions.js`).
+- **The studio's default.** *Make it the studio's* sets the convention new projects start with, and the
+  one a project follows when it says none (or follows one since deleted). A convention a project
+  follows cannot be deleted.
+- **A project's.** Its settings choose which it follows. Names already there stay as they are when it
+  changes; the settings say how many of them are not to the new one. With free naming nothing is
+  checked or corrected, and a new name is filed once it is said to be an asset, a set or a shot.
+- **What does not change.** Only names do. There are no studio-made kinds of thing beyond assets, sets
+  and shots, no custom fields and no status workflows: a setting is only added if it changes words or
+  defaults rather than the structure, leaves every screen the same shape, and most studios never need
+  to touch it. A pipeline that needs more keeps it in its own tools, and files and reads through the API.
+
+The conventions are in `public/naming.js`, shared by the server and the pages, with how a typed line
+is read, the corrections and near misses offered, the rules a project learns, and the guess made from
+file names; the settings row and the editor are `public/naming-ui.js`.
 
 ## Data and backup
 
@@ -722,7 +751,13 @@ entity's `heads`, the newest version of each task, beside `tops`. Its settings (
 with `settings`) take `tasks: false` to count without tasks, `views` (`["cmp", "bty"]`, the main one
 first, or `false`; the catalogue gives the views in force as `viewList`), and `rules`, the whole list of what it has
 learned (patterns, `[{ "pattern": ["nhmoc", "{seq}", "{shot}", "*", "{version}"], "seqs", "like", "as" }]`, or the
-older `[{ "word", "seq" }]` and `[{ "word", "name" }]`).
+older `[{ "word", "seq" }]` and `[{ "word", "name" }]`), and `naming`, the id of the convention it follows.
+`GET /api/conventions` lists the naming conventions (built in first, each with what it says and the
+projects following it), the studio's `default` and whether you may change them; an admin can
+`POST` `{ "convention" }` to keep a new one (its id made from its name), `PUT /api/conventions/<id>`
+to change one of the studio's, `DELETE` one no project follows, and `PATCH` `{ "default" }`. A
+convention is `{ "name", "tiers": [{ "id", "label", "one", "name", "prefixes", "hidden", "examples" }],
+"file": { "sep", "version" }, "tasks", "aliases" }`, checked as `validate` in `public/naming.js` says.
 
 The newest version of an asset, set or shot and task is the one with the highest number (numbers can
 be set by hand); the newest of an asset, set or shot as a whole is the latest filed of those, one per
@@ -802,7 +837,8 @@ public/media.js    The video cache on this computer, with sw.js (the service wor
 public/home.js     Board list, and a project's catalogue
 public/account.js  Your account dialog: name, colour, theme, layout, the video cache, sign out
 public/notices.js  The bell: notifications on the home page
-public/naming.js   How file names are read for the catalogue (shared with the server)
+public/naming.js   Naming conventions: how names are checked and file names read (shared with the server)
+public/naming-ui.js A project's naming setting, and the editor a studio makes its convention in
 public/common.js   Shared helpers: elements, menus, toasts, links, dialogs
 public/icons.js    Every icon, drawn once
 public/boot.js     Theme and layout set before the page paints

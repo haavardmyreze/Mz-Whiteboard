@@ -376,6 +376,8 @@
     let rulesRow = null;
     let model = was ? { url: was.model, name: was.name || 'Model' } : null;
     const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`).catch(() => null);
+    // How it names what it makes: a convention of the studio's (see naming-ui.js).
+    const conv = await WBNamingUI.projectRow(project, cat);
     // Its views as they are: set, or (from before the setting) as its versions have been filed.
     const list = (cat && cat.viewList) || null;
     const byView = el('input', { type: 'checkbox', class: 'switch', ...(list && { checked: true }), 'aria-label': 'Several views of each version' });
@@ -451,7 +453,7 @@
           }
           save.disabled = true;
           try {
-            await api('PATCH', `/api/folders/${project.id}`, { settings: { tasks: byTask.checked, views: byView.checked ? named() : false, rules, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value } : null } });
+            await api('PATCH', `/api/folders/${project.id}`, { settings: { naming: conv.value(), tasks: byTask.checked, views: byView.checked ? named() : false, rules, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value } : null } });
             catalogues.delete(project.id);
             await refresh();
             dlg.close();
@@ -463,6 +465,9 @@
         },
       },
       el('h2', { text: `${project.name}: settings` }),
+      el('h3', { class: 'ps-sec', text: 'Naming' }),
+      row('Naming convention', 'How its assets, sets and shots are named, and how file names are read', conv.control),
+      conv.detail,
       el('h3', { class: 'ps-sec', text: 'Versions' }),
       row('Count by task', 'anim v1, lighting v1… rather than one count', byTask),
       row('Several views of each version', 'Each version as more than one file: cmp and bty, say', byView),

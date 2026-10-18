@@ -31,10 +31,13 @@ const versionOf = (n) => (Number.isSafeInteger(n) && n >= 1 && n <= 9999 ? n : n
 // The naming rules of a project's preset, in words, for the prompt.
 function rules(presetId, tasks) {
   const p = naming.preset(presetId);
+  const things = p.tiers.map((t) => `${t.one}s`).join(', ');
   return [
-    `The project names things by the "${p.name}":`,
+    p.free ? `The project has no naming convention: name its ${things} as their files suggest, short and plain.` : `The project names things by the "${p.name}":`,
     '- Every name is lower case; words are joined by "-"; no spaces, no underscores.',
-    ...p.tiers.map((t) => `- A ${t.one} is named ${t.shape}.`),
+    ...p.tiers.filter((t) => t.name).map((t) => `- A ${t.one} is named ${t.shape}.`),
+    ...(p.free || p.strict ? [] : [`- A ${p.tiers.filter((t) => !t.name).map((t) => t.one).join(' or ')} may be named anything.`]),
+    `- It has only ${things}: nothing is anything else.`,
     `- Tasks are single tokens. This project has: ${(tasks && tasks.length ? tasks : p.tasks).join(', ')}.`,
   ].join('\n');
 }

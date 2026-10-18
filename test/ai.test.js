@@ -109,3 +109,15 @@ test('ai: what goes wrong is said plainly', async () => {
   await fails(fakeClaude(null), /did not give an answer/);
   await fails({ fetchImpl: async () => { throw new TypeError('fetch failed'); } }, /could not be reached/, 504);
 });
+
+test('ai: is told the project’s own convention, or that it has none', async () => {
+  const claude = fakeClaude({ files: [] });
+  const ai = createAi({ key: 'sk-test', base: 'http://claude.local/', fetchImpl: claude.fetchImpl });
+  await ai.fileNames({ files: [{ key: '0', filename: 'a.mov' }], presetId: 'free', entities: [], tasks: ['anim'] });
+  await ai.fileNames({ files: [{ key: '0', filename: 'a.mov' }], presetId: 'episodic', entities: [], tasks: ['anim'] });
+  const [free, episodic] = claude.asked.map((q) => q.body.system);
+  assert.match(free, /no naming convention/);
+  assert.doesNotMatch(free, /four digits/);
+  assert.match(episodic, /Episodic/);
+  assert.match(episodic, /<sequence>-sh<shot>/);
+});

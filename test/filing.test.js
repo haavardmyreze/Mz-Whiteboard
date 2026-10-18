@@ -173,3 +173,88 @@ test('naming: a convention is data, and names are read by its templates, not by 
     delete naming.PRESETS.other;
   }
 });
+
+test('naming: a convention given is checked, and said wrong in words', () => {
+  const v = (tiers, more = {}) => naming.validate({ name: 'X', tiers, ...more });
+  assert.match(v([{ id: 'shot', name: '{seq}{shot:4}' }]).error, /between a shot's sequence and its number/);
+  assert.match(v([{ id: 'shot', name: '{shot:4}-{seq}' }]).error, /needs \{seq\} and then \{shot:N\}/);
+  assert.match(v([{ id: 'asset', name: '{prefix}-{what}' }]).error, /say which/);
+  assert.match(v([{ id: 'asset', name: 'Char_{what}' }]).error, /more than letters/);
+  assert.match(v([{ id: 'asset', name: '{prefix}-{what}', prefixes: ['set'] }, { id: 'set', name: '{prefix}-{what}', prefixes: ['set'] }]).error, /prefix of both/);
+  assert.match(v([], { file: { sep: '-' } }).error, /_ or \./);
+  assert.match(naming.validate({ tiers: [] }).error, /needs a name/);
+  assert.match(v(['asset', 'set', 'shot'].map((id) => ({ id, hidden: true }))).error, /keep one/);
+  // What is not said is left out, examples that do not fit included; what is not there is filled in.
+  const ok = v([{ id: 'shot', name: '{seq}-{shot:3}', examples: ['ab-010', 'kilo-0010'], colour: 'red' }]).convention;
+  assert.deepEqual(ok.tiers[2], { id: 'shot', label: 'Shots', one: 'shot', name: '{seq}-{shot:3}', examples: ['ab-010'] });
+  assert.deepEqual(ok.file, { sep: '_', version: 'v' });
+  // The built-in ones are as validate would have them.
+  for (const id of naming.BUILT_IN) assert.deepEqual(naming.validate(naming.CONVENTIONS[id]).convention, naming.CONVENTIONS[id]);
+});
+
+test('naming: with free naming any name is one, said by hand to be what it is, and nothing is corrected', () => {
+  const p = naming.preset('free');
+  assert.equal(p.free, true);
+  assert.equal(p.strict, false);
+  assert.equal(naming.tierOf('kilo-0010', 'free'), null);
+  assert.deepEqual(naming.corrections('robot', 'free'), []);
+  assert.deepEqual(naming.corrections('kilo-10', 'free'), []);
+  // Shots named as Myreze's still fall in sequences.
+  assert.equal(naming.seqOf('kilo-0010', 'free'), 'kilo');
+  assert.equal(naming.readLine('robot turntable', { presetId: 'free', tasks: ['turntable'] }).task, 'turntable');
+  // A tier a studio does not have is not offered, and nothing is of it.
+  naming.register('nosets', naming.validate({ name: 'No sets', tiers: [{ id: 'set', hidden: true, name: 'set-{what}' }] }).convention);
+  try {
+    assert.deepEqual(naming.preset('nosets').tiers.map((t) => t.id), ['asset', 'shot']);
+    assert.equal(naming.tierOf('set-harbour', 'nosets'), null);
+  } finally {
+    naming.register('nosets', null);
+  }
+});
+
+test('naming: a studio’s own conventions, and its default, are what a project follows when it says none', () => {
+  assert.equal(naming.register('myreze', { name: 'Mine', tiers: [] }), false);
+  naming.setConventions({ ours: naming.guess(['sq010-sh0040_comp_v003.mov']).convention }, 'ours');
+  try {
+    assert.equal(naming.defaultId(), 'ours');
+    assert.equal(naming.tierOf('sq010-sh0040'), 'shot');
+    assert.equal(naming.preset('gone').name, naming.preset('ours').name);
+    assert.ok(naming.conventions().some((c) => c.id === 'ours' && c.custom));
+  } finally {
+    naming.setConventions({}, 'nothing-such');
+  }
+  assert.equal(naming.defaultId(), 'myreze');
+  assert.ok(!naming.conventions().some((c) => c.custom));
+});
+
+test('naming: a few file names say how a studio names things, and what they do not say is said', () => {
+  const shot = (g) => g.convention.tiers.find((t) => t.id === 'shot');
+  const ours = naming.guess(['sq010-sh0040_comp_anna_v003.mov', 'sq010-sh0050_comp_anna_v004_bty.mov', 'chr-robot_model_erik_v002.mov',
+    'chr-dog_rig_v001.mov', 'loc-harbour_dressing_v004.mov', 'prp-sword_model_v1.mov']);
+  assert.equal(shot(ours).name, '{seq}-sh{shot:4}');
+  assert.deepEqual(ours.convention.tiers.map((t) => t.prefixes), [['chr', 'prp'], ['loc'], undefined]);
+  assert.deepEqual(ours.convention.file, { sep: '_', version: 'v' });
+  assert.deepEqual(ours.convention.tasks.slice(0, 4), ['comp', 'model', 'rig', 'dressing']);
+  assert.ok(ours.notes.some((n) => /After the version: bty/.test(n)));
+  // Read by what was found, they are what they were.
+  naming.register('guessed', ours.convention);
+  try {
+    const p = naming.parse('sq010-sh0050_comp_anna_v004_bty.mov', 'guessed');
+    assert.deepEqual([p.entity, p.tier, p.task, p.hip, p.view], ['sq010-sh0050', 'shot', 'comp', 4, 'bty']);
+    assert.equal(naming.tierOf('loc-harbour', 'guessed'), 'set');
+  } finally {
+    naming.register('guessed', null);
+  }
+  // A word every name starts with names none of them; a sequence and shot apart are one name.
+  const nh = naming.guess(['NHMoc_CHAP01_010_cmp_v111.mp4', 'NHMoc_CHAP03_040_cmp_v009.mp4']);
+  assert.equal(shot(nh).name, '{seq}-{shot:3}');
+  assert.deepEqual(shot(nh).examples, ['chap01-010', 'chap03-040']);
+  assert.ok(nh.notes.some((n) => /starts with nhmoc/.test(n)));
+  assert.ok(nh.notes.some((n) => /No assets among these/.test(n)));
+  assert.equal(shot(naming.guess(['ABC_ep2_sh010_comp_erik_v004.mov', 'ABC_ep3_sh120_lighting_anna_v011.mov'])).name, '{seq}-sh{shot:3}');
+  // Dots between parts, ver before the version, and names with no prefix: said by hand.
+  const dots = naming.guess(['kilo0010.anim.ver1.mov', 'robot.model.ver2.mov']);
+  assert.deepEqual(dots.convention.file, { sep: '.', version: 'ver' });
+  assert.equal(dots.convention.tiers[0].name, undefined);
+  assert.ok(dots.notes.some((n) => /runs on into its sequence/.test(n)));
+});

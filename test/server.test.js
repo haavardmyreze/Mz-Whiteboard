@@ -2033,6 +2033,58 @@ test('a version can be shown more than one way: each view is filed with it, by n
   assert.equal((await file([{ view: 'bty', look: await look('g.mp4') }])).body.versions[0].label, 'kilo-0010 comp v4');
 });
 
+test('a project\'s versions can be found by task, sequence, tier, filer and words, sorted, newest only, and changed many at once', async (t) => {
+  const s = start(4861);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const up = async () => (await (await fetch(`${s.base}/api/upload?name=a.png`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
+  const file = async (name, task, by, filename = 'a.png') => (await call('POST', `/api/projects/${project.id}/versions`, { entity: { name }, by, files: [{ task, look: { type: 'image', src: await up(), name: filename } }] })).body.versions[0];
+  const a1 = await file('kilo-0010', 'anim', 'Anna', 'take_one.png');
+  const a2 = await file('kilo-0010', 'anim', 'Ben');
+  const l1 = await file('kilo-0010', 'lighting', 'Anna');
+  const c1 = await file('ch02-0010', 'anim', 'Ben');
+  const r1 = await file('char-robot', 'model', 'Anna');
+  await file('kilo-0100', null, 'Anna');
+  const find = async (query) => (await call('GET', `/api/projects/${project.id}/versions?find=1&${query}`)).body;
+  const labels = async (query) => (await find(query)).versions.map((v) => v.label);
+  const first = await find('');
+  assert.equal(first.total, 6);
+  assert.deepEqual(first.facets.tasks, ['anim', 'lighting', 'model']);
+  assert.deepEqual(first.facets.seqs, ['ch02', 'kilo']);
+  assert.deepEqual(first.facets.filers, ['Anna', 'Ben']);
+  assert.deepEqual(first.facets.tiers.map((x) => x.id), ['asset', 'shot']);
+  assert.equal(first.facets.untasked, true);
+  assert.deepEqual(await labels('task=anim&sort=old'), ['kilo-0010 anim v1', 'kilo-0010 anim v2', 'ch02-0010 anim v1']);
+  assert.deepEqual(await labels('task=&sort=old'), ['kilo-0100 v1']);
+  assert.deepEqual(await labels('seq=kilo&sort=name'), ['kilo-0010 anim v2', 'kilo-0010 anim v1', 'kilo-0010 lighting v1', 'kilo-0100 v1']);
+  assert.deepEqual(await labels('tier=asset'), ['char-robot model v1']);
+  assert.deepEqual(await labels('by=ben&sort=old'), ['kilo-0010 anim v2', 'ch02-0010 anim v1']);
+  assert.deepEqual(await labels('seq=kilo&task=anim&newest=1'), ['kilo-0010 anim v2']);
+  assert.deepEqual(await labels('q=take_one'), ['kilo-0010 anim v1']);
+  assert.deepEqual(await labels('q=kilo%20v2'), ['kilo-0010 anim v2']);
+
+  // Many at once: moved to another shot (made on the way) in their order, given a task and artist, archived.
+  const moved = await call('PATCH', `/api/projects/${project.id}/versions`, { edits: [
+    { id: a1.id, entity: { name: 'kilo-0020' } }, { id: a2.id, entity: { name: 'kilo-0020' } }, { id: l1.id, artist: 'erik' }, { id: r1.id, hidden: true },
+  ] });
+  assert.equal(moved.status, 200);
+  assert.deepEqual(moved.body.versions.map((v) => v.label), ['kilo-0020 anim v1', 'kilo-0020 anim v2', 'kilo-0010 lighting v1', 'char-robot model v1']);
+  assert.deepEqual(await labels('tier=asset'), []);
+  assert.deepEqual(await labels('tier=asset&archived=1'), ['char-robot model v1']);
+  assert.deepEqual(await labels('artist=erik'), ['kilo-0010 lighting v1']);
+  // A number taken anywhere changes none of them.
+  const clash = await call('PATCH', `/api/projects/${project.id}/versions`, { edits: [{ id: c1.id, artist: 'anna' }, { id: l1.id, entity: { name: 'kilo-0020' }, task: 'anim', number: 1 }] });
+  assert.equal(clash.status, 409);
+  assert.deepEqual(await labels('artist=anna'), []);
+});
+
 test('a project can hold a 3D model of its venue, uploaded as a .glb, and let it go again', async (t) => {
   const s = start(4897);
   t.after(s.stop);

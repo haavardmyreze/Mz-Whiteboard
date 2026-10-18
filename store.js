@@ -896,6 +896,48 @@ function openStore(dataDir) {
     ORDER BY v.created_at DESC, v.number DESC, v.id DESC LIMIT ?`);
   const projectVersions = (projectId, { after = [Number.MAX_SAFE_INTEGER, 0, ''], limit = 300 } = {}) =>
     readProjectVersions.all(projectId, after[0], after[1], after[2], limit).map((r) => ({ ...versionOf(r), entityName: r.entity_name, entityTier: r.entity_tier }));
+  // A project's versions as its Versions page asks for them: those of some tasks, sequences, tiers, filers
+  // or artists, filed since a time, matching words, only the newest of each entity and task, archived ones
+  // too, in an order, a page at a time ({ list, total }). Each filter given as a list takes any of it; ''
+  // in `tasks` is no task. A sequence is the shots whose name is it and a number.
+  //   sort: 'new' (newest filed first, the default), 'old', 'name' (by entity, then task, newest first), 'number'
+  function findVersions(projectId, { tasks, seqs, tiers, by, artists, since, q, newest = false, archived = false, sort = 'new', offset = 0, limit = 300 } = {}) {
+    const where = ['e.project_id = ?', 'v.deleted_at IS NULL'];
+    const args = [projectId];
+    const anyOf = (col, list) => {
+      where.push(`${col} IN (${list.map(() => '?').join(', ')})`);
+      args.push(...list);
+    };
+    if (!archived) where.push('v.hidden = 0');
+    if (tasks && tasks.length) anyOf('v.task', tasks.map(taskKey));
+    if (tiers && tiers.length) anyOf('e.tier', tiers);
+    if (by && by.length) anyOf('lower(v.created_by)', by.map((n) => String(n).toLowerCase()));
+    if (artists && artists.length) anyOf('v.artist', artists);
+    if (seqs && seqs.length) {
+      where.push(`(e.tier = 'shot' AND (${seqs.map(() => "(substr(e.name, 1, length(?) + 1) = ? || '-' AND substr(e.name, length(?) + 2) <> '' AND substr(e.name, length(?) + 2) NOT GLOB '*[^0-9]*')").join(' OR ')}))`);
+      for (const q2 of seqs) args.push(q2, q2, q2, q2);
+    }
+    if (since) {
+      where.push('v.created_at >= ?');
+      args.push(since);
+    }
+    for (const word of String(q || '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8)) {
+      // Each word somewhere: the entity, the task, the artist, who filed it, the file's own name, or "v12".
+      where.push("(e.name LIKE ? ESCAPE '\\' OR v.task LIKE ? ESCAPE '\\' OR coalesce(v.artist, '') LIKE ? ESCAPE '\\' OR lower(coalesce(v.created_by, '')) LIKE ? ESCAPE '\\' OR lower(coalesce(v.original_name, '')) LIKE ? ESCAPE '\\' OR 'v' || v.number = ?)");
+      const like = `%${word.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      args.push(like, like, like, like, like, word);
+    }
+    if (newest) where.push(HEAD);
+    const order = { old: 'v.created_at ASC, v.number ASC, v.id ASC', name: 'e.name ASC, v.task ASC, v.number DESC', number: 'v.number DESC, v.created_at DESC' }[sort] || NEWEST_FIRST;
+    const from = `FROM versions v JOIN entities e ON e.id = v.entity_id WHERE ${where.join(' AND ')}`;
+    const total = db.prepare(`SELECT count(*) AS n ${from}`).get(...args).n;
+    const list = db.prepare(`SELECT v.*, e.name AS entity_name, e.tier AS entity_tier ${from} ORDER BY ${order} LIMIT ? OFFSET ?`).all(...args, limit, offset)
+      .map((r) => ({ ...versionOf(r), entityName: r.entity_name, entityTier: r.entity_tier }));
+    return { list, total };
+  }
+  // Who has filed versions in a project, each once.
+  const readFilers = db.prepare('SELECT DISTINCT v.created_by AS name FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ? AND v.deleted_at IS NULL AND v.created_by IS NOT NULL ORDER BY v.created_by');
+  const projectFilers = (projectId) => readFilers.all(projectId).map((r) => r.name);
   // The newest version of an entity and task, as a card shows it; for a project's timeline.
   const readNewestOfTask = db.prepare(`SELECT * FROM versions v WHERE v.entity_id = ? AND v.task = ? AND ${LIVE} ORDER BY v.number DESC LIMIT 1`);
   const newestOfTask = (entityId, task) => {
@@ -1216,7 +1258,7 @@ function openStore(dataDir) {
   return {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
-    transaction, entities, streamHeads, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, entitiesOf, entitiesFiledBy, happenings, people, entityCount,
+    transaction, entities, streamHeads, findVersions, projectFilers, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, entitiesOf, entitiesFiledBy, happenings, people, entityCount,
     addVersion, addView, projectViews, mainView, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
     note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesBesides, unfileVersion, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,

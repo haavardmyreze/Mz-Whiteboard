@@ -563,18 +563,31 @@ filed in it.
 - **Artists and CC.** An asset, set or shot's page names its artists and who else is cc'd, picked from
   everyone the app knows (who signed in, filed, wrote a note or was named before) or typed. Its card
   shows its artists.
-- **Versions, as they came in.** A project's Versions (in the sidebar) lists every version filed in it,
-  newest first: by day, and within a day by who filed a run of them, each run a grid of the same version
-  cards an asset, set or shot's page has (cards or compact rows, as the button in the bar says): its
-  still (which scrubs under the pointer and opens in the player), its shot (a link to it) and the rest
-  of its label, when it was filed, and the boards it is on. Click a card to pick it (its box shows on a
-  hover), Shift
-  and a click for a run, or drag a box; once something is picked, a day's or a run's box picks all of
-  it, and Esc lets go (as it does wherever things are picked); then "Add to board" puts them on one of
-  the project's boards, in rows below what is there, or "New board" makes one in the project with them
-  on it, laid out as the edit is: a column for each sequence, left to right, its shots going down from
-  first to last (assets and sets in columns after them). Either way they are those versions, with their
-  notes.
+- **Versions, every one, as you want to see them.** A project's Versions (in the sidebar) lists every
+  version filed in it, as the same cards an asset, set or shot's page has (cards or compact rows, as
+  the button in the bar says): its still (which scrubs under the pointer and opens in the player), its
+  shot (a link to it) and the rest of its label, when it was filed, and the boards it is on. The bar over
+  it says how:
+  - **Group by** upload time (the default: by day, and within a day by who filed a run of them), by
+    sequence (assets and sets after), by asset, set or shot, by task, by who filed them, or not at all.
+    **Sort** by newest or oldest filed, by name, or by version number.
+  - **Narrow** to some tasks (or no task), sequences, kinds (assets, sets, shots), people who filed
+    them or artists, each a menu to tick; to today, the last 7 or 30 days; to only the **newest** of each
+    asset, set or shot and task; or with what is **archived** too. Clear puts it all back.
+  - The search box at the top searches every version, not only those shown: the name, the task, the
+    artist, who filed it, the file's own name, or "v12".
+  How each project's list is asked for is kept by the browser. It comes a page at a time, "Show more"
+  for the rest, and the bar says how many there are in all.
+  Click a card to pick it (its box shows on a hover), Shift and a click for a run, or drag a box; once
+  something is picked, a group's box picks all of it, and Esc lets go (as it does wherever things are
+  picked). Then "Edit…" changes them all at once: moved to another asset, set or shot (one to make, by
+  name), each the next number there in the order they were filed, their notes and boards going with
+  them; given a task or none, an artist or none; archived or brought back. Each field leaves them as
+  they are unless it says otherwise; all of them change or none do (a number taken refuses the lot),
+  and Undo puts each back as it was, number and all. "Add to board" puts them on one of the project's
+  boards, in rows below what is there, or "New board" makes one in the project with them on it, laid
+  out as the edit is: a column for each sequence, left to right, its shots going down from first to
+  last (assets and sets in columns after them). Either way they are those versions, with their notes.
 - **Changing many at once.** Select, above the catalogue, picks assets, sets and shots with a click
   (Shift and a click for every one between), or drag on empty space to draw a box over them, as in a
   file manager (with Shift, Ctrl or Cmd it adds to what is picked; the Versions list and an asset's
@@ -673,7 +686,11 @@ its newest version, for the cache to fetch ahead).
 filed and comments, newest first), `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest version,
 `GET /api/projects/<folder>/versions?before=` the project's versions newest first, 300 a page (when
 `more` is true, its `next` is what to give as `before` for the following page; a time in milliseconds
-still works too), and
+still works too); with `find=1` as the Versions page asks: `task`, `seq`, `tier`, `by`, `artist` (each a
+comma separated list; an empty task is none), `since`, `q`, `newest=1`, `archived=1`, `sort` (`new`,
+`old`, `name`, `number`) and `offset`, answering `total`, `more`, the next `offset` and, with the first
+page, `facets` (what there is to filter by). `PATCH /api/projects/<folder>/versions` takes
+`{ "edits": [{ "id", "entity", "task", "number", "artist", "hidden" }] }`, all of them or none; and
 `POST /api/projects/<folder>/place` takes `{ "board", "versions": [...], "layout" }` to put versions on
 one of the project's boards (`"layout": "sequences"` for a column per sequence). Filing several files
 files all of them or, if any one is refused, none; so does a `PATCH` of a version.

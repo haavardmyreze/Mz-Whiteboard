@@ -2301,6 +2301,9 @@ body.picking main { padding-bottom: 120px; }
 .be-how { height: 32px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; }
 .be-ctl .pf { flex: 1; min-width: 200px; border-color: var(--line-strong); background: var(--surface-2); }
 .be-ctl .pf[hidden] { display: none; }
+.be-in { flex: 1; min-width: 180px; height: 32px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; }
+.be-in[hidden] { display: none; }
+.dlg p.be-note { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
 /* In a dialog the box to add a name sits in its field, beside the names, not as a block of its own. */
 .dlg .pf-in { display: inline-block; flex: 1; width: auto; min-width: 120px; height: 26px; margin: 0; padding: 0 6px; border: 0; background: transparent; box-shadow: none; }
 .dlg .pf-in:focus { border: 0; box-shadow: none; }
@@ -2327,7 +2330,20 @@ body.picking main { padding-bottom: 120px; }
 .home-cols .section-label { align-items: center; min-height: 36px; margin-bottom: 12px; }
 
 /* A project's versions, newest first, by day and by who filed a run of them. */
+/* The bar over a project's Versions: how they are grouped and sorted, what narrows them, how many. */
+.vl-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 4px 0 4px; }
+.vl-field { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.vl-sel { height: 30px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 12.5px; }
+.vl-sep { width: 1px; height: 20px; margin: 0 4px; background: var(--line); }
+.vl-filter.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.vl-filter[aria-haspopup]::after { content: '▾'; margin-left: 4px; font-size: 10px; opacity: 0.7; }
+.vl-total { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.vl-pop { position: fixed; z-index: var(--z-popover); display: flex; flex-direction: column; min-width: 180px; max-height: 320px; overflow: auto; padding: 4px; border: 1px solid var(--line-strong); border-radius: var(--r-3); background: var(--surface-1); box-shadow: var(--shadow-pop); }
+.vl-tick { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-2); font-size: 13px; cursor: pointer; }
+.vl-tick:hover { background: var(--hover); }
+.vl-tick input { margin: 0; accent-color: var(--accent); }
 .vl-day { display: flex; align-items: center; gap: 10px; margin: 28px 0 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.vl-day .avatar.sm { width: 22px; height: 22px; font-size: 9px; }
 .vl-day .tally { color: var(--muted); font-weight: 400; }
 #content > .vl-day:first-child { margin-top: 12px; }
 .vl-run { margin: 0 0 16px; }

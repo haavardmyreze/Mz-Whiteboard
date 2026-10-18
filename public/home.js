@@ -1032,8 +1032,7 @@
   // them. Pick some (a click, Shift and a click for a run, or a day's or a run's box), then put them on
   // one of the project's boards, or on a new board, as those versions.
 
-  const versionLists = new Map(); // project id -> the list as last fetched
-  const olderShown = new Set();   // projects whose older versions were asked for
+  const versionLists = new Map(); // project id -> { key: how it was asked for, data: the list as last fetched }
   const vpick = { project: null, ids: new Set(), last: null, order: [] };
   const DAY = 24 * 3600 * 1000;
   const dayOf = (t) => new Date(t).setHours(0, 0, 0, 0);
@@ -1054,52 +1053,167 @@
     document.body.classList.remove('vpicking');
   }
 
+  // ---- a project's Versions: every version filed, as it is asked for
+  //
+  // Newest filed first, by day and by who filed them, unless asked otherwise: grouped by sequence, by
+  // asset, set or shot, by task, by who filed them, or not at all; sorted by when they were filed, by name
+  // or by number; narrowed to some tasks, sequences, kinds (assets, sets, shots), people, artists, a time,
+  // the newest of each, or with what is archived. The search box searches them all, on the server: the
+  // name, the task, the artist, who filed it, the file's own name, "v12". How it is asked for is kept per
+  // project in this browser.
+  const VL_GROUPS = [['time', 'Upload time'], ['seq', 'Sequence'], ['entity', 'Asset, set or shot'], ['task', 'Task'], ['by', 'Who filed'], ['none', 'Nothing']];
+  const VL_SORTS = [['new', 'Newest filed'], ['old', 'Oldest filed'], ['name', 'Name'], ['number', 'Version number']];
+  const VL_WHEN = [['', 'Any time'], ['day', 'Today'], ['week', 'Last 7 days'], ['month', 'Last 30 days']];
+  const VL_FILTERS = [['task', 'Task'], ['seq', 'Sequence'], ['tier', 'Kind'], ['by', 'Filed by'], ['artist', 'Artist']];
+  const vlDefault = () => ({ group: 'time', sort: 'new', when: '', newest: false, archived: false, task: [], seq: [], tier: [], by: [], artist: [] });
+  function vlState(project) {
+    const key = `wb:vl:${project.id}`;
+    return { ...vlDefault(), ...(store(key) || {}) };
+  }
+  const vlSave = (project, state) => store(`wb:vl:${project.id}`, state);
+  const vlFiltered = (st) => VL_FILTERS.some(([k]) => st[k].length) || st.when || st.newest || st.archived;
+  // What the server is asked: the page's state and the search, from `offset`.
+  function vlQuery(st, offset = 0) {
+    const since = { day: dayOf(Date.now()), week: Date.now() - 7 * 864e5, month: Date.now() - 30 * 864e5 }[st.when] || 0;
+    const p = new URLSearchParams({ find: '1', sort: st.sort, offset: String(offset) });
+    for (const [k] of VL_FILTERS) if (st[k].length) p.set(k, st[k].join(','));
+    if (since) p.set('since', String(since));
+    if (st.newest) p.set('newest', '1');
+    if (st.archived) p.set('archived', '1');
+    const q = $('q').value.trim();
+    if (q) p.set('q', q);
+    return p.toString();
+  }
+
   async function versionsPage(project, fresh, sig) {
+    const st = vlState(project);
+    const key = vlQuery(st);
     const show = (data) => {
       if (shownProject !== sig) return;
-      $('content').replaceChildren(...versionsView(project, data));
+      $('content').replaceChildren(...versionsView(project, data, st));
       paintVersionPick(project);
     };
-    if (versionLists.has(project.id)) show(versionLists.get(project.id));
-    else if (fresh) $('content').replaceChildren(el('p', { class: 'home-empty', text: 'Loading…' }));
-    if (searching && versionLists.has(project.id)) return;
+    const had = versionLists.get(project.id);
+    if (had && had.key === key) show(had.data);
+    else if (fresh || !had) $('content').replaceChildren(...versionsTools(project, st, null), el('p', { class: 'home-empty', text: 'Loading…' }));
     try {
-      let data = await api('GET', `/api/projects/${project.id}/versions`);
-      const was = versionLists.get(project.id);
-      // Older pages already shown stay shown below the newest.
-      if (was && olderShown.has(project.id)) {
-        const have = new Set(data.versions.map((v) => v.id));
-        data = { ...data, versions: [...data.versions, ...was.versions.filter((v) => !have.has(v.id) && v.createdAt <= (data.versions.at(-1) || {}).createdAt)], next: was.next };
-      }
-      versionLists.set(project.id, data);
-      if (!was || JSON.stringify(was) !== JSON.stringify(data)) show(data);
+      const data = await api('GET', `/api/projects/${project.id}/versions?${key}`);
+      // Pages further down already shown stay shown when the first is fetched again.
+      const keep = had && had.key === key && had.data.versions.length > data.versions.length ? had.data : null;
+      const fresh1 = new Set(data.versions.map((v) => v.id));
+      const now = keep ? { ...data, versions: [...data.versions, ...keep.versions.slice(data.versions.length).filter((v) => !fresh1.has(v.id))], more: keep.more } : data;
+      if (vlQuery(vlState(project)) !== key) return;
+      versionLists.set(project.id, { key, data: now });
+      if (!had || had.key !== key || JSON.stringify(had.data) !== JSON.stringify(now)) show(now);
     } catch (err) {
       pageFailed(sig, err);
     }
   }
 
-  function versionsView(project, data) {
-    const q = $('q').value.trim().toLowerCase();
-    const list = data.versions.filter((v) => !q || v.label.toLowerCase().includes(q) || (v.createdBy || '').toLowerCase().includes(q));
-    vpick.order = list.map((v) => v.id);
+  // A menu of things to tick (each filter's): it stays open while ticking, and closes with a click away.
+  function tickMenu(anchor, options, chosen, onChange) {
+    document.querySelector('.vl-pop')?.remove();
+    const picked = new Set(chosen);
+    const pop = el('div', { class: 'vl-pop', role: 'menu' }, options.map(([value, label]) => el('label', { class: 'vl-tick' },
+      el('input', { type: 'checkbox', ...(picked.has(value) && { checked: true }), onchange: (e) => {
+        if (e.target.checked) picked.add(value); else picked.delete(value);
+        onChange(options.map(([v]) => v).filter((v) => picked.has(v)));
+      } }), el('span', { text: label }))));
+    document.body.append(pop);
+    const r = anchor.getBoundingClientRect();
+    pop.style.left = `${Math.round(Math.min(r.left, innerWidth - pop.offsetWidth - 8))}px`;
+    pop.style.top = `${Math.round(r.bottom + 4)}px`;
+    const away = (e) => {
+      if (pop.contains(e.target) || anchor.contains(e.target)) return;
+      pop.remove();
+      document.removeEventListener('pointerdown', away, true);
+    };
+    setTimeout(() => document.addEventListener('pointerdown', away, true));
+  }
+
+  // The bar over the list: how it is grouped and sorted, what narrows it, and how many there are.
+  function versionsTools(project, st, data) {
+    const set = (patch) => {
+      vlSave(project, { ...st, ...patch });
+      render();
+    };
+    const facets = (data && data.facets) || ((versionLists.get(project.id) || {}).data || {}).facets || null;
+    const options = (k) => {
+      const f = facets || {};
+      if (k === 'task') return [...(f.untasked ? [['', 'No task']] : []), ...(f.tasks || []).map((t) => [t, t])];
+      if (k === 'seq') return (f.seqs || []).map((q) => [q, q]);
+      if (k === 'tier') return (f.tiers || []).map((t) => [t.id, t.label]);
+      if (k === 'by') return (f.filers || []).map((n) => [n, n]);
+      return (f.artists || []).map((n) => [n, n]);
+    };
+    const select = (label, list, value, on) => el('label', { class: 'vl-field' }, el('span', { text: label }),
+      el('select', { class: 'vl-sel', onchange: (e) => on(e.target.value) }, list.map(([v, t]) => el('option', { value: v, text: t, ...(v === value && { selected: true }) }))));
+    const filterBtn = ([k, label]) => {
+      const opts = options(k);
+      if (!opts.length && !st[k].length) return null;
+      return el('button', {
+        type: 'button', class: `btn small ghost vl-filter${st[k].length ? ' on' : ''}`, 'aria-haspopup': 'menu',
+        text: st[k].length ? `${label}: ${st[k].length === 1 ? (opts.find(([v]) => v === st[k][0]) || [, st[k][0] || 'No task'])[1] : st[k].length}` : label,
+        onclick: (e) => tickMenu(e.currentTarget, opts, st[k], (list) => set({ [k]: list })),
+      });
+    };
+    const toggle = (k, label, title) => el('button', {
+      type: 'button', class: `btn small ghost vl-filter${st[k] ? ' on' : ''}`, 'aria-pressed': String(!!st[k]), text: label, title,
+      onclick: () => set({ [k]: !st[k] }),
+    });
+    const total = data ? data.total : null;
+    return [el('div', { class: 'vl-tools' },
+      select('Group by', VL_GROUPS, st.group, (v) => set({ group: v })),
+      select('Sort', VL_SORTS, st.sort, (v) => set({ sort: v })),
+      el('span', { class: 'vl-sep' }),
+      VL_FILTERS.map(filterBtn),
+      select('When', VL_WHEN, st.when, (v) => set({ when: v })),
+      toggle('newest', 'Newest only', 'Only the newest version of each asset, set or shot and task'),
+      toggle('archived', 'Archived', 'Archived versions too'),
+      vlFiltered(st) && el('button', { type: 'button', class: 'btn small ghost', text: 'Clear', onclick: () => set({ ...vlDefault(), group: st.group, sort: st.sort }) }),
+      el('span', { class: 'imp-gap' }),
+      total != null && el('span', { class: 'vl-total', text: plural(total, 'version') }))];
+  }
+
+  // The groups the list is shown in, each { key, title, sub, list }, in the order they come.
+  function versionGroups(list, st, tierName) {
+    if (st.group === 'time') {
+      // By day; within a day, by who filed them (whoever filed last first), however their filing was
+      // interleaved with others'.
+      const days = [];
+      for (const v of list) {
+        const day = dayOf(v.createdAt);
+        let d = days[days.length - 1];
+        if (!d || d.day !== day) days.push(d = { day, runs: [] });
+        const by = v.createdBy || '';
+        let r = d.runs.find((x) => x.by === by);
+        if (!r) d.runs.push(r = { by, list: [] });
+        r.list.push(v);
+      }
+      return days.map((d) => ({ key: `d${d.day}`, title: dayName(d.day), runs: d.runs }));
+    }
+    const keyOf = {
+      seq: (v) => (v.tier === 'shot' && N.seqOf(v.entity)) || `${tierName(v.tier)}s`,
+      entity: (v) => v.entity,
+      task: (v) => v.task || 'No task',
+      by: (v) => v.createdBy || 'Somebody',
+      none: () => '',
+    }[st.group] || (() => '');
+    const groups = new Map();
+    for (const v of list) {
+      const k = keyOf(v);
+      if (!groups.has(k)) groups.set(k, { key: `g${k}`, title: k, list: [] });
+      groups.get(k).list.push(v);
+    }
+    return [...groups.values()];
+  }
+
+  function versionsView(project, data, st = vlState(project)) {
+    const list = data.versions;
     if (vpick.project !== project.id) {
       dropVersionPick();
       vpick.project = project.id;
     }
-    // By day; within a day, by who filed them (whoever filed last first), however their filing was
-    // interleaved with others'.
-    const days = [];
-    for (const v of list) {
-      const day = dayOf(v.createdAt);
-      let d = days[days.length - 1];
-      if (!d || d.day !== day) days.push(d = { day, runs: [] });
-      const by = v.createdBy || '';
-      let r = d.runs.find((x) => x.by === by);
-      if (!r) d.runs.push(r = { by, list: [] });
-      r.list.push(v);
-    }
-    // Shift and a click picks a run as it is shown.
-    vpick.order = days.flatMap((d) => d.runs.flatMap((r) => r.list.map((v) => v.id)));
     const cat = catalogues.get(project.id);
     const tierName = (id) => {
       const t = cat && cat.preset.tiers.find((x) => x.id === id);
@@ -1119,35 +1233,48 @@
         },
       });
     };
-    const out = [];
-    for (const d of days) {
-      const ids = d.runs.flatMap((r) => r.list.map((v) => v.id));
-      out.push(el('div', { class: 'vl-day' }, box(ids, `Select everything filed ${dayName(d.day).toLowerCase()}`), el('b', { text: dayName(d.day) }), el('span', { class: 'tally', text: String(ids.length) })));
-      for (const r of d.runs) {
-        const runIds = r.list.map((v) => v.id);
-        // The time of each is on its row; the heading gives the span only when there is one.
-        const [from, to] = [clock(r.list[r.list.length - 1].createdAt), clock(r.list[0].createdAt)];
-        const span = r.list.length > 1 ? ` · ${from === to ? from : `${from} – ${to}`}` : '';
-        out.push(el('div', { class: 'vl-run' },
-          el('div', { class: 'vl-runhead' }, box(runIds, `Select what ${r.by || 'somebody'} filed then`),
-            WB.avatar(r.by),
-            el('b', { text: r.by || 'Somebody' }), el('span', { text: `${plural(r.list.length, 'version')}${span}` })),
-          el('div', { class: 'board-grid ent-grid vl-grid' }, r.list.map((v) => versionCard(project, { id: v.entityId, name: v.entity, tier: v.tier }, v, { list: true, tierName })))));
+    const grid = (vs) => el('div', { class: 'board-grid ent-grid vl-grid' }, vs.map((v) => versionCard(project, { id: v.entityId, name: v.entity, tier: v.tier }, v, { list: true, tierName })));
+    const groups = versionGroups(list, st, tierName);
+    // Shift and a click picks a run as it is shown.
+    vpick.order = groups.flatMap((g) => (g.runs ? g.runs.flatMap((r) => r.list) : g.list).map((v) => v.id));
+    const out = [...versionsTools(project, st, data)];
+    for (const g of groups) {
+      if (g.runs) {
+        const ids = g.runs.flatMap((r) => r.list.map((v) => v.id));
+        out.push(el('div', { class: 'vl-day' }, box(ids, `Select everything filed ${g.title.toLowerCase()}`), el('b', { text: g.title }), el('span', { class: 'tally', text: String(ids.length) })));
+        for (const r of g.runs) {
+          const runIds = r.list.map((v) => v.id);
+          // The time of each is on its row; the heading gives the span only when there is one.
+          const [from, to] = [clock(r.list[r.list.length - 1].createdAt), clock(r.list[0].createdAt)];
+          const span = r.list.length > 1 ? ` · ${from === to ? from : `${from} – ${to}`}` : '';
+          out.push(el('div', { class: 'vl-run' },
+            el('div', { class: 'vl-runhead' }, box(runIds, `Select what ${r.by || 'somebody'} filed then`),
+              WB.avatar(r.by),
+              el('b', { text: r.by || 'Somebody' }), el('span', { text: `${plural(r.list.length, 'version')}${span}` })),
+            grid(r.list)));
+        }
+        continue;
       }
+      const ids = g.list.map((v) => v.id);
+      if (st.group !== 'none') out.push(el('div', { class: 'vl-day' }, box(ids, `Select all of ${g.title}`), st.group === 'by' ? WB.avatar(g.title) : null, el('b', { text: g.title }), el('span', { class: 'tally', text: String(ids.length) })));
+      out.push(el('div', { class: 'vl-run' }, grid(g.list)));
     }
-    if (!list.length) out.push(el('p', { class: 'home-empty', text: q ? `No version matches "${$('q').value.trim()}".` : 'Nothing is filed in this project yet.' }));
-    // A page at a time: older versions are fetched when asked for, after the ones shown.
-    if (data.next && !q) {
+    const q = $('q').value.trim();
+    if (!list.length) {
+      out.push(el('p', { class: 'home-empty', text: q ? `No version matches "${q}"${vlFiltered(st) ? ' with these filters' : ''}.` : vlFiltered(st) ? 'No version is like that.' : 'Nothing is filed in this project yet.' }));
+    }
+    // A page at a time: more are fetched when asked for, after the ones shown.
+    if (data.more) {
       out.push(el('button', {
-        type: 'button', class: 'feed-more', text: 'Show older versions',
+        type: 'button', class: 'feed-more', text: `Show more (${(data.total - list.length).toLocaleString()} to go)`,
         onclick: async (e) => {
           e.currentTarget.disabled = true;
           try {
-            const older = await api('GET', `/api/projects/${project.id}/versions?before=${encodeURIComponent(data.next)}`);
-            const merged = { ...older, versions: [...data.versions, ...older.versions] };
-            versionLists.set(project.id, merged);
-            olderShown.add(project.id);
-            $('content').replaceChildren(...versionsView(project, merged));
+            const key = vlQuery(st);
+            const next = await api('GET', `/api/projects/${project.id}/versions?${vlQuery(st, list.length)}`);
+            const merged = { ...data, versions: [...list, ...next.versions], more: next.more };
+            versionLists.set(project.id, { key, data: merged });
+            $('content').replaceChildren(...versionsView(project, merged, st));
             paintVersionPick(project);
           } catch (err) {
             fail(err);
@@ -1172,6 +1299,7 @@
     const bar = pickBar('vpickbar', 'Selected versions', {
       clear: () => { vpick.ids.clear(); paintVersionPick(project); },
       actions: [
+        el('button', { type: 'button', class: 'btn small', text: 'Edit…', title: 'Move them, give them a task or an artist, or archive them, all at once', onclick: () => editVersions(project) }),
         el('button', { type: 'button', class: 'btn small', text: 'Add to board', 'aria-haspopup': 'menu', onclick: (e) => { e.stopPropagation(); addToBoardMenu(project, e.currentTarget); } }),
         el('button', { type: 'button', class: 'btn small primary', text: 'New board', title: 'A new board in this project, with these on it', onclick: () => newBoardWith(project) }),
       ],
@@ -1179,6 +1307,100 @@
     const seen = new Set(vpick.order);
     const shown = [...vpick.ids].filter((id) => seen.has(id)).length;
     countPicked(bar, shown, n - shown, 'versions');
+  }
+
+  // Many versions changed at once (the Versions page's selection): moved to another asset, set or shot,
+  // given a task or none, an artist or none, archived or brought back. Each field leaves them as they are
+  // unless it says otherwise. Those moved to one place go in the order they were filed, each the next
+  // number there. All of it or none (PATCH /api/projects/:id/versions); Undo puts each back as it was,
+  // number and all.
+  async function editVersions(project) {
+    const shown = ((versionLists.get(project.id) || {}).data || { versions: [] }).versions;
+    const chosen = shown.filter((v) => vpick.ids.has(v.id)).sort((a, b) => a.createdAt - b.createdAt || a.number - b.number);
+    if (!chosen.length) return;
+    const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`);
+    catalogues.set(project.id, cat);
+    const useTasks = !(cat.project && cat.project.settings && cat.project.settings.tasks === false);
+    const tally = (pick) => {
+      const count = new Map();
+      for (const v of chosen) count.set(pick(v), (count.get(pick(v)) || 0) + 1);
+      return [...count].sort((a, b) => b[1] - a[1]).map(([n, k]) => (count.size === 1 ? n : `${n} (${k})`)).slice(0, 6).join(', ');
+    };
+    // A field: what to do (leave, or each way of changing it), and a box for the value when one is needed.
+    const field = (label, now, ways, input) => {
+      const how = el('select', { class: 'be-how', 'aria-label': `${label}: what to do` }, ways.map(([v, t]) => el('option', { value: v, text: t })));
+      const sync = () => { if (input) input.hidden = how.value !== 'set'; };
+      how.addEventListener('change', () => { sync(); if (how.value === 'set' && input) input.focus(); });
+      sync();
+      return {
+        node: el('div', { class: 'be-row' }, el('span', { class: 'be-label', text: label }),
+          el('div', { class: 'be-field' }, el('div', { class: 'be-now', text: `Now: ${now}` }), el('div', { class: 'be-ctl' }, how, input))),
+        how,
+      };
+    };
+    const entIn = el('input', { type: 'text', class: 'be-in', placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': 'Move them to' });
+    WB.combo(entIn, WBFiling.entitySource(() => cat.entities, cat.preset.id));
+    const taskIn = el('input', { type: 'text', class: 'be-in', placeholder: 'Task', spellcheck: 'false', 'aria-label': 'Their task' });
+    WB.combo(taskIn, WBFiling.taskSource(() => cat.tasks));
+    const artistIn = el('input', { type: 'text', class: 'be-in', placeholder: 'Artist', spellcheck: 'false', 'aria-label': 'Their artist' });
+    WB.combo(artistIn, WBFiling.taskSource(() => cat.artists || []));
+    const ent = field('Where', tally((v) => v.entity), [['', 'Leave where they are'], ['set', 'Move them to']], entIn);
+    const task = useTasks && field('Task', tally((v) => v.task || 'none'), [['', 'Leave as they are'], ['set', 'Set to'], ['none', 'Take it off']], taskIn);
+    const artist = field('Artist', tally((v) => v.artist || 'none'), [['', 'Leave as they are'], ['set', 'Set to'], ['none', 'Take it off']], artistIn);
+    const archived = chosen.filter((v) => v.hidden).length;
+    const hide = field('Archived', archived ? `${archived} of ${chosen.length}` : 'none of them', [['', 'Leave as they are'], ['archive', 'Archive them'], ['back', 'Bring them back']], null);
+    const error = el('p', { class: 've-error', hidden: true });
+    const save = el('button', { type: 'submit', class: 'btn primary', text: `Change ${plural(chosen.length, 'version')}` });
+    const names = chosen.map((v) => v.label);
+    const dlg = el('dialog', { class: 'dlg be' },
+      el('form', {
+        method: 'dialog',
+        onsubmit: async (e) => {
+          e.preventDefault();
+          const to = N.tokenize(entIn.value);
+          if (ent.how.value === 'set' && !to) return entIn.focus();
+          const have = cat.entities.find((x) => x.name === to);
+          const edits = chosen.map((v) => ({
+            id: v.id,
+            ...(ent.how.value === 'set' && { entity: have ? have.id : { name: to, tier: N.tierOf(to, cat.preset.id) || 'asset' } }),
+            ...(task && task.how.value === 'set' && { task: taskIn.value }), ...(task && task.how.value === 'none' && { task: null }),
+            ...(artist.how.value === 'set' && { artist: artistIn.value }), ...(artist.how.value === 'none' && { artist: null }),
+            ...(hide.how.value && { hidden: hide.how.value === 'archive' }),
+          }));
+          if (!edits.some((x) => Object.keys(x).length > 1)) return dlg.close();
+          save.disabled = true;
+          try {
+            await api('PATCH', `/api/projects/${project.id}/versions`, { edits, by: me.name });
+            dlg.close();
+            catalogues.delete(project.id);
+            versionLists.delete(project.id);
+            render();
+            // Each back as it was: where, its task and number, its artist, archived or not.
+            const before = chosen.map((v) => ({ id: v.id, entity: v.entityId, task: v.task, number: v.number, artist: v.artist, hidden: !!v.hidden }));
+            undoable(`Changed ${plural(chosen.length, 'version')}`, async () => {
+              await api('PATCH', `/api/projects/${project.id}/versions`, { edits: before, by: me.name });
+              catalogues.delete(project.id);
+              versionLists.delete(project.id);
+              render();
+            });
+          } catch (err) {
+            error.textContent = err.message;
+            error.hidden = false;
+            save.disabled = false;
+          }
+        },
+      },
+      el('h2', { text: chosen.length === 1 ? `Edit ${names[0]}` : `Edit ${chosen.length} versions` }),
+      el('p', { class: 'be-which', text: names.length > 8 ? `${names.slice(0, 8).join(', ')} and ${names.length - 8} more` : names.join(', ') }),
+      ent.node, task && task.node, artist.node, hide.node,
+      el('p', { class: 'be-note', text: 'Moved, each gets the next number where it goes, in the order they were filed. Their notes, and every board they are on, go with them.' }),
+      error,
+      el('div', { class: 'dlg-actions' },
+        el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }),
+        save)));
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.append(dlg);
+    dlg.showModal();
   }
 
   // The project's boards (and those in its folders), newest edited first.

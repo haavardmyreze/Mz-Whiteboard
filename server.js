@@ -1312,26 +1312,91 @@ async function handleCatalogue(req, res, parts) {
     }
     // GET /api/projects/:id/versions?before=   its versions, newest filed first, a page at a time: the
     // project's Versions list. `next`, when there are more, is what to give as `before` for the next page.
+    //
+    // GET /api/projects/:id/versions?find=1&...  the same, as the Versions page asks for it: filtered by any
+    // of `task`, `seq`, `tier`, `by` (who filed), `artist` (each comma separated; an empty task is none),
+    // `since` (a time), words `q`, only the `newest` of each entity and task, `archived` ones too; in a
+    // `sort` (new, old, name, number); a page at a time from `offset`. With the first page, `total` and
+    // `facets`: what there is to filter by (its tasks, sequences, tiers, filers, artists).
     if (parts.length === 4 && parts[3] === 'versions' && req.method === 'GET') {
-      const after = pageAfter(new URL(req.url, 'http://x').searchParams.get('before'));
-      if (!after) return sendJson(res, 400, { error: 'That is not a page of this list' });
+      const sp = new URL(req.url, 'http://x').searchParams;
       // Which boards each is on is read from the database, so what is waiting to be written goes first.
       flushAll();
-      const list = store.projectVersions(project.id, { after, limit: VERSIONS_PAGE });
-      const on = store.boardsWithVersions(list.map((v) => v.id));
-      const more = list.length === VERSIONS_PAGE;
-      return sendJson(res, 200, {
-        versions: list.map((v) => {
+      const shape = (list) => {
+        const on = store.boardsWithVersions(list.map((v) => v.id));
+        return list.map((v) => {
           const { src, poster, th, dur, fps, nw, nh, type } = v.look;
           return {
             id: v.id, entityId: v.entityId, entity: v.entityName, tier: v.entityTier, task: v.task, number: v.number,
             label: naming.label(v.entityName, v.task, v.number), kind: v.kind, thumb: v.thumb, look: { type, src, poster, th, dur, fps, nw, nh },
-            artist: v.artist, createdAt: v.createdAt, createdBy: v.createdBy, boards: boardsSeen(on.get(v.id)),
+            views: [v.look.view || '', ...(v.look.views || []).map((x) => x.view)].filter((x, i) => i || (v.look.views || []).length),
+            artist: v.artist, createdAt: v.createdAt, createdBy: v.createdBy, hidden: v.hidden, originalName: v.originalName, boards: boardsSeen(on.get(v.id)),
           };
-        }),
-        more,
-        next: more ? pageCursor(list.at(-1)) : null,
-      });
+        });
+      };
+      if (sp.get('find')) {
+        const listOf = (key) => (sp.get(key) === null ? null : sp.get(key).split(',').map((x) => x.trim()).slice(0, 100));
+        const offset = Math.max(0, Math.min(1e6, Number(sp.get('offset')) || 0));
+        const found = store.findVersions(project.id, {
+          tasks: listOf('task'), seqs: listOf('seq'), tiers: listOf('tier'), by: listOf('by'), artists: listOf('artist'),
+          since: Number(sp.get('since')) || 0, q: (sp.get('q') || '').slice(0, 200), newest: sp.get('newest') === '1', archived: sp.get('archived') === '1',
+          sort: sp.get('sort') || 'new', offset, limit: VERSIONS_PAGE,
+        });
+        const out = { versions: shape(found.list), total: found.total, more: offset + found.list.length < found.total, offset: offset + found.list.length };
+        if (!offset) {
+          const ents = store.entities(project.id);
+          out.facets = {
+            tasks: store.projectTasks(project.id), filers: store.projectFilers(project.id), artists: store.projectArtists(project.id),
+            seqs: [...new Set(ents.filter((e) => e.tier === 'shot' && naming.seqOf(e.name)).map((e) => naming.seqOf(e.name)))].sort(),
+            tiers: presetOf(project).tiers.filter((t) => ents.some((e) => e.tier === t.id)).map((t) => ({ id: t.id, label: t.label })),
+            untasked: ents.some((e) => e.tops && e.tops['']),
+          };
+        }
+        return sendJson(res, 200, out);
+      }
+      const after = pageAfter(sp.get('before'));
+      if (!after) return sendJson(res, 400, { error: 'That is not a page of this list' });
+      const list = store.projectVersions(project.id, { after, limit: VERSIONS_PAGE });
+      const more = list.length === VERSIONS_PAGE;
+      return sendJson(res, 200, { versions: shape(list), more, next: more ? pageCursor(list.at(-1)) : null });
+    }
+    // PATCH /api/projects/:id/versions { edits: [{ id, entity, task, number, artist, hidden }] }: many versions
+    // changed at once, each as its edit says (what it leaves out stays): moved to another asset, set or shot
+    // (one to make, by name) or task, with the next number there unless one is given, an artist, archived or
+    // brought back. In the order given, so several moved to one place keep their order. Everything is
+    // checked as it is done, in one write: a number taken anywhere changes nothing.
+    if (parts.length === 4 && parts[3] === 'versions' && req.method === 'PATCH') {
+      const body = await readJson(req, 512 * 1024);
+      const edits = Array.isArray(body.edits) ? body.edits.slice(0, 1000) : [];
+      if (!edits.length) return sendJson(res, 400, { error: 'Nothing to change' });
+      const by = actor(req, body);
+      const told = new Set();
+      const done = store.transaction(() => edits.map((ed) => {
+        const v = ed && typeof ed === 'object' && store.version(ed.id);
+        const was = v && store.entity(v.entityId);
+        if (!v || v.deletedAt || !was || was.projectId !== project.id) throw refusal(404, 'One of those versions is not in this project');
+        const edit = {};
+        const target = ed.entity !== undefined ? entityFor(project, ed.entity) : null;
+        if (ed.task !== undefined) edit.task = usesTasks(project) ? tokenOrNull(ed.task) : null;
+        if (ed.artist !== undefined) edit.artist = tokenOrNull(ed.artist);
+        if (ed.number !== undefined && ed.number !== null) {
+          if (!validNumber(Number(ed.number))) throw refusal(400, 'A version number is a whole number from 1');
+          edit.number = Number(ed.number);
+        }
+        if (target) edit.entityId = madeEntity(project, target, by).id;
+        if ('hidden' in ed) store.hideVersion(v.id, !!ed.hidden);
+        if (Object.keys(edit).length) {
+          const r = store.editVersion(v.id, edit);
+          if (!r.ok) throw refusal(409, takenMessage(r.taken));
+        }
+        told.add(was.id);
+        const now = store.version(v.id);
+        told.add(now.entityId);
+        return publicVersion(now, req.user);
+      }));
+      retellEntities(told);
+      for (const id of told) tellRoom(id);
+      return sendJson(res, 200, { versions: done });
     }
     // POST /api/projects/:id/place { board, versions: [ids], layout }: puts versions on one of the
     // project's boards, as pieces that are those versions, below what is on it already: in rows, or

@@ -2316,6 +2316,48 @@ body.picking main { padding-bottom: 120px; }
 .section-label:has(.label-gap)::after { display: none; }
 .feed-seg { margin: 0; }
 .home-quiet { margin: 0; padding: 20px 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+/* A project's home: this week at a glance, what happened grouped, its sequences, what is waiting. */
+.ph-pulse { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.4fr); gap: 10px; margin-top: 32px; }
+.ph-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); }
+.ph-stat b { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.ph-stat span { color: var(--text-2); font-size: 12px; }
+.ph-stat small { color: var(--muted); font-size: 11px; }
+.ph-faces { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ph-face { display: inline-flex; align-items: center; gap: 3px; }
+.ph-face .avatar.sm { width: 24px; height: 24px; font-size: 10px; }
+.ph-day { margin: 18px 0 6px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.ph-activity .ph-day:first-child { margin-top: 0; }
+.ph-activity .feed + .ph-day { margin-top: 18px; }
+.ph-group { align-items: center; }
+.ph-stills { display: flex; flex: none; }
+.ph-stills .feed-thumb { width: 36px; height: 24px; margin-right: -14px; border: 2px solid var(--surface-1); }
+.ph-stills .feed-thumb:last-child { margin-right: 0; }
+.ph-group .feed-body { flex: 1; }
+.ph-chev { flex: none; align-self: center; color: var(--muted); transition: transform 0.15s; }
+.ph-group.open .ph-chev { transform: rotate(90deg); }
+.ph-more { border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.ph-more .feed-row { padding-left: 28px; }
+.ph-seqs { display: flex; flex-direction: column; gap: 12px; }
+.ph-seq-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 5px; font-size: 12.5px; }
+.ph-seq-head a { color: var(--text); font-weight: 600; text-decoration: none; }
+.ph-seq-head a:hover { text-decoration: underline; }
+.ph-seq-head span { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.ph-strip { display: flex; gap: 2px; height: 10px; }
+.ph-shot { flex: 1 1 0; min-width: 3px; border-radius: 2px; background: var(--surface-3); }
+.ph-shot.filed { background: var(--text-2); opacity: 0.55; }
+.ph-shot.fresh { background: var(--accent); }
+a.ph-shot:hover { outline: 2px solid var(--text); outline-offset: 1px; }
+.ph-key { display: flex; align-items: center; gap: 6px; margin-top: 10px; color: var(--muted); font-size: 11px; }
+.ph-key .ph-shot { flex: none; width: 10px; height: 10px; margin-left: 6px; }
+.ph-key .ph-shot:first-child { margin-left: 0; }
+.ph-wait { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; font-size: 12.5px; }
+.ph-wait b { font-weight: 600; }
+.ph-names { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); font-size: 12px; }
+.ph-names a { color: var(--text-2); text-decoration: none; }
+.ph-names a:hover { color: var(--text); text-decoration: underline; }
+@media (max-width: 900px) { .ph-pulse { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (prefers-reduced-motion: reduce) { .ph-chev { transition: none; } }
 .home-cols .feed { max-width: none; }
 .feed-row { position: relative; width: 100%; }
 .feed-row.unread { background: color-mix(in srgb, var(--accent) 6%, transparent); }

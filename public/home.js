@@ -1903,6 +1903,13 @@
     if (cat) renderSide(route());
   }
 
+  // A project's home: how it is doing and what needs a look, not only the way to its parts. Its parts
+  // along the top; this week at a glance (what was filed, said and moved, and by whom); what happened,
+  // by day, each person's filing in one row ("Anna filed 23 versions", opened for the rest) and what was
+  // said about a version in one; each sequence as a strip of its shots (filed this week, before, or not
+  // yet); and what is waiting (set up with nothing filed, or quiet for two weeks).
+  const homeOpen = new Set(); // groups of the activity opened, by key
+  const WEEK = 7 * 864e5;
   function projectHomeView(project) {
     const label = (text, n, ...extra) => el('div', { class: 'section-label' }, text, n != null && el('span', { class: 'tally', text: String(n) }), ...extra);
     const cat = catalogues.get(project.id);
@@ -1919,13 +1926,16 @@
       part(ICON_LIST, 'Versions', cat ? plural(cat.entities.reduce((n, e) => n + (e.versions || 0), 0), 'version') : '…', WB.href.versions(project.id)),
       part(ICON_FILM, 'Timeline', 'Every shot, played through', WB.href.timeline(project.id)));
     const items = act ? act.items : null;
-    const activity = el('section', { class: 'home-main' },
+    const main = el('section', { class: 'home-main' },
+      items && items.length ? homePulse(items) : null,
       label('Activity', null),
       !items ? el('p', { class: 'home-quiet', text: 'Loading…' })
-        : items.length ? el('div', { class: 'feed' }, items.slice(0, 25).map((x) => feedRow(x, Infinity)))
+        : items.length ? homeActivity(project, items)
           : el('p', { class: 'home-quiet', text: 'Nothing in the last two weeks. Versions filed and comments written in the project come here.' }));
-    const latest = filed.sort((a, b) => b.latestAt - a.latestAt).slice(0, 6).map((e) => entityTile(project, e));
+    const latest = filed.sort((a, b) => b.latestAt - a.latestAt).slice(0, 4).map((e) => entityTile(project, e));
     const side = el('aside', { class: 'home-side' },
+      cat && homeSequences(project, cat, label),
+      cat && homeWaiting(project, cat, label),
       label('Latest filed', null, el('span', { class: 'label-gap' }), el('a', { class: 'btn small ghost', href: WB.href.versions(project.id), text: 'All versions' })),
       !cat ? el('p', { class: 'home-quiet', text: 'Loading…' })
         : latest.length ? el('div', { class: 'board-grid ent-grid home-work' }, latest)
@@ -1933,7 +1943,127 @@
       label('Recent boards', null, el('span', { class: 'label-gap' }), el('a', { class: 'btn small ghost', href: WB.href.boards(project.id), text: 'All boards' })),
       boards.length ? el('div', { class: 'board-grid home-work' }, boards.slice(0, 4).map(boardCard))
         : el('p', { class: 'home-quiet', text: 'No boards yet.' }));
-    return [parts, el('div', { class: 'home-cols' }, activity, side)];
+    return [parts, el('div', { class: 'home-cols' }, main, side)];
+  }
+
+  // This week at a glance, beside the week before: versions filed, comments, how many assets, sets and
+  // shots had something new, and who filed.
+  function homePulse(items) {
+    const now = Date.now();
+    const thisWeek = items.filter((x) => now - x.at < WEEK);
+    const lastWeek = items.filter((x) => now - x.at >= WEEK && now - x.at < 2 * WEEK);
+    const n = (list, kind) => list.filter((x) => x.kind === kind).length;
+    const versus = (a, b) => (b ? `${a >= b ? '+' : '−'}${Math.abs(a - b)} on the week before` : a ? 'none the week before' : '');
+    const moved = new Set(thisWeek.filter((x) => x.kind === 'version').map((x) => x.entity.id)).size;
+    const who = new Map();
+    for (const x of thisWeek) if (x.kind === 'version') who.set(x.by || 'Somebody', (who.get(x.by || 'Somebody') || 0) + 1);
+    const tile = (value, name, sub) => el('div', { class: 'ph-stat' }, el('b', { text: value.toLocaleString() }), el('span', { text: name }), sub && el('small', { text: sub }));
+    return el('div', { class: 'ph-pulse', role: 'group', 'aria-label': 'This week' },
+      tile(n(thisWeek, 'version'), 'versions this week', versus(n(thisWeek, 'version'), n(lastWeek, 'version'))),
+      tile(n(thisWeek, 'note'), 'comments', versus(n(thisWeek, 'note'), n(lastWeek, 'note'))),
+      tile(moved, moved === 1 ? 'asset, set or shot moved on' : 'assets, sets and shots moved on'),
+      el('div', { class: 'ph-stat ph-who' }, el('span', { text: 'Filed this week by' }),
+        el('div', { class: 'ph-faces' }, who.size ? [...who].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, k]) => el('span', { class: 'ph-face', title: `${name}: ${plural(k, 'version')}` }, WB.avatar(name), el('small', { text: String(k) })))
+          : el('small', { text: 'nobody yet' }))));
+  }
+
+  // What happened, by day. A person's filing that day is one row (their stills, what it was, opened for
+  // each); what one person said about one version that day is one row; anything alone is as it was.
+  function homeActivity(project, items) {
+    const days = [];
+    for (const x of items) {
+      const day = dayOf(x.at);
+      let d = days[days.length - 1];
+      if (!d || d.day !== day) days.push(d = { day, groups: new Map() });
+      const key = x.kind === 'version' ? `f:${x.by || ''}` : `n:${x.by || ''}:${x.version.id}`;
+      if (!d.groups.has(key)) d.groups.set(key, { key: `${day}:${key}`, kind: x.kind, by: x.by, list: [] });
+      d.groups.get(key).list.push(x);
+    }
+    const out = [];
+    for (const d of days.slice(0, 14)) {
+      out.push(el('div', { class: 'ph-day', text: dayName(d.day) }));
+      const rows = [];
+      for (const g of d.groups.values()) {
+        if (g.list.length === 1) {
+          rows.push(feedRow(g.list[0], Infinity));
+          continue;
+        }
+        const open = homeOpen.has(g.key);
+        const first = g.list[0];
+        const span = (() => {
+          const [a, b] = [clock(g.list[g.list.length - 1].at), clock(first.at)];
+          return a === b ? a : `${a} – ${b}`;
+        })();
+        const names = [...new Set(g.list.map((x) => x.version.label))];
+        const head = el('button', {
+          type: 'button', class: `feed-row ph-group${open ? ' open' : ''}`, 'aria-expanded': String(open),
+          onclick: () => {
+            if (open) homeOpen.delete(g.key); else homeOpen.add(g.key);
+            $('content').replaceChildren(...projectHomeView(project));
+          },
+        },
+        g.kind === 'version'
+          ? el('span', { class: 'ph-stills' }, g.list.slice(0, 4).map((x) => el('span', { class: 'feed-thumb' }, x.version.thumb && el('img', { src: x.version.thumb, alt: '', loading: 'lazy' }))))
+          : WB.avatar(g.by, first.color),
+        el('span', { class: 'feed-body' },
+          el('span', { class: 'feed-what' }, ...(g.kind === 'version'
+            ? [el('strong', { text: g.by || 'Somebody' }), ' filed ', el('strong', { text: plural(g.list.length, 'version') })]
+            : [el('strong', { text: first.mine ? 'You' : g.by || 'Somebody' }), ` commented ${g.list.length} times on `, el('strong', { text: first.version.label })])),
+          el('span', { class: 'feed-text', text: g.kind === 'version' ? `${names.slice(0, 4).join(', ')}${names.length > 4 ? ` and ${names.length - 4} more` : ''}` : first.note.text }),
+          el('span', { class: 'feed-where', text: span })),
+        el('span', { class: 'ph-chev', html: icon('chevron', 14) }));
+        rows.push(head);
+        if (open) rows.push(el('div', { class: 'ph-more' }, g.list.map((x) => feedRow(x, Infinity))));
+      }
+      out.push(el('div', { class: 'feed' }, rows));
+    }
+    return el('div', { class: 'ph-activity' }, out);
+  }
+
+  // Each sequence as a strip of its shots, in order: filed this week, filed before, or nothing yet; and
+  // how many of each. A shot in the strip opens it.
+  function homeSequences(project, cat, label) {
+    const shots = cat.entities.filter((e) => e.tier === 'shot' && N.seqOf(e.name));
+    if (!shots.length) return null;
+    const bySeq = new Map();
+    for (const e of shots.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))) {
+      const q = N.seqOf(e.name);
+      if (!bySeq.has(q)) bySeq.set(q, []);
+      bySeq.get(q).push(e);
+    }
+    const now = Date.now();
+    const state = (e) => (!e.versions ? 'none' : now - e.latestAt < WEEK ? 'fresh' : 'filed');
+    return el('div', {},
+      label('Sequences', bySeq.size),
+      el('div', { class: 'ph-seqs' }, [...bySeq].slice(0, 12).map(([q, list]) => {
+        const filedN = list.filter((e) => e.versions).length;
+        const fresh = list.filter((e) => state(e) === 'fresh').length;
+        return el('div', { class: 'ph-seq' },
+          el('div', { class: 'ph-seq-head' },
+            el('a', { href: WB.href.catalogue(project.id, { seq: q }), text: q }),
+            el('span', { text: `${filedN} of ${list.length} filed${fresh ? ` · ${fresh} this week` : ''}` })),
+          el('div', { class: 'ph-strip' }, list.map((e) => el('a', {
+            class: `ph-shot ${state(e)}`, href: WB.href.catalogue(project.id, { entity: e.id }),
+            title: `${e.name}: ${e.versions ? `${plural(e.versions, 'version')}, last ${ago(e.latestAt)}` : 'nothing filed yet'}`, 'aria-label': e.name,
+          }))));
+      })),
+      el('div', { class: 'ph-key' }, el('span', { class: 'ph-shot fresh' }), 'this week', el('span', { class: 'ph-shot filed' }), 'before', el('span', { class: 'ph-shot none' }), 'nothing yet'));
+  }
+
+  // What is waiting: set up with nothing filed, and filed but quiet for two weeks or more.
+  function homeWaiting(project, cat, label) {
+    const now = Date.now();
+    const none = cat.entities.filter((e) => !e.versions);
+    const quiet = cat.entities.filter((e) => e.versions && now - e.latestAt >= 2 * WEEK).sort((a, b) => a.latestAt - b.latestAt);
+    if (!none.length && !quiet.length) return null;
+    const line = (title, list, say) => !list.length ? null : el('div', { class: 'ph-wait' },
+      el('b', { text: `${list.length} ${title}` }),
+      el('div', { class: 'ph-names' }, list.slice(0, 10).map((e) => el('a', { href: WB.href.catalogue(project.id, { entity: e.id }), text: e.name, title: say(e) })),
+        list.length > 10 && el('span', { text: `and ${list.length - 10} more` })));
+    return el('div', {},
+      label('Waiting', null),
+      line('with nothing filed yet', none, () => 'Set up, nothing filed yet'),
+      line('quiet for two weeks or more', quiet, (e) => `Last filed ${ago(e.latestAt)}`));
   }
 
   const ICON_CHECKS = icon('checks', 16);

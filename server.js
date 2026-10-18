@@ -1479,7 +1479,8 @@ async function handleCatalogue(req, res, parts) {
     // versions filed and comments written, on any of its assets, sets and shots (the project's home shows it).
     if (parts.length === 4 && parts[3] === 'activity' && req.method === 'GET') {
       const byId = new Map(store.entities(project.id).map((e) => [e.id, e]));
-      const { versions, notes } = store.happenings([...byId.keys()], Date.now() - 14 * 24 * 3600 * 1000, 60);
+      // Enough of two weeks to say what each person did, grouped (the project's home groups them).
+      const { versions, notes } = store.happenings([...byId.keys()], Date.now() - 14 * 24 * 3600 * 1000, 600);
       const about = (id) => {
         const e = byId.get(id);
         return { id: e.id, name: e.name, tier: e.tier, projectId: project.id, project: project.name };
@@ -1488,7 +1489,7 @@ async function handleCatalogue(req, res, parts) {
       const items = [
         ...versions.map((v) => versionLine(v, about(v.entityId), label)),
         ...notes.map((n) => noteLine(n, about(n.entityId), label)),
-      ].sort((a, b) => b.at - a.at).slice(0, 60);
+      ].sort((a, b) => b.at - a.at).slice(0, 600);
       return sendJson(res, 200, { items });
     }
     // GET /api/projects/:id/timeline?task=   every shot in order, by sequence, with its newest version (of

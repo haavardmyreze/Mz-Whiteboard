@@ -415,10 +415,16 @@ filed in it.
 - **Notes.** Comments on a version belong to it (see Comments above). Filing a piece takes the comments
   already made on it along. People holding a link to a board see only the notes made on that board;
   the team sees them all.
-- **A project's home.** Clicking a project opens its home page, not its boards: its parts (Catalogue,
-  with how many assets, sets and shots; Boards; Versions; Timeline) along the top, then Activity, the
-  versions filed and comments written in it in the last two weeks, beside what was filed last (cards that
-  scrub and play) and the boards last worked on. Its boards are at `#/f/<project>/boards`.
+- **A project's home.** Clicking a project opens its home page, not its boards: how it is doing and what
+  needs a look. Its parts (Catalogue, with how many assets, sets and shots; Boards; Versions; Timeline)
+  along the top. Then this week at a glance: versions filed and comments written (each beside the week
+  before), how many assets, sets and shots moved on, and who filed, with how many. Its Activity of the
+  last two weeks, by day: each person's filing that day is one row ("Anna filed 23 versions", with their
+  first stills and names), and what one person said about one version is one row, each opened for
+  every line of it with a click. Beside it, each sequence as a strip of its shots in order, coloured by
+  whether each was filed this week, before, or not yet (a shot opens with a click), with how many are
+  filed; what is waiting (set up with nothing filed, or quiet for two weeks or more); what was filed
+  last; and the boards last worked on. Its boards are at `#/f/<project>/boards`.
 - **The catalogue page.** A project has its Boards and its Catalogue, both in the sidebar. The catalogue
   is laid out like the project on disk: assets, sets, and shots by sequence, each with its newest
   still. An asset, set or shot opens on every version of it (where each is on a board, who filed it,

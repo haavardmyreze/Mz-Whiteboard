@@ -1156,8 +1156,16 @@ function fileVersions(req, project, body) {
     // A number may be asked for (one a file says on its own); otherwise it is the next.
     const asked = f.number ?? null;
     if (asked != null && !validNumber(asked)) throw refusal(400, 'A version number is a whole number from 1');
+    // Which view it is files it as that, and nothing else does: a view the file's look carries of its own
+    // (a piece copied from another version's view, say) counts only as the project allows, and a new
+    // version is its one file, whatever other views a look sent along says it has.
+    const view = viewFor(project, f.view !== undefined ? f.view : look.view);
+    look = { ...look };
+    delete look.views;
+    if (view) look.view = view;
+    else delete look.view;
     return {
-      board, item, look, asked, view: viewFor(project, f.view !== undefined ? f.view : look.view),
+      board, item, look, asked, view,
       entity: entityFor(project, pick('entity') ?? (parsed.entity && { name: parsed.entity, tier: parsed.tier })),
       task: !usesTasks(project) ? null : pick('task') !== undefined ? tokenOrNull(pick('task')) : parsed.task,
       descriptor: pick('descriptor') !== undefined ? tokenOrNull(pick('descriptor')) : parsed.descriptor,

@@ -1993,11 +1993,17 @@ test('a version can be shown more than one way: each view is filed with it, by n
   const up = async () => (await (await fetch(`${s.base}/api/upload?name=a.mp4`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
   const file = async (files) => call('POST', `/api/projects/${project.id}/versions`, { entity: { name: 'kilo-0010' }, task: 'comp', files });
   const look = async (name) => ({ type: 'video', src: await up(), name, dur: 4 });
-  // Shown one way (as every project starts), a view asked for is no view: each file is a version.
+  // Shown one way (as every project starts), a view asked for is no view: each file is a version. Nor is
+  // one its look carries of its own (a piece copied from a view, say), nor views it says it has.
   assert.equal((await call('GET', `/api/projects/${project.id}`)).body.viewList, null);
   const plain = (await file([{ view: 'bty', look: await look('z_bty.mp4') }])).body.versions[0];
   assert.equal(plain.label, 'kilo-0010 comp v1');
   assert.equal(plain.look.view, undefined);
+  const carried = (await file([{ look: { ...(await look('y.mp4')), view: 'bty', views: [{ ...(await look('x.mp4')), view: 'top' }] } }])).body.versions[0];
+  assert.equal(carried.label, 'kilo-0010 comp v2');
+  assert.equal(carried.look.view, undefined);
+  assert.equal(carried.look.views, undefined);
+  await call('POST', `/api/versions/${carried.id}/unfile`, {});
   // Its views named, the main one first: a file of the main one is a version of its own.
   await call('PATCH', `/api/folders/${project.id}`, { settings: { views: ['CMP', 'bty', 'top', 'bty'] } });
   assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.viewList, ['cmp', 'bty', 'top']);
@@ -2695,6 +2701,12 @@ test('Claude suggests names for files and renames, through the server, without c
   assert.equal(asked[0].key, 'sk-test');
   assert.match(asked[0].body.system, /char-robot \(asset\)/, 'the project\'s names go along');
   assert.match(asked[0].body.messages[0].content, /all shots of ch02/);
+  // With views off, a view Claude names is no view, and it is told there are none.
+  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { views: false } });
+  const plain = await call('POST', `/api/projects/${kilo.id}/ai/files`, { files: [{ key: 'r0', filename: 'Robot walk v4.mov' }] });
+  assert.equal(plain.body.answers.r0.view, null);
+  assert.match(asked[1].body.system, /view: always null/);
+  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { views: ['cmp', 'bty'] } });
 
   const ren = await call('POST', `/api/projects/${kilo.id}/ai/entities`, { instruction: 'opening is the first shot', ids: [opening.id] });
   assert.equal(ren.status, 200);

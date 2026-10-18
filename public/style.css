@@ -1278,24 +1278,62 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
 .vmenu a.menu-item { display: flex; align-items: center; color: var(--text); text-decoration: none; }
 
 /* Filing pieces as versions: what is filed, then the one or two things asked. */
-.file-dlg { width: min(560px, calc(100vw - 32px)); }
-.file-dlg.many { width: min(720px, calc(100vw - 32px)); }
+.file-dlg, .file-dlg.many { width: min(800px, calc(100vw - 32px)); }
 .file-rows { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; margin: 12px 0 0; overflow: auto; }
-.file-row { display: grid; grid-template-columns: 48px minmax(80px, 1fr) auto; column-gap: 10px; align-items: center; }
+.file-row { display: grid; grid-template-columns: 48px minmax(80px, 160px) minmax(0, 1fr); column-gap: 10px; align-items: center; }
 .file-row img { width: 48px; height: 32px; border-radius: var(--r-1); background: var(--thumb-bg); object-fit: cover; }
 .file-name { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .file-fields, .file-fill { display: flex; align-items: center; gap: 6px; }
 .file-fill { margin: 4px 0 4px; padding: 8px 10px; border-radius: var(--r-2); background: var(--surface-2); color: var(--muted); font-size: 12px; }
 .file-fill span { margin-right: 4px; }
-.dlg .file-fields input, .dlg .file-fill input, .file-fields select { width: 170px; height: 30px; margin: 0; padding: 0 8px; font-size: 13px; }
-.dlg .file-fields input + select + input, .dlg .file-fill input + input { width: 100px; }
-.file-fields select { width: auto; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; }
-.file-fields select[hidden] { display: none; }
+.dlg .file-fill input { width: 170px; height: 30px; margin: 0; padding: 0 8px; font-size: 13px; }
+.dlg .file-fill input + input { width: 100px; }
+.file-row .file-fields { min-width: 0; }
+.file-labels-row { position: sticky; top: 0; z-index: 1; margin-bottom: -4px; background: var(--surface-1); }
 @media (max-width: 600px) {
   .file-row { grid-template-columns: 48px minmax(0, 1fr); row-gap: 6px; }
-  .file-fields { grid-column: 1 / -1; flex-wrap: wrap; }
-  .dlg .file-fields input { flex: 1 1 120px; width: auto; }
+  .file-row .file-fields { grid-column: 1 / -1; }
+  .file-labels-row { display: none; }
   .file-fill { display: none; }
+}
+
+/* A row's line: its parts in one box, in the same columns on every row and in the labels over them
+   (filing.js). What the page filled in and nobody said is faint. */
+.file-line { display: grid; align-items: stretch; width: 100%; min-width: 0; height: 32px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); overflow: hidden; }
+.file-line:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.file-line > * { min-width: 0; border-left: 1px solid var(--line); }
+.file-line > :first-child { border-left: 0; }
+.file-line input, .file-line select { box-sizing: border-box; width: 100%; min-width: 0; height: 100%; margin: 0; padding: 0 8px; border: 0; border-radius: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; box-shadow: none; outline: none; }
+.file-line input:focus, .file-line select:focus { background: var(--accent-soft); }
+.file-line input::placeholder { color: var(--muted); opacity: 0.75; }
+.file-line select { padding-right: 18px; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23888'/%3E%3C/svg%3E"); background-position: right 7px center; background-repeat: no-repeat; cursor: pointer; }
+.file-line select.auto, .file-vseg.auto input { color: var(--muted); }
+.file-line input[type="number"] { -moz-appearance: textfield; }
+.file-line input[type="number"]::-webkit-inner-spin-button, .file-line input[type="number"]::-webkit-outer-spin-button { margin: 0; -webkit-appearance: none; }
+.file-is { display: flex; align-items: center; }
+.file-is > [hidden] { display: none; }
+.file-kind { overflow: hidden; padding: 0 8px; color: var(--text-2); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.file-kind.new { color: var(--accent); }
+.file-kind.new-seq { color: var(--warn-fg); }
+.file-line select.file-ask { background-color: var(--warn-bg); color: var(--warn-fg); font-size: 12px; }
+.file-follows { display: flex; align-items: center; padding: 0 6px; color: var(--muted); font-size: 12px; }
+.file-follows .file-prev { gap: 4px; }
+.file-follows .file-prev img { width: 28px; height: 18px; }
+.file-follows .file-prev.ok::before { top: -4px; left: 20px; }
+.file-vseg { display: flex; align-items: center; padding-left: 7px; font-variant-numeric: tabular-nums; }
+.file-vmark { color: var(--muted); font-size: 12.5px; }
+.file-line .file-vseg input { padding: 0 4px 0 1px; font-weight: 600; }
+.file-line .file-vseg.auto input { font-weight: 400; }
+/* The labels: the same columns, without the box. */
+.file-labels { height: auto; border-color: transparent; background: transparent; color: var(--muted); font-size: 11px; line-height: 16px; }
+.file-labels:focus-within { box-shadow: none; }
+.file-labels > * { overflow: hidden; padding: 0 8px; border-left-color: transparent; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) {
+  /* On a phone, two rows: what it is and its name, then the rest; the lines between are the gaps. */
+  .file-line:not(.file-labels) { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 1px; height: auto; background: var(--line); }
+  .file-line:not(.file-labels) > * { height: 32px; border-left: 0; background: var(--surface-2); }
+  .file-line:not(.file-labels) > input:first-of-type { grid-column: 2 / -1; }
+  .file-line:not(.file-labels) > .file-follows { display: none; }
 }
 .dlg p.file-hint { margin: 12px 0 0; font-size: 12.5px; }
 
@@ -2057,12 +2095,12 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .imp-gap { flex: 1; }
 .imp-fill { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
 .imp-fill[hidden], .imp-fields[hidden], .imp-bar[hidden], .imp-filed[hidden] { display: none; }
-.imp-fill input, .imp-fields input, .imp-fields select { height: 30px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; }
-.imp-fill input:focus, .imp-fields input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+.imp-fill input { height: 30px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 13px; }
+.imp-fill input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
 .imp-fill input { width: 150px; }
 .imp-fill input + input { width: 100px; }
 .imp-list { display: flex; flex-direction: column; margin-top: 8px; }
-.imp-row { display: grid; grid-template-columns: 56px minmax(120px, 1fr) auto auto; column-gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.imp-row { display: grid; grid-template-columns: 56px minmax(120px, 1fr) minmax(0, 660px) minmax(28px, auto); column-gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .imp-end { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .imp-retry { gap: 6px; }
 .imp-retry[hidden], .imp-undo[hidden] { display: none; }
@@ -2074,10 +2112,13 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .imp-bar > i { display: block; height: 100%; background: var(--accent); transition: width 0.2s linear; }
 /* Done with, the bar keeps its place, so the line under it stays put. */
 .imp-file .imp-bar[hidden] { display: block; visibility: hidden; }
-.imp-fields { display: flex; align-items: center; gap: 6px; }
-.imp-fields input { width: 190px; }
-.imp-fields input:nth-of-type(2) { width: 110px; }
-.imp-fields select[hidden] { display: none; }
+.imp-fields { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.imp-fields .file-line { flex: 1 1 auto; }
+.imp-fields > .btn, .imp-go { flex: none; width: 52px; }
+/* The labels over the rows: the same columns as a row, without its line under it. */
+.imp-labels { padding: 4px 0 0; border-bottom: 0; }
+.imp-labels[hidden] { display: none; }
+.imp-labels .imp-fields { align-self: end; }
 .imp-filed { padding: 0; border: 0; background: transparent; color: var(--ok); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
 .imp-filed:hover { text-decoration: underline; }
 /* Under the bar, holding its line even when it says nothing, so a row keeps its height while it comes in. */
@@ -2094,8 +2135,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 @media (max-width: 760px) {
   .imp-row { grid-template-columns: 56px minmax(0, 1fr); row-gap: 6px; }
   .imp-fields, .imp-filed, .imp-end { grid-column: 2; }
-  .imp-fields { flex-wrap: wrap; }
-  .imp-fields input { flex: 1 1 140px; width: auto; }
+  .imp-labels { display: none; }
   .imp-fill { display: none; }
 }
 
@@ -2214,12 +2254,6 @@ button.imp-row:hover { background: var(--hover); }
 .ent-top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin: 8px 0 0; }
 .ent-top .ent-people { margin: 0; }
 
-/* The version an imported file is to be. */
-.imp-v { display: inline-flex; align-items: center; gap: 2px; color: var(--muted); font-size: 12.5px; }
-.imp-fields input.imp-num { width: 58px; padding: 0 4px 0 6px; }
-.imp-fields input.imp-view { width: 84px; }
-.imp-fields input.imp-view[hidden] { display: none; }
-@media (max-width: 760px) { .imp-fields input.imp-num { flex: 0 0 58px; } }
 
 /* A run in the player: the shots of a project played through. No side strip; the bar under the picture
    runs the whole width, and its track is the strip of shots. */

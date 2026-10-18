@@ -343,14 +343,19 @@ filed in it.
   learned about names like it, below), and so is the frame it sits in (a frame titled `kilo-0010`) and,
   for one piece, the last choice made (its task only along with it). With several, "For all" fills
   every row at once to start from; each still goes where its own row says.
-  - **One line.** The first box takes a whole line: `kilo-0010 anim v12 bty` puts the task, number and
-    view in their own boxes (on a board, which has none, the row keeps them and says so, each with a
-    way back to the next number or no view; changing the name lets them go), and a file name pasted in
-    is read the way a file's name is. Until it is a
-    name the project has or one to the styleguide, more words are more of the name (`living room` is
-    `living-room`). A shot can be said short, by the sequence of the row above (or of the last filing):
-    `20` is its shot 0020, `+` its next shot on its step (`kilo+` the next of kilo), and `.` the same as
-    the row above.
+  - **One line, in parts.** Each row is one line, its parts labelled once over the rows: what it is
+    (`shot · kilo`, `new asset`, or "what is it?" for a new name whose shape does not say), the asset,
+    set or shot, the task, the version it follows (its still), the version it is to be, and the view.
+    What the page filled in and nobody said is faint (the next number, the main view, a kind read from
+    a new name's shape); what was typed or read from a file's name is not. The name takes a whole line:
+    `kilo-0010 anim v12 bty` puts the task, number and view in their own parts as soon as it reads one
+    way only, and a file name pasted in is read the way a file's name is. A space after a name the
+    project has, or a shot, moves on to the task, then the version, then the view, as a date's parts are
+    typed through; a version or view typed in the task goes where it belongs; Backspace in an empty part
+    goes back. Until it is a name the project has or one to its naming, more words are more of the name
+    (`living room` is `living-room`). A shot can be said short, by the sequence of the row above (or of
+    the last filing): `20` is its shot 0020, `+` its next shot on its step (`kilo+` the next of kilo),
+    and `.` the same as the row above; each becomes the name it says as you go on.
   - **Suggestions** come before anything is typed: what a video looks like a new version of (looking like
     the newest version of a shot and task along its length, and as long, at the same rate and size: see
     `likely.js`), then the row above, the sequence's next shot, then a shot it is only as long as (two
@@ -360,15 +365,13 @@ filed in it.
     covers the rows below. As you type, the project's names that fit, each with its tasks and how far each has
     counted (`kilo-0010 › anim  v12 → v13`), so one pick fills both; `kilo-` lists kilo's shots and its
     next one.
-  - **Under each row** a line says only what its boxes do not: the version it follows, by its still,
-    and the number it gets (in the import strip, which has a box for the number, only what it follows);
-    for a new name what it is and where it goes (`new shot in kilo`); and how much longer or shorter it
-    is than the version it follows (`12 frames shorter than v1`). A tick on the still says the piece
-    looks like that version. Pointing at the still (or tabbing to it) shows the two side by side, videos
+  - **Under each row** a line says only what its line does not: how much longer or shorter it is than
+    the version it follows (`12 frames shorter than v1`). A tick on the still of the version it follows
+    says the piece looks like that version. Pointing at the still (or tabbing to it) shows the two side by side, videos
     playing together from the start, with their lengths. A row with nothing to say has no line, except
     the row being typed in, so nothing moves as you type. And anything that looks wrong, the worst first
     with the rest a click away ("+2 more"), each with its fix: a name a letter or two from one the
-    project has (`klio-0010`, `kilo-010`), a name not to the styleguide (`robot`: char-robot,
+    project has (`klio-0010`, `kilo-010`), a name not to the project's naming (`robot`: char-robot,
     prop-robot...), a shot far past its sequence's last, a new task beside versions with none (or the
     other way round), and a video that looks like another shot than the one typed. A new sequence is
     said too, and asked about once before it is made, since a typo there makes a whole sequence. A
@@ -831,7 +834,7 @@ public/cuttrack.js A run's close-up track: the playhead held in the middle, fram
 public/viewer.js   The player: one piece at a time, its strip, timeline, comments and drawings; used by boards and the catalogue
 public/ink.js      Drawing: pen strokes, their outlines and colours; used by boards and the player
 public/ingest.js   Bringing media in: review copies of video, originals, timeline strips, stills; used by boards and the catalogue
-public/filing.js   Filing pieces as versions: the same fields, suggestions and line under each row on a board (Shift+V) and in the catalogue's import
+public/filing.js   Filing pieces as versions: the same line of parts, suggestions and notes under each row on a board (Shift+V) and in the catalogue's import
 public/claude.js   Asking Claude: the box, what it said, and the mark on what it filled in
 public/media.js    The video cache on this computer, with sw.js (the service worker that plays from it)
 public/home.js     Board list, and a project's catalogue

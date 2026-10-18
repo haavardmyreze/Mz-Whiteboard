@@ -2894,7 +2894,18 @@
       items: () => rows.filter((o) => o.fields && unfiled(o) && o.status !== 'failed').map((o) => ({ f: o.fields.f, node: o.node, r: o })),
       file: (list) => { for (const i of list) if (canFile(i.r)) fileRow(i.r); },
     });
-    const tray = el('div', { class: 'imp', hidden: true }, head, ai && ai.node, fold.node, list, WBFiling.keysHint());
+    // What each part of the rows' lines is, said once over them, as the project's settings have them.
+    const labels = el('div', { class: 'imp-row imp-labels', hidden: true });
+    let labelsFor = '';
+    const paintLabels = () => {
+      const key = JSON.stringify([useTasks(), viewList()]);
+      if (key !== labelsFor) {
+        labelsFor = key;
+        labels.replaceChildren(el('span'), el('span'), el('span', { class: 'imp-fields' }, WBFiling.lineHead({ useTasks: useTasks(), views: viewList() }), el('span', { class: 'imp-go' })), el('span', { class: 'imp-end' }));
+      }
+      labels.hidden = !rows.some(unfiled);
+    };
+    const tray = el('div', { class: 'imp', hidden: true }, head, ai && ai.node, fold.node, labels, list, WBFiling.keysHint());
     const picker = el('input', { type: 'file', multiple: true, accept: 'image/*,video/mp4,video/webm,video/quicktime', hidden: true });
     document.body.append(picker);
     let pickFor = null;
@@ -3026,7 +3037,7 @@
         entity: r.entity ? r.entity.name : r.parsed.entity || (ruled && ruled.entity) || '', task: r.parsed.task || (ruled && ruled.task) || '', onChange: resyncAll,
         named: !!(r.entity || r.parsed.entity || ruled), piece: () => r.look,
         useTasks: useTasks(), rules, peers, remembered: store(`wb:file:${project.id}`) || null,
-        numberOf: () => Number(num.value) || null,
+        numberOf: () => Number(num.value) || null, numInput: num, numAuto: () => !r.numTouched,
         onLine: (l) => {
           if (l.number) {
             num.value = String(l.number);
@@ -3049,7 +3060,7 @@
       const said = el('button', { type: 'button', class: 'imp-filed', hidden: true, title: 'Open it, to look, comment and draw', onclick: () => r.version && lookAt(r.version.entityId, r.version.id) });
       // Taken back straight after, as if it had not been filed: the row is as it was, to file again.
       const undo = el('button', { type: 'button', class: 'btn small ghost imp-undo', text: 'Undo', hidden: true, title: 'Take it back, as if it had not been filed', onclick: () => unfileRow(r) });
-      const fields = el('span', { class: 'imp-fields' }, ent, tier, task, el('span', { class: 'imp-v' }, el('span', { text: 'v' }), num), f.viewSel, go);
+      const fields = el('span', { class: 'imp-fields' }, f.line, go);
       const sync = () => {
         const { name } = choiceOf(r);
         if (!r.numTouched && r.status !== 'filed') {
@@ -3132,6 +3143,7 @@
       fillAll.hidden = rows.filter((r) => r.status !== 'filed').length < 2;
       if (aiBtn) aiBtn.hidden = !rows.some(unfiled);
       fold.paint();
+      paintLabels();
       if (ai && aiBtn.hidden) ai.node.hidden = true;
     }
 

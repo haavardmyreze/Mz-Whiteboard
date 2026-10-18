@@ -4743,7 +4743,7 @@
       row.node = el('div', { class: 'file-row' },
         el('img', { src: it.th || it.prev || (it.type === 'image' ? it.src : it.poster) || '', alt: '' }),
         el('span', { class: 'file-name', text: it.name || (it.type === 'video' ? 'Video' : 'Image'), title: it.name || '' }),
-        el('span', { class: 'file-fields' }, f.ent, f.tier, f.task, f.viewSel),
+        el('span', { class: 'file-fields' }, f.line),
         f.readout);
       rows.push(row);
     }
@@ -4799,7 +4799,10 @@
     el('h2', { text: list.length > 1 ? `File ${list.length} pieces as versions` : 'File as a version' }),
     list.length > 1 && fill,
     fold.node,
-    el('div', { class: 'file-rows' }, rows.map((row) => row.node)),
+    el('div', { class: 'file-rows' },
+      // What each part of the rows' lines is, said once over them.
+      el('div', { class: 'file-row file-labels-row' }, el('span'), el('span'), el('span', { class: 'file-fields' }, WBFiling.lineHead({ useTasks, views: cat.viewList || null }))),
+      rows.map((row) => row.node)),
     status,
     hint,
     WBFiling.keysHint(),

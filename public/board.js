@@ -4706,7 +4706,7 @@
     // The fields are the catalogue importer's too (filing.js).
     const rows = [];
     const shared = {
-      presetId, useTasks, remembered, getEntities: () => cat.entities, getTasks: () => cat.tasks, getViews: () => cat.views || [],
+      presetId, useTasks, remembered, getEntities: () => cat.entities, getTasks: () => cat.tasks, views: cat.viewList || null,
       peers: () => rows.map((row) => row.f), rules: () => rules, onChange: () => paint(),
     };
 
@@ -4743,7 +4743,7 @@
       row.node = el('div', { class: 'file-row' },
         el('img', { src: it.th || it.prev || (it.type === 'image' ? it.src : it.poster) || '', alt: '' }),
         el('span', { class: 'file-name', text: it.name || (it.type === 'video' ? 'Video' : 'Image'), title: it.name || '' }),
-        el('span', { class: 'file-fields' }, f.ent, f.tier, f.task),
+        el('span', { class: 'file-fields' }, f.ent, f.tier, f.task, f.viewSel),
         f.readout);
       rows.push(row);
     }
@@ -4808,12 +4808,13 @@
     dlg.addEventListener('close', async () => {
       dlg.remove();
       if (!confirmed) return;
-      // A version number or view typed on a row's line goes with it; otherwise the next, with none.
+      // A version number typed on a row's line goes with it, and so does the version another view goes
+      // with; otherwise the next. Its view is said (null for the main one).
       const files = rows.map((row) => ({
-        board: boardId, item: row.it.id, entity: row.f.entity(), task: row.f.taskName(),
-        ...(row.f.typedNumber() && { number: row.f.typedNumber() }), ...(row.f.typedView() && { view: row.f.typedView() }),
+        board: boardId, item: row.it.id, entity: row.f.entity(), task: row.f.taskName(), view: row.f.viewName(),
+        ...((row.f.typedNumber() || row.f.viewName()) && { number: row.f.number() }),
       }));
-      const said = new Map(rows.map((row) => [row.it.id, { entity: nameOf(row), task: row.f.taskName(), number: row.f.typedNumber(), view: row.f.typedView() }]));
+      const said = new Map(rows.map((row) => [row.it.id, { entity: nameOf(row), task: row.f.taskName(), number: row.f.typedNumber(), view: row.f.viewName() }]));
       try {
         const res = await WB.api('POST', `/api/projects/${project.id}/versions`, { files, by: me.name });
         const last = rows[rows.length - 1];

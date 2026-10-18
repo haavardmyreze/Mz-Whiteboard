@@ -878,8 +878,8 @@ function openStore(dataDir) {
   // the newest version of each task ({ task (or ''): { id, number, thumb, at, look } }), with enough of
   // its look to play it beside a piece about to follow it, and to say how their lengths differ.
   const headLook = (raw) => {
-    const { type, src, lo, poster, dur, fps, nw, nh } = JSON.parse(raw);
-    return { type, src, ...(lo && { lo }), poster, dur, fps, nw, nh };
+    const { type, src, lo, poster, dur, fps, nw, nh, view, views } = JSON.parse(raw);
+    return { type, src, ...(lo && { lo }), poster, dur, fps, nw, nh, viewNames: [view || '', ...(views || []).map((x) => x.view)] };
   };
   const entities = (projectId) => {
     const tops = new Map();
@@ -1049,6 +1049,10 @@ function openStore(dataDir) {
       UNION SELECT json_extract(j.value, '$.view') FROM versions v JOIN entities e ON e.id = v.entity_id, json_each(v.look, '$.views') j WHERE e.project_id = ? AND v.deleted_at IS NULL
     ) WHERE name IS NOT NULL ORDER BY name`);
   const projectViews = (projectId) => readViews.all(projectId, projectId).map((r) => r.name);
+  // What most of a project's versions are shown as first (their main look's view), or null when most say none.
+  const readMainView = db.prepare(`SELECT json_extract(v.look, '$.view') AS name, count(*) AS n FROM versions v JOIN entities e ON e.id = v.entity_id
+    WHERE e.project_id = ? AND v.deleted_at IS NULL GROUP BY name ORDER BY n DESC, name LIMIT 1`);
+  const mainView = (projectId) => (readMainView.get(projectId) || {}).name || null;
   const putGone = db.prepare('UPDATE versions SET deleted_at = ? WHERE id = ?');
   const deleteVersion = (id) => putGone.run(Date.now(), id).changes > 0;
   const restoreVersion = (id) => putGone.run(null, id).changes > 0;
@@ -1213,7 +1217,7 @@ function openStore(dataDir) {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
     transaction, entities, streamHeads, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, entitiesOf, entitiesFiledBy, happenings, people, entityCount,
-    addVersion, addView, projectViews, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
+    addVersion, addView, projectViews, mainView, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
     note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesBesides, unfileVersion, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,

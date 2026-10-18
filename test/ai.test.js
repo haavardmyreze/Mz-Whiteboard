@@ -30,7 +30,7 @@ test('ai: asks Claude with the key, the model, the rules and the files, and must
   const claude = fakeClaude({ files: [] });
   const ai = createAi({ key: 'sk-test', base: 'http://claude.local/', fetchImpl: claude.fetchImpl });
   assert.equal(ai.model, DEFAULT_MODEL);
-  await ai.fileNames({ instruction: 'These are all shots of ch02', files: [{ key: '0', filename: 'Robot walk FINAL v3.mov', now: { entity: 'robot-walk', view: 'cmp' } }], entities: ENTITIES, tasks: ['anim'], views: ['bty', 'cmp'] });
+  await ai.fileNames({ instruction: 'These are all shots of ch02', files: [{ key: '0', filename: 'Robot walk FINAL v3.mov', now: { entity: 'robot-walk', view: 'cmp' } }], entities: ENTITIES, tasks: ['anim'], views: ['cmp', 'bty'] });
   const [q] = claude.asked;
   assert.equal(q.url, 'http://claude.local/v1/messages');
   assert.equal(q.headers['x-api-key'], 'sk-test');
@@ -42,9 +42,9 @@ test('ai: asks Claude with the key, the model, the rules and the files, and must
   assert.match(q.body.system, /This project has: anim/);
   assert.match(q.body.messages[0].content, /These are all shots of ch02/);
   assert.match(q.body.messages[0].content, /0\tRobot walk FINAL v3\.mov\tnow: robot-walk view cmp/);
-  // It is asked which view each is, and told the views the project has.
+  // It is asked which view each is, and told the views the project has, the main one first.
   assert.ok(q.body.tools[0].input_schema.properties.files.items.properties.view);
-  assert.match(q.body.system, /use these views already: bty, cmp/);
+  assert.match(q.body.system, /shows each version these ways: cmp, bty; the first, cmp, is the main one/);
   assert.equal(createAi({ key: 'k', model: 'claude-sonnet-5-5', fetchImpl: claude.fetchImpl }).model, 'claude-sonnet-5-5');
 });
 
@@ -61,10 +61,16 @@ test('ai: what Claude says is made to fit before it is shown', async () => {
   });
   const ai = createAi({ key: 'k', fetchImpl: claude.fetchImpl });
   const files = ['0', '1', '2', '3'].map((key) => ({ key, filename: `${key}.mov` }));
-  const out = await ai.fileNames({ files, entities: [] });
+  const out = await ai.fileNames({ files, entities: [], views: ['cmp', 'bty-left'] });
   assert.deepEqual(Object.keys(out).sort(), ['0', '1', '3']);
   assert.deepEqual(out['0'], { entity: 'ch02-0010', tier: 'shot', task: 'anim', version: 3, view: null, note: 'from the name', fits: true });
   assert.equal(out['3'].view, 'bty-left');
+  // A view the project does not have, or its main one, is no view; a project shown one way has none.
+  const odd = createAi({ key: 'k', fetchImpl: fakeClaude({ files: [{ key: '0', entity: 'kilo-0010', tier: 'shot', task: null, version: null, view: 'top' }, { key: '1', entity: 'kilo-0010', tier: 'shot', task: null, version: null, view: 'cmp' }] }).fetchImpl });
+  const two = [{ key: '0', filename: 'a.mov' }, { key: '1', filename: 'b.mov' }];
+  assert.deepEqual(Object.values(await odd.fileNames({ files: two, entities: [], views: ['cmp', 'bty'] })).map((a) => a.view), [null, null]);
+  const none = createAi({ key: 'k', fetchImpl: fakeClaude({ files: [{ key: '0', entity: 'kilo-0010', tier: 'shot', task: null, version: null, view: 'bty' }] }).fetchImpl });
+  assert.equal((await none.fileNames({ files: [two[0]], entities: [], views: [], useViews: false }))['0'].view, null);
   assert.equal(out['1'].fits, false);
   assert.equal(out['1'].version, null);
   assert.deepEqual([out['3'].tier, out['3'].version], ['set', null]);

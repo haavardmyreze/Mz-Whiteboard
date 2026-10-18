@@ -138,7 +138,7 @@
   // 0020 of it, `+` its next shot (`kilo+` the next of kilo), and `.` whatever was filed last
   // (`ctx.last`). `task` is left undefined where the line does not say one, so that a task field keeps its
   // own; with `ctx.useTasks` false a line never says one. Words that are read as nothing are in `rest`.
-  //   ctx: { presetId, names, tasks, views, seq, last: { entity, task }, useTasks, rules }
+  //   ctx: { presetId, names, tasks, views, useViews, seq, last: { entity, task }, useTasks, rules }
   function readLine(text, ctx = {}) {
     const out = { entity: null, task: undefined, number: null, view: null, short: null, rest: [] };
     const raw = String(text || '').trim();
@@ -151,7 +151,7 @@
       if (p.entity || ruled) {
         out.entity = p.entity || ruled.entity;
         if (useTasks && (p.task || (ruled && ruled.task))) out.task = p.task || ruled.task;
-        out.view = p.view;
+        out.view = ctx.useViews === false ? null : p.view;
         if (ruled) out.short = `read by the rule for “${ruled.rule.word}”`;
         return out;
       }
@@ -178,7 +178,9 @@
     // A word after the name is a version number, a view or a task, by what it is. Any other word is more
     // of the name ("living room", "set living room") for as long as that makes it more of a name: not
     // once it is one the project has, and not when it would stop being to the styleguide.
-    const views = [...new Set([...(ctx.views || []), ...VIEWS])];
+    // The project's views when it says them (`ctx.views`, the main one first), none when it shows each
+    // version one way (`ctx.useViews` false), and the usual ones otherwise.
+    const views = ctx.useViews === false ? [] : ctx.views && ctx.views.length ? ctx.views : VIEWS;
     const tasks = ctx.tasks || [];
     const whole = () => !!out.entity && (names.includes(out.entity) || !!tierOf(out.entity, ctx.presetId));
     const longer = (t) => {

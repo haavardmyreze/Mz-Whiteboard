@@ -2829,7 +2829,9 @@ const WBViewer = (() => {
     for (const k of MEDIA_KEYS) delete out[k];
     return { ...out, ...pick, name: pick.name || main.name, shownView: pick.view, viewNames: viewsOf(look) };
   }
-  const viewLabel = (name) => name || 'Main';
+  // A view's name as shown: the main one (a version's own file, with no view named) by the name the
+  // project gives its main view, if it has named its views.
+  const viewLabel = (name, list) => name || (list && list[0]) || 'Main';
   // The choices of what the player shows (which view; on the timeline, which sequence, task and shots), as
   // one button in the bar that opens them as a menu, rather than a row of dropdowns. `groups()` says them
   // as they are now: [{ name, value, def, options: [[value, label]], pick(value) }]; a group with one
@@ -2868,7 +2870,12 @@ const WBViewer = (() => {
     return btn;
   }
   // Which view of each version: a group for optionsButton (a way of seeing, not a filter, so not counted).
-  const viewGroup = (names, value, pick) => ({ name: 'View', value, def: value, options: names.map((n) => [n, viewLabel(n)]), pick });
+  // `list` is the project's views as its settings name them, the main one first: they are shown in its order.
+  const viewGroup = (names, value, pick, list = null) => {
+    const at = (n) => (list ? (n === '' || n === list[0] ? -1 : list.indexOf(n) === -1 ? 99 : list.indexOf(n)) : 0);
+    const shown = [...names].sort((a, b) => at(a) - at(b));
+    return { name: 'View', value, def: value, options: shown.map((n) => [n, viewLabel(n, list)]), pick };
+  };
 
   // ---------------------------------------------------------------- an asset, set or shot's versions
   //
@@ -2985,13 +2992,14 @@ const WBViewer = (() => {
     const showPicker = (id) => {
       const p = pieces.find((x) => x.id === id);
       const names = p ? p.viewNames : [];
+      const list = page.project && page.project.settings && Array.isArray(page.project.settings.views) ? page.project.settings.views : null;
       viewer.extras.replaceChildren(...(names.length > 1 && !follow ? [optionsButton(() => [viewGroup(names, p.shownView, (name) => {
         view = name;
         WB.store(viewKey, name);
         pieces = piecesIn(in3d ? preview3d.view : view);
         viewer.refresh();
         showPicker(p.id);
-      })], { title: 'Which view' })].map((b) => (b.classList.add('v-viewpick'), b)) : []));
+      }, list)], { title: 'Which view' })].map((b) => (b.classList.add('v-viewpick'), b)) : []));
     };
     const shape = (list) => list.map((n) => (n.type === 'comment' ? n : { ...n, type: 'comment', on: n.versionId, obn: n.board && n.board.id ? n.board.name : 'the catalogue' }));
     let notes = shape(page.notes);

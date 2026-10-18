@@ -93,7 +93,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
   // What each file should be filed as. `files`: [{ key, filename, now: { entity, task, version, view } }] where
   // `now` is what its row says at the moment; `views` are the views the project's versions are shown in
   // already. Returns { key -> { entity, tier, task, version, view, note, fits } }.
-  async function fileNames({ instruction, files, presetId, entities, tasks, views = [], useTasks = true }) {
+  async function fileNames({ instruction, files, presetId, entities, tasks, views = [], useViews = true, useTasks = true }) {
     const list = (files || []).slice(0, MAX_FILES).filter((f) => f && f.key != null && f.filename);
     if (!list.length) throw new AiError('No files to ask about', 400);
     const tiers = naming.preset(presetId).tiers.map((t) => t.id);
@@ -108,7 +108,9 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
         useTasks ? '- task: the task, from the project\'s tasks when one fits; a new task only when the file name or the instruction clearly names one; otherwise null.'
           : '- task: always null: this project does not count its versions by task, whatever a file name says.',
         '- version: the version number, only when the original file name or the instruction gives one (v3, v003, _003 at the end); otherwise null, and the catalogue numbers it.',
-        `- view: which view of its version the file is, when a version is shown more than one way: the unwrapped picture (cmp, vr) and how it looks projected (bty, bty-left, top, side...). A single lower-case token. Give one when the instruction asks for it or the file name says it (a word after the version, as in _v012_bty); otherwise null, as most files have none.${views.length ? ` The project's versions use these views already: ${views.slice(0, 40).join(', ')}.` : ''} Two files that are views of the same version (cmp and bty of v3, say) get the same version number.`,
+        useViews
+          ? `- view: which view of its version the file is. This project shows each version these ways: ${views.slice(0, 12).join(', ')}; the first, ${views[0]}, is the main one, so a file that is a new version is null, and only a file that is one of the others gets its name. Use only these names. Give one when the instruction asks for it or the file name says it (a word after the version, as in _v012_${views[1] || 'bty'}). Two files that are views of the same version get the same version number.`
+          : '- view: always null: this project shows each version one way, whatever a file name says.',
         '- note: a few words on why, for the person checking your answer.',
         'Read everything the original file name says. The person\'s instruction comes first where it says otherwise, but every name keeps the shape the rules give.',
         'Answer for every file, with the key it was given.',
@@ -161,7 +163,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
       const tier = tiers.includes(a.tier) ? a.tier : naming.tierOf(entity, presetId) || null;
       if (!tier) continue;
       answers[k] = {
-        entity, tier, task: (useTasks && naming.tokenize(a.task)) || null, version: versionOf(a.version), view: naming.tokenize(a.view).slice(0, 40) || null,
+        entity, tier, task: (useTasks && naming.tokenize(a.task)) || null, version: versionOf(a.version), view: useViews && views.slice(1).includes(naming.tokenize(a.view)) ? naming.tokenize(a.view) : null,
         note: clip(a.note, 200), fits: naming.tierOf(entity, presetId) === tier,
       };
     }

@@ -446,8 +446,8 @@ filed in it.
   the player. What a row is doing (Preparing, Uploading...) is said under its bar, so nothing on the
   row moves while it comes in; a row that did not come in has "Try again".
 - **3D: the work on the venue.** A project whose settings have a model of its venue (the settings button
-  beside the star on the project's home, or Project settings in its menu: a `.glb`, the name of the
-  material its screens have, and which view of a version goes on them) has a 2D / 3D switch in the
+  beside the star on the project's home, or Project settings in its menu: a `.glb`, and once there is
+  one, the name of the material its screens have and, with views, which goes on them) has a 2D / 3D switch in the
   player's bar, in the catalogue and on the timeline. In 3D the picture plays on the model's screens
   (through their own UVs), seen through the model's camera named `main`, letterboxed at that camera's frame;
   the timeline, comments, strip and sidebar are as ever, since it is the same video drawn another way. Any
@@ -469,16 +469,20 @@ filed in it.
   no switch, and stepping to one goes back to 2D. Whoever follows you, there or through a presentation,
   goes into 3D with you.
 - **Views of a version.** A version can be shown more than one way, each its own file: on projection
-  work, say, the unwrapped picture (cmp, or vr) and how it looks projected (bty, or bty-left, top,
-  side...). A word after the version in a file's name is its view (`ch04-0030_comp_erik_v110_bty.mov`),
-  and the import strip then has a View box on each row (a project already using views always has it;
-  otherwise "Views" in the strip turns it on). A file whose view a version of that number lacks goes
-  with that version instead of being refused; a view on its own row is put with the newest version
-  there is, if that has no such view yet, and two views of one file in a row share a number. A
-  version's card lists its views. In the player, and on the timeline, a dropdown in the bar picks the
-  view, remembered per project; a shot without that view shows its main one, and the bar says which
-  is showing. Changing the view stays on the same moment. A project that never names a view never
-  sees any of this.
+  work, say, the unwrapped picture (cmp) and how it looks projected (bty). A project says whether its
+  versions are, and which ways, in its settings ("Several views of each version", with their names, the
+  main one first: `cmp, bty`). Off (as a project starts), a version is one file, filing asks for no view,
+  and a view word in a file's name is said not to be read. On, every row where files are filed has a
+  View picker of just those: the main one is a version of its own, and any other goes with one. A word
+  after the version in a file's name picks it (`ch04-0030_comp_erik_v110_bty.mov`), and one the project
+  has not got is asked about, never guessed. The line under the row says what happens: "Adds its bty to
+  kilo-0010 anim v2", or a new version shown that way only. A view goes with the row of the same file
+  version in the batch, above or below it (that is filed first), else with the newest version there is
+  that lacks it. A version's card lists its views. In the player, and on the timeline, a dropdown in the
+  bar picks the view, by the project's names and in its order, remembered per project; a shot without
+  that view shows its main one, and the bar says which is showing. Changing the view stays on the same
+  moment. A project from before the setting that filed views has them as filed, its main one called by
+  what most of its versions were first filed as.
 - **Looking without choosing.** Move the pointer across a video's picture in the catalogue and it
   scrubs through it, as if the pointer were dragging its playhead. An asset, set or shot's picture
   plays its newest version at once ("Latest"); its name goes to its page, which has Play latest too.
@@ -672,7 +676,8 @@ files all of them or, if any one is refused, none; so does a `PATCH` of a versio
 video most likely follows, with why. `POST /api/versions/<id>/unfile` takes a version back straight
 after it was filed (see Taking it back). A project's catalogue (`GET /api/projects/<folder>`) gives each
 entity's `heads`, the newest version of each task, beside `tops`. Its settings (`PATCH /api/folders/<id>`
-with `settings`) take `tasks: false` to count without tasks and `rules`, the whole list of what it has
+with `settings`) take `tasks: false` to count without tasks, `views` (`["cmp", "bty"]`, the main one
+first, or `false`; the catalogue gives the views in force as `viewList`), and `rules`, the whole list of what it has
 learned (`[{ "word", "seq" }]` or `[{ "word", "name" }]`).
 
 The newest version of an asset, set or shot and task is the one with the highest number (numbers can

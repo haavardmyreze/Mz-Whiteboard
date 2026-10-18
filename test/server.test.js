@@ -1983,30 +1983,44 @@ test('a version can be shown more than one way: each view is filed with it, by n
   const up = async () => (await (await fetch(`${s.base}/api/upload?name=a.mp4`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
   const file = async (files) => call('POST', `/api/projects/${project.id}/versions`, { entity: { name: 'kilo-0010' }, task: 'comp', files });
   const look = async (name) => ({ type: 'video', src: await up(), name, dur: 4 });
-  // The first is the version; a bty of the same number goes with it rather than being refused.
+  // Shown one way (as every project starts), a view asked for is no view: each file is a version.
+  assert.equal((await call('GET', `/api/projects/${project.id}`)).body.viewList, null);
+  const plain = (await file([{ view: 'bty', look: await look('z_bty.mp4') }])).body.versions[0];
+  assert.equal(plain.label, 'kilo-0010 comp v1');
+  assert.equal(plain.look.view, undefined);
+  // Its views named, the main one first: a file of the main one is a version of its own.
+  await call('PATCH', `/api/folders/${project.id}`, { settings: { views: ['CMP', 'bty', 'top', 'bty'] } });
+  assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.viewList, ['cmp', 'bty', 'top']);
   const cmp = (await file([{ view: 'cmp', look: await look('a_cmp.mp4') }])).body.versions[0];
-  assert.equal(cmp.label, 'kilo-0010 comp v1');
-  assert.equal(cmp.look.view, 'cmp');
-  const bty = (await file([{ view: 'bty', number: 1, look: await look('a_bty.mp4') }])).body.versions[0];
+  assert.equal(cmp.label, 'kilo-0010 comp v2');
+  assert.equal(cmp.look.view, undefined);
+  // A bty of the same number goes with it rather than being refused.
+  const bty = (await file([{ view: 'bty', number: 2, look: await look('a_bty.mp4') }])).body.versions[0];
   assert.equal(bty.id, cmp.id);
   assert.equal(bty.filedView, 'bty');
   assert.deepEqual(bty.look.views.map((v) => v.view), ['bty']);
-  // A view it has already, or a number taken without saying a view, is refused as ever.
-  assert.equal((await file([{ view: 'BTY', number: 1, look: await look('b.mp4') }])).status, 409);
-  assert.equal((await file([{ number: 1, look: await look('c.mp4') }])).status, 409);
+  // A view it has already, a number taken without saying a view, or a view the project has not got, is refused.
+  assert.equal((await file([{ view: 'BTY', number: 2, look: await look('b.mp4') }])).status, 409);
+  assert.equal((await file([{ number: 2, look: await look('c.mp4') }])).status, 409);
+  const odd = await file([{ view: 'side', look: await look('s.mp4') }]);
+  assert.equal(odd.status, 400);
+  assert.match(odd.body.error, /“side” is not one of this project's views \(cmp, bty, top\)/);
   // A view with no number goes with the newest version that lacks it.
   const top = (await file([{ view: 'top', look: await look('d.mp4') }])).body.versions[0];
   assert.equal(top.id, cmp.id);
-  // Two views of a new version brought in together: one version, two views.
-  const two = (await file([{ view: 'cmp', number: 2, look: await look('e.mp4') }, { view: 'bty', number: 2, look: await look('f.mp4') }])).body.versions;
+  // The main one and a view of a new version brought in together: one version, two ways.
+  const two = (await file([{ view: 'cmp', number: 3, look: await look('e.mp4') }, { view: 'bty', number: 3, look: await look('f.mp4') }])).body.versions;
   assert.equal(two[0].id, two[1].id);
   assert.deepEqual(two[1].look.views.map((v) => v.view), ['bty']);
   // The timeline and the catalogue carry the views, and the project knows their names.
   const tl = (await call('GET', `/api/projects/${project.id}/timeline`)).body;
-  assert.deepEqual(tl.views, ['bty', 'cmp', 'top']);
-  assert.equal(tl.shots[0].version.look.view, 'cmp');
+  assert.deepEqual(tl.views, ['bty', 'top']);
+  assert.equal(tl.shots[0].version.look.view, undefined);
   assert.deepEqual(tl.shots[0].version.look.views.map((v) => v.view), ['bty']);
-  assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.views, ['bty', 'cmp', 'top']);
+  // Shown one way again: views filed stay, and none is filed.
+  await call('PATCH', `/api/folders/${project.id}`, { settings: { views: false } });
+  assert.equal((await call('GET', `/api/projects/${project.id}`)).body.viewList, null);
+  assert.equal((await file([{ view: 'bty', look: await look('g.mp4') }])).body.versions[0].label, 'kilo-0010 comp v4');
 });
 
 test('a project can hold a 3D model of its venue, uploaded as a .glb, and let it go again', async (t) => {
@@ -2609,6 +2623,7 @@ test('Claude suggests names for files and renames, through the server, without c
   assert.deepEqual((await call('GET', '/api/me')).body.ai, { model: 'claude-haiku-5-5' });
   const kilo = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
   await call('PATCH', `/api/folders/${kilo.id}`, { project: true });
+  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { views: ['cmp', 'bty'] } });
   const made = (await call('POST', `/api/projects/${kilo.id}/entities`, { names: ['opening', 'char-robot', 'set-kitchen'], tier: 'asset' })).body.made;
   const [opening, robot, kitchen] = ['opening', 'char-robot', 'set-kitchen'].map((n) => made.find((e) => e.name === n));
 
@@ -2851,6 +2866,7 @@ test("on a board in a project with a model of its venue, a catalogued piece that
 
   const kilo = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
   await call('PATCH', `/api/folders/${kilo.id}`, { project: true });
+  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { views: ['cmp', 'bty'] } });
   const board = (await call('POST', '/api/boards', { name: 'Review', folderId: kilo.id })).body;
   const [cmp, bty, other, model] = [await upload('cmp.webm'), await upload('bty.webm'), await upload('other.webm'), await upload('venue.glb')];
   const look = (src, name) => ({ type: 'video', src, nw: 1920, nh: 1080, name });
@@ -2881,7 +2897,8 @@ test("on a board in a project with a model of its venue, a catalogued piece that
   assert.equal(told.view3d.view, 'cmp');
   const byId = (list) => Object.fromEntries(list.map((v) => [v.id, v]));
   assert.equal(byId(told.versions)[v10.id].look3d.src, cmp);
-  assert.equal(byId(told.versions)[v10.id].look3d.view, 'cmp');
+  // (The main view's file is the version's own, named by the project: it carries no view of its own.)
+  assert.equal(byId(told.versions)[v10.id].look3d.view, undefined);
   assert.equal(byId(told.versions)[v20.id].look3d, undefined);
   const after = await open(`board=${board.id}`);
   const init1 = after.seen.find((m) => m.t === 'init');

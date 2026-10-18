@@ -355,37 +355,59 @@
     if (on) location.hash = WB.href.catalogue(folder.id);
   }
 
-  // A project's settings: whether its versions are counted by task, the names from elsewhere it has learned
-  // to read, and its 3D preview: the model of the venue its work is shown on, the material its projection
+  // A project's settings: whether its versions are counted by task, whether they are shown more than one
+  // way and which ways (its views, the main one first), the names from elsewhere it has learned to read,
+  // and its 3D preview: the model of the venue its work is shown on, the material its projection
   // surface has, and which view of a version goes on it. Set here once, they are never asked about
   // again: the player just has a 2D / 3D switch.
   async function projectSettings(project) {
     const was = (project.settings && project.settings.preview3d) || null;
-    const byTask = el('input', { type: 'checkbox', ...(!(project.settings && project.settings.tasks === false) && { checked: true }), 'aria-label': 'Count versions by task' });
+    const byTask = el('input', { type: 'checkbox', class: 'switch', ...(!(project.settings && project.settings.tasks === false) && { checked: true }), 'aria-label': 'Count versions by task' });
+    // What it has learned of file names from elsewhere: each a chip, forgotten with its ×. Only there once there are some.
     let rules = [...((project.settings && project.settings.rules) || [])];
-    const ruleList = el('div', { class: 'ps-rules' });
-    const paintRules = () => ruleList.replaceChildren(...(rules.length ? rules.map((r) => el('div', { class: 'ps-rule' },
-      el('span', { text: N.ruleText(r) }),
-      el('button', { type: 'button', class: 'btn small ghost', text: 'Forget', onclick: () => { rules = rules.filter((x) => x !== r); paintRules(); } })))
-      : [el('span', { class: 'ps-none', text: 'None yet. Filing a file named some other way offers to learn how to read names like it.' })]));
-    paintRules();
+    const ruleList = el('div', { class: 'ps-chips' });
+    const paintRules = () => {
+      ruleList.replaceChildren(...rules.map((r) => el('span', { class: 'ps-chip' }, el('span', { text: N.ruleText(r) }),
+        el('button', { type: 'button', class: 'ps-chip-x', html: icon('close', 12), title: `Forget ${N.ruleText(r)}`, 'aria-label': `Forget ${N.ruleText(r)}`, onclick: () => { rules = rules.filter((x) => x !== r); paintRules(); } }))));
+      if (rulesRow) rulesRow.hidden = !rules.length;
+    };
+    let rulesRow = null;
     let model = was ? { url: was.model, name: was.name || 'Model' } : null;
     const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`).catch(() => null);
-    const views = [...new Set([...((cat && cat.views) || []), ...(was && was.view ? [was.view] : [])])];
+    // Its views as they are: set, or (from before the setting) as its versions have been filed.
+    const list = (cat && cat.viewList) || null;
+    const byView = el('input', { type: 'checkbox', class: 'switch', ...(list && { checked: true }), 'aria-label': 'Several views of each version' });
+    const viewNames = el('input', { type: 'text', value: (list || []).join(', '), placeholder: 'cmp, bty', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Its views, the main one first' });
+    const named = () => [...new Set(viewNames.value.split(/[\s,]+/).map((v) => N.tokenize(v)).filter(Boolean))];
     const file = el('span', { class: 'ps-file' });
     const picker = el('input', { type: 'file', accept: '.glb,model/gltf-binary', hidden: true });
     const choose = el('button', { type: 'button', class: 'btn small', onclick: () => picker.click() });
     const remove = el('button', { type: 'button', class: 'btn small ghost', text: 'Remove', onclick: () => { model = null; paint(); } });
     const screen = el('input', { type: 'text', value: (was && was.screen) || 'screen', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Material of the projection surface' });
-    const view = el('select', { 'aria-label': 'Which view goes on the model' },
-      [['', 'Main view'], ...views.map((v) => [v, v])].map(([v, t]) => el('option', { value: v, text: t, ...((was ? was.view || '' : '') === v && { selected: true }) })));
+    const view = el('select', { 'aria-label': 'Which view goes on the model' });
+    // The ways it can show a version on the model: its views as they are being set here, the main one first.
+    const paintViews = () => {
+      const now = byView.checked && named().length > 1 ? named() : null;
+      const chosen = view.value || (was ? was.view || '' : '');
+      view.replaceChildren(...[['', now ? `${now[0]} (main)` : 'Main view'], ...(now || []).slice(1).map((v) => [v, v])]
+        .map(([v, t]) => el('option', { value: v, text: t, ...(chosen === v && { selected: true }) })));
+      if (viewsRow) viewsRow.hidden = !byView.checked;
+      if (pictureRow) pictureRow.hidden = !model || !now;
+    };
+    let viewsRow = null;
+    let pictureRow = null;
+    byView.addEventListener('change', paintViews);
+    viewNames.addEventListener('input', paintViews);
+    paintViews();
     const save = el('button', { type: 'submit', class: 'btn primary', text: 'Save' });
     const paint = () => {
       file.textContent = model ? model.name : 'No model';
       file.classList.toggle('none', !model);
       choose.textContent = model ? 'Replace…' : 'Choose a .glb…';
       remove.hidden = !model;
-      screen.disabled = view.disabled = !model;
+      // What goes with a model, only once there is one.
+      surfaceRow.hidden = !model;
+      paintViews();
     };
     picker.addEventListener('change', async () => {
       const f = picker.files[0];
@@ -401,16 +423,33 @@
       save.disabled = choose.disabled = false;
       paint();
     });
+    // A setting: what it is, a few words more when it needs them, and its control. `sub` is one that
+    // belongs to the setting above, shown only while that is on.
     const row = (label, hint, ...control) => el('div', { class: 'ps-row' },
       el('div', { class: 'ps-label' }, el('b', { text: label }), hint && el('span', { text: hint })), el('div', { class: 'ps-control' }, ...control));
+    const sub = (label, hint, ...control) => {
+      const node = row(label, hint, ...control);
+      node.classList.add('sub');
+      return node;
+    };
+    viewsRow = sub('Views', 'The main one first: a file of it is a version, the others go with one', viewNames);
+    const surfaceRow = sub('Screen material', 'What the screens are called in the model', screen);
+    pictureRow = sub('On the screens', 'Which view of a version is shown', view);
+    rulesRow = row('Learned file names', 'Names from elsewhere, read this way when filing', ruleList);
+    paintRules();
     const dlg = el('dialog', { class: 'dlg ps-dlg' },
       el('form', {
         method: 'dialog',
         onsubmit: async (e) => {
           e.preventDefault();
+          if (byView.checked && named().length < 2) {
+            WB.toast('Name at least two views, the main one first: cmp, bty', { ms: 6000 });
+            viewNames.focus();
+            return;
+          }
           save.disabled = true;
           try {
-            await api('PATCH', `/api/folders/${project.id}`, { settings: { tasks: byTask.checked, rules, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value } : null } });
+            await api('PATCH', `/api/folders/${project.id}`, { settings: { tasks: byTask.checked, views: byView.checked ? named() : false, rules, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value } : null } });
             catalogues.delete(project.id);
             await refresh();
             dlg.close();
@@ -423,13 +462,14 @@
       },
       el('h2', { text: `${project.name}: settings` }),
       el('h3', { class: 'ps-sec', text: 'Versions' }),
-      row('Count by task', 'Each task (anim, lighting...) has its own v1, v2... Off, each asset, set or shot has one count, and filing asks for no task', byTask),
-      row('Names from elsewhere', 'How file names that are not to the styleguide are read', ruleList),
-      el('h3', { class: 'ps-sec', text: '3D preview' }),
-      el('p', { class: 'ps-intro', text: 'Show the work on a 3D model of the venue: the player gets a 2D / 3D switch, and the picture plays on the model.' }),
-      row('Model', 'A .glb of the venue, with a camera named “main”: the view the work is judged and drawn from', el('div', { class: 'ps-model' }, file, choose, remove), picker),
-      row('Projection surface', 'The name of the material the screens have', screen),
-      row('Picture on the model', 'Which view of a version goes on the screens', view),
+      row('Count by task', 'anim v1, lighting v1… rather than one count', byTask),
+      row('Several views of each version', 'Each version as more than one file: cmp and bty, say', byView),
+      viewsRow,
+      rulesRow,
+      el('h3', { class: 'ps-sec', text: '3D' }),
+      row('Venue model', 'A .glb with a camera named “main”: the player gets a 2D / 3D switch', el('div', { class: 'ps-model' }, file, choose, remove), picker),
+      surfaceRow,
+      pictureRow,
       el('div', { class: 'dlg-actions' }, el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }), save)));
     dlg.addEventListener('close', () => dlg.remove());
     paint();
@@ -1435,7 +1475,7 @@
               { name: 'Task', value: task, def: '', options: tasks.length ? [['', 'Newest of any task'], ...tasks.map((x) => [x, `Newest ${x}`])] : [], pick: (v) => { task = v; store('wb:tl:task', v); reload(); } },
               { name: 'Shots', value: withEmpty ? 'all' : 'filed', def: 'all', options: emptyShots ? [['all', 'All shots, a slate where nothing is filed'], ['filed', 'Only shots with something filed']] : [], pick: (v) => { withEmpty = v === 'all'; store('wb:tl:empty', withEmpty); reload(); } },
               // In 3D the view is the one the project puts on its model, so there is none to choose.
-              ...(views.length > 1 && !in3d ? [WBViewer.viewGroup(views, view, (v) => { view = v; store(`wb:view:${key}`, v); reload({ keep: true }); })] : []),
+              ...(views.length > 1 && !in3d ? [WBViewer.viewGroup(views, view, (v) => { view = v; store(`wb:view:${key}`, v); reload({ keep: true }); }, project.settings && Array.isArray(project.settings.views) ? project.settings.views : null)] : []),
             ];
           }, { title: 'What the timeline plays' });
           return [opts];
@@ -2485,16 +2525,10 @@
       },
     });
     if (ai) ai.node.hidden = true;
-    // Which view of its version a file is (cmp, bty...): asked only of a project that shows its versions
-    // more than one way, or once a file's name says it is one; otherwise turned on here.
-    let viewsAsked = false;
-    const viewsOn = () => viewsAsked || !!(cat && cat.views && cat.views.length) || rows.some((r) => r.parsed.view);
-    const viewsBtn = el('button', {
-      type: 'button', class: 'btn small ghost', text: 'Views',
-      title: 'Say which view of its version each file is (cmp, bty, top...), when a version is shown more than one way',
-      onclick: () => { viewsAsked = true; resyncAll(); },
-    });
-    const head = el('div', { class: 'imp-head' }, title, fillAll, el('span', { class: 'imp-gap' }), viewsBtn, aiBtn, clearBtn, fileAll);
+    // The ways the project shows its versions, the main one first, or null for one way (its settings):
+    // each row then says which it is (filing.js).
+    const viewList = () => (cat ? cat.viewList : Array.isArray(settings().views) ? settings().views : null) || null;
+    const head = el('div', { class: 'imp-head' }, title, fillAll, el('span', { class: 'imp-gap' }), aiBtn, clearBtn, fileAll);
     // The rows that need nothing from anyone, folded into one line over the rest (filing.js).
     const fold = WBFiling.readyFold({
       items: () => rows.filter((o) => o.fields && unfiled(o) && o.status !== 'failed').map((o) => ({ f: o.fields.f, node: o.node, r: o })),
@@ -2511,27 +2545,38 @@
 
     const PHASE = { enc: 'Preparing', up: 'Uploading', strip: 'Building timeline', orig: 'Keeping the original' };
     const choiceOf = (r) => ({ name: r.fields.f.name(), task: r.fields.f.taskName() });
-    const viewOf = (r) => (viewsOn() && N.tokenize(r.fields.view.value)) || null;
+    const viewOf = (r) => r.fields.f.viewName();
     // The next number for a row: one past the highest its asset, set or shot and task has, counting the
     // rows above it still to be filed to the same. Another view of the row just above (the same name and
     // task, from the same version of the file) is the same version, and has its number.
+    // The row a view goes with: another of the same asset, set or shot and task, from the same version of
+    // the file (by the version its name says, when both say one), the main one first, above or below it.
+    // Without a version in the names, the nearest row above going there.
+    function partnerOf(r) {
+      const view = viewOf(r);
+      if (!view) return null;
+      const { name, task } = choiceOf(r);
+      const others = rows.filter((o) => o !== r && o.fields && o.status !== 'failed' && viewOf(o) !== view
+        && choiceOf(o).name === name && choiceOf(o).task === task);
+      if (r.parsed.hip != null) {
+        const same = others.filter((o) => o.parsed.hip === r.parsed.hip);
+        return same.find((o) => !viewOf(o)) || same[0] || null;
+      }
+      const above = others.filter((o) => rows.indexOf(o) < rows.indexOf(r));
+      return above[above.length - 1] || null;
+    }
     function nextNumber(r) {
       const { name, task } = choiceOf(r);
       const view = viewOf(r);
       if (view) {
-        let prev = null;
-        for (const o of rows) {
-          if (o === r) break;
-          if (!o.fields) continue;
-          const c = choiceOf(o);
-          if (c.name === name && c.task === task) prev = o;
-        }
-        if (prev && viewOf(prev) !== view && prev.parsed.hip === r.parsed.hip) {
-          const n = prev.status === 'filed' && prev.version ? prev.version.number : Number(prev.fields.num.value);
+        const partner = partnerOf(r);
+        if (partner) {
+          const n = partner.status === 'filed' && partner.version ? partner.version.number
+            : partner.numTouched || viewOf(partner) ? Number(partner.fields.num.value) : nextNumber(partner);
           if (n) return n;
         }
         // On its own, it goes with the newest version there is of that, if that has no such view yet.
-        const newest = !prev && known(name) && known(name).newest;
+        const newest = !partner && known(name) && known(name).newest;
         if (newest && (newest.task || null) === task && !WBViewer.inView(newest.look, '').viewNames.includes(view)) return newest.number;
       }
       const have = known(name);
@@ -2539,6 +2584,8 @@
       for (const o of rows) {
         if (o === r) break;
         if (o.status === 'filed' || !o.fields) continue;
+        // A view that goes with another row makes no version of its own.
+        if (viewOf(o) && partnerOf(o)) continue;
         const c = choiceOf(o);
         if (c.name === name && c.task === task) n = Math.max(n, (Number(o.fields.num.value) || n) + 1);
       }
@@ -2565,21 +2612,19 @@
         const a = res.answers[r.key];
         if (!a || !unfiled(r)) continue;
         const f = r.fields;
-        before.push({ r, ent: f.ent.value, task: f.task.value, tier: f.tier.value, num: f.num.value, numTouched: r.numTouched, view: f.view.value });
+        before.push({ r, ent: f.ent.value, task: f.task.value, tier: f.tier.value, num: f.num.value, numTouched: r.numTouched, view: f.f.viewName() });
         f.ent.value = a.entity;
         f.task.value = a.task || '';
         WBFiling.changed();
         f.tier.value = a.tier;
         // A view only where Claude gave one: a row's own is not taken away for want of an answer.
-        if (a.view) f.view.value = a.view;
+        if (a.view) f.f.setView(a.view);
         r.numTouched = !!a.version;
         if (a.version) f.num.value = String(a.version);
         setMark(r, WBClaude.mark(a.note, a.fits));
         n++;
       }
       // Views given show their boxes, so what was filled in is seen and can be checked.
-      const viewsBefore = viewsAsked;
-      if (asked.some((r) => res.answers[r.key] && res.answers[r.key].view)) viewsAsked = true;
       resyncAll();
       if (!n) return { text: 'Claude had nothing to suggest for these' };
       const missed = asked.length - n;
@@ -2592,11 +2637,10 @@
             WBFiling.changed();
             b.r.fields.tier.value = b.tier;
             b.r.fields.num.value = b.num;
-            b.r.fields.view.value = b.view;
+            if (viewList()) b.r.fields.f.setView(b.view || viewList()[0]);
             b.r.numTouched = b.numTouched;
             setMark(b.r, null);
           }
-          viewsAsked = viewsBefore;
           resyncAll();
         },
       };
@@ -2617,7 +2661,7 @@
       const ruled = !r.parsed.entity && N.byRules(r.file.name, rules(), tasks());
       r.taught = !r.entity && !r.parsed.entity && !ruled;
       const f = WBFiling.fields({
-        presetId, getEntities: () => (cat ? cat.entities : []), getTasks: tasks, getViews: () => (cat && cat.views) || [], label: r.file.name,
+        presetId, getEntities: () => (cat ? cat.entities : []), getTasks: tasks, views: viewList(), view: r.parsed.view, label: r.file.name,
         entity: r.entity ? r.entity.name : r.parsed.entity || (ruled && ruled.entity) || '', task: r.parsed.task || (ruled && ruled.task) || '', onChange: resyncAll,
         named: !!(r.entity || r.parsed.entity || ruled), piece: () => r.look,
         useTasks: useTasks(), rules, peers, remembered: store(`wb:file:${project.id}`) || null,
@@ -2627,21 +2671,11 @@
             num.value = String(l.number);
             r.numTouched = true;
           }
-          if (l.view) {
-            r.fields.view.value = l.view;
-            viewsAsked = true;
-          }
           resyncAll();
         },
       });
       const { ent, task, tier } = f;
       num.addEventListener('input', () => { r.numTouched = num.value !== ''; resyncAll(); });
-      const view = el('input', {
-        type: 'text', class: 'imp-view', value: r.parsed.view || '', placeholder: 'View', spellcheck: 'false', 'aria-label': 'View',
-        title: 'Which view of the version this file is (cmp, bty, top...). Another view of a version that is there already goes with it. Leave it empty if there is only one',
-      });
-      WB.combo(view, (typed) => WB.rank([...new Set([...((cat && cat.views) || []), 'cmp', 'bty'])], typed).map((v) => ({ value: v, label: v })));
-      view.addEventListener('input', resyncAll);
       const go = el('button', { type: 'button', class: 'btn small', text: 'File', onclick: () => fileRow(r) });
       const status = el('span', { class: 'imp-status' });
       const bar = el('i', { class: 'imp-bar' }, el('i'));
@@ -2649,7 +2683,7 @@
       const said = el('button', { type: 'button', class: 'imp-filed', hidden: true, title: 'Open it, to look, comment and draw', onclick: () => r.version && lookAt(r.version.entityId, r.version.id) });
       // Taken back straight after, as if it had not been filed: the row is as it was, to file again.
       const undo = el('button', { type: 'button', class: 'btn small ghost imp-undo', text: 'Undo', hidden: true, title: 'Take it back, as if it had not been filed', onclick: () => unfileRow(r) });
-      const fields = el('span', { class: 'imp-fields' }, ent, tier, task, el('span', { class: 'imp-v' }, el('span', { text: 'v' }), num), view, go);
+      const fields = el('span', { class: 'imp-fields' }, ent, tier, task, el('span', { class: 'imp-v' }, el('span', { text: 'v' }), num), f.viewSel, go);
       const sync = () => {
         const { name } = choiceOf(r);
         if (!r.numTouched && r.status !== 'filed') {
@@ -2657,7 +2691,6 @@
           if (num.value !== String(next)) num.value = String(next);
         }
         f.sync();
-        view.hidden = !viewsOn();
         go.disabled = !canFile(r);
         // Another view of the version the row above is: shown as going with it.
         const above = rows[rows.indexOf(r) - 1];
@@ -2666,11 +2699,11 @@
           && choiceOf(above).name === name && choiceOf(above).task === task && viewOf(above) !== viewOf(r) && Number(above.fields.num.value) === Number(num.value)));
         paintHead();
       };
-      for (const input of [ent, task, num, view]) {
+      for (const input of [ent, task, num]) {
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented && canFile(r)) fileRow(r); });
         input.addEventListener('input', () => setMark(r, null));
       }
-      r.fields = { f, ent, task, num, view, tier, go, status, bar, thumb, said, undo, box: fields, sync };
+      r.fields = { f, ent, task, num, view: f.viewSel, tier, go, status, bar, thumb, said, undo, box: fields, sync };
       // Taken back: whatever is under way for it stops, and the row goes.
       const drop = el('button', {
         type: 'button', class: 'iconbtn imp-x', html: icon('close', 14), title: `Take ${r.file.name} back`,
@@ -2731,7 +2764,6 @@
       fileAll.hidden = !ready;
       clearBtn.hidden = !filed && !rows.some((r) => r.status === 'failed' && !r.look);
       fillAll.hidden = rows.filter((r) => r.status !== 'filed').length < 2;
-      viewsBtn.hidden = viewsOn() || !rows.some(unfiled);
       if (aiBtn) aiBtn.hidden = !rows.some(unfiled);
       fold.paint();
       if (ai && aiBtn.hidden) ai.node.hidden = true;
@@ -2764,12 +2796,23 @@
       showFiled();
     }
 
-    async function fileRow(r) {
+    // Filed once however often it is asked (a view's row asks for the row it goes with, which may be on its way already).
+    function fileRow(r) {
+      if (!r.inflight) r.inflight = fileRowNow(r).finally(() => { r.inflight = null; });
+      return r.inflight;
+    }
+    async function fileRowNow(r) {
       if (!canFile(r)) return;
       r.fields.f.settle();
       // A new sequence is said out loud once before it is made.
       if (!(await WBFiling.confirmSequences([r.fields.f], seqsAsked))) return;
       if (!canFile(r)) return;
+      // A view goes with its version, so the row that makes that version is filed first, then this counts from it.
+      const partner = partnerOf(r);
+      if (partner && !viewOf(partner) && unfiled(partner) && (canFile(partner) || partner.inflight)) {
+        await fileRow(partner);
+        r.fields.sync();
+      }
       // Still on its way in: filed as soon as it is here.
       if (!r.look) {
         r.fileWhenReady = true;
@@ -2782,7 +2825,7 @@
       paintRow(r);
       try {
         const view = viewOf(r);
-        const res = await api('POST', `/api/projects/${project.id}/versions`, { files: [{ look: r.look, entity, task, ...(view && { view }), ...(Number.isSafeInteger(number) && number >= 1 && { number }) }], by: me.name });
+        const res = await api('POST', `/api/projects/${project.id}/versions`, { files: [{ look: r.look, entity, task, view, ...(Number.isSafeInteger(number) && number >= 1 && { number }) }], by: me.name });
         const v = res.versions[0];
         Object.assign(r, { status: 'filed', label: v.filedView ? `${v.label} · ${v.filedView}` : v.label, version: v, filedAt: Date.now() });
         store(`wb:file:${project.id}`, { entity: name, task });
@@ -2847,7 +2890,11 @@
     }
 
     // `entity`, when the files are added on an entity's page, is what they are filled in as.
-    function add(files, entity = null) {
+    // (The catalogue is had first: what the project is set to, its views among it, shapes each row.)
+    async function add(files, entity = null) {
+      // A new lot is read against the project as it is now (its settings may have changed since the last).
+      if (!rows.some(unfiled)) cat = null;
+      await catalogue().catch(() => {});
       let n = 0;
       for (const file of files) {
         if (!/^(image|video)\//.test(file.type) && !/\.(png|jpe?g|gif|webp|avif|bmp|svg|mp4|m4v|webm|mov)$/i.test(file.name)) continue;

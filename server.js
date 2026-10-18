@@ -850,15 +850,22 @@ function holdsProject(folder) {
 // A project's settings: its naming preset, and its 3D preview: the model of the venue its work is shown
 // on (an uploaded .glb), the name of the material its projection surface has (`screen` unless said), and
 // which view of a version goes on it (its main one unless said). `preview3d: null` takes the 3D preview away.
-// `tasks: false` says its versions are not counted by task: each asset, set or shot has one count. And
-// `rules` are what its people taught it about file names from elsewhere (see ruleFrom in naming.js),
-// the whole list each time.
+// `tasks: false` says its versions are not counted by task: each asset, set or shot has one count.
+// `views` says how its versions are shown: false, one way only; or the names of the ways, the main one
+// first (["cmp", "bty"]: each version is its cmp, and may have a bty beside it). `rules` are what its
+// people taught it about file names from elsewhere (see ruleFrom in naming.js), the whole list each time.
 function cleanProjectSettings(asked, was = {}) {
   const out = { ...was };
   if (!asked || typeof asked !== 'object') return out;
   if (typeof asked.naming === 'string' && naming.PRESETS[asked.naming]) out.naming = asked.naming;
   if (asked.tasks === false) out.tasks = false;
   else if (asked.tasks === true) delete out.tasks;
+  if (asked.views === false) out.views = false;
+  else if (Array.isArray(asked.views)) {
+    const names = [...new Set(asked.views.map(viewName).filter(Boolean))].slice(0, 12);
+    // One name is no more than the one way every version is shown.
+    out.views = names.length > 1 ? names : false;
+  }
   if (Array.isArray(asked.rules)) {
     const rules = new Map();
     for (const r of asked.rules.slice(0, 200)) {
@@ -998,7 +1005,8 @@ function boardVersions(board) {
 function board3d(board) {
   const p = boardProject(board);
   const preview3d = p && p.settings && p.settings.preview3d;
-  return preview3d && preview3d.model ? { ...preview3d, key: p.id } : null;
+  // `main` is the name of the project's main view: a model set to show it shows each version's own file.
+  return preview3d && preview3d.model ? { ...preview3d, key: p.id, main: (viewsOf(p) || [])[0] || null } : null;
 }
 // A version as a board shows it, and in a project with a model of its venue, what goes on the model's
 // screens (`look3d`): the version's view the project puts there (its main one, unless the project names
@@ -1010,7 +1018,9 @@ function boardVersion(ref, model) {
   const v = typeof ref === 'string' ? liveVersion(ref) : ref;
   const look = v && v.look;
   if (!look || (look.type !== 'image' && look.type !== 'video')) return info;
-  const shown = !model.view || look.view === model.view ? look : (look.views || []).find((x) => x.view === model.view);
+  // Its own file is its main view, unless it was filed as another (a version that is only a bty, say).
+  const own = !model.view || look.view === model.view || (model.view === model.main && !look.view);
+  const shown = own ? look : (look.views || []).find((x) => x.view === model.view);
   if (!shown) return info;
   const look3d = {};
   for (const k of LOOK3D_KEYS) if (shown[k] !== undefined) look3d[k] = shown[k];
@@ -1033,6 +1043,27 @@ const retellEntity = (entityId) => retellEntities(new Set([entityId]));
 const presetOf = (project) => naming.preset(project.settings && project.settings.naming);
 // Whether a project counts its versions by task (see cleanProjectSettings).
 const usesTasks = (project) => !(project.settings && project.settings.tasks === false);
+// The ways a project's versions are shown, the main one first, or null for one way (see
+// cleanProjectSettings). A project from before the setting that has filed views has those, its main
+// one being what most of its versions are shown as first ("main" when they are not named).
+function viewsOf(project) {
+  const set = project.settings && project.settings.views;
+  if (set === false) return null;
+  if (Array.isArray(set) && set.length > 1) return set;
+  const had = store.projectViews(project.id);
+  if (!had.length) return null;
+  const main = store.mainView(project.id) || 'main';
+  return [main, ...had.filter((v) => v !== main)];
+}
+// Which view a file is filed as: null for the main one (a version of its own), else one of the project's
+// views, to go with a version that has not got it. A project shown one way has none at all.
+function viewFor(project, asked) {
+  const list = viewsOf(project);
+  const view = viewName(asked);
+  if (!list || !view || view === list[0]) return null;
+  if (!list.includes(view)) throw refusal(400, `“${view}” is not one of this project's views (${list.join(', ')})`);
+  return view;
+}
 
 // The entity a file is to go under, without making anything yet: one the project has, by its id or its
 // name, or one to make, by its name ({ name, tier, make: true }).
@@ -1113,7 +1144,7 @@ function fileVersions(req, project, body) {
     const asked = f.number ?? null;
     if (asked != null && !validNumber(asked)) throw refusal(400, 'A version number is a whole number from 1');
     return {
-      board, item, look, asked, view: viewName(f.view) || look.view || null,
+      board, item, look, asked, view: viewFor(project, f.view !== undefined ? f.view : look.view),
       entity: entityFor(project, pick('entity') ?? (parsed.entity && { name: parsed.entity, tier: parsed.tier })),
       task: !usesTasks(project) ? null : pick('task') !== undefined ? tokenOrNull(pick('task')) : parsed.task,
       descriptor: pick('descriptor') !== undefined ? tokenOrNull(pick('descriptor')) : parsed.descriptor,
@@ -1142,9 +1173,10 @@ function fileVersions(req, project, body) {
     const key = `${p.entity.make ? `+${p.entity.name}` : p.entity.id}|${p.task || ''}|${p.asked}`;
     const before = asking.get(key);
     if (before) {
-      // Two views of one version brought in together: the first makes it, the others go with it.
+      // Two views of one version brought in together: the first makes it (the main one, or a view), the
+      // others go with it.
       const views = [before.view, ...plan.filter((o) => o.with === before).map((o) => o.view)];
-      if (!p.view || !before.view || views.includes(p.view)) throw refusal(409, `${label(p.asked)} is asked for twice`);
+      if (!p.view || views.includes(p.view)) throw refusal(409, `${label(p.asked)} is asked for twice`);
       if (!p.onto) p.with = before;
     } else asking.set(key, p);
   }
@@ -1240,6 +1272,8 @@ async function handleCatalogue(req, res, parts) {
         tasks: [...new Set([...preset.tasks, ...store.projectTasks(project.id)])],
         artists: store.projectArtists(project.id),
         views: store.projectViews(project.id),
+        // How its versions are shown: its views, the main one first, or null for one way.
+        viewList: viewsOf(project),
         boards: [...boards.values()].filter((b) => visible(req.user, b) && boardProject(b) === project).map((b) => ({ id: b.id, name: b.name })),
       });
     }
@@ -1485,7 +1519,7 @@ async function handleCatalogue(req, res, parts) {
           const files = (Array.isArray(body.files) ? body.files : []).filter((f) => f && typeof f === 'object')
             .map((f) => ({ key: String(f.key), filename: String(f.filename || ''), now: f.now && typeof f.now === 'object' ? f.now : null }));
           if (files.length > ai.MAX_FILES) return sendJson(res, 400, { error: `Ask about at most ${ai.MAX_FILES} files at a time` });
-          const answers = await ai.fileNames({ instruction: body.instruction, files, presetId, entities, tasks, views: store.projectViews(project.id), useTasks: usesTasks(project) });
+          const answers = await ai.fileNames({ instruction: body.instruction, files, presetId, entities, tasks, views: viewsOf(project) || [], useViews: !!viewsOf(project), useTasks: usesTasks(project) });
           return sendJson(res, 200, { model: ai.model, answers });
         }
         const ids = Array.isArray(body.ids) ? [...new Set(body.ids.map(String))] : [];

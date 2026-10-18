@@ -7,6 +7,10 @@ open them in a viewer that steps frame by frame, and comment where it matters.
 
 All media stays on the machine that runs the server. Nothing is sent to a cloud service.
 
+**In development.** The app is not used in production yet: all boards, uploads and catalogues are test
+data, and a new version may not read what an older one stored. Start from a fresh data folder when it
+does not.
+
 ## Run it
 
 Needs [Node.js](https://nodejs.org) 22.13 or newer (the current LTS is fine).

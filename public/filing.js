@@ -87,7 +87,7 @@ const WBFiling = (() => {
       if (out.length) out[0].first = true;
       const seq = ctx.line && ctx.line.seq;
       if (seq) {
-        const next = N.nextShot([...names, ...((ctx.line && ctx.line.taken) || [])], seq);
+        const next = N.nextShot([...names, ...((ctx.line && ctx.line.taken) || [])], seq, ctx.presetId);
         push({ ...newOption(next, ctx.presetId, `next shot in ${seq}`), task: useTasks && last ? last.task || null : undefined });
       }
       for (const l of likely) if (!looksAlike(l) && byName.has(l.entity)) push(likeOption(l));
@@ -118,7 +118,7 @@ const WBFiling = (() => {
     }
     // "kilo-": the sequence's next shot.
     const seqTyped = /^([a-z0-9]+(?:-[a-z0-9]+)*)-$/.exec(text.toLowerCase());
-    if (seqTyped && names.some((n) => N.seqOf(n) === seqTyped[1])) push(newOption(N.nextShot(names, seqTyped[1]), ctx.presetId, `next shot in ${seqTyped[1]}`));
+    if (seqTyped && names.some((n) => N.seqOf(n, ctx.presetId) === seqTyped[1])) push(newOption(N.nextShot(names, seqTyped[1], ctx.presetId), ctx.presetId, `next shot in ${seqTyped[1]}`));
     if (name && !byName.has(name)) {
       for (const miss of N.nearMisses(name, names)) push(streamOption(byName.get(miss), null, 'did you mean?', useTasks));
       for (const c of N.corrections(name, ctx.presetId, names)) push(byName.has(c.name) ? streamOption(byName.get(c.name), null, 'to the styleguide', useTasks) : newOption(c.name, ctx.presetId, `new ${c.tier}`));
@@ -301,9 +301,9 @@ const WBFiling = (() => {
         get last() { return last(); },
         get taken() { return above.map((p) => p.name()).filter(Boolean); },
         get seq() {
-          for (let i = above.length - 1; i >= 0; i--) if (N.tierOf(above[i].name(), presetId) === 'shot') return N.seqOf(above[i].name());
+          for (let i = above.length - 1; i >= 0; i--) if (N.tierOf(above[i].name(), presetId) === 'shot') return N.seqOf(above[i].name(), presetId);
           const l = last();
-          return l && N.tierOf(l.entity, presetId) === 'shot' ? N.seqOf(l.entity) : null;
+          return l && N.tierOf(l.entity, presetId) === 'shot' ? N.seqOf(l.entity, presetId) : null;
         },
       };
     }
@@ -474,20 +474,20 @@ const WBFiling = (() => {
           if (fixes.length || !misses.length) out.push({ text: fixes.length ? 'Not to the styleguide. Perhaps' : 'Not to the styleguide: say what it is', fixes: fixes.map((c) => ({ label: c.name, run: () => setLine(c.name) })), warn: true, rank: 2 });
         }
         if (tierNow === 'shot') {
-          const seq = N.seqOf(n);
-          const seqs = [...new Set(names.filter((x) => N.tierOf(x, presetId) === 'shot').map(N.seqOf))];
+          const seq = N.seqOf(n, presetId);
+          const seqs = [...new Set(names.filter((x) => N.tierOf(x, presetId) === 'shot').map((x) => N.seqOf(x, presetId)))];
           const taken = lineContext().taken;
-          const above = taken.some((x) => N.seqOf(x) === seq && N.tierOf(x, presetId) === 'shot');
+          const above = taken.some((x) => N.seqOf(x, presetId) === seq && N.tierOf(x, presetId) === 'shot');
           if (!seqs.includes(seq) && !above) {
             // A warning when it is a letter or two from one there is; otherwise said in the tag that says
             // it is new (see paintReadout), and asked about when filed.
             const like = N.nearMisses(seq, seqs);
-            out.push({ text: like.length ? `A new sequence, ${seq}. Did you mean` : '', fixes: like.map((q) => ({ label: q, run: () => setLine(`${q}-${N.pad(N.shotNumber(n))}`) })), warn: like.length > 0, rank: 1, newSeq: seq });
+            out.push({ text: like.length ? `A new sequence, ${seq}. Did you mean` : '', fixes: like.map((q) => ({ label: q, run: () => setLine(N.shotName(q, N.shotNumber(n, presetId), presetId)) })), warn: like.length > 0, rank: 1, newSeq: seq });
           } else {
             // Past the last shot there is, or that a row above is making: a run of new shots warns once, at its jump.
-            const sq = N.sequence([...names, ...taken], seq);
-            const num = N.shotNumber(n);
-            if (sq.last && num > sq.last + 10 * sq.step) out.push({ text: `Far past the last shot of ${seq} (${N.pad(sq.last)})`, warn: true, rank: 5 });
+            const sq = N.sequence([...names, ...taken], seq, presetId);
+            const num = N.shotNumber(n, presetId);
+            if (sq.last && num > sq.last + 10 * sq.step) out.push({ text: `Far past the last shot of ${seq} (${N.pad(sq.last, presetId)})`, warn: true, rank: 5 });
           }
         }
       }
@@ -603,7 +603,7 @@ const WBFiling = (() => {
       const e = have(n);
       const t = taskName();
       const tierId = e ? e.tier : N.tierOf(n, presetId) || tier.value || null;
-      const seq = tierId === 'shot' ? N.seqOf(n) : null;
+      const seq = tierId === 'shot' ? N.seqOf(n, presetId) : null;
       const head = headOf();
       const num = number();
       const all = checks();
@@ -698,9 +698,9 @@ const WBFiling = (() => {
     if (at < 0 || !n) return null;
     const task = from.taskName();
     const names = entities.map((e) => e.name);
-    const shot = N.tierOf(n, presetId) === 'shot' ? N.seqOf(n) : null;
-    const step = shot ? N.sequence(names, shot).step : 0;
-    let num = shot ? N.shotNumber(n) : 0;
+    const shot = N.tierOf(n, presetId) === 'shot' ? N.seqOf(n, presetId) : null;
+    const step = shot ? N.sequence(names, shot, presetId).step : 0;
+    let num = shot ? N.shotNumber(n, presetId) : 0;
     const before = [];
     let kept = 0;
     for (const p of list.slice(at + 1)) {
@@ -710,8 +710,9 @@ const WBFiling = (() => {
       }
       before.push({ p, ent: p.ent.value, task: p.task.value });
       if (shot) {
-        do num += step; while (names.includes(`${shot}-${N.pad(num)}`) && num < 9999);
-        p.setLine(`${shot}-${N.pad(num)}`, task || '');
+        const most = 10 ** N.preset(presetId).shot.digits - 1;
+        do num += step; while (names.includes(N.shotName(shot, num, presetId)) && num < most);
+        p.setLine(N.shotName(shot, num, presetId), task || '');
       } else p.setLine(n, task || '');
     }
     if (!before.length && !kept) return null;
@@ -783,7 +784,7 @@ const WBFiling = (() => {
   function offerRule({ filename, filed, presetId, rules, others = [], tasks = [], save }) {
     const rule = N.ruleFrom(filename, filed, presetId);
     if (!rule || (rules || []).some((r) => N.ruleKey(r) === N.ruleKey(rule))) return;
-    const reads = others.filter((o) => !o.fields.name() && N.byRules(o.filename, [rule], tasks));
+    const reads = others.filter((o) => !o.fields.name() && N.byRules(o.filename, [rule], tasks, presetId));
     const like = rule.pattern ? 'names like it' : `“${rule.word}” names`;
     WB.toast(`${filename} was filed as ${N.label(filed.entity, filed.task, filed.number || '').replace(/ v$/, '')}. Read ${like} that way from now on?`, {
       key: 'rule', ms: 12000,
@@ -792,7 +793,7 @@ const WBFiling = (() => {
         run: async () => {
           await save([...(rules || []), rule]);
           for (const o of reads) {
-            const r = N.byRules(o.filename, [rule], tasks);
+            const r = N.byRules(o.filename, [rule], tasks, presetId);
             o.fields.setLine(r.entity, r.task || undefined);
             o.fields.take({ number: r.number, view: r.view, named: true });
           }

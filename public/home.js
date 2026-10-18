@@ -336,6 +336,8 @@
   // ------------------------------------------------------------- rendering
 
   const { plural } = WB;
+  // The sequence a shot of a catalogue is in, as the project's convention writes its shots.
+  const seqIn = (cat, name) => N.seqOf(name, cat && cat.preset && cat.preset.id);
 
   // A project is never inside another, nor around one.
   const inProject = (id) => trailTo(id).some((f) => f.project);
@@ -367,8 +369,8 @@
     let rules = [...((project.settings && project.settings.rules) || [])];
     const ruleList = el('div', { class: 'ps-chips' });
     const paintRules = () => {
-      ruleList.replaceChildren(...rules.map((r) => el('span', { class: 'ps-chip' }, el('span', { text: N.ruleText(r) }),
-        el('button', { type: 'button', class: 'ps-chip-x', html: icon('close', 12), title: `Forget ${N.ruleText(r)}`, 'aria-label': `Forget ${N.ruleText(r)}`, onclick: () => { rules = rules.filter((x) => x !== r); paintRules(); } }))));
+      ruleList.replaceChildren(...rules.map((r) => el('span', { class: 'ps-chip' }, el('span', { text: N.ruleText(r, project.settings && project.settings.naming) }),
+        el('button', { type: 'button', class: 'ps-chip-x', html: icon('close', 12), title: `Forget ${N.ruleText(r, project.settings && project.settings.naming)}`, 'aria-label': `Forget ${N.ruleText(r, project.settings && project.settings.naming)}`, onclick: () => { rules = rules.filter((x) => x !== r); paintRules(); } }))));
       if (rulesRow) rulesRow.hidden = !rules.length;
     };
     let rulesRow = null;
@@ -606,7 +608,8 @@
     if (v.tier) return `t:${rt.id}:${v.tier}`;
     if (v.entity) {
       const e = (catalogues.get(rt.id)?.entities || []).find((x) => x.id === v.entity);
-      if (e && e.tier === 'shot' && N.seqOf(e.name)) return `s:${rt.id}:${N.seqOf(e.name)}`;
+      const seq = e && e.tier === 'shot' && seqIn(catalogues.get(rt.id), e.name);
+      if (seq) return `s:${rt.id}:${seq}`;
       return e ? `t:${rt.id}:${e.tier}` : `c:${rt.id}`;
     }
     return `c:${rt.id}`;
@@ -669,10 +672,10 @@
       }
       return cat.preset.tiers.flatMap((t) => {
         const of = cat.entities.filter((e) => e.tier === t.id);
-        const seqs = t.id === 'shot' ? [...new Set(of.map((e) => N.seqOf(e.name)).filter(Boolean))].sort() : [];
+        const seqs = t.id === 'shot' ? [...new Set(of.map((e) => seqIn(cat, e.name)).filter(Boolean))].sort() : [];
         return sideRow({
           key: `t:${f.id}:${t.id}`, depth: depth + 2, icon: ICON_DOT, label: t.label, href: WB.href.catalogue(f.id, { tier: t.id }), count: of.length, hereK,
-          kids: seqs.length ? () => seqs.flatMap((q) => sideRow({ key: `s:${f.id}:${q}`, depth: depth + 3, icon: ICON_DOT, label: q, href: WB.href.catalogue(f.id, { seq: q }), count: of.filter((e) => N.seqOf(e.name) === q).length, hereK })) : null,
+          kids: seqs.length ? () => seqs.flatMap((q) => sideRow({ key: `s:${f.id}:${q}`, depth: depth + 3, icon: ICON_DOT, label: q, href: WB.href.catalogue(f.id, { seq: q }), count: of.filter((e) => seqIn(cat, e.name) === q).length, hereK })) : null,
         });
       });
     };
@@ -806,7 +809,7 @@
           const tier = v.tier || (v.seq && 'shot') || (e && e.tier);
           const t = tier && cat && cat.preset.tiers.find((x) => x.id === tier);
           if (t) parts.push([t.label, WB.href.catalogue(f.id, { tier: t.id })]);
-          const seq = v.seq || (e && e.tier === 'shot' && N.seqOf(e.name));
+          const seq = v.seq || (e && e.tier === 'shot' && seqIn(cat, e.name));
           if (seq) parts.push([seq, WB.href.catalogue(f.id, { seq: seq })]);
           if (v.entity) {
             const name = e ? e.name : shownEntity && shownEntity.id === v.entity ? shownEntity.name : '…';
@@ -886,7 +889,7 @@
       }
       const tier = p.what === 'tier' && (/\/t\/([\w-]+)$/.exec(p.href) || [])[1];
       const of = p.kind === 'entity' ? cat.entities.filter((e) => e.id === p.id)
-        : p.what === 'sequence' ? cat.entities.filter((e) => e.tier === 'shot' && N.seqOf(e.name) === p.name)
+        : p.what === 'sequence' ? cat.entities.filter((e) => e.tier === 'shot' && seqIn(cat, e.name) === p.name)
           : cat.entities.filter((e) => e.tier === tier);
       pinned.push(...of.slice().sort((a, b) => (b.latestAt || 0) - (a.latestAt || 0)).slice(0, 40).map((e) => videoOf(e.newest)));
     }
@@ -1176,7 +1179,7 @@
   }
 
   // The groups the list is shown in, each { key, title, sub, list }, in the order they come.
-  function versionGroups(list, st, tierName) {
+  function versionGroups(list, st, tierName, cat) {
     if (st.group === 'time') {
       // By day; within a day, by who filed them (whoever filed last first), however their filing was
       // interleaved with others'.
@@ -1193,7 +1196,7 @@
       return days.map((d) => ({ key: `d${d.day}`, title: dayName(d.day), runs: d.runs }));
     }
     const keyOf = {
-      seq: (v) => (v.tier === 'shot' && N.seqOf(v.entity)) || `${tierName(v.tier)}s`,
+      seq: (v) => (v.tier === 'shot' && seqIn(cat, v.entity)) || `${tierName(v.tier)}s`,
       entity: (v) => v.entity,
       task: (v) => v.task || 'No task',
       by: (v) => v.createdBy || 'Somebody',
@@ -1234,7 +1237,7 @@
       });
     };
     const grid = (vs) => el('div', { class: 'board-grid ent-grid vl-grid' }, vs.map((v) => versionCard(project, { id: v.entityId, name: v.entity, tier: v.tier }, v, { list: true, tierName })));
-    const groups = versionGroups(list, st, tierName);
+    const groups = versionGroups(list, st, tierName, cat);
     // Shift and a click picks a run as it is shown.
     vpick.order = groups.flatMap((g) => (g.runs ? g.runs.flatMap((r) => r.list) : g.list).map((v) => v.id));
     const out = [...versionsTools(project, st, data)];
@@ -2023,11 +2026,11 @@
   // Each sequence as a strip of its shots, in order: filed this week, filed before, or nothing yet; and
   // how many of each. A shot in the strip opens it.
   function homeSequences(project, cat, label) {
-    const shots = cat.entities.filter((e) => e.tier === 'shot' && N.seqOf(e.name));
+    const shots = cat.entities.filter((e) => e.tier === 'shot' && seqIn(cat, e.name));
     if (!shots.length) return null;
     const bySeq = new Map();
     for (const e of shots.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))) {
-      const q = N.seqOf(e.name);
+      const q = seqIn(cat, e.name);
       if (!bySeq.has(q)) bySeq.set(q, []);
       bySeq.get(q).push(e);
     }
@@ -2237,7 +2240,7 @@
       const by = Math.max(1, Number(step.value) || 1);
       if (!q || !(b >= a) || (b - a) / by > 1000) return;
       const names = [];
-      for (let n = a; n <= b; n += by) names.push(`${q}-${String(n).padStart(4, '0')}`);
+      for (let n = a; n <= b; n += by) names.push(N.shotName(q, n, presetId));
       box.value = `${box.value.trim() ? `${box.value.trim()}\n` : ''}${names.join('\n')}`;
       paint();
     };
@@ -2437,7 +2440,7 @@
   function catalogueView(project, cat, view = {}) {
     const q = WBNaming.tokenize($('q').value);
     const list = cat.entities.filter((e) => (!q || e.name.includes(q))
-      && (!view.tier || e.tier === view.tier) && (!view.seq || (e.tier === 'shot' && N.seqOf(e.name) === view.seq)));
+      && (!view.tier || e.tier === view.tier) && (!view.seq || (e.tier === 'shot' && seqIn(cat, e.name) === view.seq)));
     const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
     const out = [];
     picking.order = [];
@@ -2453,7 +2456,7 @@
       // Shots by sequence, as they are on disk.
       const seqs = new Map();
       for (const e of of) {
-        const seq = N.seqOf(e.name) || 'other';
+        const seq = seqIn(cat, e.name) || 'other';
         (seqs.get(seq) || seqs.set(seq, []).get(seq)).push(e);
       }
       for (const [seq, shots] of seqs) {
@@ -3010,7 +3013,7 @@
       // The version it is to be: the next of that asset, set or shot and task (after any rows above going
       // to the same), unless another is typed (in its field, or at the end of the line: kilo-0010 v12).
       const num = el('input', { type: 'number', min: '1', step: '1', class: 'imp-num', 'aria-label': 'Version', title: 'Version: the next one, unless you say another' });
-      const ruled = !r.parsed.entity && N.byRules(r.file.name, rules(), tasks());
+      const ruled = !r.parsed.entity && N.byRules(r.file.name, rules(), tasks(), presetId);
       // Named some other way, and not by a pattern the project has: filing it may teach one.
       r.taught = !r.entity && !r.parsed.entity && !(ruled && ruled.rule.pattern);
       const f = WBFiling.fields({

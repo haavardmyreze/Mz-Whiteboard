@@ -619,12 +619,26 @@ filed in it.
   files), the project's names and tasks, and what the rows say now. Haiku is used unless `AI_MODEL`
   says otherwise. The server's side is `ai.js`; the box is `public/claude.js`.
 
-Names are read by the project's naming preset. The one there is follows the Myreze styleguide:
+Names are read by the project's naming convention. Every studio's work has the same structure
+(assets, sets and shots in sequences; tasks; numbered versions; views), so a convention changes only
+the words: it is data, not code. Each tier has a template, made of literal text and `{prefix}` (one of
+the tier's prefixes), `{what}` (what it is, in words), `{seq}` (the sequence) and `{shot:N}` (the
+shot, N digits). A file's name is read by its separator and the mark before its version. The tests a
+name is checked by, the shape shown to people and told to Claude, how a shot is numbered and what is
+offered as a correction all come from these.
+
+The one convention there is follows the Myreze styleguide:
+
+```js
+tiers: asset '{prefix}-{what}' (char prop env veh fx), set '{prefix}-{what}' (set), shot '{seq}-{shot:4}'
+file:  { sep: '_', version: 'v' }      // kilo-0010_anim_erik_v012.mov
+```
+
 `_` separates parts, `-` joins words, all lower case. An asset is `char-`, `prop-`, `env-`, `veh-` or
 `fx-` something, a set is `set-` something, a shot is `<sequence>-<number>` (`kilo-0010`). A file named
 `<context>_<task>[_<descriptor>]_<artist>_v###` (`kilo-0010_anim_erik_v012.mov`) says all of it. The
-rules are in `public/naming.js`, shared by the server and the pages, with how a typed line is read,
-the corrections and near misses offered, and the rules a project learns.
+conventions are in `public/naming.js`, shared by the server and the pages, with how a typed line is
+read, the corrections and near misses offered, and the rules a project learns.
 
 ## Data and backup
 

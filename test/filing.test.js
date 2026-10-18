@@ -138,3 +138,38 @@ test('filing: a video is most like the version it is as long as, at the same rat
   assert.deepEqual(likely.likelyFor({ type: 'image', nw: 320, nh: 180 }, heads, stripFor), []);
   assert.equal(likely.strip('bm90IGEgc3RyaXA='), null);
 });
+
+test('naming: a convention is data, and names are read by its templates, not by Myreze’s', () => {
+  // Myreze's, compiled, says what it always did.
+  const m = naming.preset('myreze');
+  assert.equal(m.tiers[0].shape, 'char-, prop-, env-, veh- or fx- and then what it is (char-robot, prop-old-sword)');
+  assert.equal(m.tiers[2].shape, '<sequence>-<shot>: the shot is always four digits, the sequence is free (kilo-0010, ch01-0020, ep2-intro-0100)');
+  // Another studio's: chr-/prp- assets, loc- sets, sq010-sh040 shots of three digits, files read.by.dots.ver003.
+  naming.PRESETS.other = naming.compile({
+    name: 'Other',
+    tiers: [
+      { id: 'asset', label: 'Assets', one: 'asset', name: '{prefix}-{what}', prefixes: ['chr', 'prp'] },
+      { id: 'set', label: 'Sets', one: 'set', name: 'loc-{what}', examples: ['loc-harbour'] },
+      { id: 'shot', label: 'Shots', one: 'shot', name: 'sq{seq}-sh{shot:3}', examples: ['sq010-sh040'] },
+    ],
+    file: { sep: '.', version: 'ver' },
+    tasks: ['comp'],
+  });
+  try {
+    const o = 'other';
+    assert.deepEqual(['chr-robot', 'loc-harbour', 'sq010-sh040', 'kilo-0010', 'char-robot'].map((n) => naming.tierOf(n, o)), ['asset', 'set', 'shot', null, null]);
+    assert.equal(naming.preset(o).tiers[1].shape, 'loc-<what it is> (loc-harbour)');
+    assert.equal(naming.preset(o).tiers[2].shape, 'sq<sequence>-sh<shot>: the shot is always three digits, the sequence is free (sq010-sh040)');
+    assert.equal(naming.seqOf('sq010-sh040', o), '010');
+    assert.equal(naming.shotNumber('sq010-sh040', o), 40);
+    assert.equal(naming.nextShot(['sq010-sh010', 'sq010-sh020'], '010', o), 'sq010-sh030');
+    assert.equal(naming.readLine('20', { presetId: o, seq: '010' }).entity, 'sq010-sh020');
+    assert.deepEqual(naming.corrections('sq010-sh40', o), [{ name: 'sq010-sh040', tier: 'shot' }]);
+    assert.deepEqual(naming.corrections('robot', o).map((c) => c.name), ['chr-robot', 'prp-robot', 'loc-robot']);
+    const p = naming.parse('sq010-sh040.comp.erik.ver003.mov', o);
+    assert.deepEqual([p.entity, p.tier, p.task, p.artist, p.hip], ['sq010-sh040', 'shot', 'comp', 'erik', 3]);
+    assert.equal(naming.byRules('KLO_020.mov', [{ word: 'klo', seq: '010' }], [], o).entity, 'sq010-sh020');
+  } finally {
+    delete naming.PRESETS.other;
+  }
+});

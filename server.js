@@ -1053,7 +1053,8 @@ function retellEntities(entityIds) {
 }
 const retellEntity = (entityId) => retellEntities(new Set([entityId]));
 
-const presetOf = (project) => naming.preset(project.settings && project.settings.naming);
+const namingOf = (project) => (project.settings && project.settings.naming) || undefined;
+const presetOf = (project) => naming.preset(namingOf(project));
 // Whether a project counts its versions by task (see cleanProjectSettings).
 const usesTasks = (project) => !(project.settings && project.settings.tasks === false);
 // The ways a project's versions are shown, the main one first, or null for one way (see
@@ -1355,7 +1356,7 @@ async function handleCatalogue(req, res, parts) {
           const ents = store.entities(project.id);
           out.facets = {
             tasks: store.projectTasks(project.id), filers: store.projectFilers(project.id), artists: store.projectArtists(project.id),
-            seqs: [...new Set(ents.filter((e) => e.tier === 'shot' && naming.seqOf(e.name)).map((e) => naming.seqOf(e.name)))].sort(),
+            seqs: [...new Set(ents.filter((e) => e.tier === 'shot' && naming.seqOf(e.name, namingOf(project))).map((e) => naming.seqOf(e.name, namingOf(project))))].sort(),
             tiers: presetOf(project).tiers.filter((t) => ents.some((e) => e.tier === t.id)).map((t) => ({ id: t.id, label: t.label })),
             untasked: ents.some((e) => e.tops && e.tops['']),
           };
@@ -1444,7 +1445,7 @@ async function handleCatalogue(req, res, parts) {
         const cols = new Map();
         for (const v of list) {
           const e = store.entity(v.entityId);
-          const key = e.tier === 'shot' ? `0:${naming.seqOf(e.name) || e.name}` : `${e.tier === 'asset' ? 1 : 2}:${e.tier === 'asset' ? 'Assets' : 'Sets'}`;
+          const key = e.tier === 'shot' ? `0:${naming.seqOf(e.name, namingOf(project)) || e.name}` : `${e.tier === 'asset' ? 1 : 2}:${e.tier === 'asset' ? 'Assets' : 'Sets'}`;
           (cols.get(key) || cols.set(key, []).get(key)).push({ v, name: e.name });
         }
         let x = 0;
@@ -1512,7 +1513,7 @@ async function handleCatalogue(req, res, parts) {
         shots: shots.map((e) => {
           const v = task ? store.newestOfTask(e.id, naming.tokenize(task) || null) : e.newest;
           return {
-            id: e.id, name: e.name, seq: naming.seqOf(e.name), artists: e.artists,
+            id: e.id, name: e.name, seq: naming.seqOf(e.name, namingOf(project)), artists: e.artists,
             version: v && { ...v, label: naming.label(e.name, v.task, v.number) },
           };
         }),
@@ -3594,7 +3595,7 @@ function handleWatchApi(req, res, url, token, rest) {
     if (!wasShown(pres, 'run', null, naming.tokenize(task) || '')) return sendJson(res, 404, { error: 'Not shown' });
     return sendJson(res, 200, {
       project: projectOut, tasks: store.projectTasks(project.id), views: store.projectViews(project.id),
-      shots: timelineShots(project.id, task).map(({ e, v }) => ({ id: e.id, name: e.name, seq: naming.seqOf(e.name), version: v && versionOut(v, e) })),
+      shots: timelineShots(project.id, task).map(({ e, v }) => ({ id: e.id, name: e.name, seq: naming.seqOf(e.name, namingOf(project)), version: v && versionOut(v, e) })),
     });
   }
   return sendJson(res, 404, { error: 'Not found' });

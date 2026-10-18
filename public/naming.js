@@ -4,7 +4,10 @@
 // (screenshoot_090126.png) is still filed, by hand. What a name does say only fills in the choices ahead
 // of time. Used by the server and by the pages, so both read a name the same way.
 //
-// A project follows a preset. The one there is, Myreze's styleguide:
+// A project follows a convention: how a studio names what it makes. The structure is the same for every
+// studio (assets, sets and shots in sequences; tasks; numbered versions; views); only the names differ,
+// so a convention is data, not code: words and templates, compiled below into what the code reads.
+// The one there is, Myreze's styleguide:
 //   `_` separates tokens, `-` joins words inside a token, all lowercase.
 //   An asset is char-, prop-, env-, veh- or fx- something (char-robot), a set is set- something
 //   (set-living-room), a shot is <sequence>-<four digits> (kilo-0010, ch01-0010).
@@ -18,21 +21,88 @@
   else root.WBNaming = make();
 })(typeof self !== 'undefined' ? self : this, () => {
   const TOKEN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+  const WORDS = '[a-z0-9]+(?:-[a-z0-9]+)*';
 
-  const PRESETS = {
-    // Each tier's `shape` says in words what its `test` checks (shown to people, and told to Claude).
+  // A convention:
+  //   tiers: each the same three, asset, set and shot, as this studio calls and names them. `name` is the
+  //     template a name of it has: literal text and
+  //       {prefix}  one of the tier's `prefixes`        {what}   what it is, in words (robot, old-sword)
+  //       {seq}     the sequence, in words (kilo, ep2-intro)   {shot:N}  the shot, N digits
+  //     A shot's template has a {seq} and a {shot:N}. `examples` are shown beside its shape.
+  //   file: how a file's name is read: `sep` between its tokens and `version` before its number (v012).
+  //   tasks: the tasks it usually has. aliases: words written for a prefix instead of it (character-robot).
+  const CONVENTIONS = {
     myreze: {
       name: 'Myreze styleguide',
       tiers: [
-        { id: 'asset', label: 'Assets', one: 'asset', shape: 'char-, prop-, env-, veh- or fx- and then what it is (char-robot, prop-old-sword)', test: /^(char|prop|env|veh|fx)-[a-z0-9]+(?:-[a-z0-9]+)*$/, prefixes: ['char', 'prop', 'env', 'veh', 'fx'] },
-        { id: 'set', label: 'Sets', one: 'set', shape: 'set- and then what it is (set-living-room)', test: /^set-[a-z0-9]+(?:-[a-z0-9]+)*$/, prefixes: ['set'] },
-        { id: 'shot', label: 'Shots', one: 'shot', shape: '<sequence>-<shot>: the shot is always four digits, the sequence is free (kilo-0010, ch01-0020, ep2-intro-0100)', test: /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9]{4}$/ },
+        { id: 'asset', label: 'Assets', one: 'asset', name: '{prefix}-{what}', prefixes: ['char', 'prop', 'env', 'veh', 'fx'], examples: ['char-robot', 'prop-old-sword'] },
+        { id: 'set', label: 'Sets', one: 'set', name: '{prefix}-{what}', prefixes: ['set'], examples: ['set-living-room'] },
+        { id: 'shot', label: 'Shots', one: 'shot', name: '{seq}-{shot:4}', examples: ['kilo-0010', 'ch01-0020', 'ep2-intro-0100'] },
       ],
+      file: { sep: '_', version: 'v' },
       tasks: ['model', 'rig', 'lookdev', 'dressing', 'layout', 'anim', 'fx', 'lighting'],
-      // Words people write for a prefix instead of it (character-robot), read as the prefix.
       aliases: { character: 'char', chr: 'char', props: 'prop', vehicle: 'veh', environment: 'env', effect: 'fx', effects: 'fx', vfx: 'fx' },
     },
   };
+
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const DIGITS = ['one', 'two', 'three', 'four', 'five', 'six'];
+  const list = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} or ${xs[xs.length - 1]}` : xs[0] || '');
+  // A template's literal text and parts in order: ['', '{seq}', '-', '{shot:4}', ''].
+  const pieces = (template) => template.split(/(\{(?:prefix|what|seq|shot:\d)\})/);
+
+  // A tier as the code reads it: the convention's words, and `test` (whether a name is of it), `shape`
+  // (what its template says, in words, shown to people and told to Claude) and, for shots, `shot`: the
+  // text before the sequence, between it and the number, and after, and how many digits the number has.
+  function compileTier(tier) {
+    const parts = pieces(tier.name);
+    const prefixes = tier.prefixes || [];
+    const test = new RegExp(`^${parts.map((p, i) => (i % 2 === 0 ? esc(p)
+      : p === '{prefix}' ? `(?:${prefixes.map(esc).join('|')})` : p.startsWith('{shot') ? `[0-9]{${p[6]}}` : WORDS)).join('')}$`);
+    const ex = tier.examples && tier.examples.length ? ` (${tier.examples.join(', ')})` : '';
+    let shape;
+    if (parts.length === 5 && parts[0] === '' && parts[1] === '{prefix}' && parts[3] === '{what}' && parts[4] === '') {
+      shape = `${list(prefixes.map((x) => `${x}${parts[2]}`))} and then what it is${ex}`;
+    } else {
+      const notes = [];
+      const said = parts.map((p, i) => {
+        if (i % 2 === 0) return p;
+        if (p === '{prefix}') return `<${prefixes.join('|')}>`;
+        if (p === '{what}') return '<what it is>';
+        if (p === '{seq}') {
+          notes.push('the sequence is free');
+          return '<sequence>';
+        }
+        notes.unshift(`the shot is always ${DIGITS[p[6] - 1] || p[6]} digits`);
+        return '<shot>';
+      }).join('');
+      shape = `${said}${notes.length ? `: ${notes.join(', ')}` : ''}${ex}`;
+    }
+    const out = { ...tier, prefixes, test, shape };
+    const seq = parts.indexOf('{seq}');
+    const num = parts.findIndex((p) => p.startsWith('{shot'));
+    if (tier.id === 'shot' && seq === 1 && num === 3) out.shot = { before: parts[0], join: parts[2], after: parts[4], digits: Number(parts[3][6]) };
+    return out;
+  }
+  // How a convention's shots are written, with the patterns that read them: `seq` (the sequence of a shot
+  // whose number has any digits, so one named by hand with a shorter number, ab-12, still has one), `num`
+  // (its number) and `whole` (whether its number has all its digits).
+  function shotForm({ before, join, after, digits }) {
+    const [b, j, a] = [before, join, after].map(esc);
+    return {
+      before, join, after, digits,
+      seq: new RegExp(`^${b}(${WORDS})${j}\\d+${a}$`),
+      num: new RegExp(`${j}(\\d+)${a}$`),
+      whole: new RegExp(`${j}\\d{${digits}}${a}$`),
+    };
+  }
+  function compile(convention) {
+    const tiers = convention.tiers.map(compileTier);
+    const shot = shotForm((tiers.find((t) => t.id === 'shot') || {}).shot || { before: '', join: '-', after: '', digits: 4 });
+    return { ...convention, tiers, shot, file: { sep: '_', version: 'v', ...convention.file }, tasks: convention.tasks || [], aliases: convention.aliases || {} };
+  }
+
+  const PRESETS = Object.fromEntries(Object.entries(CONVENTIONS).map(([id, c]) => [id, compile(c)]));
   const DEFAULT = 'myreze';
   const preset = (id) => PRESETS[id] || PRESETS[DEFAULT];
   const TIERS = ['asset', 'set', 'shot'];
@@ -52,7 +122,20 @@
 
   // The sequence a shot is in: everything before its number ("kilo" for kilo-0010, "ch01" for
   // ch01-0010). Asked only of shots, so a shot named by hand with a shorter number (ab-12) still has one.
-  const seqOf = (name) => (/^([a-z0-9]+(?:-[a-z0-9]+)*)-\d+$/.exec(name || '') || [])[1] || null;
+  const seqOf = (name, presetId) => (preset(presetId).shot.seq.exec(name || '') || [])[1] || null;
+  // A shot's number as its convention writes it (0010), and the shot of a sequence by its number (kilo-0010).
+  const pad = (n, presetId) => {
+    const { digits } = preset(presetId).shot;
+    return String(Math.min(10 ** digits - 1, Math.max(0, n))).padStart(digits, '0');
+  };
+  const shotName = (seq, n, presetId) => {
+    const s = preset(presetId).shot;
+    return `${s.before}${seq}${s.join}${pad(n, presetId)}${s.after}`;
+  };
+  const shotNumber = (name, presetId) => {
+    const m = preset(presetId).shot.num.exec(name || '');
+    return m ? Number(m[1]) : null;
+  };
 
   // Whatever can be read from a file name: { entity, tier, task, descriptor, artist, hip, view }, each null
   // when the name does not say. `hip` is the number after v; nothing is made of it, since the catalogue
@@ -61,15 +144,17 @@
     const out = { entity: null, tier: null, task: null, descriptor: null, artist: null, hip: null, view: null };
     const stem = String(filename || '').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '').toLowerCase().trim();
     if (!stem) return out;
-    const tokens = stem.split('_').filter(Boolean);
+    const { sep, version } = preset(presetId).file;
+    const mark = new RegExp(`^${esc(version)}(\\d{1,4})$`);
+    const tokens = stem.split(sep).filter(Boolean);
     if (!tokens.length || !tokens.every((t) => TOKEN.test(t))) {
       // Not to the styleguide, but a version number may still be at its end ("robot final v3").
       const v = /(?:^|[^a-z0-9])v(\d{1,4})$/.exec(stem);
       if (v) out.hip = Number(v[1]);
       return out;
     }
-    if (tokens.length > 2 && /^v\d{1,4}$/.test(tokens[tokens.length - 2]) && !/^v\d{1,4}$/.test(tokens[tokens.length - 1])) out.view = tokens.pop();
-    const last = /^v(\d{1,4})$/.exec(tokens[tokens.length - 1]);
+    if (tokens.length > 2 && mark.test(tokens[tokens.length - 2]) && !mark.test(tokens[tokens.length - 1])) out.view = tokens.pop();
+    const last = mark.exec(tokens[tokens.length - 1]);
     if (last) {
       out.hip = Number(last[1]);
       tokens.pop();
@@ -104,16 +189,12 @@
 
   // The views a version is most often shown in, beside those a project has.
   const VIEWS = ['cmp', 'bty'];
-  const pad = (n) => String(Math.min(9999, Math.max(0, n))).padStart(4, '0');
-  const shotNumber = (name) => {
-    const m = /-(\d+)$/.exec(name || '');
-    return m ? Number(m[1]) : null;
-  };
 
   // The shots a sequence has, by number, and the step they go up in: the gap there is most often between
   // one and the next, the smaller of two as often (10 when they do not say).
-  function sequence(names, seq) {
-    const nums = [...new Set((names || []).filter((n) => seqOf(n) === seq && /-\d{4}$/.test(n)).map(shotNumber))].sort((a, b) => a - b);
+  function sequence(names, seq, presetId) {
+    const { whole } = preset(presetId).shot;
+    const nums = [...new Set((names || []).filter((n) => seqOf(n, presetId) === seq && whole.test(n)).map((n) => shotNumber(n, presetId)))].sort((a, b) => a - b);
     const gaps = new Map();
     for (let i = 1; i < nums.length; i++) gaps.set(nums[i] - nums[i - 1], (gaps.get(nums[i] - nums[i - 1]) || 0) + 1);
     let step = 10;
@@ -127,9 +208,9 @@
     return { nums, step, last: nums.length ? nums[nums.length - 1] : 0 };
   }
   // The shot after a sequence's last, on its step: kilo-0130 after kilo-0120.
-  function nextShot(names, seq) {
-    const { step, last } = sequence(names, seq);
-    return `${seq}-${pad(Math.floor(last / step) * step + step)}`;
+  function nextShot(names, seq, presetId) {
+    const { step, last } = sequence(names, seq, presetId);
+    return shotName(seq, Math.floor(last / step) * step + step, presetId);
   }
 
   // What a line typed where a piece is filed says: which asset, set or shot, and any task, version number
@@ -145,9 +226,10 @@
     if (!raw) return out;
     const useTasks = ctx.useTasks !== false;
     const names = ctx.names || [];
-    if (/_/.test(raw) && !/\s/.test(raw)) {
-      const p = parse(raw, ctx.presetId);
-      const ruled = !p.entity && byRules(raw, ctx.rules, ctx.tasks);
+    const P = ctx.presetId;
+    if (raw.includes(preset(P).file.sep) && !/\s/.test(raw)) {
+      const p = parse(raw, P);
+      const ruled = !p.entity && byRules(raw, ctx.rules, ctx.tasks, P);
       if (p.entity || ruled) {
         out.entity = p.entity || ruled.entity;
         if (useTasks && (p.task || (ruled && ruled.task))) out.task = p.task || ruled.task;
@@ -169,12 +251,12 @@
     } else if (first === '+' || seqPlus) {
       const seq = first === '+' ? ctx.seq : seqPlus[1];
       if (seq) {
-        out.entity = nextShot([...names, ...(ctx.taken || [])], seq);
+        out.entity = nextShot([...names, ...(ctx.taken || [])], seq, P);
         out.short = `the next shot in ${seq}`;
       }
-    } else if (/^\d{1,4}$/.test(first) && ctx.seq) {
-      out.entity = `${ctx.seq}-${pad(Number(first))}`;
-      out.short = `shot ${pad(Number(first))} of ${ctx.seq}`;
+    } else if (/^\d+$/.test(first) && first.length <= preset(P).shot.digits && ctx.seq) {
+      out.entity = shotName(ctx.seq, Number(first), P);
+      out.short = `shot ${pad(Number(first), P)} of ${ctx.seq}`;
     } else out.entity = tokenize(first) || null;
     // A word after the name is a version number, a view or a task, by what it is. Any other word is more
     // of the name ("living room", "set living room") for as long as that makes it more of a name: not
@@ -219,13 +301,20 @@
       const tier = tierOf(name, presetId);
       if (tier && !out.some((o) => o.name === name)) out.push({ name, tier });
     };
-    const short = /^(.+?)-(\d{1,3})$/.exec(n);
-    if (short) add(`${short[1]}-${pad(Number(short[2]))}`);
-    const glued = /^([a-z][a-z0-9-]*?[a-z])(\d{1,4})$/.exec(n);
-    if (glued && names.some((o) => seqOf(o) === glued[1])) add(`${glued[1]}-${pad(Number(glued[2]))}`);
+    const s = p.shot;
+    const short = new RegExp(`^${esc(s.before)}(.+?)${esc(s.join)}(\\d{1,${s.digits - 1}})${esc(s.after)}$`).exec(n);
+    if (short && s.digits > 1) add(shotName(short[1], Number(short[2]), presetId));
+    const glued = new RegExp(`^([a-z][a-z0-9-]*?[a-z])(\\d{1,${s.digits}})$`).exec(n);
+    if (glued && names.some((o) => seqOf(o, presetId) === glued[1])) add(shotName(glued[1], Number(glued[2]), presetId));
     const [head, ...tail] = n.split('-');
-    if (p.aliases && p.aliases[head] && tail.length) add([p.aliases[head], ...tail].join('-'));
-    if (!out.length) for (const tier of p.tiers) for (const prefix of tier.prefixes || []) add(`${prefix}-${n}`);
+    if (p.aliases[head] && tail.length) add([p.aliases[head], ...tail].join('-'));
+    // A name that is what something is and no more, as each tier with a prefix would have it.
+    if (!out.length) {
+      for (const tier of p.tiers) {
+        if (!tier.name.includes('{what}')) continue;
+        for (const prefix of tier.name.includes('{prefix}') ? tier.prefixes : ['']) add(tier.name.replace('{prefix}', prefix).replace('{what}', n));
+      }
+    }
     return out;
   }
 
@@ -288,8 +377,8 @@
     const { entity, task = null, number = null, view = null, views = [] } = filed;
     if (tierOf(entity, presetId) !== 'shot') return null;
     const words = stemWords(filename);
-    const seq = seqOf(entity);
-    const n = shotNumber(entity);
+    const seq = seqOf(entity, presetId);
+    const n = shotNumber(entity, presetId);
     // The shot: a number of its own, or run on after letters; the sequence is the word before it.
     let at = -1;
     let prefix = '';
@@ -325,9 +414,9 @@
     if (whole) return whole;
     const [w0, w1] = stemWords(filename);
     if (!w0) return null;
-    const seq = tierOf(entity, presetId) === 'shot' ? seqOf(entity) : null;
+    const seq = tierOf(entity, presetId) === 'shot' ? seqOf(entity, presetId) : null;
     if (seq) {
-      const n = shotNumber(entity);
+      const n = shotNumber(entity, presetId);
       if (/^\d+$/.test(w1 || '') && Number(w1) === n && /[a-z]/.test(w0) && !VAGUE.has(w0)) return { word: w0, seq };
       const glued = /^([a-z]+)(\d+)$/.exec(w0);
       if (glued && Number(glued[2]) === n && !VAGUE.has(glued[1])) return { word: glued[1], seq, glued: true };
@@ -340,7 +429,7 @@
   const ruleKey = (rule) => (rule.pattern ? `p:${rule.pattern.join('_')}:${JSON.stringify(rule.seqs || {})}` : `w:${rule.word}`);
 
   // What a name reads as by a pattern: { entity, task, number, view }, or null when it is not one like it.
-  function byPattern(words, rule) {
+  function byPattern(words, rule, presetId) {
     if (words.length !== rule.pattern.length) return null;
     // A pattern with no word of its own is known only by the sequences it renames (KLO for kilo).
     const anchored = rule.pattern.some((t) => !t.startsWith('{') && t !== '*');
@@ -366,27 +455,27 @@
       else if (t !== w) return null;
     }
     if (!seq || shot == null) return null;
-    out.entity = `${tokenize(seq)}-${pad(shot)}`;
+    out.entity = shotName(tokenize(seq), shot, presetId);
     return out;
   }
   // What a project's rules make of a file name: { entity, task, number, view, rule }, or null. Patterns
   // first, being the surer. Read by a word rule, a word of the name that is one of `tasks` is its task.
-  function byRules(filename, rules = [], tasks = []) {
+  function byRules(filename, rules = [], tasks = [], presetId) {
     const words = stemWords(filename);
     if (!words.length) return null;
     const list = [...(rules || [])].sort((a, b) => !!b.pattern - !!a.pattern);
     for (const rule of list) {
       if (rule.pattern) {
-        const read = byPattern(words, rule);
+        const read = byPattern(words, rule, presetId);
         if (read) return { ...read, rule };
         continue;
       }
       let entity = null;
       if (rule.seq && rule.glued) {
         const m = new RegExp(`^${rule.word}(\\d{1,4})$`).exec(words[0]);
-        if (m) entity = `${rule.seq}-${pad(Number(m[1]))}`;
+        if (m) entity = shotName(rule.seq, Number(m[1]), presetId);
       } else if (rule.seq) {
-        if (words[0] === rule.word && /^\d{1,4}$/.test(words[1] || '')) entity = `${rule.seq}-${pad(Number(words[1]))}`;
+        if (words[0] === rule.word && /^\d{1,4}$/.test(words[1] || '')) entity = shotName(rule.seq, Number(words[1]), presetId);
       } else if (rule.name && words[0] === rule.word) entity = rule.name;
       if (entity) return { entity, task: words.slice(1).find((w) => (tasks || []).includes(w)) || null, number: null, view: null, rule };
     }
@@ -394,11 +483,11 @@
   }
   // A rule as it is shown: the name it was learned from and what it was filed as ("NHMoc_CHAP01_010_cmp_v111
   // → chap01-0010 v111"), or "klo 010 → kilo-0010".
-  const ruleText = (rule) => (rule.pattern ? `${rule.like} → ${rule.as}`
-    : rule.seq ? `${rule.word}${rule.glued ? '' : ' '}010 → ${rule.seq}-0010` : `${rule.word} → ${rule.name}`);
+  const ruleText = (rule, presetId) => (rule.pattern ? `${rule.like} → ${rule.as}`
+    : rule.seq ? `${rule.word}${rule.glued ? '' : ' '}010 → ${shotName(rule.seq, 10, presetId)}` : `${rule.word} → ${rule.name}`);
 
   return {
-    PRESETS, DEFAULT, TIERS, TOKEN, VIEWS, preset, tokenize, tierOf, seqOf, parse, label,
-    pad, shotNumber, sequence, nextShot, readLine, corrections, distance, nearMisses, ruleFrom, byRules, ruleText, ruleKey, PATTERN_TOKEN,
+    CONVENTIONS, PRESETS, DEFAULT, TIERS, TOKEN, VIEWS, compile, preset, tokenize, tierOf, seqOf, parse, label,
+    pad, shotName, shotNumber, sequence, nextShot, readLine, corrections, distance, nearMisses, ruleFrom, byRules, ruleText, ruleKey, PATTERN_TOKEN,
   };
 });

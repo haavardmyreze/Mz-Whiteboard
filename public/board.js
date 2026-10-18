@@ -4724,7 +4724,7 @@
     const ok = el('button', { type: 'submit', class: 'btn primary', text: list.length > 1 ? `File ${list.length}` : 'File' });
     for (const it of list) {
       const parsed = N.parse(it.name || '', presetId);
-      const ruled = !parsed.entity && N.byRules(it.name || '', rules, cat.tasks);
+      const ruled = !parsed.entity && N.byRules(it.name || '', rules, cat.tasks, cat.preset && cat.preset.id);
       const frame = frameOf(it);
       const fromFrame = frame && known(N.tokenize(frame.title)) ? N.tokenize(frame.title) : null;
       const before = prefill && prefill.get(it.id);

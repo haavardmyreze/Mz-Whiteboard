@@ -4823,28 +4823,22 @@
         const unfile = async () => {
           for (const v of res.versions) await WB.api('POST', `/api/versions/${v.id}/unfile`, { by: me.name });
         };
-        let takenBack = false;
         const filed = toast(res.versions.length === 1 ? `Filed as ${res.versions[0].label}` : `Filed ${res.versions.length} versions: ${res.versions.map((v) => v.label).join(', ')}`, {
           ms: 20000, key: 'filed',
           action: [
-            { label: 'Undo', run: async () => { takenBack = true; await unfile(); toast(res.versions.length === 1 ? 'Not filed after all' : `${res.versions.length} not filed after all`); } },
-            { label: 'Change…', run: async () => { takenBack = true; await unfile(); openFiling(list, await WB.api('GET', `/api/projects/${project.id}`), said); } },
+            { label: 'Undo', run: async () => { await unfile(); toast(res.versions.length === 1 ? 'Not filed after all' : `${res.versions.length} not filed after all`); } },
+            { label: 'Change…', run: async () => { await unfile(); openFiling(list, await WB.api('GET', `/api/projects/${project.id}`), said); } },
           ],
         });
-        // A piece named some other way teaches how such names are read, if it is wanted: asked once the
-        // message about the filing has gone, so the two do not ask at once (and not if it was taken back).
+        // A piece named some other way teaches how such names are read, if it is wanted: asked straight
+        // away, in the middle of the page; the message about the filing waits under it.
         const taught = rows.find((row) => row.taught && row.it.name);
         if (taught) {
-          const ask = () => WBFiling.offerRule({
+          WBFiling.offerRule({
             filename: taught.it.name, presetId, rules, tasks: cat.tasks,
             filed: { entity: nameOf(taught), task: taught.f.taskName(), number: res.versions[rows.indexOf(taught)].number, view: taught.f.viewName(), views: cat.viewList || [] },
             save: (next) => WB.api('PATCH', `/api/folders/${project.id}`, { settings: { rules: next } }),
           });
-          const wait = setInterval(() => {
-            if (filed.node.isConnected) return;
-            clearInterval(wait);
-            if (!takenBack) ask();
-          }, 500);
         }
       } catch (err) {
         // Nothing was filed: the rows come back as they were, to put right, saying why.

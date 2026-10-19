@@ -1119,30 +1119,36 @@
   }
 
   // A menu of things to tick (each filter's): it stays open while ticking, and closes with a click away.
-  function tickMenu(anchor, options, chosen, onChange) {
+  // A panel under a button of the Versions bar, painted afresh by `build()` on each change, until a click
+  // elsewhere or Escape. The page under it is drawn again as it changes, so the panel keeps its own place.
+  function vlPanel(anchor, build, cls = '') {
     document.querySelector('.vl-pop')?.remove();
-    const picked = new Set(chosen);
-    const pop = el('div', { class: 'vl-pop', role: 'menu' }, options.map(([value, label]) => el('label', { class: 'vl-tick' },
-      el('input', { type: 'checkbox', ...(picked.has(value) && { checked: true }), onchange: (e) => {
-        if (e.target.checked) picked.add(value); else picked.delete(value);
-        onChange(options.map(([v]) => v).filter((v) => picked.has(v)));
-      } }), el('span', { text: label }))));
+    const pop = el('div', { class: `vl-pop${cls ? ` ${cls}` : ''}`, role: 'dialog' });
+    const paint = () => pop.replaceChildren(...build(paint));
+    paint();
     document.body.append(pop);
     const r = anchor.getBoundingClientRect();
-    pop.style.left = `${Math.round(Math.min(r.left, innerWidth - pop.offsetWidth - 8))}px`;
+    pop.style.left = `${Math.round(Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8)))}px`;
     pop.style.top = `${Math.round(r.bottom + 4)}px`;
-    const away = (e) => {
-      if (pop.contains(e.target) || anchor.contains(e.target)) return;
+    const close = () => {
       pop.remove();
       document.removeEventListener('pointerdown', away, true);
+      document.removeEventListener('keydown', esc, true);
     };
-    setTimeout(() => document.addEventListener('pointerdown', away, true));
+    const away = (e) => { if (!pop.contains(e.target) && !e.target.closest('.vl-open')) close(); };
+    const esc = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    setTimeout(() => {
+      document.addEventListener('pointerdown', away, true);
+      document.addEventListener('keydown', esc, true);
+    });
   }
 
-  // The bar over the list: how it is grouped and sorted, what narrows it, and how many there are.
+  // The bar over the list: two buttons, View (how it is grouped and sorted) and Filter (what narrows it),
+  // the filters in force as chips, each taken off with its ×, and how many there are.
   function versionsTools(project, st, data) {
     const set = (patch) => {
-      vlSave(project, { ...st, ...patch });
+      Object.assign(st, patch);
+      vlSave(project, { ...st });
       render();
     };
     const facets = (data && data.facets) || ((versionLists.get(project.id) || {}).data || {}).facets || null;
@@ -1154,31 +1160,46 @@
       if (k === 'by') return (f.filers || []).map((n) => [n, n]);
       return (f.artists || []).map((n) => [n, n]);
     };
-    const select = (label, list, value, on) => el('label', { class: 'vl-field' }, el('span', { text: label }),
-      el('select', { class: 'vl-sel', onchange: (e) => on(e.target.value) }, list.map(([v, t]) => el('option', { value: v, text: t, ...(v === value && { selected: true }) }))));
-    const filterBtn = ([k, label]) => {
-      const opts = options(k);
-      if (!opts.length && !st[k].length) return null;
-      return el('button', {
-        type: 'button', class: `btn small ghost vl-filter${st[k].length ? ' on' : ''}`, 'aria-haspopup': 'menu',
-        text: st[k].length ? `${label}: ${st[k].length === 1 ? (opts.find(([v]) => v === st[k][0]) || [, st[k][0] || 'No task'])[1] : st[k].length}` : label,
-        onclick: (e) => tickMenu(e.currentTarget, opts, st[k], (list) => set({ [k]: list })),
-      });
-    };
-    const toggle = (k, label, title) => el('button', {
-      type: 'button', class: `btn small ghost vl-filter${st[k] ? ' on' : ''}`, 'aria-pressed': String(!!st[k]), text: label, title,
-      onclick: () => set({ [k]: !st[k] }),
+    const labelOf = (k, v) => (options(k).find(([x]) => x === v) || [, v || 'No task'])[1];
+    const choice = (name, list, value, on) => list.map(([v, t]) => el('label', { class: 'vl-tick' },
+      el('input', { type: 'radio', name, ...(v === value && { checked: true }), onchange: () => on(v) }), el('span', { text: t })));
+    const tick = (on, label, change) => el('label', { class: 'vl-tick' },
+      el('input', { type: 'checkbox', ...(on && { checked: true }), onchange: (e) => change(e.target.checked) }), el('span', { text: label }));
+    const section = (title, ...rows) => el('div', { class: 'vl-sec' }, el('b', { text: title }), ...rows);
+
+    const groupName = st.group === 'none' ? 'Not grouped' : `By ${(VL_GROUPS.find(([g]) => g === st.group) || VL_GROUPS[0])[1].toLowerCase()}`;
+    const view = el('button', {
+      type: 'button', class: 'btn small ghost vl-open', html: `${icon('rows', 14)}<span>${groupName}</span>`, title: 'Group and sort', 'aria-haspopup': 'dialog',
+      onclick: (e) => vlPanel(e.currentTarget, () => [
+        section('Group by', ...choice('vl-group', VL_GROUPS, st.group, (v) => set({ group: v }))),
+        section('Sort', ...choice('vl-sort', VL_SORTS, st.sort, (v) => set({ sort: v }))),
+      ]),
     });
+    const count = VL_FILTERS.filter(([k]) => st[k].length).length + (st.when ? 1 : 0) + (st.newest ? 1 : 0) + (st.archived ? 1 : 0);
+    const filter = el('button', {
+      type: 'button', class: `btn small ghost vl-open${count ? ' on' : ''}`, html: `${icon('filter', 14)}<span>Filter${count ? ` · ${count}` : ''}</span>`, 'aria-haspopup': 'dialog',
+      onclick: (e) => vlPanel(e.currentTarget, (repaint) => [
+        section('Show', tick(st.newest, 'Newest of each only', (on) => { set({ newest: on }); repaint(); }),
+          tick(st.archived, 'Archived too', (on) => { set({ archived: on }); repaint(); })),
+        section('Filed', ...choice('vl-when', VL_WHEN, st.when, (v) => { set({ when: v }); repaint(); })),
+        ...VL_FILTERS.filter(([k]) => options(k).length || st[k].length).map(([k, title]) => section(title,
+          ...options(k).map(([v, t]) => tick(st[k].includes(v), t, (on) => {
+            set({ [k]: on ? [...st[k], v] : st[k].filter((x) => x !== v) });
+            repaint();
+          })))),
+      ], 'vl-pop-filter'),
+    });
+    // What narrows it now, each a chip.
+    const chip = (text, off) => el('span', { class: 'vl-chip' }, el('span', { text }),
+      el('button', { type: 'button', class: 'vl-chip-x', html: icon('close', 12), title: `Take off ${text}`, 'aria-label': `Take off ${text}`, onclick: off }));
+    const chips = [
+      ...VL_FILTERS.filter(([k]) => st[k].length).map(([k, title]) => chip(`${title}: ${st[k].map((v) => labelOf(k, v)).join(', ')}`, () => set({ [k]: [] }))),
+      st.when && chip((VL_WHEN.find(([w]) => w === st.when) || [])[1], () => set({ when: '' })),
+      st.newest && chip('Newest only', () => set({ newest: false })),
+      st.archived && chip('Archived too', () => set({ archived: false })),
+    ].filter(Boolean);
     const total = data ? data.total : null;
-    return [el('div', { class: 'vl-tools' },
-      select('Group by', VL_GROUPS, st.group, (v) => set({ group: v })),
-      select('Sort', VL_SORTS, st.sort, (v) => set({ sort: v })),
-      el('span', { class: 'vl-sep' }),
-      VL_FILTERS.map(filterBtn),
-      select('When', VL_WHEN, st.when, (v) => set({ when: v })),
-      toggle('newest', 'Newest only', 'Only the newest version of each asset, set or shot and task'),
-      toggle('archived', 'Archived', 'Archived versions too'),
-      vlFiltered(st) && el('button', { type: 'button', class: 'btn small ghost', text: 'Clear', onclick: () => set({ ...vlDefault(), group: st.group, sort: st.sort }) }),
+    return [el('div', { class: 'vl-tools' }, view, filter, ...chips,
       el('span', { class: 'imp-gap' }),
       total != null && el('span', { class: 'vl-total', text: plural(total, 'version') }))];
   }

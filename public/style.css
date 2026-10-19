@@ -2404,13 +2404,21 @@ a.ph-shot:hover { outline: 2px solid var(--text); outline-offset: 1px; }
 /* A project's versions, newest first, by day and by who filed a run of them. */
 /* The bar over a project's Versions: how they are grouped and sorted, what narrows them, how many. */
 .vl-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 4px 0 4px; }
-.vl-field { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
-.vl-sel { height: 30px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: 12.5px; }
-.vl-sep { width: 1px; height: 20px; margin: 0 4px; background: var(--line); }
-.vl-filter.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
-.vl-filter[aria-haspopup]::after { content: '▾'; margin-left: 4px; font-size: 10px; opacity: 0.7; }
+.vl-open { gap: 6px; }
+.vl-open.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.vl-sec { display: flex; flex-direction: column; padding: 4px 0; }
+/* The filters side by side, two to a row, so the panel stays short. */
+.vl-pop.vl-pop-filter { display: grid; grid-template-columns: repeat(2, minmax(150px, 1fr)); align-content: start; column-gap: 8px; }
+.vl-pop-filter .vl-sec + .vl-sec { border-top: 0; }
+.vl-pop-filter .vl-sec { border-bottom: 1px solid var(--line); }
+.vl-sec + .vl-sec { border-top: 1px solid var(--line); }
+.vl-sec > b { padding: 4px 8px 2px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; }
+.vl-chip { display: inline-flex; align-items: center; gap: 2px; max-width: 280px; height: 26px; padding: 0 3px 0 10px; border-radius: 999px; background: var(--surface-2); color: var(--text-2); font-size: 12px; }
+.vl-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vl-chip-x { display: grid; place-items: center; flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
+.vl-chip-x:hover { background: var(--hover); color: var(--text); }
 .vl-total { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
-.vl-pop { position: fixed; z-index: var(--z-popover); display: flex; flex-direction: column; min-width: 180px; max-height: 320px; overflow: auto; padding: 4px; border: 1px solid var(--line-strong); border-radius: var(--r-3); background: var(--surface-1); box-shadow: var(--shadow-pop); }
+.vl-pop { position: fixed; z-index: var(--z-popover); display: flex; flex-direction: column; min-width: 200px; max-height: min(480px, 70vh); overflow: auto; padding: 4px; border: 1px solid var(--line-strong); border-radius: var(--r-3); background: var(--surface-1); box-shadow: var(--shadow-pop); }
 .vl-tick { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-2); font-size: 13px; cursor: pointer; }
 .vl-tick:hover { background: var(--hover); }
 .vl-tick input { margin: 0; accent-color: var(--accent); }
@@ -2767,3 +2775,14 @@ body.spectating #topbar .brand { pointer-events: none; }
 .nc-error[hidden] { display: none; }
 .nc-delete { margin-right: auto; }
 @media (max-width: 560px) { .nc-tier { grid-template-columns: auto minmax(0, 1fr); } .nc-tier input:nth-of-type(n+3) { grid-column: 2; } .nc-eg { grid-column: 2; } .nc-row { grid-template-columns: 1fr; } .nc-said, .nc-actions { justify-content: flex-start; } .nc-warn { text-align: left; } }
+
+/* Learning how names from elsewhere read (filing.js offerRule): asked in the middle of the page. */
+.rule-dlg { width: min(560px, calc(100vw - 32px)); }
+.rule-pair { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 14px 0 4px; padding: 12px 14px; border-radius: var(--r-2); background: var(--surface-2); font-size: 14px; }
+.rule-pair code, .rule-more code { overflow-wrap: anywhere; color: var(--text-2); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+.rule-arrow { display: inline-grid; color: var(--accent); transform: rotate(45deg); }
+.rule-more { margin-top: 14px; color: var(--muted); font-size: 12.5px; }
+.rule-more ul { display: flex; flex-direction: column; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; }
+.rule-more li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 4px 8px; border-radius: var(--r-1); background: var(--surface-2); }
+.rule-more li b { color: var(--text); font-weight: 600; }
+.rule-more li.rule-rest { display: block; background: none; }

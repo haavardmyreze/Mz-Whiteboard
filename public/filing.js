@@ -983,23 +983,37 @@ const WBFiling = (() => {
     const rule = N.ruleFrom(filename, filed, presetId);
     if (!rule || (rules || []).some((r) => N.ruleKey(r) === N.ruleKey(rule))) return;
     const reads = others.filter((o) => !o.fields.name() && N.byRules(o.filename, [rule], tasks, presetId));
-    const like = rule.pattern ? 'names like it' : `“${rule.word}” names`;
-    WB.toast(`${filename} was filed as ${N.label(filed.entity, filed.task, filed.number || '').replace(/ v$/, '')}. Read ${like} that way from now on?`, {
-      key: 'rule', ms: 12000,
-      action: {
-        label: reads.length ? `Yes, and fill in ${WB.plural(reads.length, 'other')}` : 'Remember',
-        run: async () => {
-          await save([...(rules || []), rule]);
-          for (const o of reads) {
-            const r = N.byRules(o.filename, [rule], tasks, presetId);
-            o.fields.setLine(r.entity, r.task || undefined);
-            o.fields.take({ number: r.number, view: r.view, named: true });
-          }
-        },
-      },
-    });
+    const said = (r) => N.label(r.entity, r.task, r.number || '').replace(/ v$/, '') + (r.view ? ` ${r.view}` : '');
+    const stem = (f) => String(f).replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
+    // Asked in the middle of the page, not in a corner: what is learned here reads every name like it.
+    const fill = async () => {
+      await save([...(rules || []), rule]);
+      for (const o of reads) {
+        const r = N.byRules(o.filename, [rule], tasks, presetId);
+        o.fields.setLine(r.entity, r.task || undefined);
+        o.fields.take({ number: r.number, view: r.view, named: true });
+      }
+    };
+    const shown = reads.slice(0, 6);
+    const dlg = el('dialog', { class: 'dlg rule-dlg' },
+      el('form', { method: 'dialog' },
+        el('h2', { text: 'Read names like this from now on?' }),
+        el('div', { class: 'rule-pair' }, el('code', { text: stem(filename) }), el('span', { class: 'rule-arrow', html: WB.icon('arrow', 14) }), el('b', { text: said(filed) })),
+        shown.length ? el('div', { class: 'rule-more' },
+          el('span', { text: `${reads.length === 1 ? 'One more' : `${reads.length} more`} waiting would be filed as` }),
+          el('ul', {}, shown.map((o) => el('li', {}, el('code', { text: stem(o.filename) }), el('b', { text: said(N.byRules(o.filename, [rule], tasks, presetId)) }))),
+            reads.length > shown.length ? el('li', { class: 'rule-rest', text: `and ${reads.length - shown.length} more` }) : null)) : null,
+        el('div', { class: 'dlg-actions' },
+          el('button', { type: 'button', class: 'btn', text: 'Not now', onclick: () => dlg.close() }),
+          reads.length && el('button', { type: 'button', class: 'btn', text: 'Remember', onclick: async () => { dlg.close(); await save([...(rules || []), rule]); } }),
+          el('button', {
+            type: 'submit', class: 'btn primary', text: reads.length ? `Remember and fill in ${reads.length}` : 'Remember',
+            onclick: async (e) => { e.preventDefault(); dlg.close(); await fill(); },
+          }))));
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.append(dlg);
+    dlg.showModal();
   }
-
 
   // Suggestions for a name or a task typed anywhere else (a version's Edit), the same as a row's.
   const entitySource = (getEntities, presetId) => (typed) => {

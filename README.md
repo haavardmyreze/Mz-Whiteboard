@@ -363,13 +363,16 @@ filed in it.
     the newest version of a shot and task along its length, and as long, at the same rate and size: see
     `likely.js`), then the row above, the sequence's next shot, then a shot it is only as long as (two
     shots of a sequence often are, so that alone only hints), and what had versions lately. In an empty
-    box, Enter puts in the first of the first two kinds, and the box and the line under it say what that
-    would be. The list opens on a click, on ↓ or as you type, not when the dialog opens, so it never
+    box, Enter puts in the first of the first two kinds, and the box says what that would be. The list opens on a click, on ↓ or as you type, not when the dialog opens, so it never
     covers the rows below. As you type, the project's names that fit, each with its tasks and how far each has
     counted (`kilo-0010 › anim  v12 → v13`), so one pick fills both; `kilo-` lists kilo's shots and its
     next one.
-  - **Under each row** a line says only what its line does not: how much longer or shorter it is than
-    the version it follows (`12 frames shorter than v1`). A tick on the still of the version it follows
+  - **Behind a mark** at the end of a row's line is what the line does not say: how much longer or
+    shorter it is than the version it follows (`12 frames shorter than v1`), and anything to sort out.
+    The mark is faint for a note and in the warning colour when something keeps the row from being
+    filed; nothing at all when there is nothing to say. Clicking it opens a small box with all of it,
+    each with its fix. What a row is shows as an icon (asset, set, shot) with a dot when it is new (in
+    the warning colour when its sequence is new too), its words in the tooltip. A tick on the still of the version it follows
     says the piece looks like that version. Pointing at the still (or tabbing to it) shows the two side by side, videos
     playing together from the start, with their lengths. A row with nothing to say has no line, except
     the row being typed in, so nothing moves as you type. And anything that looks wrong, the worst first
@@ -389,16 +392,17 @@ filed in it.
   - **Keys.** Ctrl+D copies the row above. Shift+Enter fills the rows below on from this one: shots
     go on in their sequence's step (kilo-0010, kilo-0020...), anything else is the same for each. A row
     its own file's name named is kept as it is, and what was done is said with an Undo. The keys are
-    said in a line under the rows, and in the board's keyboard help.
+    behind the ? over the rows, and in the board's keyboard help.
   - **Taking it back.** On a board, the message that says what was filed has Undo and Change; in the
     import strip, a filed row has Undo, and is then as it was, to file again. Both take the
     filing back as if it had not been: the versions are gone, numbers and all, and so is any asset,
     set or shot made for them. Change then opens the rows again as they were. This is for straight
     after: within half an hour, and not once a version has been talked about, put on another board or
     given another view (archive or delete it then).
-  - **Names from elsewhere.** A file not named to the styleguide and filed by hand offers to teach the
-    project how names like it read, and fills in the rows still to go that it reads, at once (on a
-    board, asked once the message about the filing has gone). What is learned is the whole name's
+  - **Names from elsewhere.** A file not named to the project's naming and filed by hand offers to teach
+    the project how names like it read, in a dialog in the middle of the page as soon as it is filed:
+    the name and what it was filed as, and what each of the files still waiting would be filed as by it.
+    "Remember and fill in" keeps it and fills them in at once; "Remember" only keeps it. What is learned is the whole name's
     pattern: `NHMoc_CHAP01_010_cmp_v111.mp4` filed as chap01-0010 v111 teaches that `nhmoc` names have
     the sequence next, then the shot, then the view (with views on), then the version, so
     `NHMoc_CHAP03_040_cmp_v009.mp4` is chap03-0040 v9. A word that changes from file to file (an artist)
@@ -580,13 +584,14 @@ filed in it.
   version filed in it, as the same cards an asset, set or shot's page has (cards or compact rows, as
   the button in the bar says): its still (which scrubs under the pointer and opens in the player), its
   shot (a link to it) and the rest of its label, when it was filed, and the boards it is on. The bar over
-  it says how:
-  - **Group by** upload time (the default: by day, and within a day by who filed a run of them), by
-    sequence (assets and sets after), by asset, set or shot, by task, by who filed them, or not at all.
-    **Sort** by newest or oldest filed, by name, or by version number.
-  - **Narrow** to some tasks (or no task), sequences, kinds (assets, sets, shots), people who filed
-    them or artists, each a menu to tick; to today, the last 7 or 30 days; to only the **newest** of each
-    asset, set or shot and task; or with what is **archived** too. Clear puts it all back.
+  it has two buttons:
+  - **View** (it says how it is grouped) groups by upload time (the default: by day, and within a day
+    by who filed a run of them), by sequence (assets and sets after), by asset, set or shot, by task, by
+    who filed them, or not at all; and sorts by newest or oldest filed, by name, or by version number.
+  - **Filter** narrows to some tasks (or no task), sequences, kinds (assets, sets, shots), people who
+    filed them or artists; to today, the last 7 or 30 days; to only the newest of each asset, set or
+    shot and task; or with what is archived too, all ticked in one panel. Each filter in force is a chip
+    beside it, taken off with its ×.
   - The search box at the top searches every version, not only those shown: the name, the task, the
     artist, who filed it, the file's own name, or "v12".
   How each project's list is asked for is kept by the browser. It comes a page at a time, "Show more"

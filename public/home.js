@@ -3002,14 +3002,19 @@
         if (!a || !unfiled(r)) continue;
         const f = r.fields;
         before.push({ r, ent: f.ent.value, task: f.task.value, tier: f.tier.value, num: f.num.value, numTouched: r.numTouched, view: f.f.viewName() });
-        f.ent.value = a.entity;
-        f.task.value = a.task || '';
+        // Only the fields in its answer: asked to fill in the shot and the version and nothing more, the rest
+        // are not there, and stay as they are. What is there may clear a field (no task, the main view).
+        if ('entity' in a) {
+          f.ent.value = a.entity;
+          f.tier.value = a.tier;
+        }
+        if ('task' in a) f.task.value = a.task || '';
         WBFiling.changed();
-        f.tier.value = a.tier;
-        // A view only where Claude gave one: a row's own is not taken away for want of an answer.
-        if (a.view) f.f.setView(a.view);
-        r.numTouched = !!a.version;
-        if (a.version) f.num.value = String(a.version);
+        if ('view' in a && viewList()) f.f.setView(a.view || viewList()[0]);
+        if ('version' in a) {
+          r.numTouched = !!a.version;
+          if (a.version) f.num.value = String(a.version);
+        }
         setMark(r, WBClaude.mark(a.note, a.fits));
         n++;
       }

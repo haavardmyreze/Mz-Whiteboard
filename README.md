@@ -623,7 +623,9 @@ filed in it.
   names, how the app writes names and the names the project already has, and suggests what each should be:
   - Importing, it fills in each row's asset, set or shot, its task and its version (a version only when
     the file name or you give one; otherwise the next, as ever), and its view when you ask for one or the
-    name says it ("the _p files are the bty view"); the View boxes then show, filled in. A small sparkle beside a row says
+    name says it ("the _p files are the bty view"). Name the fields and only those are filled in
+    ("fill in chapter, shot and version" leaves each row's task and view as they are); otherwise every
+    field is Claude's to set or to clear. The View boxes then show, filled in. A small sparkle beside a row says
     Claude filled it in, and why on hover; it turns amber when the name is not the usual shape. Change
     any row by hand, or Undo them all, then file as usual.
   - In batch edit, it suggests a new name, and what each is, for each picked asset, set or shot that

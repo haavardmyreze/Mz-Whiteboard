@@ -161,6 +161,10 @@
 
 * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent; }
 [hidden] { display: none !important; }
+/* Nothing on a page can be selected or highlighted by dragging, double-clicking, long-pressing or
+   tapping, except the text someone is typing into: fields, and text on the board while it is edited. */
+* { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+input, textarea, [contenteditable="true"], [contenteditable="plaintext-only"] { user-select: text; -webkit-user-select: text; -webkit-touch-callout: default; }
 ::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 
 html, body {
@@ -177,7 +181,6 @@ html, body {
 }
 
 button, input, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
-button { -webkit-tap-highlight-color: transparent; }
 strong { font-weight: 600; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 input[type="text"]:focus-visible, input[type="search"]:focus-visible, textarea:focus-visible { outline: none; }
@@ -412,7 +415,7 @@ body.welcoming .appbar .logomark { background: transparent; }
 /* Along the path the place you are in is in full ink, and what leads to it is quieter. */
 .appbar .wordmark { color: var(--text-2); }
 body.home:not(.admin) .appbar .wordmark { color: var(--text); }
-.bar-slash { flex: none; margin: 0 -2px; color: var(--muted); font-size: 17px; font-weight: 300; line-height: 1; opacity: 0.55; user-select: none; }
+.bar-slash { flex: none; margin: 0 -2px; color: var(--muted); font-size: 17px; font-weight: 300; line-height: 1; opacity: 0.55; }
 .bar-here { font-size: 14px; font-weight: 600; letter-spacing: -0.012em; }
 .bar-crumb { flex: 0 1 auto; min-width: 0; max-width: 26ch; height: var(--h); padding: 0 8px; overflow: hidden; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text-2); font: inherit; font-size: 14px; font-weight: 600; letter-spacing: -0.012em; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; transition: background 0.12s var(--ease), color 0.12s var(--ease); }
 .bar-crumb:hover { background: var(--hover); color: var(--text); }
@@ -652,8 +655,6 @@ body.board { overflow: hidden; overscroll-behavior: none; background-color: var(
   background-color: transparent;
   background-image: radial-gradient(circle, var(--dots) 1px, transparent 1.5px);
   touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
   cursor: default;
 }
 body[data-tool="pan"] #viewport, body.space-held #viewport { cursor: grab; }
@@ -773,7 +774,7 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport, body[data-
 .text[data-lvl="3"] { font-weight: 600; line-height: 1.25; letter-spacing: -0.018em; }
 .txt { outline: none; min-width: 0.5em; min-height: 1.15em; }
 .note .txt { min-height: 1.5em; }
-.txt[contenteditable="plaintext-only"], .txt[contenteditable="true"] { user-select: text; -webkit-user-select: text; cursor: text; }
+.txt[contenteditable="plaintext-only"], .txt[contenteditable="true"] { cursor: text; }
 .txt a { color: inherit; text-decoration: underline; text-decoration-thickness: 0.06em; text-underline-offset: 0.18em; cursor: pointer; }
 .note .txt:empty::before { content: "Type a note"; opacity: 0.4; }
 .text .txt:empty::before { content: "Heading"; opacity: 0.35; }
@@ -2146,7 +2147,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 /* Over everything else on the page, wherever it is opened from: a board or the catalogue. */
 .viewer { position: fixed; inset: 0; z-index: 36; background: var(--viewer-bg); }
 .viewer[hidden] { display: none; }
-.v-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: crosshair; }
+.v-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; cursor: crosshair; }
 .viewer[data-tool="pan"] .v-stage, .viewer.space-held .v-stage { cursor: grab; }
 .v-piece { position: absolute; left: 0; top: 0; transform-origin: 0 0; background: var(--thumb-bg); box-shadow: 0 0 0 1px var(--ring-c), 0 12px 40px -12px rgba(0, 0, 0, 0.6); }
 .v-piece > img, .v-piece > video, .v-piece > .vhold { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
@@ -2429,7 +2430,7 @@ a.ph-shot:hover { outline: 2px solid var(--text); outline-offset: 1px; }
 .vl-tick:hover { background: var(--hover); }
 .vl-tick input { margin: 0; accent-color: var(--accent); }
 /* A version, as a card or a row: its shot strong, the rest of its label quieter. */
-.card.ver { cursor: pointer; user-select: none; -webkit-user-select: none; }
+.card.ver { cursor: pointer; }
 .card.ver:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .obj-version .card-name { color: var(--text-2); font-weight: 500; }
 .obj-version .ver-ent { color: var(--text); font-weight: 650; text-decoration: none; }
@@ -2471,11 +2472,11 @@ body:not(.vpicking) .card.ver:is(:hover, :focus-visible) > .vl-box { display: bl
    leaves out what matters least (data-level, the first whose columns fit), down to the picture, the
    name and the menu on a phone. */
 .vt-head, .vt-row { display: grid; grid-template-columns: var(--vt0); align-items: center; column-gap: 14px; }
-.vt-head { position: sticky; top: var(--bar); z-index: 5; min-height: 32px; margin-top: 12px; padding: 0 5px 0 1px; background: var(--bg); color: var(--muted); font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; user-select: none; -webkit-user-select: none; }
+.vt-head { position: sticky; top: var(--bar); z-index: 5; min-height: 32px; margin-top: 12px; padding: 0 5px 0 1px; background: var(--bg); color: var(--muted); font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
 .cat-tools + .vt > .vt-head { margin-top: 28px; }
 .vt-body { display: flex; flex-direction: column; gap: 8px; }
 .vt-head + .vt-body { margin-top: 4px; }
-.vt-row { position: relative; height: 52px; padding: 0 4px 0 0; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); color: inherit; text-decoration: none; overflow: hidden; cursor: pointer; user-select: none; -webkit-user-select: none; transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease), background 0.2s var(--ease); }
+.vt-row { position: relative; height: 52px; padding: 0 4px 0 0; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); color: inherit; text-decoration: none; overflow: hidden; cursor: pointer; transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease), background 0.2s var(--ease); }
 .vt-row:hover { border-color: var(--line-strong); box-shadow: var(--shadow-2); }
 .vt-row.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface-1)); }
 .vt-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

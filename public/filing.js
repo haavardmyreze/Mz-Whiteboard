@@ -5,17 +5,17 @@
 // which asset, set or shot it is, and the task (when the project counts its versions by task). Several
 // pieces can be given one answer to start from ("For all").
 //
-// Each row is one line of parts, labelled once above the rows (lineHead): what it is (a shot of kilo, a
-// new asset, or a question when nothing says), its name, the task, the version it follows (its still,
-// which shows the two side by side), the version it is to be, and the view. What the page filled in
-// itself, and nobody said (the next number, the main view, what a name's shape says it is), is shown
-// faint, so that it reads as the guess it is. The name takes a whole line, read by WBNaming.readLine:
+// Each row is one line of parts, labelled once above the rows (lineHead): what it is (an icon, with a
+// dot when it is new, or a question when nothing says), its name, the task, the version it follows (its
+// still, which shows the two side by side), the version it is to be, the view, and what there is to say
+// about it. What the page filled in itself, and nobody said (the next number, the main view), is faint,
+// so that it reads as the guess it is. The name takes a whole line, read by WBNaming.readLine:
 // "kilo-0010 anim v12 bty", a file name pasted in, or a short way to say a shot (20, +, .); a space after
 // a name the project has, or a shot, moves on to the task, and a line that reads one way only goes into
-// its parts as it is typed. Under the row is said only what the line does not: a change of length, and
-// anything that looks wrong (a near miss of a name the project has, a name not to the project's naming,
-// a new sequence like one there is, a second count for one shot), the worst of it first, each with the
-// fix a click away. Rows that need nothing from anyone fold into one line (readyFold). Suggestions come before anything
+// its parts as it is typed. What the line does not say (a change of length, and anything that looks
+// wrong: a near miss of a name the project has, a name not to the project's naming, a new sequence like
+// one there is, a second count for one shot) is behind a mark at its end, a warning when something is
+// to be sorted out: clicked, it says it, worst first, each with the fix a click away. Rows that need nothing from anyone fold into one line (readyFold). Suggestions come before anything
 // is typed: what the piece looks like a new version of (by its picture, asked of the server), the row
 // above, the next shot. Ctrl+D copies the row above; Shift+Enter numbers the rows below on from this one.
 // Loaded after naming.js, before the pages that file.
@@ -225,16 +225,72 @@ const WBFiling = (() => {
     return { node, paint };
   }
 
+  // ---- a small box of words over the page, opened from a button, one at a time
+
+  // `content()` is what it shows, made afresh each time it is painted; `paint()` on what comes back does
+  // that while it is open. It goes on a click elsewhere, Escape, or once its button is gone.
+  let popped = null;
+  function popOver(button, content) {
+    shutPop();
+    const box = el('div', { class: 'file-pop', role: 'dialog' });
+    (button.closest('dialog') || document.body).append(box);
+    const place = () => {
+      const r = button.getBoundingClientRect();
+      box.style.left = `${Math.round(Math.max(8, Math.min(r.right - box.offsetWidth, innerWidth - box.offsetWidth - 8)))}px`;
+      box.style.top = `${Math.round(r.bottom + 6 + box.offsetHeight < innerHeight - 8 ? r.bottom + 6 : Math.max(8, r.top - box.offsetHeight - 6))}px`;
+    };
+    const paint = () => {
+      box.replaceChildren(...[].concat(content()));
+      place();
+    };
+    const away = (e) => { if (!box.contains(e.target) && !button.contains(e.target)) shutPop(); };
+    const esc = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); shutPop(); button.focus(); } };
+    document.addEventListener('pointerdown', away, true);
+    document.addEventListener('keydown', esc, true);
+    const gone = setInterval(() => { if (!button.isConnected) shutPop(); }, 400);
+    button.setAttribute('aria-expanded', 'true');
+    popped = { box, button, paint, off: () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', esc, true); clearInterval(gone); } };
+    paint();
+    return popped;
+  }
+  function shutPop() {
+    if (!popped) return;
+    popped.off();
+    popped.box.remove();
+    popped.button.setAttribute('aria-expanded', 'false');
+    popped = null;
+  }
+
+  // The keys that work where pieces are filed, behind a button.
+  const KEYS = [
+    ['kilo-0010 anim v12', 'a whole line; a space moves on from the name'],
+    ['20  +  kilo+', 'shot 0020 of the sequence above, its next shot, kilo\'s next'],
+    ['.', 'the same as the row above'],
+    ['Enter', 'takes what is suggested'],
+    ['Ctrl+D', 'copies the row above'],
+    ['Shift+Enter', 'fills in the rows below on from this one'],
+  ];
+  function keysButton() {
+    const b = el('button', { type: 'button', class: 'iconbtn file-keys-btn', html: WB.icon('help', 16), title: 'Typing a row', 'aria-label': 'Typing a row', 'aria-expanded': 'false' });
+    b.addEventListener('click', () => {
+      if (popped && popped.button === b) return shutPop();
+      popOver(b, () => [el('b', { text: 'Typing a row' }), el('dl', { class: 'file-keys-list' }, KEYS.flatMap(([k, what]) => [el('dt', { text: k }), el('dd', { text: what })])),
+        el('p', { text: 'Faint is filled in, not said.' })]);
+    });
+    return b;
+  }
+
   // The parts of a row's line, as columns, the same on every row and in the labels over them.
-  const lineColumns = ({ useTasks, views }) => ['minmax(0, 96px)', 'minmax(120px, 1fr)', useTasks && 'minmax(64px, 110px)', '72px', '62px', views && 'minmax(56px, 84px)'].filter(Boolean).join(' ');
+  const lineColumns = ({ useTasks, views }) => ['34px', 'minmax(120px, 1fr)', useTasks && 'minmax(64px, 110px)', '72px', '62px', views && 'minmax(56px, 84px)', '30px'].filter(Boolean).join(' ');
   // The labels over the rows' lines, once: what each part of them is.
   function lineHead({ useTasks = true, views = null } = {}) {
     const node = el('span', { class: 'file-line file-labels', 'aria-hidden': 'true' },
-      el('span', { text: 'Is' }), el('span', { text: 'Asset, set or shot' }), useTasks && el('span', { text: 'Task' }),
-      el('span', { text: 'Follows' }), el('span', { text: 'Version' }), views && el('span', { text: 'View', title: `${views[0]} is the main one: a version of its own` }));
+      el('span'), el('span', { text: 'Asset, set or shot' }), useTasks && el('span', { text: 'Task' }),
+      el('span', { text: 'Follows' }), el('span', { text: 'Version' }), views && el('span', { text: 'View', title: `${views[0]} is the main one: a version of its own` }), el('span'));
     node.style.gridTemplateColumns = lineColumns({ useTasks, views });
     return node;
   }
+  const TIER_ICON = { asset: 'cube', set: 'set', shot: 'film' };
 
   // One piece's fields. `getEntities()` and `getTasks()` are the project's as last known;
   // `onChange` hears every edit. The tier is asked only for a new name whose shape does not say it, and
@@ -263,7 +319,7 @@ const WBFiling = (() => {
     // whose shape does not say has to be told (`tier`), nothing is assumed.
     const kind = el('span', { class: 'file-kind' });
     const tier = el('select', { class: 'file-ask', 'aria-label': 'What it is', title: 'A new one: what is it?' },
-      el('option', { value: '', text: 'what is it?' }), N.preset(presetId).tiers.map((t) => el('option', { value: t.id, text: t.one })));
+      el('option', { value: '', text: '?' }), N.preset(presetId).tiers.map((t) => el('option', { value: t.id, text: t.one })));
     // The version it follows, and the one it is to be: typed, or the next (faint).
     const prevSlot = el('span', { class: 'file-follows' });
     const verIn = numInput || el('input', { type: 'text', inputmode: 'numeric', value: typedNumber ? String(typedNumber) : '', spellcheck: 'false', 'aria-label': 'Version', title: 'Version: the next one, unless you say another' });
@@ -273,7 +329,14 @@ const WBFiling = (() => {
     // to go with a version. A name that says a view the project does not have is asked about, not guessed.
     const viewSel = views && el('select', { class: 'file-view', 'aria-label': 'View', title: `Which way of its version it shows. ${views[0]}, the main one, is a version of its own; the others go with one` },
       el('option', { value: '', text: views[0] }), views.slice(1).map((v) => el('option', { value: v, text: v })));
-    const line_ = el('span', { class: 'file-line' }, el('span', { class: 'file-is' }, kind, tier), ent, useTasks ? taskIn : null, prevSlot, verSeg, viewSel || null);
+    // What there is to say about it, behind a mark at the end of the line (see paintReadout).
+    const info = el('button', { type: 'button', class: 'file-info', 'aria-expanded': 'false', tabindex: '-1' });
+    info.addEventListener('pointerdown', (e) => e.preventDefault());
+    info.addEventListener('click', () => {
+      if (popped && popped.button === info) return shutPop();
+      if (readout.childNodes.length) popOver(info, () => readout);
+    });
+    const line_ = el('span', { class: 'file-line' }, el('span', { class: 'file-is' }, kind, tier), ent, useTasks ? taskIn : null, prevSlot, verSeg, viewSel || null, el('span', { class: 'file-info-cell' }, info));
     line_.style.gridTemplateColumns = lineColumns({ useTasks, views });
     let viewProblem = null;
     function setView(v) {
@@ -287,7 +350,6 @@ const WBFiling = (() => {
     const viewName = () => (viewSel && viewSel.value) || null;
     let likely = [];
     let fromName = named && !!entity;
-    let expanded = false;
     // What a line said of the number, on a page with no field for it. Said by a line, it goes when the
     // name is changed (it was said of that one); given by the page, it stays. A view said goes to the picker.
     const own = { number: typedNumber, said: false };
@@ -610,30 +672,37 @@ const WBFiling = (() => {
       el('span', { text: c.text }),
       (c.fixes || []).map((f) => el('button', { type: 'button', class: 'file-fix', text: f.label, onpointerdown: (ev) => ev.preventDefault(), onclick: () => { f.run(); onChange(); } })));
 
+    // What there is to say, all of it, the worst first, into `readout` (shown when the mark at the end of
+    // the line is clicked), and the mark: none, a note, or a warning when something is to be sorted out.
     function paintReadout() {
       const n = name();
       const typed = ent.value.trim();
-      readout.classList.toggle('empty', !n);
+      let all = [];
       if (!n) {
-        // Nothing to say yet, but why a short line says nothing; what Enter would put in is in the box.
+        // What Enter would put in is in the box; why a short line says nothing is behind the mark.
         const top = topPick();
         ent.placeholder = top ? `${[top.entity, top.task].filter(Boolean).join(' ')} ↵` : 'Asset, set or shot';
         ent.title = top ? `Enter: ${[top.entity, top.task].filter(Boolean).join(' ')} (${top.why}). ${SHORT_HELP}` : SHORT_HELP;
-        if (typed === '.') return readout.replaceChildren(note({ text: 'Nothing above, or filed before, to repeat', warn: true }));
-        if (typed && (/^[+]$|^\d{1,4}$/.test(typed.split(/\s+/)[0]))) return readout.replaceChildren(note({ text: 'No sequence above to go by: say it, as kilo+ or kilo-0020', warn: true }));
-        return readout.replaceChildren();
+        if (typed === '.') all = [{ text: 'Nothing above, or filed before, to repeat', warn: true }];
+        else if (typed && (/^[+]$|^\d{1,4}$/.test(typed.split(/\s+/)[0]))) all = [{ text: 'No sequence above to go by: say it, as kilo+ or kilo-0020', warn: true }];
+      } else {
+        ent.placeholder = 'Asset, set or shot';
+        ent.title = SHORT_HELP;
+        all = checks().filter((c) => !c.ok && c.text);
       }
-      ent.placeholder = 'Asset, set or shot';
-      ent.title = SHORT_HELP;
-      // What only tells, and the worst warning; the other warnings a click away.
-      const all = checks();
       const warns = all.filter((c) => c.warn).sort((a, b) => a.rank - b.rank);
-      const shown = [...all.filter((c) => !c.warn && !c.ok && c.text), ...(expanded ? warns : warns.slice(0, 1))];
-      const more = !expanded && warns.length > 1 && el('button', {
-        type: 'button', class: 'file-more', text: `+${warns.length - 1} more`, onpointerdown: (ev) => ev.preventDefault(),
-        onclick: () => { expanded = true; paintReadout(); },
-      });
-      readout.replaceChildren(...shown.map(note), ...(more ? [more] : []));
+      const shown = [...warns, ...all.filter((c) => !c.warn)];
+      readout.replaceChildren(...shown.map(note));
+      const said = shown.map((c) => c.text).join('. ');
+      info.className = `file-info${warns.length ? ' warn' : shown.length ? ' note' : ''}`;
+      info.innerHTML = shown.length ? WB.icon(warns.length ? 'warn' : 'info', 15) : '';
+      info.hidden = !shown.length;
+      info.title = said;
+      info.setAttribute('aria-label', said ? `${warns.length ? 'To sort out' : 'Notes'}: ${said}` : '');
+      if (popped && popped.button === info) {
+        if (shown.length) popped.paint();
+        else shutPop();
+      }
     }
 
     // The line's parts that are not typed in: what it is, and the version it follows.
@@ -648,9 +717,10 @@ const WBFiling = (() => {
       const t = tid && N.preset(presetId).every.find((x) => x.id === tid);
       const seq = tid === 'shot' ? N.seqOf(n, presetId) : null;
       const newSeq = !e && seq && checks().some((c) => c.newSeq);
-      kind.textContent = !n ? '' : `${e ? '' : 'new '}${t ? t.one : tid || ''}${seq ? ` · ${seq}` : ''}`;
-      kind.className = `file-kind${e ? '' : ' new'}${newSeq ? ' new-seq' : ''}`;
-      kind.title = !n ? '' : e ? `${n}: a ${t ? t.one : tid} the project has` : `${n} is new: a ${t ? t.one : tid}${seq ? `, in ${newSeq ? 'a new sequence, ' : ''}${seq}` : ''}${shape ? ', by the shape of its name' : ''}`;
+      kind.innerHTML = n && tid ? WB.icon(TIER_ICON[tid] || 'dot', 15) : '';
+      kind.className = `file-kind${!n || e ? '' : ' new'}${newSeq ? ' new-seq' : ''}`;
+      kind.title = !n || !tid ? '' : e ? `${n}: a ${t ? t.one : tid} the project has` : `${n} is new: a ${t ? t.one : tid}${seq ? `, in ${newSeq ? 'a new sequence, ' : ''}${seq}` : ''}${shape ? ', by the shape of its name' : ''}`;
+      kind.setAttribute('aria-label', kind.title);
       // The version it follows: its still (with a tick when the piece looks like it), which shows the two
       // side by side under the pointer or the keyboard.
       const head = n ? headOf() : null;
@@ -687,7 +757,6 @@ const WBFiling = (() => {
         changed();
         if (input === ent) fromName = false;
         if (input === ent && own.said) Object.assign(own, { number: null, said: false });
-        expanded = false;
         sync();
         onChange();
       });
@@ -931,8 +1000,6 @@ const WBFiling = (() => {
     });
   }
 
-  // The keys that work where pieces are filed, said once under the rows.
-  const keysHint = () => el('p', { class: 'file-keys', text: 'Type a whole line: kilo-0010 anim v12, a space moving on from the name · 20, + and . say a shot short · Enter takes what is suggested · Faint is filled in, not said · Ctrl+D copies the row above · Shift+Enter fills in the rows below' });
 
   // Suggestions for a name or a task typed anywhere else (a version's Edit), the same as a row's.
   const entitySource = (getEntities, presetId) => (typed) => {
@@ -947,5 +1014,5 @@ const WBFiling = (() => {
     return !max || file.size <= max;
   };
 
-  return { UNFILE_WITHIN, lineHead, readyFold, suggest, entitySource, taskSource, fields, changed, series, keysHint, forAll, confirmSequences, findLikely, offerRule, originalFits, streamsOf, nextOf };
+  return { UNFILE_WITHIN, lineHead, readyFold, suggest, entitySource, taskSource, fields, changed, series, keysButton, forAll, confirmSequences, findLikely, offerRule, originalFits, streamsOf, nextOf };
 })();

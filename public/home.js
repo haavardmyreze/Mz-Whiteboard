@@ -2888,7 +2888,7 @@
     // The ways the project shows its versions, the main one first, or null for one way (its settings):
     // each row then says which it is (filing.js).
     const viewList = () => (cat ? cat.viewList : Array.isArray(settings().views) ? settings().views : null) || null;
-    const head = el('div', { class: 'imp-head' }, title, fillAll, el('span', { class: 'imp-gap' }), aiBtn, clearBtn, fileAll);
+    const head = el('div', { class: 'imp-head' }, title, fillAll, el('span', { class: 'imp-gap' }), WBFiling.keysButton(), aiBtn, clearBtn, fileAll);
     // The rows that need nothing from anyone, folded into one line over the rest (filing.js).
     const fold = WBFiling.readyFold({
       items: () => rows.filter((o) => o.fields && unfiled(o) && o.status !== 'failed').map((o) => ({ f: o.fields.f, node: o.node, r: o })),
@@ -2905,7 +2905,7 @@
       }
       labels.hidden = !rows.some(unfiled);
     };
-    const tray = el('div', { class: 'imp', hidden: true }, head, ai && ai.node, fold.node, labels, list, WBFiling.keysHint());
+    const tray = el('div', { class: 'imp', hidden: true }, head, ai && ai.node, fold.node, labels, list);
     const picker = el('input', { type: 'file', multiple: true, accept: 'image/*,video/mp4,video/webm,video/quicktime', hidden: true });
     document.body.append(picker);
     let pickFor = null;
@@ -3106,7 +3106,7 @@
       });
       r.fields.retry = retry;
       // What it is doing is said under its bar, so nothing on the row moves while it comes in.
-      r.node = el('div', { class: 'imp-row' }, thumb, el('span', { class: 'imp-file' }, el('span', { class: 'imp-name', text: r.file.name, title: r.file.name }), bar, status), fields, said, el('span', { class: 'imp-end' }, undo, retry, drop), f.readout);
+      r.node = el('div', { class: 'imp-row' }, thumb, el('span', { class: 'imp-file' }, el('span', { class: 'imp-name', text: r.file.name, title: r.file.name }), bar, status), fields, said, el('span', { class: 'imp-end' }, undo, retry, drop));
       sync();
       return r.node;
     }

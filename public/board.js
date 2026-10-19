@@ -4711,7 +4711,7 @@
     };
 
     const dlg = el('dialog', { class: `dlg file-dlg${list.length > 1 ? ' many' : ''}` });
-    const hint = el('p', { class: 'file-hint' });
+    const hint = el('span', { class: 'file-hint' });
     // What a key did to the rows, with its Undo: said here, since a toast would be behind the dialog.
     const status = el('p', { class: 'file-status', role: 'status', hidden: true });
     let statusGone = 0;
@@ -4743,8 +4743,7 @@
       row.node = el('div', { class: 'file-row' },
         el('img', { src: it.th || it.prev || (it.type === 'image' ? it.src : it.poster) || '', alt: '' }),
         el('span', { class: 'file-name', text: it.name || (it.type === 'video' ? 'Video' : 'Image'), title: it.name || '' }),
-        el('span', { class: 'file-fields' }, f.line),
-        f.readout);
+        el('span', { class: 'file-fields' }, f.line));
       rows.push(row);
     }
     const nameOf = (row) => row.f.name();
@@ -4777,10 +4776,9 @@
       const missing = rows.filter((row) => !nameOf(row)).length;
       const unsure = rows.filter((row) => nameOf(row) && !row.f.ready()).length;
       ok.disabled = missing + unsure > 0;
-      const made = [...new Set(rows.map(nameOf).filter((n) => n && !cat.entities.some((e) => e.name === n)))];
-      const sortOut = unsure ? `${unsure === 1 ? 'A row' : `${unsure} rows`} ${missing ? 'also' : 'still'} ${unsure === 1 ? 'has' : 'have'} something to sort out: see under ${unsure === 1 ? 'it' : 'them'}.` : '';
-      hint.textContent = missing ? `${list.length === 1 ? 'Which asset, set or shot is it? Type a name, or pick one.' : `${missing === rows.length ? 'Say' : `${missing} still need to say`} which asset, set or shot ${missing === 1 ? 'it is' : 'each is'}.`} ${sortOut}`.trim()
-        : sortOut || (made.length ? `New in the catalogue: ${made.join(', ')}.` : 'Each is filed as the version its row says.');
+      // Only what keeps it from being filed, in a few words: the rows themselves say the rest.
+      hint.textContent = [missing && `${missing} to name`, unsure && `${unsure} to sort out`].filter(Boolean).join(' · ');
+      hint.hidden = !hint.textContent;
     }
 
     let confirmed = false;
@@ -4796,7 +4794,7 @@
         dlg.close();
       },
     },
-    el('h2', { text: list.length > 1 ? `File ${list.length} pieces as versions` : 'File as a version' }),
+    el('div', { class: 'file-dlg-head' }, el('h2', { text: list.length > 1 ? `File ${list.length} pieces as versions` : 'File as a version' }), WBFiling.keysButton()),
     list.length > 1 && fill,
     fold.node,
     el('div', { class: 'file-rows' },
@@ -4804,9 +4802,7 @@
       el('div', { class: 'file-row file-labels-row' }, el('span'), el('span'), el('span', { class: 'file-fields' }, WBFiling.lineHead({ useTasks, views: cat.viewList || null }))),
       rows.map((row) => row.node)),
     status,
-    hint,
-    WBFiling.keysHint(),
-    el('div', { class: 'dlg-actions' },
+    el('div', { class: 'dlg-actions' }, hint,
       el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }), ok)));
     dlg.addEventListener('close', async () => {
       dlg.remove();

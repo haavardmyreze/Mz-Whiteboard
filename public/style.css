@@ -1312,10 +1312,31 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
 .file-line input[type="number"]::-webkit-inner-spin-button, .file-line input[type="number"]::-webkit-outer-spin-button { margin: 0; -webkit-appearance: none; }
 .file-is { display: flex; align-items: center; }
 .file-is > [hidden] { display: none; }
-.file-kind { overflow: hidden; padding: 0 8px; color: var(--text-2); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
-.file-kind.new { color: var(--accent); }
-.file-kind.new-seq { color: var(--warn-fg); }
-.file-line select.file-ask { background-color: var(--warn-bg); color: var(--warn-fg); font-size: 12px; }
+.file-is { justify-content: center; }
+/* What it is, as an icon: a dot on it when it is new (in the warning colour when its sequence is new too). */
+.file-kind { position: relative; display: grid; place-items: center; width: 100%; height: 100%; color: var(--text-2); }
+.file-kind.new::after { content: ''; position: absolute; top: 7px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.file-kind.new-seq::after { background: var(--warn-fg); }
+.file-line select.file-ask { padding: 0 0 0 11px; background-color: var(--warn-bg); background-image: none; color: var(--warn-fg); font-size: 13px; font-weight: 600; }
+/* What there is to say about the row, behind a mark at the end of its line. */
+.file-info-cell { display: grid; place-items: center; }
+.file-info { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--r-1); background: transparent; color: var(--muted); cursor: pointer; }
+.file-info[hidden] { display: none; }
+.file-info:hover, .file-info[aria-expanded="true"] { background: var(--hover); color: var(--text); }
+.file-info.warn { color: var(--warn-fg); }
+/* The box it opens, and the keys' one. */
+.file-pop { position: fixed; z-index: 60; display: flex; flex-direction: column; gap: 8px; max-width: min(360px, calc(100vw - 16px)); padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-1); box-shadow: var(--shadow-pop); color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
+.file-pop .file-says { display: flex; flex-direction: column; gap: 8px; }
+.file-pop > b { color: var(--text); font-size: 12.5px; }
+.file-pop p { margin: 0; color: var(--muted); font-size: 11.5px; }
+.file-keys-list { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+.file-keys-list dt { color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; white-space: nowrap; }
+.file-keys-list dd { margin: 0; }
+.file-keys-btn { flex: none; color: var(--muted); }
+.file-dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.file-dlg-head h2 { margin: 0; }
+.dlg-actions .file-hint { margin-right: auto; color: var(--warn-fg); font-size: 12.5px; }
+.dlg-actions .file-hint[hidden] { display: none; }
 .file-follows { display: flex; align-items: center; padding: 0 6px; color: var(--muted); font-size: 12px; }
 .file-follows .file-prev { gap: 4px; }
 .file-follows .file-prev img { width: 28px; height: 18px; }
@@ -1335,20 +1356,7 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
   .file-line:not(.file-labels) > input:first-of-type { grid-column: 2 / -1; }
   .file-line:not(.file-labels) > .file-follows { display: none; }
 }
-.dlg p.file-hint { margin: 12px 0 0; font-size: 12.5px; }
 
-/* What a row being filed will be, said under it (filing.js): the version it follows and the number it
-   gets, what a new one is, and anything that looks wrong, with its fix. The same on a board and in the catalogue. */
-.file-says { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; min-height: 20px; color: var(--muted); font-size: 12px; line-height: 20px; }
-/* Before a name: what Enter would put in, and how to say a shot short. Always there, so nothing below moves as you type. */
-.file-help { opacity: 0.75; }
-.file-says[hidden], .imp-row.filed .file-says { display: none; }
-/* Nothing to say: no line, except on the row being worked in, so what is typed there moves nothing. */
-.file-says:empty { display: none; }
-.imp-row:focus-within .file-says:empty, .file-row:focus-within .file-says:empty { display: flex; }
-.file-row .file-says { grid-column: 2 / -1; margin-top: 4px; }
-.imp-row .file-says { grid-column: 2 / -1; margin-top: 6px; }
-.file-what { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
 .file-prev { position: relative; display: inline-flex; flex: none; align-items: center; gap: 5px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: zoom-in; }
 .file-prev img { width: 32px; height: 20px; border-radius: var(--r-1); background: var(--thumb-bg); object-fit: cover; }
 .file-prev i { font-style: normal; }
@@ -1369,13 +1377,7 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
 .file-ready-mark { display: grid; flex: none; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: var(--ok); color: var(--bg); font-size: 10px; font-weight: 700; }
 .file-ready-text { flex: 1; min-width: 0; color: var(--muted); }
 .file-ready-text b { color: var(--text); font-weight: 600; }
-.file-num { flex: none; color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
-.file-new { flex: none; padding: 0 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; line-height: 18px; }
-.file-new.ask { background: var(--warn-bg); color: var(--warn-fg); }
-.file-more { padding: 0; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 11.5px; text-decoration: underline; cursor: pointer; }
-.file-more:hover { color: var(--text); }
 /* The keys that work where pieces are filed, once under the rows. */
-.dlg p.file-keys, .file-keys { margin: 10px 0 0; color: var(--muted); font-size: 11.5px; opacity: 0.8; }
 .dlg p.file-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 10px 0 0; font-size: 12.5px; }
 .dlg p.file-status[hidden] { display: none; }
 .dlg p.file-status.warn { color: var(--warn-fg); }
@@ -1385,12 +1387,6 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
 .file-fix { padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface-2); color: var(--text); font: inherit; font-size: 11.5px; line-height: 18px; cursor: pointer; }
 .file-fix:hover { background: var(--hover); }
 .file-fix:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
-@media (max-width: 560px) {
-  .file-row .file-says, .imp-row .file-says { grid-column: 1 / -1; }
-  /* On a phone, under the row's fields, before its buttons. */
-  .imp-row .file-says { order: 1; }
-  .imp-row .imp-end { order: 2; }
-}
 
 /* The catalogue beside the board. */
 #catpanel { width: 380px; }

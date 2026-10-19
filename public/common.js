@@ -318,16 +318,14 @@ const WB = (() => {
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     // A page shown inside another (a board being presented, in the page that watches it) is no arrival.
     if (window.top !== window) return;
-    // Opening the app or refreshing it, not moving around inside it (home to a board and back).
-    const nav = performance.getEntriesByType('navigation')[0];
-    const type = nav ? nav.type : 'navigate';
-    let inside = false;
+    // Only when the app is first opened in this tab: not on a refresh, and not moving around inside it
+    // (home to a board and back). Where session storage is not allowed it cannot be remembered, so it plays on every page.
     try {
-      inside = !!document.referrer && new URL(document.referrer).origin === location.origin;
+      if (sessionStorage.getItem('wb:welcomed')) return;
+      sessionStorage.setItem('wb:welcomed', '1');
     } catch {
-      // an odd referrer counts as coming from outside
+      // nothing to remember it by
     }
-    if (type === 'back_forward' || (type === 'navigate' && inside)) return;
     const node = splash('welcome');
     const target = slot && slot.querySelector('svg');
     if (!target) return setTimeout(() => dismiss(node), 1500);

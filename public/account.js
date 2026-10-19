@@ -1,19 +1,20 @@
 'use strict';
 
 // Your account: who you are here (name and colour, unless sign-in says), how the app looks (theme, and
-// cards or compact rows), what this computer caches of the videos, and the way to the admin page or out.
+// lists as cards, compact rows or a table), what this computer caches of the videos, and the way to the
+// admin page or out.
 // Opened from your name in the home page's bar. Loaded after media.js and icons.js.
 const WBAccount = (() => {
   const { el } = WB;
   const icon = WB.icon;
   const ICON = {
     pen: icon('pen', 16), moon: icon('moon', 16), sun: icon('sun', 16), disk: icon('disk', 18), out: icon('out', 16),
-    shield: icon('shield', 16), close: icon('close', 18), rows: icon('rows', 18), cards: icon('boards', 18),
+    shield: icon('shield', 16), close: icon('close', 18),
   };
   const size = WB.bytes;
 
-  // `me()` is who you are now; `setMe(me)` hears a new name or colour; `setDensity(compact)` sets the layout.
-  function open({ me: getMe, setMe, setDensity }) {
+  // `me()` is who you are now; `setMe(me)` hears a new name or colour.
+  function open({ me: getMe, setMe }) {
     let me = getMe();
     const changed = (m) => { me = m; setMe(m); };
     const managed = !!WB.info().user;
@@ -83,11 +84,8 @@ const WBAccount = (() => {
         section('Appearance', el('div', { class: 'seg' }, [['dark', ICON.moon, 'Dark'], ['light', ICON.sun, 'Light']].map(([t, ic, label]) => el('button', {
           type: 'button', class: `seg-btn${theme === t ? ' on' : ''}`, 'aria-pressed': String(theme === t), onclick: () => { WB.setTheme(t); paint(); },
         }, el('span', { class: 'seg-ic', html: ic }), label))),
-        // The layout of the lists: cards, or compact rows. Also the button beside the bell.
-        el('div', { class: 'seg acct-seg2' }, [[false, ICON.cards, 'Cards'], [true, ICON.rows, 'Compact rows']].map(([compact, ic, label]) => {
-          const on = (document.documentElement.dataset.density === 'compact') === compact;
-          return el('button', { type: 'button', class: `seg-btn${on ? ' on' : ''}`, 'aria-pressed': String(on), onclick: () => { setDensity(compact); paint(); } }, el('span', { class: 'seg-ic', html: ic }), label);
-        }))),
+        // How lists are shown: cards, compact rows or a table. Also the switch in the bar.
+        WB.layoutSwitch({ labels: true })),
         section('Video cache',
           el('div', { class: 'acct-cache' },
             el('span', { class: 'acct-cache-ic', html: ICON.disk }),

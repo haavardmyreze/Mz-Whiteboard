@@ -256,6 +256,34 @@ const WB = (() => {
     return btn;
   }
 
+  // ---- layout: how every list of things is shown (boards, folders, the catalogue, versions), the same
+  // everywhere and remembered per browser: as cards, as compact rows (a small still beside each name, many
+  // to a screen), or as a table (a row each, with what is known of it in columns). boot.js reads it first.
+  const LAYOUTS = [['cards', 'boards', 'Cards'], ['rows', 'rows', 'Compact rows'], ['table', 'table', 'Table']];
+  const layout = () => {
+    const k = document.documentElement.dataset.layout;
+    return k === 'rows' || k === 'table' ? k : 'cards';
+  };
+  function setLayout(k) {
+    document.documentElement.dataset.layout = k;
+    store('wb:layout', k);
+    window.dispatchEvent(new Event('wb:layout'));
+  }
+  // The three, side by side, the one in force pressed: in the bar (icons) and in Your account (`labels`).
+  function layoutSwitch({ labels = false } = {}) {
+    const seg = el('div', { class: `seg layout-seg${labels ? '' : ' seg-icons'}`, role: 'group', 'aria-label': 'Show lists as' });
+    const paint = () => seg.replaceChildren(...LAYOUTS.map(([k, ic, label]) => el('button', {
+      type: 'button', class: `seg-btn${layout() === k ? ' on' : ''}`, 'aria-pressed': String(layout() === k),
+      ...(labels ? {} : { 'aria-label': `Show as ${label.toLowerCase()}`, 'data-tip': `Show as ${label.toLowerCase()}` }),
+      onclick: () => { if (layout() !== k) setLayout(k); },
+    }, el('span', { class: 'seg-ic', html: WB.icon(ic, 15) }), labels && label)));
+    // Redrawn when it changes anywhere; one taken off the page stops listening.
+    const heard = () => (seg.isConnected ? paint() : window.removeEventListener('wb:layout', heard));
+    window.addEventListener('wb:layout', heard);
+    paint();
+    return seg;
+  }
+
   // Videos kept on this computer: media.js, which sets WB.media.
 
   // What /api/me said (after identity() or askName() has run): whether read-only links, a public address and sign-out exist here.
@@ -617,8 +645,7 @@ const WB = (() => {
   const KEYS = {
     user: 'wb:user',           // { name, color } where nobody signs in
     theme: 'wb:theme',         // 'dark' | 'light'
-    density: 'wb:density',     // 'normal' | 'compact'
-    versionLayout: 'wb:vlayout', // 'cards' | 'table': how lists of versions are shown
+    layout: 'wb:layout',       // 'cards' | 'rows' | 'table': how lists are shown
     workspace: 'wb:workspace', // the workspace last shown
     pins: 'wb:pins',           // what is pinned to Home
     recent: 'wb:recent',       // what was opened lately
@@ -637,7 +664,7 @@ const WB = (() => {
   }
 
   return {
-    el, store, remember, combo, rank, user, dialog, askName, info, shareBases, offline, waiting, playable, usesPhoneCopies, watchServer, initials, ago, api, theme, setTheme, themeButton,
+    el, store, remember, combo, rank, user, dialog, askName, info, shareBases, offline, waiting, playable, usesPhoneCopies, watchServer, initials, ago, api, theme, setTheme, themeButton, layout, setLayout, layoutSwitch,
     media: null, colors: USER_COLORS, saveUser, signOut, clamp, uid, hexOk, isTyping, bytes, plural, avatar, menu, closeMenus, toast, href, KEYS,
   };
 })();

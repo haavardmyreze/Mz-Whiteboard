@@ -43,9 +43,21 @@ private networks, otherwise only the host machine can connect.
   My work: the assets, sets and shots you are an artist on or have filed versions of. Every card is the
   catalogue's own: it scrubs under the pointer and plays the latest. Pin from a card's `...` menu or
   the star beside where you are; pins and what is read are kept by this browser.
-- **Cards or compact rows.** The button beside the theme in the top bar shows boards, folders and the
-  catalogue as cards, or as compact rows (a small still beside each name), remembered per browser. A list
-  of versions shown as a table is a tighter table for it.
+- **Everything is an object, shown one way.** A board, a folder, an asset, set or shot, a version and a
+  place pinned to Home are all listed the way a file manager lists files, and every list (Home, a folder,
+  the catalogue, Versions, an asset, set or shot's versions) can be shown three ways, chosen with the three
+  buttons beside the theme in the top bar (or in Your account) and remembered per browser: as cards, as
+  compact rows (a small still beside each name, many to a screen), or as a table. A table has a row for
+  each, its still (or a folder's icon) first, scrubbing and playing as on a card, then its name with a
+  quieter line under it, and in columns what is known of that kind: a board's items, where it is and when
+  it was edited; a folder's kind, boards and folders; an asset, set or shot's latest version, tasks,
+  versions, artists and when the last was filed; a version's as below; and for what is pinned to Home,
+  what each is, where, and when it changed. It is set as the catalogue is, under the same headings ("Shots
+  25", then each sequence), with its headings staying in sight as the page scrolls; a narrower window
+  leaves out what matters least first, and a phone keeps the still, the name and the menu. Each row is
+  selected as its card is, and where things can be selected (boards and folders, the catalogue,
+  versions) its box, there under the pointer, selects it. The code is one component (objectNode and
+  objectList in `public/home.js`), with each kind saying only what it is made of.
 - **One bar across the top, the same on every page.** The mark in the corner goes to all boards, and
   beside it is where you are, as a path: the board, and with an image or video open, the board and
   then the piece. On the right is what can be done there, ending in the one thing set in ink (New
@@ -588,16 +600,13 @@ filed in it.
 - **Versions, every one, as you want to see them.** A project's Versions (in the sidebar) lists every
   version filed in it, the same way an asset, set or shot's page lists its own: its still (which scrubs
   under the pointer and opens in the player), its shot (a link to it) and the rest of its label, when it
-  was filed, and the boards it is on. The pair of buttons at the right of the bar (and beside Versions on
-  an asset, set or shot's page) shows them as cards or as a table, for every list of versions, remembered
-  per browser. The table has a row each, its still leading it: the name with what it is and the file's
-  own name under it, the task, the version, how long it runs (and in frames, at its rate), its size, the
-  artist, who filed it and when, how many threads of notes it has (in the accent colour while any is
-  open), and its boards. A narrower window leaves out the size and boards first, then the artist and
-  length, then the task, who filed it and the notes; a phone keeps the still and the name. Its headings
-  stay in sight as it scrolls, and Name, Version and Filed sort it with a click (Filed again for oldest
-  first). Double-click a row to open it in the player. The button in the top bar makes it a tight table
-  with a small still, as it makes cards compact rows. The bar over the list also has two buttons:
+  was filed, and the boards it is on. Its groups are headed as the catalogue's are: each day a section,
+  and within it who filed a run of them. As a table (the buttons in the top bar), a version's row says
+  what it is and the file's own name under its name, then its task, its version, how long it runs (and in
+  frames, at its rate), its size, the artist, who filed it and when, how many threads of notes it has (in
+  the accent colour while any is open), and its boards; Name, Version and Filed sort it with a click
+  (Filed again for oldest first). Double-click a version, as a card or a row, to open it in the player.
+  The bar over the list has two buttons:
   - **View** (it says how it is grouped) groups by upload time (the default: by day, and within a day
     by who filed a run of them), by sequence (assets and sets after), by asset, set or shot, by task, by
     who filed them, or not at all; and sorts by newest or oldest filed, by name, or by version number.

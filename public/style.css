@@ -2010,8 +2010,15 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 /* ---------------------------------------------------------------- projects: catalogue and import */
 
 .card.folder.project .folder-icon { background: var(--accent-soft); color: var(--accent); }
-.seq-label { margin: 8px 0 12px; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-.seq-label + .ent-grid + .seq-label { margin-top: 28px; }
+.seq-label { display: flex; align-items: center; gap: 8px; margin: 28px 0 12px; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.section-label + .seq-label, .vt-head + .seq-label { margin-top: 8px; }
+/* What more a group's heading says (groupHead in home.js): whose it is, beside it what is in it, and a
+   box that selects all of it. */
+.seq-sub { color: var(--muted); font-weight: 400; letter-spacing: 0; text-transform: none; }
+.seq-label .avatar.sm { width: 18px; height: 18px; font-size: 8.5px; letter-spacing: 0; background: var(--surface-3); color: var(--text-2); }
+.section-label .avatar.sm { align-self: center; width: 22px; height: 22px; font-size: 9px; }
+.section-label > .vl-box { align-self: center; }
+.vl-tools + .section-label, .vt-head + .section-label { margin-top: 20px; }
 .ent-grid { grid-template-columns: repeat(auto-fill, minmax(208px, 1fr)); gap: 20px; }
 .card.ent .card-thumbs, .card.ver .card-thumbs { aspect-ratio: 16 / 10; }
 .card.ver .card-thumbs { position: relative; width: 100%; padding: 0; border: 0; font: inherit; cursor: zoom-in; }
@@ -2021,31 +2028,31 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .ver-boards { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 
 /* Compact: every card a row, a small still beside its name, many more to a screen (the button in the bar). */
-[data-density="compact"] .board-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; }
-[data-density="compact"] .folder-grid { gap: 8px; }
-[data-density="compact"] .card { flex-direction: row; align-items: center; height: 56px; min-height: 0; }
-[data-density="compact"] .card:hover { transform: none; }
-[data-density="compact"] .card-thumbs,
-[data-density="compact"] .card.ent .card-thumbs,
-[data-density="compact"] .card.ver .card-thumbs { position: relative; flex: none; align-self: stretch; width: 84px; height: 100%; min-height: 0; aspect-ratio: auto; border-bottom: 0; border-right: 1px solid var(--line); }
+[data-layout="rows"] .board-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; }
+[data-layout="rows"] .folder-grid { gap: 8px; }
+[data-layout="rows"] .card { flex-direction: row; align-items: center; height: 56px; min-height: 0; }
+[data-layout="rows"] .card:hover { transform: none; }
+[data-layout="rows"] .card-thumbs,
+[data-layout="rows"] .card.ent .card-thumbs,
+[data-layout="rows"] .card.ver .card-thumbs { position: relative; flex: none; align-self: stretch; width: 84px; height: 100%; min-height: 0; aspect-ratio: auto; border-bottom: 0; border-right: 1px solid var(--line); }
 /* The picture fills its place, whatever its own size: it never makes a card taller. */
-[data-density="compact"] .card-thumbs > img { position: absolute; inset: 0; width: 100%; height: 100%; }
-[data-density="compact"] .card-thumbs.n2 > img, [data-density="compact"] .card-thumbs.n3 > img, [data-density="compact"] .card-thumbs.n4 > img { position: static; }
-[data-density="compact"] .card-body > .card-meta + .card-meta, [data-density="compact"] .card-body > .ver-boards { display: none; }
-[data-density="compact"] .card-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-[data-density="compact"] .card.folder { height: 48px; }
-[data-density="compact"] .ver-kind, [data-density="compact"] .play-latest { display: none; }
-[data-density="compact"] .card-body { flex: 1; min-width: 0; padding: 7px 44px 7px 12px; }
-[data-density="compact"] .card-name { font-size: 13px; }
-[data-density="compact"] .card-meta { margin-top: 0; font-size: 11.5px; }
-[data-density="compact"] .ver-boards { margin-top: 4px; }
-[data-density="compact"] .card-menu { top: 50%; transform: translateY(-50%); }
-[data-density="compact"] .card.folder { height: 48px; padding-left: 8px; }
-[data-density="compact"] .card.folder .card-body { padding: 0; }
-[data-density="compact"] .folder-icon { width: 32px; height: 32px; }
-[data-density="compact"] .card.new .new-thumb { flex: none; align-self: stretch; width: 84px; aspect-ratio: auto; border-bottom: 0; border-right: 1px dashed var(--line-strong); }
-[data-density="compact"] .card.new .plus { width: 28px; height: 28px; }
-[data-density="compact"] .card.new { flex-direction: row; }
+[data-layout="rows"] .card-thumbs > img { position: absolute; inset: 0; width: 100%; height: 100%; }
+[data-layout="rows"] .card-thumbs.n2 > img, [data-layout="rows"] .card-thumbs.n3 > img, [data-layout="rows"] .card-thumbs.n4 > img { position: static; }
+[data-layout="rows"] .card-body > .card-meta + .card-meta, [data-layout="rows"] .card-body > .ver-boards { display: none; }
+[data-layout="rows"] .card-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-layout="rows"] .card.folder { height: 48px; }
+[data-layout="rows"] .ver-kind, [data-layout="rows"] .play-latest { display: none; }
+[data-layout="rows"] .card-body { flex: 1; min-width: 0; padding: 7px 44px 7px 12px; }
+[data-layout="rows"] .card-name { font-size: 13px; }
+[data-layout="rows"] .card-meta { margin-top: 0; font-size: 11.5px; }
+[data-layout="rows"] .ver-boards { margin-top: 4px; }
+[data-layout="rows"] .card-menu { top: 50%; transform: translateY(-50%); }
+[data-layout="rows"] .card.folder { height: 48px; padding-left: 8px; }
+[data-layout="rows"] .card.folder .card-body { padding: 0; }
+[data-layout="rows"] .folder-icon { width: 32px; height: 32px; }
+[data-layout="rows"] .card.new .new-thumb { flex: none; align-self: stretch; width: 84px; aspect-ratio: auto; border-bottom: 0; border-right: 1px dashed var(--line-strong); }
+[data-layout="rows"] .card.new .plus { width: 28px; height: 28px; }
+[data-layout="rows"] .card.new { flex-direction: row; }
 .ver-board { padding: 2px 8px; border-radius: 10px; background: var(--surface-2); color: var(--text-2); font-size: 11.5px; text-decoration: none; }
 .ver-board:hover { background: var(--hover); color: var(--text); }
 .cat-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: 420px; }
@@ -2318,7 +2325,7 @@ body.picking .card.ent:hover { transform: none; }
 .pick-gap { flex: 1; }
 .pick-bar .btn[hidden] { display: none; }
 body.picking main { padding-bottom: 120px; }
-[data-density="compact"] body.picking .card.ent .pick-box { top: 50%; left: 6px; margin-top: -10px; }
+[data-layout="rows"] body.picking .card.ent .pick-box { top: 50%; left: 6px; margin-top: -10px; }
 /* The batch edit dialog. */
 .dlg.be { width: min(560px, calc(100vw - 32px)); }
 .dlg .be-which { margin: 0 0 8px; color: var(--muted); font-size: 12.5px; }
@@ -2421,30 +2428,21 @@ a.ph-shot:hover { outline: 2px solid var(--text); outline-offset: 1px; }
 .vl-tick { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-2); font-size: 13px; cursor: pointer; }
 .vl-tick:hover { background: var(--hover); }
 .vl-tick input { margin: 0; accent-color: var(--accent); }
-.vl-day { display: flex; align-items: center; gap: 10px; margin: 28px 0 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); font-size: 14px; }
-.vl-day .avatar.sm { width: 22px; height: 22px; font-size: 9px; }
-.vl-day .tally { color: var(--muted); font-weight: 400; }
-#content > .vl-day:first-child { margin-top: 12px; }
-.vl-run { margin: 0 0 16px; }
-.vl-runhead { display: flex; align-items: center; gap: 8px; padding: 8px 0 10px; color: var(--muted); font-size: 12.5px; user-select: none; -webkit-user-select: none; }
-.vl-runhead b { color: var(--text-2); font-weight: 600; }
-.vl-runhead .avatar.sm { width: 20px; height: 20px; font-size: 9px; background: var(--surface-3); color: var(--text-2); }
-.vl-grid { margin-bottom: 8px; }
-/* A version's card (the same on an asset, set or shot's page): its shot strong, the rest of its label quieter. */
+/* A version, as a card or a row: its shot strong, the rest of its label quieter. */
 .card.ver { cursor: pointer; user-select: none; -webkit-user-select: none; }
 .card.ver:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.card.ver .card-name { color: var(--text-2); font-weight: 500; }
-.card.ver .ver-ent { color: var(--text); font-weight: 650; text-decoration: none; }
-.card.ver a.ver-ent:hover { text-decoration: underline; }
+.obj-version .card-name { color: var(--text-2); font-weight: 500; }
+.obj-version .ver-ent { color: var(--text); font-weight: 650; text-decoration: none; }
+.obj-version a.ver-ent:hover { text-decoration: underline; }
 .ver-more { align-self: center; color: var(--muted); font-size: 11.5px; }
 /* Its box, over the picture's corner: there on a hover, and on every card once something is picked. */
 .card.ver > .vl-box { position: absolute; z-index: 2; top: 8px; left: 8px; border-color: rgba(255, 255, 255, 0.85); background: rgba(0, 0, 0, 0.45); }
 .card.ver > .vl-box.on { border-color: var(--accent); background: var(--accent); }
-[data-density="compact"] .card.ver > .vl-box { top: 50%; left: 6px; margin-top: -9px; }
-.vl-box { flex: none; position: relative; width: 18px; height: 18px; padding: 0; border: 1.5px solid var(--line-strong); border-radius: var(--r-2); background: transparent; cursor: pointer; }
-.vl-box:hover { border-color: var(--muted); }
-.vl-box.on, .vl-box.some { border-color: var(--accent); background: var(--accent); }
-.vl-box.on::after { content: ""; position: absolute; left: 4px; top: 2px; width: 7px; height: 4px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg); }
+[data-layout="rows"] .card.ver > .vl-box { top: 50%; left: 6px; margin-top: -9px; }
+.vl-box, .vt-box { flex: none; position: relative; width: 18px; height: 18px; padding: 0; border: 1.5px solid var(--line-strong); border-radius: var(--r-2); background: transparent; cursor: pointer; }
+.vl-box:hover, .vt-box:hover { border-color: var(--muted); }
+.vl-box.on, .vl-box.some, .vt-row.picked .vt-box { border-color: var(--accent); background: var(--accent); }
+.vl-box.on::after, .vt-row.picked .vt-box::after { content: ""; position: absolute; left: 4px; top: 2px; width: 7px; height: 4px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg); }
 .vl-box.some::after { content: ""; position: absolute; left: 3px; right: 3px; top: 7px; height: 2px; background: #fff; }
 body.vpicking main { padding-bottom: 120px; }
 
@@ -2465,56 +2463,61 @@ body:not(.vpicking) .vl-box { display: none; }
 body:not(.vpicking) .card.ver:is(:hover, :focus-visible) > .vl-box { display: block; }
 @media (hover: none) { body:not(.vpicking) .card.ver > .vl-box { display: none; } }
 
-/* A list of versions as a table (versionList in home.js): a row each, its picture leading it as on a card,
-   under one row of headings that stays in sight. Every row and the headings share one set of columns, so
-   they line up across the groups; a narrower table leaves out what matters least first. Dense rows
-   (the button in the bar) are a tighter table with a smaller picture. */
-.vt { container: vt / inline-size; --vt-still: 96px; --vt-pad: 8px;
-  --vt-cols: 24px var(--vt-still) minmax(200px, 3fr) minmax(64px, 1fr) 60px 104px 88px minmax(72px, 1fr) minmax(104px, 1.2fr) 96px 48px minmax(96px, 1.4fr) 32px; }
-[data-density="compact"] .vt { --vt-still: 56px; --vt-pad: 4px; }
-.vt-head, .vt-row { display: grid; grid-template-columns: var(--vt-cols); align-items: center; column-gap: 12px; }
-.vt-head { position: sticky; top: var(--bar); z-index: 5; height: 34px; margin: 8px 0 0; padding: 0 9px; border-bottom: 1px solid var(--line); background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; user-select: none; -webkit-user-select: none; }
-.vt-head + .vl-day { margin-top: 16px; }
-.vt-head + .vl-run, .ent-page > .vt-head + .vt-body { margin-top: 8px; }
-.vt .vl-run { margin-bottom: 12px; }
-.vt-body { border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); overflow: hidden; }
-.vt-row { position: relative; min-height: 0; padding: var(--vt-pad) 8px; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; -webkit-user-select: none; transition: background 0.12s var(--ease); }
-.vt-body > :last-child { border-bottom: 0; }
-.vt-row:hover { background: var(--hover); }
-.vt-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.vt-row.picked { background: color-mix(in srgb, var(--accent) 12%, var(--surface-1)); }
-.vt-row.picked::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--accent); }
-.vt-row.hidden-ver > .vt-c { opacity: 0.55; }
-.vt-row.hidden-ver > .vt-pick, .vt-row.hidden-ver > .vt-menu { opacity: 1; }
+/* Lists as a table (objectNode in home.js; the layout switch in the bar): a row for each object, its
+   picture or icon first, set as the catalogue is: its name as a card's, what more there is to say in the
+   card's quieter lines, and between rows the hairline under a section's heading. Its headings stay in
+   sight as the page scrolls. Every row and the headings share one grid (--vt0 to --vt4, made for the
+   kind's columns), so the columns line up across the groups; a narrower table takes the grid that
+   leaves out what matters least (data-level, the first whose columns fit), down to the picture, the
+   name and the menu on a phone. */
+.vt-head, .vt-row { display: grid; grid-template-columns: var(--vt0); align-items: center; column-gap: 16px; }
+.vt-head { position: sticky; top: var(--bar); z-index: 5; min-height: 36px; margin-top: 16px; border-bottom: 1px solid var(--line); background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; user-select: none; -webkit-user-select: none; }
+.cat-tools + .vt > .vt-head { margin-top: 32px; }
+.vt-row { position: relative; isolation: isolate; padding: 8px 0; border-bottom: 1px solid var(--line); color: inherit; text-decoration: none; cursor: pointer; user-select: none; -webkit-user-select: none; }
+/* Under the pointer and when selected it is lit a little past its edges, so its lines stay the section's. */
+.vt-row::before { content: ""; position: absolute; z-index: -1; inset: 0 -8px; border-radius: var(--r-2); background: var(--hover); opacity: 0; transition: opacity 0.12s var(--ease); pointer-events: none; }
+.vt-row:hover::before { opacity: 1; }
+.vt-row.picked::before { background: color-mix(in srgb, var(--accent) 14%, transparent); opacity: 1; }
+.vt-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-2); }
+.vt-row.hidden-ver > .vt-c:not(.vt-pick, .vt-menu) { opacity: 0.55; }
+.vt-row.lifted { opacity: 0.4; }
+.vt-row.drop::before { background: color-mix(in srgb, var(--accent) 12%, transparent); box-shadow: inset 0 0 0 2px var(--accent); opacity: 1; }
 .vt-c { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.vt-c.end { align-items: flex-end; text-align: right; }
+.vt-name .card-name { line-height: 1.35; }
+.vt-name .card-meta { display: block; overflow: hidden; margin-top: 2px; text-overflow: ellipsis; white-space: nowrap; }
+.vt-name .card-meta .card-live { margin-left: 0; }
 .vt-main, .vt-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vt-main { color: var(--text-2); font-size: 13px; font-variant-numeric: tabular-nums; }
-.vt-sub { margin-top: 1px; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
-.vt-ver, .vt-len, .vt-size { align-items: flex-end; text-align: right; }
-.vt-ver .vt-main { color: var(--text); font-weight: 600; }
-.vt-name .card-name { font-size: 13.5px; color: var(--text-2); font-weight: 500; }
-.vt-name .ver-ent { color: var(--text); font-weight: 650; text-decoration: none; }
-.vt-name a.ver-ent:hover { text-decoration: underline; }
-.vt-artist { padding-left: 12px; }
-.vt-by { flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; }
-.vt-by .avatar.sm { flex: none; width: 20px; height: 20px; font-size: 9px; background: var(--surface-3); color: var(--text-2); }
+.vt-sub { margin-top: 2px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.vt-strong { color: var(--text); font-weight: 600; }
+.vt-who { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.vt-who .avatar.sm { flex: none; width: 20px; height: 20px; font-size: 9px; background: var(--surface-3); color: var(--text-2); }
+.vt-artists .ent-artists { margin: 0; font-size: 13px; color: var(--text-2); }
 .vt-notes { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .vt-notes svg { width: 13px; height: 13px; }
 .vt-notes.open { color: var(--accent); font-weight: 600; }
 .vt-boards .ver-boards { flex-wrap: nowrap; margin: 0; overflow: hidden; }
 .vt-boards .ver-board { overflow: hidden; max-width: 140px; text-overflow: ellipsis; white-space: nowrap; }
-/* Its picture: the card's own, smaller, scrubbed the same. */
-.vt-still > .card-thumbs, [data-density="compact"] .vt-still > .card-thumbs { position: relative; display: block; width: var(--vt-still); height: auto; aspect-ratio: 16 / 9; padding: 0; border: 0; border-radius: var(--r-2); font: inherit; cursor: zoom-in; overflow: hidden; }
-.vt-still > .card-thumbs > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* Its picture, the card's own made small: scrubbed, and played or opened, the same. */
+.vt-still > .card-thumbs { position: relative; width: 100%; height: auto; aspect-ratio: 16 / 10; padding: 0; border: 1px solid var(--line); border-radius: var(--r-2); background-color: var(--thumb-bg); font: inherit; cursor: pointer; }
+.vt-still > .card-thumbs.n0 { background-color: var(--thumb-empty); background-size: 10px 10px; background-position: 5px 5px; }
+.vt-still .play-latest { display: none; }
 .vt-row:hover .cache-badge { opacity: 1; }
 .vt .cache-badge { bottom: 3px; right: 3px; width: 12px; height: 12px; }
 .vt .cache-badge svg { width: 8px; height: 8px; }
-/* Its menu sits at the end of the row, there on a hover as on a card. */
-.vt-menu .card-menu, [data-density="compact"] .vt-menu .card-menu { position: static; transform: none; border-color: transparent; background: transparent; box-shadow: none; }
+/* What has no picture (a folder, a place) has its icon, as its card does. */
+.vt-icon { display: grid; place-items: center; justify-self: center; width: 36px; height: 36px; border-radius: var(--r-2); background: var(--surface-3); color: var(--text-2); }
+.vt-row.project .vt-icon { color: var(--accent); }
+/* Its menu at the end of the row, there under the pointer as on a card. */
+.vt-menu .card-menu { position: static; transform: none; border-color: transparent; background: transparent; box-shadow: none; }
 .vt-menu .card-menu:hover { background: var(--press); }
 .vt-row:is(:hover, :focus-within) .card-menu { opacity: 1; }
-body:not(.vpicking) .vt-row:is(:hover, :focus-visible) .vl-box, body:not(.vpicking) .vt-head:hover .vl-box { display: block; }
-@media (hover: none) { body:not(.vpicking) .vt-row .vl-box { display: none; } }
+/* Its box selects it: there under the pointer, and on every row once something is being selected. */
+.vt-box { display: none; }
+.vt-row:is(:hover, :focus-visible) .vt-box, body:is(.vpicking, .picking, .bpicking) .vt-box { display: block; }
+body:not(.vpicking) .vt-head:hover .vl-box { display: block; }
+@media (hover: none) { .vt-row:hover .vt-box { display: none; } body:is(.vpicking, .picking, .bpicking) .vt-box { display: block; } }
 /* A heading that sorts: a click asks for it, and the arrow says which way it is sorted now. */
 .vt-sort { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
 .vt-sort:hover, .vt-sort.on { color: var(--text); }
@@ -2522,37 +2525,28 @@ body:not(.vpicking) .vt-row:is(:hover, :focus-visible) .vl-box, body:not(.vpicki
 .vt-sort:hover .vt-arrow { opacity: 0.4; }
 .vt-sort.on .vt-arrow { opacity: 1; }
 .vt-sort.on.up .vt-arrow { border-top: 0; border-bottom: 4px solid currentColor; }
-.vt-head > .vt-ver, .vt-head > .vt-len, .vt-head > .vt-size { align-items: flex-end; }
-/* The row that adds versions, on an asset, set or shot's page: where the card would be. */
-.vt-add { display: flex; align-items: center; gap: 12px; width: 100%; padding: var(--vt-pad) 8px var(--vt-pad) 44px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--text-2); font: inherit; font-size: 13.5px; font-weight: 600; text-align: left; cursor: pointer; transition: background 0.12s var(--ease); }
-.vt-add:hover { background: var(--hover); color: var(--text); }
-.vt-add-plus { display: grid; place-items: center; flex: none; width: var(--vt-still); aspect-ratio: 16 / 9; border: 1px dashed var(--line-strong); border-radius: var(--r-2); color: var(--muted); }
-.vt-add .vt-sub { font-weight: 400; }
-[data-density="compact"] .vt .vt-sub, [data-density="compact"] .vt-add .vt-sub { display: none; }
-/* Narrower, less: the size and the boards first, then the artist and the length, then the task, who
-   filed it and the notes; on a phone, the picture, the name and the menu. */
-@container vt (max-width: 1180px) {
-  .vt-size, .vt-boards { display: none; }
-  .vt-head, .vt-row { grid-template-columns: 24px var(--vt-still) minmax(180px, 3fr) minmax(64px, 1fr) 60px 104px minmax(72px, 1fr) minmax(104px, 1.2fr) 96px 48px 32px; }
-}
-@container vt (max-width: 960px) {
-  .vt-artist, .vt-len { display: none; }
-  .vt-head, .vt-row { grid-template-columns: 24px var(--vt-still) minmax(160px, 3fr) minmax(64px, 1fr) 60px minmax(96px, 1.2fr) 88px 44px 32px; }
-}
-@container vt (max-width: 720px) {
-  .vt-task, .vt-by, .vt-notes { display: none; }
-  .vt-head, .vt-row { grid-template-columns: 24px var(--vt-still) minmax(0, 1fr) 52px 80px 32px; }
-}
-@container vt (max-width: 480px) {
-  .vt-ver, .vt-at, .vt-pick { display: none; }
-  .vt-head, .vt-row { grid-template-columns: var(--vt-still) minmax(0, 1fr) 32px; column-gap: 10px; }
-  .vt-add { padding-left: 8px; }
-}
-/* Cards or a table: the pair of buttons over every list of versions. */
+/* The row that adds to the list (New board, Add versions), where its dashed card would be. */
+.vt-add { display: flex; align-items: center; gap: 16px; width: 100%; padding: 8px 0 8px 36px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--text-2); font: inherit; text-align: left; cursor: pointer; }
+.vt-add:hover .card-name { color: var(--text); }
+.vt-add-plus { display: grid; place-items: center; flex: none; width: 80px; aspect-ratio: 16 / 10; border: 1px dashed var(--line-strong); border-radius: var(--r-2); color: var(--muted); transition: border-color 0.12s var(--ease), color 0.12s var(--ease); }
+.vt-add:hover .vt-add-plus { border-color: var(--muted); color: var(--text); }
+.vt-add .card-meta { margin: 0; }
+.vt[data-level="1"] :is(.vt-head, .vt-row) { grid-template-columns: var(--vt1); }
+.vt[data-level="2"] :is(.vt-head, .vt-row) { grid-template-columns: var(--vt2); }
+.vt[data-level="3"] :is(.vt-head, .vt-row) { grid-template-columns: var(--vt3); }
+.vt[data-level="4"] :is(.vt-head, .vt-row) { grid-template-columns: var(--vt4); column-gap: 12px; }
+.vt:is([data-level="1"], [data-level="2"], [data-level="3"], [data-level="4"]) .vt-d1,
+.vt:is([data-level="2"], [data-level="3"], [data-level="4"]) .vt-d2,
+.vt:is([data-level="3"], [data-level="4"]) .vt-d3,
+.vt[data-level="4"] .vt-d4 { display: none; }
+.vt[data-level="4"] .vt-add { padding-left: 0; }
+.vt[data-level="4"] .vt-add-plus { width: 64px; }
+/* Cards, compact rows or a table: the three in the bar (common.js, layoutSwitch). Not on a phone, where
+   the bar has no room for them; Your account has them there. */
 .seg.seg-icons { display: inline-grid; margin: 0; padding: 2px; }
-.seg-icons .seg-btn { width: 30px; height: 24px; padding: 0; }
-.seg-icons .seg-btn svg { display: block; }
-.section-label > .vl-layout { order: 1; align-self: center; margin-left: 4px; font-weight: 400; }
+.seg-icons .seg-btn { width: 30px; height: 26px; padding: 0; }
+.seg-icons .seg-ic svg { display: block; }
+@media (max-width: 560px) { .home-bar .layout-seg { display: none; } }
 
 /* The player docked in the page (the timeline): the page's bar and sidebar stay, seen and usable. */
 .viewer.docked { --dock-l: 252px; --dock-t: 48px; clip-path: inset(var(--dock-t) 0 0 var(--dock-l)); }
@@ -2602,12 +2596,12 @@ body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
 .card:hover .cache-badge { opacity: 1; }
 .cache-badge[data-state="coming"] { background: conic-gradient(rgba(255, 255, 255, 0.75) var(--p, 0%), rgba(0, 0, 0, 0.35) 0); }
 .cache-badge[data-state="coming"]::after { content: ''; width: 9px; height: 9px; border-radius: 50%; background: rgba(0, 0, 0, 0.55); }
-[data-density="compact"] .cache-badge { bottom: 3px; right: 3px; width: 12px; height: 12px; }
-[data-density="compact"] .cache-badge svg { width: 8px; height: 8px; }
+[data-layout="rows"] .cache-badge { bottom: 3px; right: 3px; width: 12px; height: 12px; }
+[data-layout="rows"] .cache-badge svg { width: 8px; height: 8px; }
 
 /* A link-like button in running text (Try again). */
 .linkbtn { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
-.acct-seg2 { margin-top: 8px; }
+.acct-sec .layout-seg { margin-top: 8px; }
 .imp-x { flex: none; width: 26px; height: 26px; color: var(--muted); }
 .imp-x:hover { color: var(--text); }
 .toast.has-action { display: flex; align-items: center; gap: 12px; pointer-events: auto; }

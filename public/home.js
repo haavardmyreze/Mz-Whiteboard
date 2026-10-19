@@ -17,23 +17,10 @@
   let dragging = null; // { kind: 'board' | 'folder', id }
 
   $('themeslot').replaceWith(WB.themeButton());
-  // Normal cards, or compact rows: a small still beside the name, many more to a screen. Remembered here.
-  const ICON_ROWS = icon('rows', 18);
-  const ICON_CARDS = icon('boards', 18);
-  function paintDensity() {
-    const compact = document.documentElement.dataset.density === 'compact';
-    $('density').innerHTML = compact ? ICON_CARDS : ICON_ROWS;
-    $('density').title = compact ? 'Show as cards' : 'Show as compact rows';
-    $('density').setAttribute('aria-label', $('density').title);
-    $('density').setAttribute('aria-pressed', String(compact));
-  }
-  function setDensity(compact) {
-    if (compact) document.documentElement.dataset.density = 'compact';
-    else delete document.documentElement.dataset.density;
-    store(WB.KEYS.density, compact ? 'compact' : 'normal');
-    paintDensity();
-  }
-  $('density').addEventListener('click', () => setDensity(document.documentElement.dataset.density !== 'compact'));
+  // How every list is shown (cards, compact rows or a table): the switch in the bar, and the page drawn
+  // again when it changes, here or in Your account.
+  $('layoutslot').replaceWith(WB.layoutSwitch());
+  window.addEventListener('wb:layout', () => render());
   // On a phone the search is a button in the bar, opening the box over it.
   $('searchtoggle').addEventListener('click', () => {
     const on = !document.body.classList.contains('search-open');
@@ -46,7 +33,6 @@
     document.body.classList.remove('search-open');
     $('searchtoggle').setAttribute('aria-expanded', 'false');
   });
-  paintDensity();
   WB.watchServer();
   let me = await WB.askName();
   // Personal workspaces belong to a signed-in account, so without sign-in there is only the shared one.
@@ -58,7 +44,7 @@
   paintMe();
   $('me').title = 'Your account';
   // Your account (account.js): a change of name or colour there shows here at once.
-  $('me').addEventListener('click', () => WBAccount.open({ me: () => me, setMe: (m) => { me = m; paintMe(); }, setDensity }));
+  $('me').addEventListener('click', () => WBAccount.open({ me: () => me, setMe: (m) => { me = m; paintMe(); } }));
 
   // ------------------------------------------------------------- library helpers
 
@@ -244,6 +230,156 @@
     });
   }
 
+
+  // ------------------------------------------------------------- objects
+  //
+  // Everything the app lists is an object, as a file manager lists files: a board, a folder, an asset,
+  // set or shot, a version, a place pinned to Home. Each kind only says what it is made of (a spec, made
+  // by boardObj, folderObj, placeObj, entityObj and versionObj), and one component shows any of them as
+  // the layout in force has it (WB.layout, the switch in the bar): a card, a compact row (a card made
+  // small, style.css), or a row of a table. objectList shows a list of them, objectTable puts the lists
+  // of a page with groups under one row of headings, and groupHead heads a group as the catalogue does.
+  //
+  // A spec: {
+  //   kind                   'board' | 'folder' | 'entity' | 'version' | 'place'
+  //   tag, attrs, state      its element (an a with its href, or a div), its attributes, and classes that
+  //                          say what state it is in (archived, a project), on a card and a row alike
+  //   picked, pick(range)    whether it is selected, and what selects it (a row's box; none where
+  //                          nothing is selected)
+  //   still | icon           its picture (a .card-thumbs, scrubbed and played as it is), or an icon
+  //   box                    a card's own box over its picture
+  //   name, title            its name: text, or nodes (a link to its shot)
+  //   lines                  on a card, the lines under the name: text, or nodes as they are
+  //   sub, cells             in a table, the line under its name, and its columns by key: text, [text,
+  //                          the line under it], or a node
+  //   menu, setup(node)      what its … menu has, and what more is done to what is made (dragging)
+  // }
+  const OBJ_CARD = { board: '', folder: 'folder', place: 'folder place', entity: 'ent', version: 'ver' };
+  // A table's columns: [key, heading, { w: its width in the grid (phone: on a phone), end: set against its end (numbers),
+  // drop: how soon a narrower table leaves it out (1 first; 4 only on a phone), sort: what a click on its
+  // heading sorts by, where the list can be sorted }]. The box, the picture, the name and the menu are
+  // in every table.
+  const col = (key, title, opt = {}) => [key, title, opt];
+  const cols = (mid, name = {}) => [col('pick', '', { w: '20px', drop: 4 }), col('still', '', { w: '80px', phone: '64px' }),
+    col('name', 'Name', { w: 'minmax(220px, 3fr)', ...name }), ...mid, col('menu', '', { w: '32px' })];
+  const OBJ_COLS = {
+    board: cols([col('items', 'Items', { w: '64px', end: true, drop: 2 }), col('where', 'Where', { w: 'minmax(96px, 1fr)', drop: 1 }), col('changed', 'Edited', { w: '120px', drop: 3 })]),
+    folder: cols([col('kind', 'Kind', { w: '88px', drop: 2 }), col('boards', 'Boards', { w: '64px', end: true, drop: 3 }), col('folders', 'Folders', { w: '64px', end: true, drop: 1 })]),
+    entity: cols([col('latest', 'Latest', { w: 'minmax(80px, 1fr)', drop: 3 }), col('tasks', 'Tasks', { w: 'minmax(80px, 1fr)', drop: 1 }),
+      col('versions', 'Versions', { w: '72px', end: true, drop: 2 }), col('artists', 'Artists', { w: 'minmax(96px, 1.2fr)', drop: 1 }), col('changed', 'Last filed', { w: '120px', drop: 3 })]),
+    version: cols([col('task', 'Task', { w: 'minmax(64px, 1fr)', drop: 3 }), col('ver', 'Version', { w: '64px', end: true, drop: 4, sort: 'number' }),
+      col('len', 'Length', { w: '104px', end: true, drop: 2 }), col('size', 'Size', { w: '88px', end: true, drop: 1 }), col('artist', 'Artist', { w: 'minmax(72px, 1fr)', drop: 2 }),
+      col('by', 'Filed by', { w: 'minmax(104px, 1.2fr)', drop: 3 }), col('changed', 'Filed', { w: '96px', drop: 4, sort: 'new' }), col('notes', 'Notes', { w: '52px', drop: 3 }),
+      col('boards', 'Boards', { w: 'minmax(96px, 1.4fr)', drop: 1 })], { sort: 'name' }),
+    // Different kinds together (what is pinned to Home): what each is, where, and when it last changed.
+    mixed: cols([col('kind', 'Kind', { w: '120px', drop: 2 }), col('where', 'Where', { w: 'minmax(96px, 1fr)', drop: 1 }), col('changed', 'Changed', { w: '120px', drop: 3 })]),
+  };
+  // A table's grid at each of five steps, each leaving out more (the columns it keeps; at the last, at
+  // their `phone` width). The table takes the first step whose columns fit how wide it is, measured as it
+  // changes (data-level; style.css lays it out).
+  const VT_GAP = 16;
+  const vtMin = (w) => Number((/(\d+)px/.exec(w) || [0, 0])[1]);
+  const vtFit = new ResizeObserver((seen) => {
+    for (const { target, contentRect } of seen) {
+      const mins = target.dataset.mins.split(',').map(Number);
+      const level = mins.findIndex((m) => m <= contentRect.width);
+      target.dataset.level = String(level < 0 ? 4 : level);
+    }
+  });
+  function vtColumns(node, list) {
+    const mins = [];
+    for (let level = 0; level <= 4; level++) {
+      const kept = list.filter(([, , o]) => !o.drop || o.drop > level).map(([, , o]) => (level === 4 && o.phone) || o.w);
+      node.style.setProperty(`--vt${level}`, kept.join(' '));
+      mins.push(kept.reduce((n, w) => n + vtMin(w), 0) + VT_GAP * (kept.length - 1));
+    }
+    node.dataset.mins = mins.join(',');
+    node.dataset.level = '0';
+    vtFit.observe(node);
+    return node;
+  }
+  const vtText = (v) => (v instanceof Node ? v : Array.isArray(v)
+    ? [el('span', { class: 'vt-main', text: v[0], title: v[2] || v[0] }), v[1] && el('span', { class: 'vt-sub', text: v[1], title: v[1] })]
+    : v != null && v !== '' && v !== false && el('span', { class: 'vt-main', text: String(v), title: String(v) }));
+
+  // An object as the layout in force shows it. `list` is the columns of the table it is in.
+  function objectNode(o, list = OBJ_COLS[o.kind]) {
+    if (o.kind === 'new') return newNode(o);
+    const nameNode = el('div', { class: 'card-name', title: o.title || (typeof o.name === 'string' ? o.name : null) }, o.name);
+    const cls = (base) => [base, 'obj', `obj-${o.kind}`, o.state, o.picked && 'picked'].filter(Boolean).join(' ');
+    let node;
+    if (WB.layout() !== 'table') {
+      node = el(o.tag || 'div', { ...o.attrs, class: cls(`card ${OBJ_CARD[o.kind]}`.trim()) },
+        o.box,
+        o.still || el('div', { class: 'folder-icon', html: o.icon }),
+        el('div', { class: 'card-body' }, nameNode, (o.lines || []).map((x) => (x instanceof Node ? x : x && el('div', { class: 'card-meta', text: x })))),
+        o.menu && menuButton(o.menu));
+    } else {
+      node = el(o.tag || 'div', { ...o.attrs, class: cls('vt-row') }, list.map(([key, , opt]) => {
+        const kids = key === 'pick' ? o.pick && el('button', {
+          type: 'button', class: 'vt-box', 'aria-label': `Select ${o.title || o.name}`, title: 'Select',
+          onclick: (e) => { e.preventDefault(); e.stopPropagation(); o.pick(e.shiftKey); },
+        })
+          : key === 'still' ? o.still || el('span', { class: 'vt-icon', html: o.icon })
+            : key === 'name' ? [nameNode, o.sub && (o.sub instanceof Node ? o.sub : el('div', { class: 'card-meta', text: o.sub, title: o.sub }))]
+              : key === 'menu' ? o.menu && menuButton(o.menu)
+                : vtText((o.cells || {})[key]);
+        return el('div', { class: `vt-c vt-${key}${opt.end ? ' end' : ''}${opt.drop ? ` vt-d${opt.drop}` : ''}` }, kids);
+      }));
+    }
+    if (o.setup) o.setup(node);
+    return node;
+  }
+  // The first of a list, that adds to it (New board, Add versions): a dashed card, or a row of the table.
+  function newNode({ name, meta, title, onclick }) {
+    if (WB.layout() === 'table') {
+      return el('button', { type: 'button', class: 'vt-add', title, onclick },
+        el('span', { class: 'vt-add-plus', html: icon('plus', 16) }), el('span', { class: 'card-name', text: name }), el('span', { class: 'card-meta', text: meta }));
+    }
+    return el('button', { type: 'button', class: 'card new', title, onclick },
+      el('span', { class: 'new-thumb' }, el('span', { class: 'plus', html: icon('plus', 18) })),
+      el('span', { class: 'card-body' }, el('span', { class: 'card-name', text: name }), el('span', { class: 'card-meta', text: meta })));
+  }
+
+  // A table's headings, kept in sight as it scrolls. Where the list can be sorted (`sort`, `onSort`), a
+  // heading that sorts says so and which way; Filed turns newest first into oldest first and back. `all`
+  // is a box for everything shown.
+  function objectHead(list, { sort, onSort, all } = {}) {
+    return el('div', { class: 'vt-head' }, list.map(([key, title, opt]) => {
+      const cls = `vt-c vt-${key}${opt.end ? ' end' : ''}${opt.drop ? ` vt-d${opt.drop}` : ''}`;
+      if (key === 'pick') return el('div', { class: cls }, all || null);
+      if (!opt.sort || !onSort) return el('div', { class: cls }, el('span', { text: title }));
+      const by = opt.sort;
+      const on = by === 'new' ? sort === 'new' || sort === 'old' : sort === by;
+      const next = by === 'new' && sort === 'new' ? 'old' : by;
+      return el('div', { class: cls }, el('button', {
+        type: 'button', class: `vt-sort${on ? ` on ${sort === 'old' || by !== 'new' ? 'up' : 'down'}` : ''}`,
+        title: `Sort by ${title.toLowerCase()}${by === 'new' ? (next === 'old' ? ', oldest first' : ', newest first') : ''}`, onclick: () => onSort(next),
+      }, el('span', { text: title }), el('i', { class: 'vt-arrow', 'aria-hidden': 'true' })));
+    }));
+  }
+  // Some objects of one kind (or 'mixed'), as the layout in force shows them: a grid of cards (`grid`, its
+  // classes), or a table with its headings. `lead` goes first ({ name, meta, title, onclick }: New board).
+  // `bare` gives the rows alone, for a table that objectTable heads.
+  function objectList(kind, specs, { grid = 'board-grid', lead, bare = false, ...head } = {}) {
+    const list = OBJ_COLS[kind];
+    const nodes = [lead && newNode(lead), ...specs.filter(Boolean).map((o) => objectNode(o, list))];
+    if (WB.layout() !== 'table') return el('div', { class: grid }, nodes);
+    const body = el('div', { class: 'vt-body' }, nodes);
+    return bare ? body : vtColumns(el('div', { class: 'vt' }, objectHead(list, head), body), list);
+  }
+  // A page's lists of one kind with their groups' headings between them, under one row of headings so
+  // that every group's columns line up (the catalogue, Versions). Its lists are objectList(…, { bare: true }).
+  const objectTable = (kind, kids, head = {}) => vtColumns(el('div', { class: 'vt' }, objectHead(OBJ_COLS[kind], head), kids), OBJ_COLS[kind]);
+
+  // The heading of a group of objects, as the catalogue heads them: a section ("Shots 25", and a line to
+  // the edge; `extra` after it), or within one (`level` 2), a smaller one in capitals (a sequence, who
+  // filed a run of versions) with `sub` beside it. `box` selects all of the group, `avatar` says whose.
+  function groupHead(text, { n = null, level = 1, box = null, avatar = null, sub = null, extra = [] } = {}) {
+    if (level === 2) return el('div', { class: 'seq-label' }, box, avatar, el('span', { text }), sub && el('span', { class: 'seq-sub', text: sub }), ...extra);
+    return el('div', { class: 'section-label' }, box, avatar, text, n != null && el('span', { class: 'tally', text: String(n) }), ...extra);
+  }
+  const label = (text, n, ...extra) => groupHead(text, { n, extra });
 
   // Resolves with a folder id, null for the top level, or undefined if dismissed.
   function pickFolder({ title, exclude, current }) {
@@ -477,16 +613,22 @@
     dlg.showModal();
   }
 
-  function folderCard(folder) {
+  // A folder (or a project) as an object: what is in it, and its menu. Things are dropped on it to move
+  // them in. Where boards and folders are selected (`pickable`), its row's box selects it.
+  function folderObj(folder, { pickable = false } = {}) {
     const subs = childrenOf(folder.id).length;
     const boards = boardsIn(folder.id).length;
-    const meta = [folder.project && 'Project', boards && plural(boards, 'board'), subs && plural(subs, 'folder')].filter(Boolean).join(' · ') || 'Empty';
-    const card = el('a', { class: `card folder${folder.project ? ' project' : ''}${bpick.has(`folder:${folder.id}`) ? ' picked' : ''}`, href: WB.href.folder(folder.id), 'data-pick': `folder:${folder.id}` },
-      el('div', { class: 'folder-icon', html: folder.project ? ICON_PROJECT : ICON_FOLDER }),
-      el('div', { class: 'card-body' },
-        el('div', { class: 'card-name', text: folder.name }),
-        el('div', { class: 'card-meta', text: meta })),
-      menuButton([
+    const what = folder.project ? 'Project' : 'Folder';
+    const k = `folder:${folder.id}`;
+    return {
+      kind: 'folder', tag: 'a', attrs: { href: WB.href.folder(folder.id), 'data-pick': k }, state: folder.project && 'project', picked: bpick.has(k),
+      pick: pickable && (() => pickBoardThing(k)),
+      icon: folder.project ? ICON_PROJECT : ICON_FOLDER,
+      name: folder.name,
+      lines: [[folder.project && 'Project', boards && plural(boards, 'board'), subs && plural(subs, 'folder')].filter(Boolean).join(' · ') || 'Empty'],
+      sub: boards || subs ? '' : 'Empty',
+      cells: { kind: what, boards: boards || '', folders: subs || '', where: folderPlace(folder.parentId, folder.workspace) },
+      menu: [
         ['Rename', () => rename('folder', folder)],
         ['Move to…', () => moveDialog('folder', folder)],
         [isPinned('folder', folder.id) ? 'Unpin from Home' : 'Pin to Home', () => togglePin({ kind: 'folder', id: folder.id })],
@@ -496,42 +638,44 @@
         folder.project && ['Project settings…', () => projectSettings(folder)],
         folder.project && ['Make it a plain folder', () => setProject(folder, false)],
         !folder.project && ['Delete folder', () => removeFolder(folder), true],
-      ].filter(Boolean)));
-    draggable(card, 'folder', folder.id);
-    dropTarget(card, folder.id);
-    return card;
+      ].filter(Boolean),
+      setup: (node) => {
+        draggable(node, 'folder', folder.id);
+        dropTarget(node, folder.id);
+      },
+    };
   }
+  // Where something is kept: its folder's name, or the workspace's at the top.
+  const folderPlace = (folderId, ws) => (folderId && folderById(folderId)?.name) || SPACES[ws] || '';
 
-  function boardCard(board) {
-    const thumbs = el('div', { class: `card-thumbs n${Math.min(board.thumbs.length, 4)}` },
-      board.thumbs.map((src) => el('img', { src, alt: '', loading: 'lazy', draggable: 'false' })));
-    const card = el('a', { class: `card${bpick.has(`board:${board.id}`) ? ' picked' : ''}`, href: WB.href.board(board.id), 'data-pick': `board:${board.id}` },
-      thumbs,
-      el('div', { class: 'card-body' },
-        el('div', { class: 'card-name', text: board.name }),
-        el('div', { class: 'card-meta' },
-          `${plural(board.count, 'item')} · edited ${ago(board.updatedAt)}`,
-          board.online > 0 && el('span', { class: 'card-live', text: `${board.online} here now` }))),
-      menuButton([
+  // A board as an object: up to four of its pictures, how much is on it, when it was last changed, who is
+  // on it now, and its menu.
+  function boardObj(board, { pickable = false } = {}) {
+    const k = `board:${board.id}`;
+    const live = board.online > 0 && el('span', { class: 'card-live', text: `${board.online} here now` });
+    return {
+      kind: 'board', tag: 'a', attrs: { href: WB.href.board(board.id), 'data-pick': k }, picked: bpick.has(k),
+      pick: pickable && (() => pickBoardThing(k)),
+      still: el('div', { class: `card-thumbs n${Math.min(board.thumbs.length, 4)}` },
+        board.thumbs.map((src) => el('img', { src, alt: '', loading: 'lazy', draggable: 'false' }))),
+      name: board.name,
+      lines: [el('div', { class: 'card-meta' }, `${plural(board.count, 'item')} · edited ${ago(board.updatedAt)}`, live)],
+      sub: live ? el('div', { class: 'card-meta' }, live) : '',
+      cells: { kind: 'Board', items: board.count, where: folderPlace(board.folderId, board.workspace), changed: [ago(board.updatedAt), '', new Date(board.updatedAt).toLocaleString()] },
+      menu: [
         ['Rename', () => rename('board', board)],
         ['Move to…', () => moveDialog('board', board)],
         [isPinned('board', board.id) ? 'Unpin from Home' : 'Pin to Home', () => togglePin({ kind: 'board', id: board.id })],
         hasPersonal && [`Move to ${SPACES[otherSpace(board.workspace)]} workspace`, () => moveSpace('board', board)],
         ['Delete board', () => removeBoard(board), true],
-      ].filter(Boolean)));
-    draggable(card, 'board', board.id);
-    return card;
+      ].filter(Boolean),
+      setup: (node) => draggable(node, 'board', board.id),
+    };
   }
 
-  // The dashed first tile, as on Milanote: a board is always one click away. It is built like a board
-  // card (picture area, then a name and a line) so it is exactly the same size in any folder.
-  function newBoardTile() {
-    return el('button', { class: 'card new', onclick: newBoard },
-      el('span', { class: 'new-thumb' }, el('span', { class: 'plus', html: icon('plus', 18) })),
-      el('span', { class: 'card-body' },
-        el('span', { class: 'card-name', text: 'New board' }),
-        el('span', { class: 'card-meta', text: 'Start from a blank canvas' })));
-  }
+  // The dashed first of a folder's boards, as on Milanote: a board is always one click away. It is built
+  // like a board card (picture area, then a name and a line) so it is exactly the same size in any folder.
+  const NEW_BOARD = { name: 'New board', meta: 'Start from a blank canvas', onclick: () => newBoard() };
 
   // ------------------------------------------------------------- pinned and recent
   //
@@ -947,51 +1091,53 @@
     fresh && el('span', { class: 'feed-dot', role: 'img', 'aria-label': 'New' }));
   }
 
-  // An asset, set or shot as its project's catalogue has it, so its card scrubs and plays like any other.
-  function entityCard(p) {
+  // An asset, set or shot pinned to Home, as its project's catalogue has it, so it scrubs and plays like
+  // any other.
+  function pinnedEntityObj(p) {
     const project = folderById(p.projectId);
     if (!project) return null;
     const cat = catalogues.get(project.id);
     const full = cat && cat.entities.find((e) => e.id === p.id);
     if (!cat) loadCatalogue(project.id);
-    return entityTile(project, full || { id: p.id, name: p.name, thumb: p.thumb, tier: p.tier, versions: null });
+    return entityObj(project, full || { id: p.id, name: p.name, thumb: p.thumb, tier: p.tier, versions: null });
   }
 
-  // A pinned place within a project: what it is, in which project, and a way back to it.
-  function placeCard(p) {
+  // A place within a project pinned to Home (a sequence, the catalogue, Versions): what it is, in which
+  // project, and a way back to it.
+  function placeObj(p) {
     const project = folderById(p.projectId);
     if (!project) return null;
-    const icon = { sequence: ICON_FILM, tier: ICON_CAT, catalogue: ICON_CAT, timeline: ICON_FILM, versions: ICON_LIST }[p.what] || ICON_CAT;
-    const kind = { sequence: 'Sequence', tier: 'In the catalogue', catalogue: 'Catalogue', timeline: 'Timeline', versions: 'Versions' }[p.what] || '';
-    const label = p.what === 'sequence' ? `${p.name}` : p.what === 'tier' ? p.name : `${project.name} ${p.name.toLowerCase()}`;
-    return el('a', { class: 'card folder place', href: p.href },
-      el('div', { class: 'folder-icon', html: icon }),
-      el('div', { class: 'card-body' },
-        el('div', { class: 'card-name', text: label }),
-        el('div', { class: 'card-meta', text: `${kind} · ${project.name}` })),
-      menuButton([['Unpin from Home', () => togglePin({ kind: 'place', id: p.id })]]));
+    const what = { sequence: 'Sequence', tier: 'In the catalogue', catalogue: 'Catalogue', timeline: 'Timeline', versions: 'Versions' }[p.what] || '';
+    return {
+      kind: 'place', tag: 'a', attrs: { href: p.href },
+      icon: { sequence: ICON_FILM, tier: ICON_CAT, catalogue: ICON_CAT, timeline: ICON_FILM, versions: ICON_LIST }[p.what] || ICON_CAT,
+      name: p.what === 'sequence' || p.what === 'tier' ? p.name : `${project.name} ${p.name.toLowerCase()}`,
+      lines: [`${what} · ${project.name}`],
+      sub: what,
+      cells: { kind: what, where: project.name },
+      menu: [['Unpin from Home', () => togglePin({ kind: 'place', id: p.id })]],
+    };
   }
 
   function homeView() {
-    const label = (text, n, ...extra) => el('div', { class: 'section-label' }, text, n != null && el('span', { class: 'tally', text: String(n) }), ...extra);
     const q = $('q').value.trim().toLowerCase();
     if (q) {
       const subs = everything.folders.filter((f) => f.name.toLowerCase().includes(q)).sort(byName);
       const boards = everything.boards.filter((b) => b.name.toLowerCase().includes(q));
       return [
-        subs.length > 0 && label('Folders', subs.length), subs.length > 0 && el('div', { class: 'folder-grid' }, subs.map(folderCard)),
-        label('Boards', boards.length), el('div', { class: 'board-grid' }, boards.map(boardCard)),
+        subs.length > 0 && label('Folders', subs.length), subs.length > 0 && objectList('folder', subs.map((f) => folderObj(f)), { grid: 'folder-grid' }),
+        label('Boards', boards.length), objectList('board', boards.map((b) => boardObj(b))),
         !subs.length && !boards.length && el('p', { class: 'home-empty', text: `Nothing matches "${$('q').value.trim()}".` }),
       ].filter(Boolean);
     }
     if (!feed || Date.now() - feedAt > 30000) loadFeed();
 
-    // Pinned: the same cards as everywhere, and a place within a project (a sequence, say) as itself.
+    // Pinned: the same objects as everywhere, and a place within a project (a sequence, say) as itself.
     const pinned = pins().map((p) => {
-      if (p.kind === 'place') return placeCard(p);
-      if (p.kind === 'board') { const b = everything.boards.find((x) => x.id === p.id); return b && boardCard(b); }
-      if (p.kind === 'folder') { const f = folderById(p.id); return f && folderCard(f); }
-      if (p.kind === 'entity') return entityCard(p);
+      if (p.kind === 'place') return placeObj(p);
+      if (p.kind === 'board') { const b = everything.boards.find((x) => x.id === p.id); return b && boardObj(b); }
+      if (p.kind === 'folder') { const f = folderById(p.id); return f && folderObj(f); }
+      if (p.kind === 'entity') return pinnedEntityObj(p);
       return null;
     }).filter(Boolean);
 
@@ -1013,16 +1159,16 @@
           : el('p', { class: 'home-quiet', text: all.length ? 'Nothing of that kind in the last two weeks.' : 'Nothing in the last two weeks. Comments on your work, and new versions of what you are cc\'d on, come here.' }));
 
     // My work: what you are an artist on, or have filed.
-    const work = (feed ? feed.work : []).map((e) => folderById(e.projectId) && entityTile(folderById(e.projectId), e)).filter(Boolean);
+    const work = (feed ? feed.work : []).map((e) => folderById(e.projectId) && entityObj(folderById(e.projectId), e)).filter(Boolean);
     const side = el('aside', { class: 'home-side' },
       label('My work', work.length || null),
       !feed ? el('p', { class: 'home-quiet', text: 'Loading…' })
-        : work.length ? el('div', { class: 'board-grid ent-grid home-work' }, work)
+        : work.length ? objectList('entity', work, { grid: 'board-grid ent-grid home-work' })
           : el('p', { class: 'home-quiet', text: 'What you are named an artist on, on its page in the catalogue, and what you file, is listed here.' }));
 
     return [
       pinned.length > 0 && label('Pinned', pinned.length),
-      pinned.length > 0 && el('div', { class: 'board-grid' }, pinned),
+      pinned.length > 0 && objectList('mixed', pinned),
       el('div', { class: 'home-cols' }, updates, side),
     ].filter(Boolean);
   }
@@ -1194,8 +1340,7 @@
     const total = data ? data.total : null;
     return [el('div', { class: 'vl-tools' }, view, filter, ...chips,
       el('span', { class: 'imp-gap' }),
-      total != null && el('span', { class: 'vl-total', text: plural(total, 'version') }),
-      verLayoutSwitch())];
+      total != null && el('span', { class: 'vl-total', text: plural(total, 'version') }))];
   }
 
   // The groups the list is shown in, each { key, title, sub, list }, in the order they come.
@@ -1257,36 +1402,37 @@
       });
     };
     // Grouped by day, a row's time is enough; otherwise it says the day too.
-    const grid = (vs) => versionList(project, null, vs, { list: true, tierName, day: st.group !== 'time' });
+    const grid = (vs) => objectList('version', versionsOf(project, null, vs, { list: true, tierName, day: st.group !== 'time' }), { grid: 'board-grid ent-grid vl-grid', bare: true });
     const groups = versionGroups(list, st, tierName);
     // Shift and a click picks a run as it is shown.
     vpick.order = groups.flatMap((g) => (g.runs ? g.runs.flatMap((r) => r.list) : g.list).map((v) => v.id));
+    // Headed as the catalogue heads its groups: a day (or a task, a shot…) as a section, and within a
+    // day, who filed a run of them as a sequence is.
     const out = [];
     for (const g of groups) {
       if (g.runs) {
         const ids = g.runs.flatMap((r) => r.list.map((v) => v.id));
-        out.push(el('div', { class: 'vl-day' }, box(ids, `Select everything filed ${g.title.toLowerCase()}`), el('b', { text: g.title }), el('span', { class: 'tally', text: String(ids.length) })));
+        out.push(groupHead(g.title, { n: ids.length, box: box(ids, `Select everything filed ${g.title.toLowerCase()}`) }));
         for (const r of g.runs) {
-          const runIds = r.list.map((v) => v.id);
-          // The time of each is on its row; the heading gives the span only when there is one.
+          // The time of each is on it; the heading gives the span only when there is one.
           const [from, to] = [clock(r.list[r.list.length - 1].createdAt), clock(r.list[0].createdAt)];
           const span = r.list.length > 1 ? ` · ${from === to ? from : `${from} – ${to}`}` : '';
-          out.push(el('div', { class: 'vl-run' },
-            el('div', { class: 'vl-runhead' }, box(runIds, `Select what ${r.by || 'somebody'} filed then`),
-              WB.avatar(r.by),
-              el('b', { text: r.by || 'Somebody' }), el('span', { text: `${plural(r.list.length, 'version')}${span}` })),
-            grid(r.list)));
+          out.push(groupHead(r.by || 'Somebody', {
+            level: 2, avatar: WB.avatar(r.by), sub: `${plural(r.list.length, 'version')}${span}`,
+            box: box(r.list.map((v) => v.id), `Select what ${r.by || 'somebody'} filed then`),
+          }), grid(r.list));
         }
         continue;
       }
       const ids = g.list.map((v) => v.id);
-      if (st.group !== 'none') out.push(el('div', { class: 'vl-day' }, box(ids, `Select all of ${g.title}`), st.group === 'by' ? WB.avatar(g.title) : null, el('b', { text: g.title }), el('span', { class: 'tally', text: String(ids.length) })));
-      out.push(el('div', { class: 'vl-run' }, grid(g.list)));
+      if (st.group !== 'none') out.push(groupHead(g.title, { n: ids.length, box: box(ids, `Select all of ${g.title}`), avatar: st.group === 'by' ? WB.avatar(g.title) : null }));
+      out.push(grid(g.list));
     }
     // As a table, the groups are all under one row of headings; a click on one sorts by it.
-    if (verLayout() === 'table' && list.length) {
-      out.unshift(versionTableHead({ sort: st.sort, onSort: (sort) => { st.sort = sort; vlSave(project, { ...st }); render(); }, all: box(list.map((v) => v.id), 'Select everything shown') }));
-      out.splice(0, out.length, el('div', { class: `vt${st.group === 'none' ? ' flat' : ''}` }, ...out));
+    if (WB.layout() === 'table' && list.length) {
+      out.splice(0, out.length, objectTable('version', [...out], {
+        sort: st.sort, onSort: (sort) => { st.sort = sort; vlSave(project, { ...st }); render(); }, all: box(list.map((v) => v.id), 'Select everything shown'),
+      }));
     }
     out.unshift(...versionsTools(project, st, data));
     const q = $('q').value.trim();
@@ -1511,26 +1657,30 @@
     return el('div', { class: 'cat-tools board-tools' },
       el('button', { type: 'button', class: `btn bpick-toggle${bselecting ? ' on' : ''}`, html: `${ICON_CHECKS}<span>Select</span>`, title: 'Select boards and folders, to move or delete them together', onclick: () => setBoardSelecting(!bselecting) }));
   }
-  // A click on a card while selecting selects it rather than opening it.
+  // A click on a board or folder while selecting selects it rather than opening it.
   document.addEventListener('click', (e) => {
     if (!bselecting || !(e.target instanceof Element)) return;
-    const card = e.target.closest('.card[data-pick]');
-    if (!card || e.target.closest('.card-menu')) return;
+    const node = e.target.closest('.obj[data-pick]');
+    if (!node || e.target.closest('.card-menu')) return;
     e.preventDefault();
-    const k = card.dataset.pick;
+    pickBoardThing(node.dataset.pick);
+  }, true);
+  // One selected or let go ('board:<id>' | 'folder:<id>'); a row's box starts selecting.
+  function pickBoardThing(k) {
+    if (!bselecting) setBoardSelecting(true);
     if (bpick.has(k)) bpick.delete(k);
     else bpick.add(k);
     paintBoardPick();
-  }, true);
+  }
 
   function dropBoardPick() {
     bpick.clear();
     if (!bselecting) $('bpickbar')?.remove();
     else paintBoardPick();
-    for (const n of document.querySelectorAll('.card[data-pick].picked')) n.classList.remove('picked');
+    for (const n of document.querySelectorAll('.obj[data-pick].picked')) n.classList.remove('picked');
   }
   function paintBoardPick() {
-    for (const n of document.querySelectorAll('.card[data-pick]')) n.classList.toggle('picked', bpick.has(n.dataset.pick));
+    for (const n of document.querySelectorAll('.obj[data-pick]')) n.classList.toggle('picked', bpick.has(n.dataset.pick));
     const n = bpick.size;
     if (!n && !bselecting) return void $('bpickbar')?.remove();
     const bar = pickBar('bpickbar', 'Selected boards and folders', {
@@ -1600,13 +1750,13 @@
   // with Shift, Ctrl or Cmd. In the catalogue it starts selecting, as the Select button does.
   function boxTargets() {
     const rt = route();
-    if (rt.kind === 'space') return { sel: '.card[data-pick]', kind: 'items' };
+    if (rt.kind === 'space') return { sel: '.obj[data-pick]', kind: 'items' };
     const f = rt.kind === 'folder' && folderById(rt.id);
     if (!f) return null;
     const v = f.project ? currentView() : { page: 'boards' };
-    if (v.page === 'boards') return { project: f, sel: '.card[data-pick]', kind: 'items' };
+    if (v.page === 'boards') return { project: f, sel: '.obj[data-pick]', kind: 'items' };
     if (v.page === 'catalogue' && v.entity) return { project: f, sel: VER_NODES, kind: 'vers' };
-    if (v.page === 'catalogue') return { project: f, sel: '.card.ent[data-id]', kind: 'ents' };
+    if (v.page === 'catalogue') return { project: f, sel: '.obj-entity[data-id]', kind: 'ents' };
     if (v.page === 'versions') return { project: f, sel: VER_NODES, kind: 'vers' };
     return null;
   }
@@ -1824,13 +1974,12 @@
     const within = (fid) => !inProjectHere || fid === cur || (fid && isWithin(fid, cur));
     const subs = q ? lib.folders.filter((f) => matches(f.name) && f.id !== cur && within(f.id)).sort(byName) : childrenOf(cur);
     const boards = q ? lib.boards.filter((b) => matches(b.name) && within(b.folderId)) : boardsIn(cur);
-    const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
     $('content').replaceChildren(...[
       !q && (subs.length > 0 || boards.length > 0) && boardTools(),
       subs.length > 0 && label('Folders', subs.length),
-      subs.length > 0 && el('div', { class: 'folder-grid' }, subs.map(folderCard)),
+      subs.length > 0 && objectList('folder', subs.map((f) => folderObj(f, { pickable: true })), { grid: 'folder-grid' }),
       (subs.length > 0 || q) && label('Boards', boards.length),
-      el('div', { class: 'board-grid' }, [...(q ? [] : [newBoardTile()]), ...boards.map(boardCard)]),
+      objectList('board', boards.map((b) => boardObj(b, { pickable: true })), { lead: !q && NEW_BOARD }),
       q && !subs.length && !boards.length && el('p', { class: 'home-empty', text: `Nothing matches "${$('q').value.trim()}".` }),
     ].filter(Boolean));
   }
@@ -1941,7 +2090,6 @@
   const homeOpen = new Set(); // groups of the activity opened, by key
   const WEEK = 7 * 864e5;
   function projectHomeView(project) {
-    const label = (text, n, ...extra) => el('div', { class: 'section-label' }, text, n != null && el('span', { class: 'tally', text: String(n) }), ...extra);
     const cat = catalogues.get(project.id);
     const act = activities.get(project.id);
     const boards = boardsIn(project.id).slice().sort((a, b) => b.updatedAt - a.updatedAt);
@@ -1962,16 +2110,16 @@
       !items ? el('p', { class: 'home-quiet', text: 'Loading…' })
         : items.length ? homeActivity(project, items)
           : el('p', { class: 'home-quiet', text: 'Nothing in the last two weeks. Versions filed and comments written in the project come here.' }));
-    const latest = filed.sort((a, b) => b.latestAt - a.latestAt).slice(0, 4).map((e) => entityTile(project, e));
+    const latest = filed.sort((a, b) => b.latestAt - a.latestAt).slice(0, 4).map((e) => entityObj(project, e));
     const side = el('aside', { class: 'home-side' },
-      cat && homeSequences(project, cat, label),
-      cat && homeWaiting(project, cat, label),
+      cat && homeSequences(project, cat),
+      cat && homeWaiting(project, cat),
       label('Latest filed', null, el('span', { class: 'label-gap' }), el('a', { class: 'btn small ghost', href: WB.href.versions(project.id), text: 'All versions' })),
       !cat ? el('p', { class: 'home-quiet', text: 'Loading…' })
-        : latest.length ? el('div', { class: 'board-grid ent-grid home-work' }, latest)
+        : latest.length ? objectList('entity', latest, { grid: 'board-grid ent-grid home-work' })
           : el('p', { class: 'home-quiet', text: 'Nothing is filed yet. Drop images and videos on the catalogue to file them.' }),
       label('Recent boards', null, el('span', { class: 'label-gap' }), el('a', { class: 'btn small ghost', href: WB.href.boards(project.id), text: 'All boards' })),
-      boards.length ? el('div', { class: 'board-grid home-work' }, boards.slice(0, 4).map(boardCard))
+      boards.length ? objectList('board', boards.slice(0, 4).map((b) => boardObj(b)), { grid: 'board-grid home-work' })
         : el('p', { class: 'home-quiet', text: 'No boards yet.' }));
     return [parts, el('div', { class: 'home-cols' }, main, side)];
   }
@@ -2052,7 +2200,7 @@
 
   // Each sequence as a strip of its shots, in order: filed this week, filed before, or nothing yet; and
   // how many of each. A shot in the strip opens it.
-  function homeSequences(project, cat, label) {
+  function homeSequences(project, cat) {
     const shots = cat.entities.filter((e) => e.tier === 'shot' && N.seqOf(e.name));
     if (!shots.length) return null;
     const bySeq = new Map();
@@ -2081,7 +2229,7 @@
   }
 
   // What is waiting: set up with nothing filed, and filed but quiet for two weeks or more.
-  function homeWaiting(project, cat, label) {
+  function homeWaiting(project, cat) {
     const now = Date.now();
     const none = cat.entities.filter((e) => !e.versions);
     const quiet = cat.entities.filter((e) => e.versions && now - e.latestAt >= 2 * WEEK).sort((a, b) => a.latestAt - b.latestAt);
@@ -2115,7 +2263,7 @@
   async function batchEdit(project) {
     const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`);
     // What is selected and can be seen: what a search hides is left out, as the bar says.
-    const seen = shownIds('.card.ent[data-id]');
+    const seen = shownIds('.obj-entity[data-id]');
     const chosen = cat.entities.filter((e) => picking.ids.has(e.id) && seen.has(e.id));
     if (!chosen.length) return;
     if (!people.length) await loadPeople();
@@ -2387,10 +2535,10 @@
     paintPicked();
   }
   function paintPicked() {
-    for (const node of document.querySelectorAll('.card.ent[data-id]')) node.classList.toggle('picked', picking.ids.has(node.dataset.id));
+    for (const node of document.querySelectorAll('.obj-entity[data-id]')) node.classList.toggle('picked', picking.ids.has(node.dataset.id));
     const bar = $('pickbar');
     if (!bar) return;
-    const seen = shownIds('.card.ent[data-id]');
+    const seen = shownIds('.obj-entity[data-id]');
     const n = [...picking.ids].filter((id) => seen.has(id)).length;
     countPicked(bar, n, picking.ids.size - n, 'assets, sets and shots');
     bar.querySelector('.pick-edit').disabled = !n;
@@ -2415,8 +2563,13 @@
     paintPicked();
   }
 
-  function entityTile(project, e) {
+  // An asset, set or shot as an object: its newest picture (scrubbed, and the latest played with a click),
+  // how many versions it has and when the last was filed, its tasks and its artists, and its menu. In the
+  // catalogue (`pickable`) it is selected with a click while selecting, and its row's box starts that.
+  function entityObj(project, e, { pickable = false } = {}) {
     const newest = e.newest || null;
+    const tier = (project && catalogues.get(project.id)?.tiers.find((t) => t.id === e.tier)) || null;
+    const kind = tier ? tier.one.charAt(0).toUpperCase() + tier.one.slice(1) : N.TIERS.includes(e.tier) ? e.tier.charAt(0).toUpperCase() + e.tier.slice(1) : '';
     const thumbs = el('div', { class: `card-thumbs n${e.thumb ? 1 : 0}`, ...(newest && { title: 'Play the latest' }) },
       e.thumb && el('img', { src: e.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
       newest && el('span', { class: 'play-latest', html: `${ICON_PLAY}<span>Latest</span>` }));
@@ -2439,44 +2592,60 @@
         else lookAt(e.id, newest.id);
       });
     }
-    return el('a', {
-      class: `card ent${picking.ids.has(e.id) && pickingIn(project) ? ' picked' : ''}`, href: WB.href.catalogue(project.id, { entity: e.id }), 'data-id': e.id,
-      onclick: (ev) => {
-        if (!pickingIn(project)) return;
-        ev.preventDefault();
-        pickTile(e.id, ev.shiftKey);
+    const artists = e.artists && e.artists.length > 0 && (() => el('div', { class: 'card-meta ent-artists', title: `Artists: ${e.artists.join(', ')}` },
+      e.artists.slice(0, 4).map((n) => WB.avatar(n, null, { size: 'xs' })), el('span', { text: e.artists.join(', ') })));
+    const tasks = Object.keys(e.tops || {}).filter(Boolean).sort();
+    return {
+      kind: 'entity', tag: 'a', picked: picking.ids.has(e.id) && pickingIn(project),
+      attrs: {
+        href: WB.href.catalogue(project.id, { entity: e.id }), 'data-id': e.id,
+        onclick: (ev) => {
+          if (!pickingIn(project)) return;
+          ev.preventDefault();
+          pickTile(e.id, ev.shiftKey);
+        },
       },
-    },
-      el('span', { class: 'pick-box', 'aria-hidden': 'true' }),
-      thumbs,
-      el('div', { class: 'card-body' },
-        el('div', { class: 'card-name', text: e.name }),
-        el('div', { class: 'card-meta', text: e.versions == null ? (N.TIERS.includes(e.tier) ? e.tier : '') : e.versions ? `${plural(e.versions, 'version')} · last ${ago(e.latestAt)}` : 'Nothing filed yet' }),
-        e.artists && e.artists.length > 0 && el('div', { class: 'card-meta ent-artists', title: `Artists: ${e.artists.join(', ')}` },
-          e.artists.slice(0, 4).map((n) => WB.avatar(n, null, { size: 'xs' })), el('span', { text: e.artists.join(', ') }))),
-      // The same menu as every other card: what can be done with it, Pin among it (so a pin on Home can
-      // be taken off from Home).
-      menuButton([
+      pick: pickable && ((range) => {
+        if (!pickingIn(project)) setPicking(project, true);
+        pickTile(e.id, range);
+      }),
+      box: el('span', { class: 'pick-box', 'aria-hidden': 'true' }),
+      still: thumbs,
+      name: e.name,
+      lines: [e.versions == null ? kind.toLowerCase() : e.versions ? `${plural(e.versions, 'version')} · last ${ago(e.latestAt)}` : 'Nothing filed yet', artists && artists()],
+      sub: kind,
+      cells: {
+        kind, where: project.name,
+        latest: newest ? N.label('', newest.task, newest.number) : '',
+        tasks: tasks.join(', '),
+        versions: e.versions || '',
+        artists: artists && artists(),
+        changed: e.latestAt ? [ago(e.latestAt), '', new Date(e.latestAt).toLocaleString()] : e.versions === 0 ? ['Nothing filed'] : '',
+      },
+      // The same menu as every other object: what can be done with it, Pin among it (so a pin on Home
+      // can be taken off from Home).
+      menu: [
         newest && ['Play the latest', () => lookAt(e.id, newest.id)],
         ['Open its page', () => { location.hash = WB.href.catalogue(project.id, { entity: e.id }); }],
         [isPinned('entity', e.id) ? 'Unpin from Home' : 'Pin to Home', () => togglePin({ kind: 'entity', id: e.id, name: e.name, projectId: project.id, tier: e.tier, thumb: e.thumb || null })],
-      ].filter(Boolean)));
+      ].filter(Boolean),
+    };
   }
 
   function catalogueView(project, cat, view = {}) {
     const q = WBNaming.tokenize($('q').value);
     const list = cat.entities.filter((e) => (!q || e.name.includes(q))
       && (!view.tier || e.tier === view.tier) && (!view.seq || (e.tier === 'shot' && N.seqOf(e.name) === view.seq)));
-    const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
     const out = [];
+    const shown = (es) => objectList('entity', es.map((e) => entityObj(project, e, { pickable: true })), { grid: 'board-grid ent-grid', bare: true });
     picking.order = [];
     for (const tier of cat.tiers) {
       const of = list.filter((e) => e.tier === tier.id);
       if (!of.length) continue;
-      out.push(label(tier.label, of.length));
+      out.push(groupHead(tier.label, { n: of.length }));
       picking.order.push(...of.map((e) => e.id));
       if (tier.id !== 'shot') {
-        out.push(el('div', { class: 'board-grid ent-grid' }, of.map((e) => entityTile(project, e))));
+        out.push(shown(of));
         continue;
       }
       // Shots by sequence, as they are on disk.
@@ -2485,16 +2654,15 @@
         const seq = N.seqOf(e.name) || 'other';
         (seqs.get(seq) || seqs.set(seq, []).get(seq)).push(e);
       }
-      for (const [seq, shots] of seqs) {
-        out.push(el('div', { class: 'seq-label', text: seq }), el('div', { class: 'board-grid ent-grid' }, shots.map((e) => entityTile(project, e))));
-      }
+      for (const [seq, shots] of seqs) out.push(groupHead(seq, { level: 2 }), shown(shots));
     }
     if (!out.length) {
       out.push(el('div', { class: 'home-empty cat-empty' },
         el('p', { text: q ? `Nothing in the catalogue matches "${$('q').value.trim()}".` : 'Nothing is filed in this project yet.' }),
         !q && el('p', { text: 'Drop images and videos here, or import them. On a board, select some and file them as versions (Shift+V).' })));
     }
-    return [catTools(project, null), ...out];
+    // As a table, every group under one row of headings.
+    return [catTools(project, null), ...(WB.layout() === 'table' && list.length ? [objectTable('entity', out)] : out)];
   }
 
   // A version opens in the player (viewer.js), the same one a board opens its media in: with every other
@@ -2708,25 +2876,14 @@
     paintVersionPick(project);
   }
 
-  // ---- lists of versions: the same wherever versions are listed (a project's Versions, an asset, set or
-  // shot's own page), as cards or as a table, as this browser chose. A card and a table row are made of
-  // the same parts: its box, its picture (scrubbed under the pointer, opened in the player with a click),
-  // its name, the boards it is on and its menu; a click anywhere else on either picks it.
-  const VER_NODES = '.card.ver[data-id], .vt-row[data-id]';
-  const VER_LAYOUTS = [['cards', 'boards', 'Cards'], ['table', 'table', 'Table']];
-  const verLayout = () => (store(WB.KEYS.versionLayout) === 'table' ? 'table' : 'cards');
-  // Cards or a table: a pair of buttons, over every list of versions. How dense either is, is the
-  // button in the bar's (cards or compact rows; a roomy table or a tight one).
-  function verLayoutSwitch() {
-    const now = verLayout();
-    return el('div', { class: 'seg seg-icons vl-layout', role: 'group', 'aria-label': 'Show versions as' }, VER_LAYOUTS.map(([k, ic, label]) => el('button', {
-      type: 'button', class: `seg-btn${k === now ? ' on' : ''}`, title: `Show as ${label.toLowerCase()}`, 'aria-label': `Show as ${label.toLowerCase()}`, 'aria-pressed': String(k === now),
-      html: icon(ic, 15), onclick: () => { if (k !== now) { store(WB.KEYS.versionLayout, k); render(); } },
-    })));
-  }
+  // ---- versions: picked with a click wherever they are listed (a project's Versions, an asset, set or
+  // shot's own page), Shift and a click for every one between, as files are in a file manager.
+  const VER_NODES = '.obj-version[data-id]';
   // What picks it: a click, Space or Enter (with Shift, every one between), as on a card in a file manager.
-  const verPicks = (project, v) => ({
+  const verPicks = (project, entity, v) => ({
     'data-id': v.id, tabindex: '0', 'aria-label': `${v.label}: press Space to select`,
+    // A double-click opens it in the player, as a click on its picture does.
+    ondblclick: (e) => { if (!e.target.closest('a, button')) lookAt(entity.id, v.id); },
     onkeydown: (e) => {
       if (e.target !== e.currentTarget || (e.key !== ' ' && e.key !== 'Enter')) return;
       e.preventDefault();
@@ -2750,9 +2907,8 @@
   // Its shot strong (on the Versions page a link to its page), the rest of its label quieter.
   function verName(project, entity, v, list) {
     const rest = v.label.startsWith(entity.name) ? v.label.slice(entity.name.length).trim() : v.label;
-    return el('div', { class: 'card-name', title: v.label },
-      list ? el('a', { class: 'ver-ent', href: WB.href.catalogue(project.id, { entity: entity.id }), text: entity.name, title: `${entity.name}: its page` }) : el('span', { class: 'ver-ent', text: entity.name }),
-      rest && el('span', { class: 'ver-rest', text: ` ${rest}` }));
+    return [list ? el('a', { class: 'ver-ent', href: WB.href.catalogue(project.id, { entity: entity.id }), text: entity.name, title: `${entity.name}: its page` }) : el('span', { class: 'ver-ent', text: entity.name }),
+      rest && el('span', { class: 'ver-rest', text: ` ${rest}` })];
   }
   const verBoards = (v, max) => v.boards.length > 0 && el('div', { class: 'ver-boards' },
     v.boards.slice(0, max).map((b) => el('a', { class: 'ver-board', href: WB.href.board(b.id), text: b.name, title: b.name })),
@@ -2769,90 +2925,56 @@
     return views.length ? views.map((x) => x || 'main') : null;
   };
 
-  // A version's card. On the Versions page (`list`) it says which asset, set or shot it is (a link to it)
-  // and when it was filed, as the page groups by who filed it; on the asset, set or shot's own page, who
-  // filed it and when.
-  function versionCard(project, entity, v, { list = false, tierName = (t) => t } = {}) {
+  // A version as an object: its picture (scrubbed under the pointer, opened in the player with a click),
+  // its shot and the rest of its label, what is known of it, the boards it is on, and its menu. On the
+  // Versions page (`list`) it says which asset, set or shot it is (a link to it) and when it was filed, as
+  // the page groups by who filed it (and the day too, in a table not grouped by day: `day`); on the
+  // asset, set or shot's own page, who filed it and when.
+  function versionObj(project, entity, v, { list = false, tierName = (t) => t, day = false } = {}) {
     const views = verViews(v);
+    const len = verLength(v);
+    const { nw, nh } = v.look || {};
+    const n = v.notes || { threads: 0, open: 0 };
     const about = [
       list && clock(v.createdAt),
       list && tierName(v.tier),
       v.artist && !(list && v.artist === (v.createdBy || '').toLowerCase()) && `by ${v.artist}`,
       v.descriptor,
     ].filter(Boolean).join(' · ') || (!list && v.originalName) || '';
-    return el('div', { class: `card ver${v.hidden ? ' hidden-ver' : ''}${vpick.ids.has(v.id) ? ' picked' : ''}`, ...verPicks(project, v) },
-      verBox(project, v),
-      verStill(entity, v),
-      el('div', { class: 'card-body' },
-        verName(project, entity, v, list),
-        el('div', { class: 'card-meta', text: about }),
+    return {
+      kind: 'version', state: v.hidden && 'hidden-ver', picked: vpick.ids.has(v.id), attrs: verPicks(project, entity, v),
+      pick: (range) => pickVersion(project, v.id, range),
+      box: verBox(project, v),
+      still: verStill(entity, v, WB.layout() !== 'table'),
+      name: verName(project, entity, v, list), title: v.label,
+      lines: [
+        about,
         // Shown more than one way: its views, the main one first.
-        views && el('div', { class: 'card-meta', text: `Views: ${views.join(', ')}` }),
-        !list && el('div', { class: 'card-meta', text: `Filed ${ago(v.createdAt)}${v.createdBy ? ` by ${v.createdBy}` : ''}${v.hidden ? ' · archived' : ''}` }),
-        list && v.hidden && el('div', { class: 'card-meta', text: 'Archived' }),
-        verBoards(v, 4)),
-      menuButton(versionActions(project, entity, v)));
+        views && `Views: ${views.join(', ')}`,
+        !list && `Filed ${ago(v.createdAt)}${v.createdBy ? ` by ${v.createdBy}` : ''}${v.hidden ? ' · archived' : ''}`,
+        list && v.hidden && 'Archived',
+        verBoards(v, 4),
+      ],
+      sub: [v.hidden && 'Archived', list && tierName(v.tier), views && `Views: ${views.join(', ')}`, v.originalName].filter(Boolean).join(' · '),
+      cells: {
+        kind: 'Version', where: entity.name,
+        task: v.task || '—',
+        ver: el('span', { class: 'vt-main vt-strong', text: `v${v.number}` }),
+        len: [len.text, len.sub],
+        size: nw > 0 && nh > 0 ? `${nw}×${nh}` : '',
+        artist: v.artist || '',
+        by: v.createdBy && el('span', { class: 'vt-who' }, WB.avatar(v.createdBy), el('span', { class: 'vt-main', text: v.createdBy })),
+        changed: [list ? clock(v.createdAt) : ago(v.createdAt), list && day ? dayName(dayOf(v.createdAt)) : '', new Date(v.createdAt).toLocaleString()],
+        notes: n.threads > 0 && el('span', {
+          class: `vt-notes${n.open ? ' open' : ''}`, html: `${icon('comment', 13)}<span>${n.threads}</span>`,
+          title: `${plural(n.threads, 'thread')}, ${n.open ? `${n.open} open` : 'all resolved'}`,
+        }),
+        boards: verBoards(v, 2),
+      },
+      menu: versionActions(project, entity, v),
+    };
   }
-
-  // The table's columns, in order: [key, heading, the sort a click on its heading asks for]. The heading
-  // of Filed turns newest first into oldest first and back. Which of them a narrow table leaves out is
-  // style.css's (.vt).
-  const VT_COLS = [['pick', ''], ['still', ''], ['name', 'Name', 'name'], ['task', 'Task'], ['ver', 'Version', 'number'], ['len', 'Length'], ['size', 'Size'],
-    ['artist', 'Artist'], ['by', 'Filed by'], ['at', 'Filed', 'new'], ['notes', 'Notes'], ['boards', 'Boards'], ['menu', '']];
-  const vtCell = (key, ...kids) => el('div', { class: `vt-c vt-${key}` }, ...kids);
-  const vtTwo = (text, sub, title) => [el('span', { class: 'vt-main', text, title: title || text }), sub && el('span', { class: 'vt-sub', text: sub, title: sub })];
-
-  // A version as a row of the table. Its picture leads it, always, as on a card.
-  function versionRow(project, entity, v, { list = false, tierName = (t) => t, day = false } = {}) {
-    const len = verLength(v);
-    const views = verViews(v);
-    const { nw, nh } = v.look || {};
-    const n = v.notes || { threads: 0, open: 0 };
-    const at = new Date(v.createdAt);
-    const sub = [v.hidden && 'Archived', list && tierName(v.tier), views && `Views: ${views.join(', ')}`, v.originalName].filter(Boolean).join(' · ');
-    return el('div', { class: `vt-row${v.hidden ? ' hidden-ver' : ''}${vpick.ids.has(v.id) ? ' picked' : ''}`, ...verPicks(project, v), ondblclick: (e) => { if (!e.target.closest('a, button')) lookAt(entity.id, v.id); } },
-      vtCell('pick', verBox(project, v)),
-      vtCell('still', verStill(entity, v, false)),
-      vtCell('name', verName(project, entity, v, list), sub && el('span', { class: 'vt-sub', text: sub, title: sub })),
-      vtCell('task', ...vtTwo(v.task || '—')),
-      vtCell('ver', el('span', { class: 'vt-main', text: `v${v.number}` })),
-      vtCell('len', ...vtTwo(len.text, len.sub)),
-      vtCell('size', ...vtTwo(nw > 0 && nh > 0 ? `${nw}×${nh}` : '')),
-      vtCell('artist', ...vtTwo(v.artist || '')),
-      vtCell('by', v.createdBy && WB.avatar(v.createdBy), ...vtTwo(v.createdBy || '')),
-      vtCell('at', ...vtTwo(list ? clock(v.createdAt) : ago(v.createdAt), list && day ? dayName(dayOf(v.createdAt)) : '', at.toLocaleString())),
-      vtCell('notes', n.threads > 0 && el('span', {
-        class: `vt-notes${n.open ? ' open' : ''}`, html: `${icon('comment', 13)}<span>${n.threads}</span>`,
-        title: `${plural(n.threads, 'thread')}, ${n.open ? `${n.open} open` : 'all resolved'}`,
-      })),
-      vtCell('boards', verBoards(v, 2)),
-      vtCell('menu', menuButton(versionActions(project, entity, v))));
-  }
-
-  // The table's headings, kept in sight at the top as it scrolls. A heading that sorts says so, and which
-  // way; `all` is a box for everything shown.
-  function versionTableHead({ sort, onSort, all } = {}) {
-    return el('div', { class: 'vt-head', role: 'row' }, VT_COLS.map(([key, title, by]) => {
-      if (key === 'pick') return vtCell(key, all || null);
-      if (!by || !onSort) return vtCell(key, el('span', { text: title }));
-      const on = by === 'new' ? sort === 'new' || sort === 'old' : sort === by;
-      const next = by === 'new' && sort === 'new' ? 'old' : by;
-      const dir = on && (sort === 'old' ? 'up' : by === 'new' ? 'down' : 'up');
-      return vtCell(key, el('button', {
-        type: 'button', class: `vt-sort${on ? ` on ${dir}` : ''}`, title: `Sort by ${title.toLowerCase()}${by === 'new' ? (next === 'old' ? ', oldest first' : ', newest first') : ''}`,
-        onclick: () => onSort(next),
-      }, el('span', { text: title }), el('i', { class: 'vt-arrow', 'aria-hidden': 'true' })));
-    }));
-  }
-
-  // Some versions, as this browser shows them: a grid of cards, or the rows of a table (under a
-  // versionTableHead somewhere above). `entity` is the asset, set or shot they all are, or none when each
-  // says its own (the Versions page). `lead` goes first: the card or row that adds versions.
-  function versionList(project, entity, vs, opts = {}) {
-    const entOf = (v) => entity || { id: v.entityId, name: v.entity, tier: v.tier };
-    if (verLayout() === 'table') return el('div', { class: 'vt-body' }, opts.lead && opts.lead.row, vs.map((v) => versionRow(project, entOf(v), v, opts)));
-    return el('div', { class: `board-grid ent-grid${opts.list ? ' vl-grid' : ''}` }, opts.lead && opts.lead.card, vs.map((v) => versionCard(project, entOf(v), v, opts)));
-  }
+  const versionsOf = (project, entity, vs, opts) => vs.map((v) => versionObj(project, entity || { id: v.entityId, name: v.entity, tier: v.tier }, v, opts));
 
   let showHidden = false;
   function entityPage(project, page) {
@@ -2876,28 +2998,22 @@
         el('button', { type: 'button', class: 'ent-thread-open', text: byVersion.get(n.versionId)?.label || '', title: 'Open it in the player', onclick: () => lookAt(entity.id, n.versionId) }),
         n.done && el('span', { class: 'ent-done', text: 'Resolved' })),
       msg(n, true), replies(n.id).map((r) => msg(r, false))));
-    const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
     const latest = page.versions.find((v) => !v.hidden);
     if (vpick.project !== project.id) {
       dropVersionPick();
       vpick.project = project.id;
     }
     vpick.order = versions.map((v) => v.id);
-    const addTitle = `Add new versions of ${entity.name}: choose files, or drop them anywhere here`;
-    const add = () => importer(project).pick(entity);
-    return el('div', { class: `ent-page${verLayout() === 'table' ? ' vt' : ''}` },
+    return el('div', { class: 'ent-page' },
       el('div', { class: 'ent-top' },
         latest && el('button', { type: 'button', class: 'btn primary', html: `${ICON_PLAY}<span>Play latest</span>`, title: `Open ${latest.label}, with every other version beside it`, onclick: () => lookAt(entity.id, latest.id) }),
         entityPeople(entity)),
-      el('div', { class: 'section-label' }, 'Versions', el('span', { class: 'tally', text: String(versions.length) }), verLayoutSwitch()),
+      label('Versions', versions.length),
       hidden > 0 && el('label', { class: 'ent-hidden' }, el('input', { type: 'checkbox', checked: showHidden, onchange: (e) => { showHidden = e.target.checked; render(); } }), `Show archived (${hidden})`),
-      verLayout() === 'table' && versionTableHead(),
-      versionList(project, entity, versions, { lead: {
-        card: el('button', { type: 'button', class: 'card new', title: addTitle, onclick: add },
-          el('span', { class: 'new-thumb' }, el('span', { class: 'plus', html: ICON_PLUS })),
-          el('span', { class: 'card-body' }, el('span', { class: 'card-name', text: 'Add versions' }), el('span', { class: 'card-meta', text: 'Choose files, or drop them here' }))),
-        row: el('button', { type: 'button', class: 'vt-add', title: addTitle, onclick: add }, el('span', { class: 'vt-add-plus', html: icon('plus', 16) }), el('span', { text: 'Add versions' }), el('span', { class: 'vt-sub', text: 'Choose files, or drop them here' })),
-      } }),
+      objectList('version', versionsOf(project, entity, versions), {
+        grid: 'board-grid ent-grid',
+        lead: { name: 'Add versions', meta: 'Choose files, or drop them here', title: `Add new versions of ${entity.name}: choose files, or drop them anywhere here`, onclick: () => importer(project).pick(entity) },
+      }),
       label('Notes', roots.length),
       roots.length ? el('div', { class: 'ent-threads' }, threads) : el('p', { class: 'home-empty', text: 'Nothing said about it yet. Notes made on any board it is on show here.' }));
   }

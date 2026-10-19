@@ -45,6 +45,7 @@ test('ai: asks Claude with the key, the model, the rules and the files, and must
   // It is asked which view each is, and told the views the project has, the main one first.
   assert.ok(q.body.tools[0].input_schema.properties.files.items.properties.view);
   assert.match(q.body.system, /shows each version these ways: cmp, bty; the first, cmp, is the main one/);
+  assert.match(q.body.system, /fill in only those, and for each of the others give what it is set to now/);
   assert.equal(createAi({ key: 'k', model: 'claude-sonnet-5-5', fetchImpl: claude.fetchImpl }).model, 'claude-sonnet-5-5');
 });
 

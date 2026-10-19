@@ -3003,7 +3003,9 @@
         const f = r.fields;
         before.push({ r, ent: f.ent.value, task: f.task.value, tier: f.tier.value, num: f.num.value, numTouched: r.numTouched, view: f.f.viewName() });
         f.ent.value = a.entity;
-        f.task.value = a.task || '';
+        // A task only where Claude gave one: a row's own is not taken away for want of an answer, as when
+        // it was asked to fill in the shot and the version and nothing more.
+        if (a.task) f.task.value = a.task;
         WBFiling.changed();
         f.tier.value = a.tier;
         // A view only where Claude gave one: a row's own is not taken away for want of an answer.

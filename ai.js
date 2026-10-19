@@ -116,6 +116,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
           : '- view: always null: this project shows each version one way, whatever a file name says.',
         '- note: a few words on why, for the person checking your answer.',
         'Read everything the original file name says. The person\'s instruction comes first where it says otherwise, but every name keeps the shape the rules give.',
+        'When the instruction says which fields to fill in (fill in chapter, shot and version), fill in only those, and for each of the others give what it is set to now, or null where it is set to nothing: never your own guess at it, even if the file name says one.',
         'Answer for every file, with the key it was given.',
       ].join('\n'),
     ].join('\n\n');

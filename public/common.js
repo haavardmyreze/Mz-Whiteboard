@@ -618,6 +618,7 @@ const WB = (() => {
     user: 'wb:user',           // { name, color } where nobody signs in
     theme: 'wb:theme',         // 'dark' | 'light'
     density: 'wb:density',     // 'normal' | 'compact'
+    versionLayout: 'wb:vlayout', // 'cards' | 'table': how lists of versions are shown
     workspace: 'wb:workspace', // the workspace last shown
     pins: 'wb:pins',           // what is pinned to Home
     recent: 'wb:recent',       // what was opened lately

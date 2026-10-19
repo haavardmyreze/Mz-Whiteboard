@@ -2465,6 +2465,95 @@ body:not(.vpicking) .vl-box { display: none; }
 body:not(.vpicking) .card.ver:is(:hover, :focus-visible) > .vl-box { display: block; }
 @media (hover: none) { body:not(.vpicking) .card.ver > .vl-box { display: none; } }
 
+/* A list of versions as a table (versionList in home.js): a row each, its picture leading it as on a card,
+   under one row of headings that stays in sight. Every row and the headings share one set of columns, so
+   they line up across the groups; a narrower table leaves out what matters least first. Dense rows
+   (the button in the bar) are a tighter table with a smaller picture. */
+.vt { container: vt / inline-size; --vt-still: 96px; --vt-pad: 8px;
+  --vt-cols: 24px var(--vt-still) minmax(200px, 3fr) minmax(64px, 1fr) 60px 104px 88px minmax(72px, 1fr) minmax(104px, 1.2fr) 96px 48px minmax(96px, 1.4fr) 32px; }
+[data-density="compact"] .vt { --vt-still: 56px; --vt-pad: 4px; }
+.vt-head, .vt-row { display: grid; grid-template-columns: var(--vt-cols); align-items: center; column-gap: 12px; }
+.vt-head { position: sticky; top: var(--bar); z-index: 5; height: 34px; margin: 8px 0 0; padding: 0 9px; border-bottom: 1px solid var(--line); background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; user-select: none; -webkit-user-select: none; }
+.vt-head + .vl-day { margin-top: 16px; }
+.vt-head + .vl-run, .ent-page > .vt-head + .vt-body { margin-top: 8px; }
+.vt .vl-run { margin-bottom: 12px; }
+.vt-body { border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); overflow: hidden; }
+.vt-row { position: relative; min-height: 0; padding: var(--vt-pad) 8px; border-bottom: 1px solid var(--line); cursor: pointer; user-select: none; -webkit-user-select: none; transition: background 0.12s var(--ease); }
+.vt-body > :last-child { border-bottom: 0; }
+.vt-row:hover { background: var(--hover); }
+.vt-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.vt-row.picked { background: color-mix(in srgb, var(--accent) 12%, var(--surface-1)); }
+.vt-row.picked::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--accent); }
+.vt-row.hidden-ver > .vt-c { opacity: 0.55; }
+.vt-row.hidden-ver > .vt-pick, .vt-row.hidden-ver > .vt-menu { opacity: 1; }
+.vt-c { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.vt-main, .vt-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vt-main { color: var(--text-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.vt-sub { margin-top: 1px; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.vt-ver, .vt-len, .vt-size { align-items: flex-end; text-align: right; }
+.vt-ver .vt-main { color: var(--text); font-weight: 600; }
+.vt-name .card-name { font-size: 13.5px; color: var(--text-2); font-weight: 500; }
+.vt-name .ver-ent { color: var(--text); font-weight: 650; text-decoration: none; }
+.vt-name a.ver-ent:hover { text-decoration: underline; }
+.vt-artist { padding-left: 12px; }
+.vt-by { flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; }
+.vt-by .avatar.sm { flex: none; width: 20px; height: 20px; font-size: 9px; background: var(--surface-3); color: var(--text-2); }
+.vt-notes { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.vt-notes svg { width: 13px; height: 13px; }
+.vt-notes.open { color: var(--accent); font-weight: 600; }
+.vt-boards .ver-boards { flex-wrap: nowrap; margin: 0; overflow: hidden; }
+.vt-boards .ver-board { overflow: hidden; max-width: 140px; text-overflow: ellipsis; white-space: nowrap; }
+/* Its picture: the card's own, smaller, scrubbed the same. */
+.vt-still > .card-thumbs, [data-density="compact"] .vt-still > .card-thumbs { position: relative; display: block; width: var(--vt-still); height: auto; aspect-ratio: 16 / 9; padding: 0; border: 0; border-radius: var(--r-2); font: inherit; cursor: zoom-in; overflow: hidden; }
+.vt-still > .card-thumbs > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.vt-row:hover .cache-badge { opacity: 1; }
+.vt .cache-badge { bottom: 3px; right: 3px; width: 12px; height: 12px; }
+.vt .cache-badge svg { width: 8px; height: 8px; }
+/* Its menu sits at the end of the row, there on a hover as on a card. */
+.vt-menu .card-menu, [data-density="compact"] .vt-menu .card-menu { position: static; transform: none; border-color: transparent; background: transparent; box-shadow: none; }
+.vt-menu .card-menu:hover { background: var(--press); }
+.vt-row:is(:hover, :focus-within) .card-menu { opacity: 1; }
+body:not(.vpicking) .vt-row:is(:hover, :focus-visible) .vl-box, body:not(.vpicking) .vt-head:hover .vl-box { display: block; }
+@media (hover: none) { body:not(.vpicking) .vt-row .vl-box { display: none; } }
+/* A heading that sorts: a click asks for it, and the arrow says which way it is sorted now. */
+.vt-sort { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.vt-sort:hover, .vt-sort.on { color: var(--text); }
+.vt-arrow { width: 0; height: 0; border-left: 3.5px solid transparent; border-right: 3.5px solid transparent; border-top: 4px solid currentColor; opacity: 0; }
+.vt-sort:hover .vt-arrow { opacity: 0.4; }
+.vt-sort.on .vt-arrow { opacity: 1; }
+.vt-sort.on.up .vt-arrow { border-top: 0; border-bottom: 4px solid currentColor; }
+.vt-head > .vt-ver, .vt-head > .vt-len, .vt-head > .vt-size { align-items: flex-end; }
+/* The row that adds versions, on an asset, set or shot's page: where the card would be. */
+.vt-add { display: flex; align-items: center; gap: 12px; width: 100%; padding: var(--vt-pad) 8px var(--vt-pad) 44px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--text-2); font: inherit; font-size: 13.5px; font-weight: 600; text-align: left; cursor: pointer; transition: background 0.12s var(--ease); }
+.vt-add:hover { background: var(--hover); color: var(--text); }
+.vt-add-plus { display: grid; place-items: center; flex: none; width: var(--vt-still); aspect-ratio: 16 / 9; border: 1px dashed var(--line-strong); border-radius: var(--r-2); color: var(--muted); }
+.vt-add .vt-sub { font-weight: 400; }
+[data-density="compact"] .vt .vt-sub, [data-density="compact"] .vt-add .vt-sub { display: none; }
+/* Narrower, less: the size and the boards first, then the artist and the length, then the task, who
+   filed it and the notes; on a phone, the picture, the name and the menu. */
+@container vt (max-width: 1180px) {
+  .vt-size, .vt-boards { display: none; }
+  .vt-head, .vt-row { grid-template-columns: 24px var(--vt-still) minmax(180px, 3fr) minmax(64px, 1fr) 60px 104px minmax(72px, 1fr) minmax(104px, 1.2fr) 96px 48px 32px; }
+}
+@container vt (max-width: 960px) {
+  .vt-artist, .vt-len { display: none; }
+  .vt-head, .vt-row { grid-template-columns: 24px var(--vt-still) minmax(160px, 3fr) minmax(64px, 1fr) 60px minmax(96px, 1.2fr) 88px 44px 32px; }
+}
+@container vt (max-width: 720px) {
+  .vt-task, .vt-by, .vt-notes { display: none; }
+  .vt-head, .vt-row { grid-template-columns: 24px var(--vt-still) minmax(0, 1fr) 52px 80px 32px; }
+}
+@container vt (max-width: 480px) {
+  .vt-ver, .vt-at, .vt-pick { display: none; }
+  .vt-head, .vt-row { grid-template-columns: var(--vt-still) minmax(0, 1fr) 32px; column-gap: 10px; }
+  .vt-add { padding-left: 8px; }
+}
+/* Cards or a table: the pair of buttons over every list of versions. */
+.seg.seg-icons { display: inline-grid; margin: 0; padding: 2px; }
+.seg-icons .seg-btn { width: 30px; height: 24px; padding: 0; }
+.seg-icons .seg-btn svg { display: block; }
+.section-label > .vl-layout { order: 1; align-self: center; margin-left: 4px; font-weight: 400; }
+
 /* The player docked in the page (the timeline): the page's bar and sidebar stay, seen and usable. */
 .viewer.docked { --dock-l: 252px; --dock-t: 48px; clip-path: inset(var(--dock-t) 0 0 var(--dock-l)); }
 .viewer.docked .v-bar { top: var(--dock-t); left: var(--dock-l); }

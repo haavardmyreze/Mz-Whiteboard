@@ -934,6 +934,17 @@ function openStore(dataDir) {
     return out;
   }
   const boardsWithVersion = (versionId) => boardsWithVersions([versionId]).get(versionId);
+  // What has been said on each of some versions: its threads, and how many of them are not resolved
+  // yet (deleted ones are not counted): { version id: { threads, open } }.
+  function notesOnVersions(versionIds) {
+    const ids = [...new Set(versionIds)];
+    const out = new Map(ids.map((id) => [id, { threads: 0, open: 0 }]));
+    if (!ids.length) return out;
+    const rows = db.prepare(`SELECT version_id, count(*) AS threads, sum(coalesce(json_extract(data, '$.done'), 0) = 0) AS open FROM notes
+      WHERE version_id IN (${ids.map(() => '?').join(', ')}) AND re IS NULL AND deleted_at IS NULL GROUP BY version_id`).all(...ids);
+    for (const r of rows) out.set(r.version_id, { threads: r.threads, open: r.open });
+    return out;
+  }
 
   // ---------------------------------------------------------------- notes
 
@@ -1076,7 +1087,7 @@ function openStore(dataDir) {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
     transaction, entities, streamHeads, findVersions, projectFilers, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, entitiesOf, entitiesFiledBy, happenings, people, entityCount,
-    addVersion, addView, projectViews, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
+    addVersion, addView, projectViews, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions, notesOnVersions,
     note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesBesides, unfileVersion, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,

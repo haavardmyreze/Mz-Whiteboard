@@ -44,7 +44,8 @@ private networks, otherwise only the host machine can connect.
   catalogue's own: it scrubs under the pointer and plays the latest. Pin from a card's `...` menu or
   the star beside where you are; pins and what is read are kept by this browser.
 - **Cards or compact rows.** The button beside the theme in the top bar shows boards, folders and the
-  catalogue as cards, or as compact rows (a small still beside each name), remembered per browser.
+  catalogue as cards, or as compact rows (a small still beside each name), remembered per browser. A list
+  of versions shown as a table is a tighter table for it.
 - **One bar across the top, the same on every page.** The mark in the corner goes to all boards, and
   beside it is where you are, as a path: the board, and with an image or video open, the board and
   then the piece. On the right is what can be done there, ending in the one thing set in ink (New
@@ -585,10 +586,18 @@ filed in it.
   everyone the app knows (who signed in, filed, wrote a note or was named before) or typed. Its card
   shows its artists.
 - **Versions, every one, as you want to see them.** A project's Versions (in the sidebar) lists every
-  version filed in it, as the same cards an asset, set or shot's page has (cards or compact rows, as
-  the button in the bar says): its still (which scrubs under the pointer and opens in the player), its
-  shot (a link to it) and the rest of its label, when it was filed, and the boards it is on. The bar over
-  it has two buttons:
+  version filed in it, the same way an asset, set or shot's page lists its own: its still (which scrubs
+  under the pointer and opens in the player), its shot (a link to it) and the rest of its label, when it
+  was filed, and the boards it is on. The pair of buttons at the right of the bar (and beside Versions on
+  an asset, set or shot's page) shows them as cards or as a table, for every list of versions, remembered
+  per browser. The table has a row each, its still leading it: the name with what it is and the file's
+  own name under it, the task, the version, how long it runs (and in frames, at its rate), its size, the
+  artist, who filed it and when, how many threads of notes it has (in the accent colour while any is
+  open), and its boards. A narrower window leaves out the size and boards first, then the artist and
+  length, then the task, who filed it and the notes; a phone keeps the still and the name. Its headings
+  stay in sight as it scrolls, and Name, Version and Filed sort it with a click (Filed again for oldest
+  first). Double-click a row to open it in the player. The button in the top bar makes it a tight table
+  with a small still, as it makes cards compact rows. The bar over the list also has two buttons:
   - **View** (it says how it is grouped) groups by upload time (the default: by day, and within a day
     by who filed a run of them), by sequence (assets and sets after), by asset, set or shot, by task, by
     who filed them, or not at all; and sorts by newest or oldest filed, by name, or by version number.
@@ -724,7 +733,8 @@ lists the names the app knows, and `GET /api/feed?name=` is Home's Updates and M
 its newest version, for the cache to fetch ahead).
 `GET /api/projects/<folder>/activity` what happened in the project in the last two weeks (versions
 filed and comments, newest first), `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest version,
-`GET /api/projects/<folder>/versions?before=` the project's versions newest first, 300 a page (when
+`GET /api/projects/<folder>/versions?before=` the project's versions newest first, 300 a page, each with
+the boards it is on and its `notes`, `{ threads, open }`, as an entity's versions have them too (when
 `more` is true, its `next` is what to give as `before` for the following page; a time in milliseconds
 still works too); with `find=1` as the Versions page asks: `task`, `seq`, `tier`, `by`, `artist` (each a
 comma separated list; an empty task is none), `since`, `q`, `newest=1`, `archived=1`, `sort` (`new`,

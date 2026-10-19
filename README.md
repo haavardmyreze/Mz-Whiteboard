@@ -48,9 +48,9 @@ private networks, otherwise only the host machine can connect.
   the catalogue, Versions, an asset, set or shot's versions) can be shown three ways, chosen with the three
   buttons beside the theme in the top bar (or in Your account) and remembered per browser: as cards, as
   compact rows (a small still beside each name, many to a screen), or as a table. A table has a row for
-  each, its still (or a folder's icon) first, scrubbing and playing as on a card, then its name with a
-  quieter line under it, and in columns what is known of that kind: a board's items, where it is and when
-  it was edited; a folder's kind, boards and folders; an asset, set or shot's latest version, tasks,
+  each, one line high, like a compact row drawn out across the page: its still (or a folder's icon) at
+  its left edge, scrubbing and playing as on a card, then its name, and in columns what its card says:
+  a board's items and when it was edited; a folder's kind, boards and folders; an asset, set or shot's
   versions, artists and when the last was filed; a version's as below; and for what is pinned to Home,
   what each is, where, and when it changed. It is set as the catalogue is, under the same headings ("Shots
   25", then each sequence), with its headings staying in sight as the page scrolls; a narrower window
@@ -601,15 +601,17 @@ filed in it.
   version filed in it, the same way an asset, set or shot's page lists its own: its still (which scrubs
   under the pointer and opens in the player), its shot (a link to it) and the rest of its label, when it
   was filed, and the boards it is on. Its groups are headed as the catalogue's are: each day a section,
-  and within it who filed a run of them. As a table (the buttons in the top bar), a version's row says
-  what it is and the file's own name under its name, then its task, its version, how long it runs (and in
-  frames, at its rate), its size, the artist, who filed it and when, how many threads of notes it has (in
-  the accent colour while any is open), and its boards; Name, Version and Filed sort it with a click
+  and within it who filed a run of them. As a table (the buttons in the top bar), a version's row has
+  its name (archived, or in how many views, beside it), its task, its version, the artist, and who filed
+  it and when; Name, Version and Filed sort it with a click
   (Filed again for oldest first). Double-click a version, as a card or a row, to open it in the player.
   The bar over the list has two buttons:
   - **View** (it says how it is grouped) groups by upload time (the default: by day, and within a day
     by who filed a run of them), by sequence (assets and sets after), by asset, set or shot, by task, by
     who filed them, or not at all; and sorts by newest or oldest filed, by name, or by version number.
+    The groups keep their own order (sequences as they are numbered, then assets and sets; tasks and
+    people by name; days newest first, or oldest first when so sorted), and the sort orders what is in
+    each.
   - **Filter** narrows to some tasks (or no task), sequences, kinds (assets, sets, shots), people who
     filed them or artists; to today, the last 7 or 30 days; to only the newest of each asset, set or
     shot and task; or with what is archived too, all ticked in one panel. Each filter in force is a chip
@@ -743,7 +745,7 @@ its newest version, for the cache to fetch ahead).
 `GET /api/projects/<folder>/activity` what happened in the project in the last two weeks (versions
 filed and comments, newest first), `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest version,
 `GET /api/projects/<folder>/versions?before=` the project's versions newest first, 300 a page, each with
-the boards it is on and its `notes`, `{ threads, open }`, as an entity's versions have them too (when
+the boards it is on (when
 `more` is true, its `next` is what to give as `before` for the following page; a time in milliseconds
 still works too); with `find=1` as the Versions page asks: `task`, `seq`, `tier`, `by`, `artist` (each a
 comma separated list; an empty task is none), `since`, `q`, `newest=1`, `archived=1`, `sort` (`new`,

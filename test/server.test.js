@@ -2142,18 +2142,6 @@ test('a project lists its versions newest first, and puts chosen ones on one of 
   // not a board of another project, nor versions of nothing
   assert.equal((await call('POST', `/api/projects/${project.id}/place`, { board: loose.id, versions: [a.id] })).status, 404);
   assert.equal((await call('POST', `/api/projects/${project.id}/place`, { board: board.id, versions: ['nothing1'] })).status, 400);
-  // what is said on it there is counted on it, by thread, and how many are still open
-  anna.ws.send(JSON.stringify({ t: 'op', ops: [
-    { t: 'add', item: { id: 'vercomm01', type: 'comment', on: added[0].id, text: 'Rim light is hot' } },
-    { t: 'add', item: { id: 'vercomm02', type: 'comment', on: added[0].id, text: 'Hold longer' } },
-    { t: 'add', item: { id: 'verrepl01', type: 'comment', on: added[0].id, re: 'vercomm01', text: 'Fixed' } },
-    { t: 'set', id: 'vercomm01', patch: { done: true } },
-  ] }));
-  await pause(200);
-  const said = (await call('GET', `/api/projects/${project.id}/versions?find=1`)).body.versions;
-  const notesOf = (id) => said.find((v) => v.id === id).notes;
-  assert.deepEqual([notesOf(c.id), notesOf(a.id)], [{ threads: 2, open: 1 }, { threads: 0, open: 0 }]);
-  assert.deepEqual((await call('GET', `/api/entities/${c.entityId}`)).body.versions.find((v) => v.id === c.id).notes, { threads: 2, open: 1 });
 });
 
 // ---------------------------------------------------------------- requests from other sites, and who is guessing

@@ -2463,58 +2463,60 @@ body:not(.vpicking) .vl-box { display: none; }
 body:not(.vpicking) .card.ver:is(:hover, :focus-visible) > .vl-box { display: block; }
 @media (hover: none) { body:not(.vpicking) .card.ver > .vl-box { display: none; } }
 
-/* Lists as a table (objectNode in home.js; the layout switch in the bar): a row for each object, its
-   picture or icon first, set as the catalogue is: its name as a card's, what more there is to say in the
-   card's quieter lines, and between rows the hairline under a section's heading. Its headings stay in
+/* Lists as a table (objectNode in home.js; the layout switch in the bar): each object a compact card
+   drawn out across the page, one line high, its picture at its left edge and what is known of it in
+   columns, a little apart from the next as compact cards are, under the catalogue's headings. Its column headings stay in
    sight as the page scrolls. Every row and the headings share one grid (--vt0 to --vt4, made for the
    kind's columns), so the columns line up across the groups; a narrower table takes the grid that
    leaves out what matters least (data-level, the first whose columns fit), down to the picture, the
    name and the menu on a phone. */
-.vt-head, .vt-row { display: grid; grid-template-columns: var(--vt0); align-items: center; column-gap: 16px; }
-.vt-head { position: sticky; top: var(--bar); z-index: 5; min-height: 36px; margin-top: 16px; border-bottom: 1px solid var(--line); background: var(--bg); color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; user-select: none; -webkit-user-select: none; }
-.cat-tools + .vt > .vt-head { margin-top: 32px; }
-.vt-row { position: relative; isolation: isolate; padding: 8px 0; border-bottom: 1px solid var(--line); color: inherit; text-decoration: none; cursor: pointer; user-select: none; -webkit-user-select: none; }
-/* Under the pointer and when selected it is lit a little past its edges, so its lines stay the section's. */
-.vt-row::before { content: ""; position: absolute; z-index: -1; inset: 0 -8px; border-radius: var(--r-2); background: var(--hover); opacity: 0; transition: opacity 0.12s var(--ease); pointer-events: none; }
-.vt-row:hover::before { opacity: 1; }
-.vt-row.picked::before { background: color-mix(in srgb, var(--accent) 14%, transparent); opacity: 1; }
-.vt-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--r-2); }
-.vt-row.hidden-ver > .vt-c:not(.vt-pick, .vt-menu) { opacity: 0.55; }
+.vt-head, .vt-row { display: grid; grid-template-columns: var(--vt0); align-items: center; column-gap: 14px; }
+.vt-head { position: sticky; top: var(--bar); z-index: 5; min-height: 32px; margin-top: 12px; padding: 0 5px 0 1px; background: var(--bg); color: var(--muted); font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; user-select: none; -webkit-user-select: none; }
+.cat-tools + .vt > .vt-head { margin-top: 28px; }
+.vt-body { display: flex; flex-direction: column; gap: 8px; }
+.vt-head + .vt-body { margin-top: 4px; }
+.vt-row { position: relative; height: 52px; padding: 0 4px 0 0; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); color: inherit; text-decoration: none; overflow: hidden; cursor: pointer; user-select: none; -webkit-user-select: none; transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease), background 0.2s var(--ease); }
+.vt-row:hover { border-color: var(--line-strong); box-shadow: var(--shadow-2); }
+.vt-row.picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface-1)); }
+.vt-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.vt-row.hidden-ver { opacity: 0.55; }
 .vt-row.lifted { opacity: 0.4; }
-.vt-row.drop::before { background: color-mix(in srgb, var(--accent) 12%, transparent); box-shadow: inset 0 0 0 2px var(--accent); opacity: 1; }
+.vt-row.drop { outline: 2px solid var(--accent); outline-offset: -2px; background: color-mix(in srgb, var(--accent) 12%, var(--surface-1)); }
 .vt-c { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
 .vt-c.end { align-items: flex-end; text-align: right; }
-.vt-name .card-name { line-height: 1.35; }
-.vt-name .card-meta { display: block; overflow: hidden; margin-top: 2px; text-overflow: ellipsis; white-space: nowrap; }
-.vt-name .card-meta .card-live { margin-left: 0; }
-.vt-main, .vt-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vt-main { color: var(--text-2); font-size: 13px; font-variant-numeric: tabular-nums; }
-.vt-sub { margin-top: 2px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+/* One line to a row: its name, and beside it at most a short word (archived, its views, who is on it). */
+.vt-c.vt-name { flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; }
+.vt-name .card-name { flex: 0 1 auto; min-width: 0; font-size: 13px; }
+.vt-aside { display: inline-flex; flex: none; align-items: center; gap: 6px; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.vt-aside > * + *::before { content: "·"; margin-right: 6px; }
+.vt-aside .card-live { margin-left: 0; }
+.vt-main { overflow: hidden; color: var(--text-2); font-size: 12.5px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .vt-strong { color: var(--text); font-weight: 600; }
 .vt-who { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.vt-who .avatar.sm { flex: none; width: 20px; height: 20px; font-size: 9px; background: var(--surface-3); color: var(--text-2); }
-.vt-artists .ent-artists { margin: 0; font-size: 13px; color: var(--text-2); }
-.vt-notes { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.vt-notes svg { width: 13px; height: 13px; }
-.vt-notes.open { color: var(--accent); font-weight: 600; }
-.vt-boards .ver-boards { flex-wrap: nowrap; margin: 0; overflow: hidden; }
-.vt-boards .ver-board { overflow: hidden; max-width: 140px; text-overflow: ellipsis; white-space: nowrap; }
+.vt-who .avatar.sm { flex: none; width: 18px; height: 18px; font-size: 8.5px; background: var(--surface-3); color: var(--text-2); }
+.vt-artists .ent-artists { margin: 0; font-size: 12.5px; color: var(--text-2); }
 /* Its picture, the card's own made small: scrubbed, and played or opened, the same. */
-.vt-still > .card-thumbs { position: relative; width: 100%; height: auto; aspect-ratio: 16 / 10; padding: 0; border: 1px solid var(--line); border-radius: var(--r-2); background-color: var(--thumb-bg); font: inherit; cursor: pointer; }
+.vt-c.vt-still { position: relative; align-self: stretch; justify-content: stretch; border-right: 1px solid var(--line); }
+.vt-still > .card-thumbs { position: relative; width: 100%; height: 100%; aspect-ratio: auto; padding: 0; border: 0; border-radius: 0; background-color: var(--thumb-bg); font: inherit; cursor: pointer; }
+.vt-still > .card-thumbs > img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.vt-still > .card-thumbs:is(.n2, .n3, .n4) > img { position: static; }
 .vt-still > .card-thumbs.n0 { background-color: var(--thumb-empty); background-size: 10px 10px; background-position: 5px 5px; }
 .vt-still .play-latest { display: none; }
 .vt-row:hover .cache-badge { opacity: 1; }
 .vt .cache-badge { bottom: 3px; right: 3px; width: 12px; height: 12px; }
 .vt .cache-badge svg { width: 8px; height: 8px; }
 /* What has no picture (a folder, a place) has its icon, as its card does. */
-.vt-icon { display: grid; place-items: center; justify-self: center; width: 36px; height: 36px; border-radius: var(--r-2); background: var(--surface-3); color: var(--text-2); }
+.vt-icon { display: grid; place-items: center; align-self: center; width: 32px; height: 32px; margin: auto; border-radius: var(--r-2); background: var(--surface-3); color: var(--text-2); }
+.vt-c.vt-still:has(> .vt-icon) { border-right: 0; }
 .vt-row.project .vt-icon { color: var(--accent); }
 /* Its menu at the end of the row, there under the pointer as on a card. */
-.vt-menu .card-menu { position: static; transform: none; border-color: transparent; background: transparent; box-shadow: none; }
+.vt-menu .card-menu { position: static; width: var(--h-sm); height: var(--h-sm); transform: none; border-color: transparent; background: transparent; box-shadow: none; }
 .vt-menu .card-menu:hover { background: var(--press); }
 .vt-row:is(:hover, :focus-within) .card-menu { opacity: 1; }
 /* Its box selects it: there under the pointer, and on every row once something is being selected. */
-.vt-box { display: none; }
+.vt-box { display: none; position: absolute; z-index: 2; top: 50%; left: 6px; margin-top: -9px; border-color: rgba(255, 255, 255, 0.85); background: rgba(0, 0, 0, 0.45); }
+.vt-c.vt-still:has(> .vt-icon) > .vt-box { border-color: var(--line-strong); background: var(--surface-1); }
+.vt-head .vt-still > .vl-box { margin-left: 7px; }
 .vt-row:is(:hover, :focus-visible) .vt-box, body:is(.vpicking, .picking, .bpicking) .vt-box { display: block; }
 body:not(.vpicking) .vt-head:hover .vl-box { display: block; }
 @media (hover: none) { .vt-row:hover .vt-box { display: none; } body:is(.vpicking, .picking, .bpicking) .vt-box { display: block; } }
@@ -2526,11 +2528,15 @@ body:not(.vpicking) .vt-head:hover .vl-box { display: block; }
 .vt-sort.on .vt-arrow { opacity: 1; }
 .vt-sort.on.up .vt-arrow { border-top: 0; border-bottom: 4px solid currentColor; }
 /* The row that adds to the list (New board, Add versions), where its dashed card would be. */
-.vt-add { display: flex; align-items: center; gap: 16px; width: 100%; padding: 8px 0 8px 36px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--text-2); font: inherit; text-align: left; cursor: pointer; }
+.vt-add { display: flex; align-items: center; gap: 14px; width: 100%; height: 52px; padding: 0; border: 1px dashed var(--line-strong); border-radius: var(--r-3); background: transparent; color: var(--text-2); font: inherit; text-align: left; cursor: pointer; transition: border-color 0.16s var(--ease), background 0.16s var(--ease); }
+.vt-add:hover { border-color: var(--muted); background: var(--hover); }
 .vt-add:hover .card-name { color: var(--text); }
-.vt-add-plus { display: grid; place-items: center; flex: none; width: 80px; aspect-ratio: 16 / 10; border: 1px dashed var(--line-strong); border-radius: var(--r-2); color: var(--muted); transition: border-color 0.12s var(--ease), color 0.12s var(--ease); }
-.vt-add:hover .vt-add-plus { border-color: var(--muted); color: var(--text); }
-.vt-add .card-meta { margin: 0; }
+.vt-add-plus { display: grid; place-items: center; flex: none; align-self: stretch; width: 84px; border-right: 1px dashed var(--line-strong); color: var(--muted); }
+.vt-add:hover .vt-add-plus { color: var(--text); }
+.vt-add .card-name { font-size: 13px; }
+.vt-add .card-meta { margin: 0; font-size: 11.5px; }
+.vt-add .card-name, .vt-add .card-meta { white-space: nowrap; }
+.vt-add-plus svg, .vt-icon svg { width: 15px; height: 15px; }
 .vt[data-level="1"] :is(.vt-head, .vt-row) { grid-template-columns: var(--vt1); }
 .vt[data-level="2"] :is(.vt-head, .vt-row) { grid-template-columns: var(--vt2); }
 .vt[data-level="3"] :is(.vt-head, .vt-row) { grid-template-columns: var(--vt3); }
@@ -2539,7 +2545,6 @@ body:not(.vpicking) .vt-head:hover .vl-box { display: block; }
 .vt:is([data-level="2"], [data-level="3"], [data-level="4"]) .vt-d2,
 .vt:is([data-level="3"], [data-level="4"]) .vt-d3,
 .vt[data-level="4"] .vt-d4 { display: none; }
-.vt[data-level="4"] .vt-add { padding-left: 0; }
 .vt[data-level="4"] .vt-add-plus { width: 64px; }
 /* Cards, compact rows or a table: the three in the bar (common.js, layoutSwitch). Not on a phone, where
    the bar has no room for them; Your account has them there. */

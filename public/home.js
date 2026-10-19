@@ -250,34 +250,32 @@
   //   box                    a card's own box over its picture
   //   name, title            its name: text, or nodes (a link to its shot)
   //   lines                  on a card, the lines under the name: text, or nodes as they are
-  //   sub, cells             in a table, the line under its name, and its columns by key: text, [text,
-  //                          the line under it], or a node
+  //   aside, cells           in a table, where a row is one line: a short word beside its name (archived,
+  //                          who is on it now), and its columns by key: text, [text, its tooltip], or a node
   //   menu, setup(node)      what its … menu has, and what more is done to what is made (dragging)
   // }
   const OBJ_CARD = { board: '', folder: 'folder', place: 'folder place', entity: 'ent', version: 'ver' };
   // A table's columns: [key, heading, { w: its width in the grid (phone: on a phone), end: set against its end (numbers),
   // drop: how soon a narrower table leaves it out (1 first; 4 only on a phone), sort: what a click on its
   // heading sorts by, where the list can be sorted }]. The box, the picture, the name and the menu are
-  // in every table.
+  // in every table, the box over the picture as on a compact card.
   const col = (key, title, opt = {}) => [key, title, opt];
-  const cols = (mid, name = {}) => [col('pick', '', { w: '20px', drop: 4 }), col('still', '', { w: '80px', phone: '64px' }),
+  const cols = (mid, name = {}) => [col('still', '', { w: '84px', phone: '64px' }),
     col('name', 'Name', { w: 'minmax(220px, 3fr)', ...name }), ...mid, col('menu', '', { w: '32px' })];
   const OBJ_COLS = {
-    board: cols([col('items', 'Items', { w: '64px', end: true, drop: 2 }), col('where', 'Where', { w: 'minmax(96px, 1fr)', drop: 1 }), col('changed', 'Edited', { w: '120px', drop: 3 })]),
+    board: cols([col('items', 'Items', { w: '64px', end: true, drop: 2 }), col('changed', 'Edited', { w: '120px', drop: 3 })]),
     folder: cols([col('kind', 'Kind', { w: '88px', drop: 2 }), col('boards', 'Boards', { w: '64px', end: true, drop: 3 }), col('folders', 'Folders', { w: '64px', end: true, drop: 1 })]),
-    entity: cols([col('latest', 'Latest', { w: 'minmax(80px, 1fr)', drop: 3 }), col('tasks', 'Tasks', { w: 'minmax(80px, 1fr)', drop: 1 }),
-      col('versions', 'Versions', { w: '72px', end: true, drop: 2 }), col('artists', 'Artists', { w: 'minmax(96px, 1.2fr)', drop: 1 }), col('changed', 'Last filed', { w: '120px', drop: 3 })]),
+    entity: cols([col('versions', 'Versions', { w: '72px', end: true, drop: 2 }), col('artists', 'Artists', { w: 'minmax(96px, 1.2fr)', drop: 1 }), col('changed', 'Last filed', { w: '120px', drop: 3 })]),
     version: cols([col('task', 'Task', { w: 'minmax(64px, 1fr)', drop: 3 }), col('ver', 'Version', { w: '64px', end: true, drop: 4, sort: 'number' }),
-      col('len', 'Length', { w: '104px', end: true, drop: 2 }), col('size', 'Size', { w: '88px', end: true, drop: 1 }), col('artist', 'Artist', { w: 'minmax(72px, 1fr)', drop: 2 }),
-      col('by', 'Filed by', { w: 'minmax(104px, 1.2fr)', drop: 3 }), col('changed', 'Filed', { w: '96px', drop: 4, sort: 'new' }), col('notes', 'Notes', { w: '52px', drop: 3 }),
-      col('boards', 'Boards', { w: 'minmax(96px, 1.4fr)', drop: 1 })], { sort: 'name' }),
+      col('artist', 'Artist', { w: 'minmax(72px, 1fr)', drop: 2 }),
+      col('by', 'Filed by', { w: 'minmax(104px, 1.2fr)', drop: 3 }), col('changed', 'Filed', { w: '128px', drop: 4, sort: 'new' })], { sort: 'name' }),
     // Different kinds together (what is pinned to Home): what each is, where, and when it last changed.
     mixed: cols([col('kind', 'Kind', { w: '120px', drop: 2 }), col('where', 'Where', { w: 'minmax(96px, 1fr)', drop: 1 }), col('changed', 'Changed', { w: '120px', drop: 3 })]),
   };
   // A table's grid at each of five steps, each leaving out more (the columns it keeps; at the last, at
   // their `phone` width). The table takes the first step whose columns fit how wide it is, measured as it
   // changes (data-level; style.css lays it out).
-  const VT_GAP = 16;
+  const VT_GAP = 14;
   const vtMin = (w) => Number((/(\d+)px/.exec(w) || [0, 0])[1]);
   const vtFit = new ResizeObserver((seen) => {
     for (const { target, contentRect } of seen) {
@@ -298,8 +296,7 @@
     vtFit.observe(node);
     return node;
   }
-  const vtText = (v) => (v instanceof Node ? v : Array.isArray(v)
-    ? [el('span', { class: 'vt-main', text: v[0], title: v[2] || v[0] }), v[1] && el('span', { class: 'vt-sub', text: v[1], title: v[1] })]
+  const vtText = (v) => (v instanceof Node ? v : Array.isArray(v) ? el('span', { class: 'vt-main', text: v[0], title: v[1] || v[0] })
     : v != null && v !== '' && v !== false && el('span', { class: 'vt-main', text: String(v), title: String(v) }));
 
   // An object as the layout in force shows it. `list` is the columns of the table it is in.
@@ -316,12 +313,12 @@
         o.menu && menuButton(o.menu));
     } else {
       node = el(o.tag || 'div', { ...o.attrs, class: cls('vt-row') }, list.map(([key, , opt]) => {
-        const kids = key === 'pick' ? o.pick && el('button', {
+        const kids = key === 'still' ? [o.still || el('span', { class: 'vt-icon', html: o.icon }), o.pick && el('button', {
           type: 'button', class: 'vt-box', 'aria-label': `Select ${o.title || o.name}`, title: 'Select',
           onclick: (e) => { e.preventDefault(); e.stopPropagation(); o.pick(e.shiftKey); },
-        })
-          : key === 'still' ? o.still || el('span', { class: 'vt-icon', html: o.icon })
-            : key === 'name' ? [nameNode, o.sub && (o.sub instanceof Node ? o.sub : el('div', { class: 'card-meta', text: o.sub, title: o.sub }))]
+        })]
+            : key === 'name' ? [nameNode, o.aside && [].concat(o.aside).some(Boolean) && el('span', { class: 'vt-aside' },
+              [].concat(o.aside).filter(Boolean).map((x) => (x instanceof Node ? x : el('span', { text: x }))))]
               : key === 'menu' ? o.menu && menuButton(o.menu)
                 : vtText((o.cells || {})[key]);
         return el('div', { class: `vt-c vt-${key}${opt.end ? ' end' : ''}${opt.drop ? ` vt-d${opt.drop}` : ''}` }, kids);
@@ -347,7 +344,7 @@
   function objectHead(list, { sort, onSort, all } = {}) {
     return el('div', { class: 'vt-head' }, list.map(([key, title, opt]) => {
       const cls = `vt-c vt-${key}${opt.end ? ' end' : ''}${opt.drop ? ` vt-d${opt.drop}` : ''}`;
-      if (key === 'pick') return el('div', { class: cls }, all || null);
+      if (key === 'still') return el('div', { class: cls }, all || null);
       if (!opt.sort || !onSort) return el('div', { class: cls }, el('span', { text: title }));
       const by = opt.sort;
       const on = by === 'new' ? sort === 'new' || sort === 'old' : sort === by;
@@ -626,7 +623,6 @@
       icon: folder.project ? ICON_PROJECT : ICON_FOLDER,
       name: folder.name,
       lines: [[folder.project && 'Project', boards && plural(boards, 'board'), subs && plural(subs, 'folder')].filter(Boolean).join(' · ') || 'Empty'],
-      sub: boards || subs ? '' : 'Empty',
       cells: { kind: what, boards: boards || '', folders: subs || '', where: folderPlace(folder.parentId, folder.workspace) },
       menu: [
         ['Rename', () => rename('folder', folder)],
@@ -660,8 +656,8 @@
         board.thumbs.map((src) => el('img', { src, alt: '', loading: 'lazy', draggable: 'false' }))),
       name: board.name,
       lines: [el('div', { class: 'card-meta' }, `${plural(board.count, 'item')} · edited ${ago(board.updatedAt)}`, live)],
-      sub: live ? el('div', { class: 'card-meta' }, live) : '',
-      cells: { kind: 'Board', items: board.count, where: folderPlace(board.folderId, board.workspace), changed: [ago(board.updatedAt), '', new Date(board.updatedAt).toLocaleString()] },
+      aside: board.online > 0 && el('span', { class: 'card-live', text: `${board.online} here now` }),
+      cells: { kind: 'Board', items: board.count, where: folderPlace(board.folderId, board.workspace), changed: [ago(board.updatedAt), new Date(board.updatedAt).toLocaleString()] },
       menu: [
         ['Rename', () => rename('board', board)],
         ['Move to…', () => moveDialog('board', board)],
@@ -1113,7 +1109,6 @@
       icon: { sequence: ICON_FILM, tier: ICON_CAT, catalogue: ICON_CAT, timeline: ICON_FILM, versions: ICON_LIST }[p.what] || ICON_CAT,
       name: p.what === 'sequence' || p.what === 'tier' ? p.name : `${project.name} ${p.name.toLowerCase()}`,
       lines: [`${what} · ${project.name}`],
-      sub: what,
       cells: { kind: what, where: project.name },
       menu: [['Unpin from Home', () => togglePin({ kind: 'place', id: p.id })]],
     };
@@ -1343,37 +1338,47 @@
       total != null && el('span', { class: 'vl-total', text: plural(total, 'version') }))];
   }
 
-  // The groups the list is shown in, each { key, title, sub, list }, in the order they come.
+  // The groups the list is shown in, each { key, title, list }. The groups come in their own order
+  // (sequences as they are numbered, then assets and sets; shots, assets and sets as the catalogue has
+  // them; tasks and people by name; days newest first, or oldest first when sorted so); the sort chosen
+  // orders what is in each.
+  const byNatural = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
   function versionGroups(list, st, tierName) {
     if (st.group === 'time') {
-      // By day; within a day, by who filed them (whoever filed last first), however their filing was
-      // interleaved with others'.
-      const days = [];
+      // By day; within a day, by who filed them (whoever comes first in the sort first), however their
+      // filing was interleaved with others'.
+      const days = new Map();
       for (const v of list) {
         const day = dayOf(v.createdAt);
-        let d = days[days.length - 1];
-        if (!d || d.day !== day) days.push(d = { day, runs: [] });
+        if (!days.has(day)) days.set(day, { day, runs: [] });
+        const d = days.get(day);
         const by = v.createdBy || '';
         let r = d.runs.find((x) => x.by === by);
         if (!r) d.runs.push(r = { by, list: [] });
         r.list.push(v);
       }
-      return days.map((d) => ({ key: `d${d.day}`, title: dayName(d.day), runs: d.runs }));
+      return [...days.values()].sort((a, b) => (st.sort === 'old' ? a.day - b.day : b.day - a.day))
+        .map((d) => ({ key: `d${d.day}`, title: dayName(d.day), runs: d.runs }));
     }
-    const keyOf = {
-      seq: (v) => (v.tier === 'shot' && N.seqOf(v.entity)) || `${tierName(v.tier)}s`,
-      entity: (v) => v.entity,
-      task: (v) => v.task || 'No task',
-      by: (v) => v.createdBy || 'Somebody',
-      none: () => '',
-    }[st.group] || (() => '');
+    const tierAt = (t) => (N.TIERS.includes(t) ? N.TIERS.indexOf(t) : N.TIERS.length);
+    // For each version, its group's title and where that group comes: [rank, title].
+    const groupOf = {
+      seq: (v) => {
+        const seq = v.tier === 'shot' && N.seqOf(v.entity);
+        return seq ? [0, seq] : [1 + tierAt(v.tier), `${tierName(v.tier)}s`];
+      },
+      entity: (v) => [tierAt(v.tier), v.entity],
+      task: (v) => (v.task ? [0, v.task] : [1, 'No task']),
+      by: (v) => (v.createdBy ? [0, v.createdBy] : [1, 'Somebody']),
+      none: () => [0, ''],
+    }[st.group] || (() => [0, '']);
     const groups = new Map();
     for (const v of list) {
-      const k = keyOf(v);
-      if (!groups.has(k)) groups.set(k, { key: `g${k}`, title: k, list: [] });
+      const [rank, k] = groupOf(v);
+      if (!groups.has(k)) groups.set(k, { key: `g${k}`, title: k, rank, list: [] });
       groups.get(k).list.push(v);
     }
-    return [...groups.values()];
+    return [...groups.values()].sort((a, b) => a.rank - b.rank || byNatural(a.title, b.title));
   }
 
   function versionsView(project, data, st = vlState(project)) {
@@ -2594,7 +2599,6 @@
     }
     const artists = e.artists && e.artists.length > 0 && (() => el('div', { class: 'card-meta ent-artists', title: `Artists: ${e.artists.join(', ')}` },
       e.artists.slice(0, 4).map((n) => WB.avatar(n, null, { size: 'xs' })), el('span', { text: e.artists.join(', ') })));
-    const tasks = Object.keys(e.tops || {}).filter(Boolean).sort();
     return {
       kind: 'entity', tag: 'a', picked: picking.ids.has(e.id) && pickingIn(project),
       attrs: {
@@ -2613,14 +2617,11 @@
       still: thumbs,
       name: e.name,
       lines: [e.versions == null ? kind.toLowerCase() : e.versions ? `${plural(e.versions, 'version')} · last ${ago(e.latestAt)}` : 'Nothing filed yet', artists && artists()],
-      sub: kind,
       cells: {
         kind, where: project.name,
-        latest: newest ? N.label('', newest.task, newest.number) : '',
-        tasks: tasks.join(', '),
         versions: e.versions || '',
         artists: artists && artists(),
-        changed: e.latestAt ? [ago(e.latestAt), '', new Date(e.latestAt).toLocaleString()] : e.versions === 0 ? ['Nothing filed'] : '',
+        changed: e.latestAt ? [ago(e.latestAt), new Date(e.latestAt).toLocaleString()] : e.versions === 0 ? 'Nothing filed' : '',
       },
       // The same menu as every other object: what can be done with it, Pin among it (so a pin on Home
       // can be taken off from Home).
@@ -2913,13 +2914,6 @@
   const verBoards = (v, max) => v.boards.length > 0 && el('div', { class: 'ver-boards' },
     v.boards.slice(0, max).map((b) => el('a', { class: 'ver-board', href: WB.href.board(b.id), text: b.name, title: b.name })),
     v.boards.length > max && el('span', { class: 'ver-more', text: `+${v.boards.length - max}`, title: v.boards.slice(max).map((b) => b.name).join(', ') }));
-  // How long it runs (seconds, and frames when its rate is known), or what it is when it does not run.
-  function verLength(v) {
-    const { dur, fps } = v.look || {};
-    if (!(dur > 0)) return { text: v.kind === 'image' ? 'Still' : v.kind === 'video' ? '' : (v.kind || '').toUpperCase() };
-    const secs = dur < 60 ? `${dur.toFixed(1)} s` : `${Math.floor(dur / 60)}:${String(Math.round(dur % 60)).padStart(2, '0')}`;
-    return { text: secs, sub: fps > 0 ? `${Math.round(dur * fps)} f · ${+fps.toFixed(3)} fps` : '' };
-  }
   const verViews = (v) => {
     const views = v.views || (v.look && (v.look.views || []).length ? [v.look.view || 'main', ...v.look.views.map((x) => x.view)] : []);
     return views.length ? views.map((x) => x || 'main') : null;
@@ -2932,9 +2926,6 @@
   // asset, set or shot's own page, who filed it and when.
   function versionObj(project, entity, v, { list = false, tierName = (t) => t, day = false } = {}) {
     const views = verViews(v);
-    const len = verLength(v);
-    const { nw, nh } = v.look || {};
-    const n = v.notes || { threads: 0, open: 0 };
     const about = [
       list && clock(v.createdAt),
       list && tierName(v.tier),
@@ -2955,21 +2946,14 @@
         list && v.hidden && 'Archived',
         verBoards(v, 4),
       ],
-      sub: [v.hidden && 'Archived', list && tierName(v.tier), views && `Views: ${views.join(', ')}`, v.originalName].filter(Boolean).join(' · '),
+      aside: [v.hidden && 'Archived', views && el('span', { text: plural(views.length, 'view'), title: `Views: ${views.join(', ')}` })].filter(Boolean),
       cells: {
         kind: 'Version', where: entity.name,
         task: v.task || '—',
         ver: el('span', { class: 'vt-main vt-strong', text: `v${v.number}` }),
-        len: [len.text, len.sub],
-        size: nw > 0 && nh > 0 ? `${nw}×${nh}` : '',
         artist: v.artist || '',
         by: v.createdBy && el('span', { class: 'vt-who' }, WB.avatar(v.createdBy), el('span', { class: 'vt-main', text: v.createdBy })),
-        changed: [list ? clock(v.createdAt) : ago(v.createdAt), list && day ? dayName(dayOf(v.createdAt)) : '', new Date(v.createdAt).toLocaleString()],
-        notes: n.threads > 0 && el('span', {
-          class: `vt-notes${n.open ? ' open' : ''}`, html: `${icon('comment', 13)}<span>${n.threads}</span>`,
-          title: `${plural(n.threads, 'thread')}, ${n.open ? `${n.open} open` : 'all resolved'}`,
-        }),
-        boards: verBoards(v, 2),
+        changed: [!list ? ago(v.createdAt) : day ? `${dayName(dayOf(v.createdAt))} ${clock(v.createdAt)}` : clock(v.createdAt), new Date(v.createdAt).toLocaleString()],
       },
       menu: versionActions(project, entity, v),
     };

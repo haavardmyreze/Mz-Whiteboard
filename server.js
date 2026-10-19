@@ -1322,7 +1322,6 @@ async function handleCatalogue(req, res, parts) {
       flushAll();
       const shape = (list) => {
         const on = store.boardsWithVersions(list.map((v) => v.id));
-        const said = store.notesOnVersions(list.map((v) => v.id));
         return list.map((v) => {
           const { src, poster, th, dur, fps, nw, nh, type } = v.look;
           return {
@@ -1330,7 +1329,6 @@ async function handleCatalogue(req, res, parts) {
             label: naming.label(v.entityName, v.task, v.number), kind: v.kind, thumb: v.thumb, look: { type, src, poster, th, dur, fps, nw, nh },
             views: [v.look.view || '', ...(v.look.views || []).map((x) => x.view)].filter((x, i) => i || (v.look.views || []).length),
             artist: v.artist, createdAt: v.createdAt, createdBy: v.createdBy, hidden: v.hidden, originalName: v.originalName, boards: boardsSeen(on.get(v.id)),
-            notes: said.get(v.id),
           };
         });
       };
@@ -1647,13 +1645,12 @@ async function handleCatalogue(req, res, parts) {
     flushAll();
     const versions = store.versionsOf(entity.id);
     const on = store.boardsWithVersions(versions.map((v) => v.id));
-    const said = store.notesOnVersions(versions.map((v) => v.id));
     const notes = store.notesOfVersions(versions.map((v) => v.id)).map((n) => ({
       id: n.id, versionId: n.versionId, re: n.re, board: { id: n.boardId, name: boardNameFor(req.user, n.boardId, n.boardName, n.boardWorkspace) }, ...noteData(n.data),
     }));
     return sendJson(res, 200, {
       entity, project: publicFolder(project),
-      versions: versions.map((v) => ({ ...publicVersion(v, req.user), boards: boardsSeen(on.get(v.id)), notes: said.get(v.id) })),
+      versions: versions.map((v) => ({ ...publicVersion(v, req.user), boards: boardsSeen(on.get(v.id)) })),
       notes,
     });
   }

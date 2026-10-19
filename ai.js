@@ -25,6 +25,8 @@ class AiError extends Error {
   }
 }
 
+// What an instruction can name to fill in. The tier goes with the entity, and so does its chapter.
+const FIELDS = ['entity', 'task', 'version', 'view'];
 const clip = (text, n) => String(text == null ? '' : text).slice(0, n);
 const versionOf = (n) => (Number.isSafeInteger(n) && n >= 1 && n <= 9999 ? n : null);
 
@@ -95,7 +97,8 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
 
   // What each file should be filed as. `files`: [{ key, filename, now: { entity, task, version, view } }] where
   // `now` is what its row says at the moment; `views` are the views the project's versions are shown in
-  // already. Returns { key -> { entity, tier, task, version, view, note, fits } }.
+  // already. Returns { key -> { entity, tier, task, version, view, note, fits } }, with only the fields the
+  // instruction asked to fill in when it named some.
   async function fileNames({ instruction, files, entities, tasks, views = [], useViews = true, useTasks = true }) {
     const list = (files || []).slice(0, MAX_FILES).filter((f) => f && f.key != null && f.filename);
     if (!list.length) throw new AiError('No files to ask about', 400);
@@ -116,7 +119,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
           : '- view: always null: this project shows each version one way, whatever a file name says.',
         '- note: a few words on why, for the person checking your answer.',
         'Read everything the original file name says. The person\'s instruction comes first where it says otherwise, but every name keeps the shape the rules give.',
-        'When the instruction says which fields to fill in (fill in chapter, shot and version), fill in only those, and for each of the others give what it is set to now, or null where it is set to nothing: never your own guess at it, even if the file name says one.',
+        'Say in `only` which fields the instruction asks you to fill in, when it names them ("fill in chapter, shot and version" is entity, version; the entity includes its chapter or sequence and its tier). Leave `only` null when it does not name any. Whatever is not in `only` is left as it is, whatever you answer for it; what you do answer for is yours to change or to clear.',
         'Answer for every file, with the key it was given.',
       ].join('\n'),
     ].join('\n\n');
@@ -136,6 +139,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
       input_schema: {
         type: 'object',
         properties: {
+          only: { type: ['array', 'null'], items: { type: 'string', enum: FIELDS }, description: 'The fields the instruction says to fill in, when it names them; null when it does not.' },
           files: {
             type: 'array',
             items: {
@@ -153,23 +157,30 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
             },
           },
         },
-        required: ['files'],
+        required: ['files', 'only'],
       },
     };
     const out = await ask({ system, user, tool, maxTokens: Math.min(32000, 600 + 140 * list.length) });
     const keys = new Set(list.map((f) => String(f.key)));
+    // Asked to fill in only some fields, an answer has only those: the rest are not in it, so they stay.
+    const only = Array.isArray(out.only) ? out.only.filter((f) => FIELDS.includes(f)) : [];
+    const takes = (field) => !only.length || only.includes(field);
     const answers = {};
     for (const a of Array.isArray(out.files) ? out.files : []) {
       const k = a && String(a.key);
       if (!keys.has(k) || answers[k]) continue;
-      const entity = naming.tokenize(a.entity);
-      if (!entity) continue;
-      const tier = tiers.includes(a.tier) ? a.tier : naming.kindOf(entity, entities || []) || null;
-      if (!tier) continue;
-      answers[k] = {
-        entity, tier, task: (useTasks && naming.tokenize(a.task)) || null, version: versionOf(a.version), view: useViews && views.slice(1).includes(naming.tokenize(a.view)) ? naming.tokenize(a.view) : null,
-        note: clip(a.note, 200), fits: fitsTier(entity, tier),
-      };
+      const answer = { note: clip(a.note, 200) };
+      if (takes('entity')) {
+        const entity = naming.tokenize(a.entity);
+        if (!entity) continue;
+        const tier = tiers.includes(a.tier) ? a.tier : naming.kindOf(entity, entities || []) || null;
+        if (!tier) continue;
+        Object.assign(answer, { entity, tier, fits: fitsTier(entity, tier) });
+      }
+      if (takes('task')) answer.task = (useTasks && naming.tokenize(a.task)) || null;
+      if (takes('version')) answer.version = versionOf(a.version);
+      if (takes('view')) answer.view = useViews && views.slice(1).includes(naming.tokenize(a.view)) ? naming.tokenize(a.view) : null;
+      answers[k] = answer;
     }
     return answers;
   }

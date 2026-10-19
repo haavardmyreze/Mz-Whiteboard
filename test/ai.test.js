@@ -45,8 +45,30 @@ test('ai: asks Claude with the key, the model, the rules and the files, and must
   // It is asked which view each is, and told the views the project has, the main one first.
   assert.ok(q.body.tools[0].input_schema.properties.files.items.properties.view);
   assert.match(q.body.system, /shows each version these ways: cmp, bty; the first, cmp, is the main one/);
-  assert.match(q.body.system, /fill in only those, and for each of the others give what it is set to now/);
+  // It says which fields the instruction asks for, when it names some.
+  assert.ok(q.body.tools[0].input_schema.properties.only);
+  assert.match(q.body.system, /Say in `only` which fields the instruction asks you to fill in/);
   assert.equal(createAi({ key: 'k', model: 'claude-sonnet-5-5', fetchImpl: claude.fetchImpl }).model, 'claude-sonnet-5-5');
+});
+
+test('ai: asked to fill in some fields only, an answer has only those, and what it has can clear', async () => {
+  const answer = (only) => ({ only, files: [{ key: '0', entity: 'kilo-0010', tier: 'shot', task: 'anim', version: 4, view: 'bty', note: 'n' }, { key: '1', entity: 'kilo-0020', tier: 'shot', task: null, version: null, view: null }] });
+  const files = [{ key: '0', filename: 'a.mov' }, { key: '1', filename: 'b.mov' }];
+  const ask = (only, extra = {}) => createAi({ key: 'k', fetchImpl: fakeClaude(answer(only)).fetchImpl }).fileNames({ files, entities: [], tasks: ['anim'], views: ['cmp', 'bty'], ...extra });
+  // Chapter, shot and version: no task and no view in the answer, so the rows keep theirs.
+  const some = await ask(['entity', 'version']);
+  assert.deepEqual(some['0'], { note: 'n', entity: 'kilo-0010', tier: 'shot', fits: true, version: 4 });
+  assert.ok(!('task' in some['1']) && !('view' in some['1']));
+  // Nothing named: every field is answered, and a null is an answer (no task, the main view).
+  for (const only of [null, [], ['nonsense']]) {
+    const all = await ask(only);
+    assert.deepEqual(all['0'], { note: 'n', entity: 'kilo-0010', tier: 'shot', fits: true, task: 'anim', version: 4, view: 'bty' });
+    assert.deepEqual(all['1'], { note: '', entity: 'kilo-0020', tier: 'shot', fits: true, task: null, version: null, view: null });
+  }
+  // Only the task asked for: a row needs no name from Claude, and one with a task of 'anim' is cleared by null.
+  const task = await ask(['task']);
+  assert.deepEqual(task['1'], { note: '', task: null });
+  assert.deepEqual(task['0'], { note: 'n', task: 'anim' });
 });
 
 test('ai: what Claude says is made to fit before it is shown', async () => {

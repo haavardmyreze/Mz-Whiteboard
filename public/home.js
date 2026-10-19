@@ -378,7 +378,7 @@
     const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`).catch(() => null);
     // How it names what it makes: a convention of the studio's (see naming-ui.js).
     const conv = await WBNamingUI.projectRow(project, cat);
-    // Its views as they are: set, or (from before the setting) as its versions have been filed.
+    // Its views, as set.
     const list = (cat && cat.viewList) || null;
     const byView = el('input', { type: 'checkbox', class: 'switch', ...(list && { checked: true }), 'aria-label': 'Several views of each version' });
     const viewNames = el('input', { type: 'text', value: (list || []).join(', '), placeholder: 'cmp, bty', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Its views, the main one first' });

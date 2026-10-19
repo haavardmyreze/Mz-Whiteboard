@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS boards (
   created_at INTEGER NOT NULL,
   created_by TEXT,
   updated_at INTEGER NOT NULL,
-  deleted_at INTEGER
+  deleted_at INTEGER,
+  settings TEXT
 );
 
 -- What has happened on a board, for the people on it to look back over: who opened it, who changed it.
@@ -151,7 +152,7 @@ CREATE INDEX IF NOT EXISTS entity_people_by_name ON entity_people (name_key);
 CREATE TABLE IF NOT EXISTS versions (
   id TEXT PRIMARY KEY,
   entity_id TEXT NOT NULL,
-  task TEXT,
+  task TEXT NOT NULL DEFAULT '',
   number INTEGER NOT NULL,
   descriptor TEXT,
   artist TEXT,
@@ -219,7 +220,8 @@ CREATE TABLE IF NOT EXISTS media (
   fps REAL,
   uploaded_by TEXT,
   created_at INTEGER NOT NULL,
-  crc INTEGER
+  crc INTEGER,
+  phone TEXT
 );
 
 -- People, groups and who may do what, kept by the admin area. People are known by their sign-in email.
@@ -302,188 +304,12 @@ function derive(it) {
   };
 }
 
-// Comments used to be items on their board. They are notes now, kept in a table of their own, so that
-// one made about a version is there on every board the version is on. A database from before has its
-// comments moved across once, each still on what it was on. One that was on nothing (a pin on the board
-// itself, from long ago) is kept as a note on the board as a whole (its item is ''), which no board
-// shows but which is not thrown away. One that cannot be read at all is left where it was, and said so.
-function moveCommentsToNotes(db) {
-  const rows = db.prepare("SELECT board_id, id, data, created_at, created_by, updated_at FROM items WHERE type = 'comment'").all();
-  if (!rows.length) return;
-  const put = db.prepare(`INSERT OR IGNORE INTO notes (id, board_id, item_id, version_id, re, data, created_at, created_by, updated_at)
-    VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`);
-  const drop = db.prepare('DELETE FROM items WHERE board_id = ? AND id = ?');
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    for (const r of rows) {
-      let c;
-      try {
-        c = JSON.parse(r.data);
-      } catch {
-        console.error(`A comment on board ${r.board_id} (${r.id}) could not be read, so it was left as it is.`);
-        continue;
-      }
-      if (!c || typeof c !== 'object') continue;
-      put.run(r.id, r.board_id, typeof c.on === 'string' ? c.on : '', typeof c.re === 'string' ? c.re : null, JSON.stringify(c), r.created_at, r.created_by, r.updated_at);
-      drop.run(r.board_id, r.id);
-    }
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
-}
-
-// What was drawn for a comment used to be strokes on the board, beside the piece. It belongs to the note
-// now, measured against the piece (its width is 1000), so it goes wherever the note goes. A stroke whose
-// comment was never sent is an ordinary drawing and stays where it is.
-const r2 = (v) => Math.round(v * 100) / 100;
-function moveDrawingsToNotes(db) {
-  const rows = db.prepare(`SELECT board_id, id, data FROM items WHERE type = 'stroke' AND data LIKE '%"cid"%'`).all();
-  if (!rows.length) return;
-  const readHost = db.prepare('SELECT data FROM items WHERE board_id = ? AND id = ?');
-  const readNote = db.prepare('SELECT data FROM notes WHERE id = ?');
-  const putData = db.prepare('UPDATE notes SET data = ? WHERE id = ?');
-  const drop = db.prepare('DELETE FROM items WHERE board_id = ? AND id = ?');
-  // One row that cannot be read stays as it is: it must not stop the server from starting.
-  const parse = (json) => {
-    try {
-      const v = JSON.parse(json);
-      return v && typeof v === 'object' ? v : null;
-    } catch {
-      return null;
-    }
-  };
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    for (const r of rows) {
-      const s = parse(r.data);
-      const note = s && typeof s.cid === 'string' && readNote.get(s.cid);
-      const hostRow = note && typeof s.pid === 'string' && readHost.get(r.board_id, s.pid);
-      const h = hostRow && parse(hostRow.data);
-      const data = h && parse(note.data);
-      if (!data || !(h.w > 0)) continue;
-      const k = 1000 / h.w;
-      const stroke = { x: r2((s.x - h.x) * k), y: r2((s.y - h.y) * k), w: r2(s.w * k), h: r2(s.h * k), pts: s.pts, size: r2(s.size * k), color: s.color || 'ink' };
-      if (Array.isArray(s.ws)) stroke.ws = s.ws;
-      if (s.arrow) stroke.arrow = true;
-      data.drawing = [...(Array.isArray(data.drawing) ? data.drawing : []), stroke];
-      putData.run(JSON.stringify(data), s.cid);
-      drop.run(r.board_id, r.id);
-    }
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
-}
-
-// Versions with no task used to have NULL for it, and a UNIQUE constraint never finds two NULLs the
-// same, so two of them could end up with one number. They have '' now. Where two did share a number,
-// the first filed keeps it and the others are given the next free ones.
-function tasksNotNull(db) {
-  const rows = db.prepare('SELECT id, entity_id, number FROM versions WHERE task IS NULL ORDER BY created_at, rowid').all();
-  if (!rows.length) return;
-  const used = db.prepare("SELECT number FROM versions WHERE entity_id = ? AND task = ''");
-  const top = db.prepare("SELECT coalesce(max(number), 0) AS n FROM versions WHERE entity_id = ? AND (task IS NULL OR task = '')");
-  const put = db.prepare("UPDATE versions SET task = '', number = ? WHERE id = ?");
-  const seen = new Map(); // entity -> { used, next }
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    for (const r of rows) {
-      if (!seen.has(r.entity_id)) seen.set(r.entity_id, { used: new Set(used.all(r.entity_id).map((x) => x.number)), next: top.get(r.entity_id).n + 1 });
-      const s = seen.get(r.entity_id);
-      const number = s.used.has(r.number) ? s.next++ : r.number;
-      s.used.add(number);
-      put.run(number, r.id);
-    }
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
-}
-
-// The names on every entity, written out into entity_people (see SCHEMA) for a database from before it.
-function fillEntityPeople(db) {
-  const put = db.prepare('INSERT OR IGNORE INTO entity_people (entity_id, role, name_key) VALUES (?, ?, ?)');
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    db.exec('DELETE FROM entity_people');
-    for (const r of db.prepare('SELECT id, artists, cc FROM entities WHERE artists IS NOT NULL OR cc IS NOT NULL').all()) {
-      for (const [role, json] of [['artist', r.artists], ['cc', r.cc]]) {
-        let list = [];
-        try {
-          list = JSON.parse(json || '[]');
-        } catch {
-          // a list that cannot be read names nobody
-        }
-        for (const n of Array.isArray(list) ? list : []) if (typeof n === 'string' && n.trim()) put.run(r.id, role, n.trim().toLowerCase());
-      }
-    }
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
-}
-
-// How far a database has been brought up to date, kept in SQLite's own user_version, so that the
-// moves below are looked for once rather than on every start:
-//   1  comments and their drawings moved to notes, versions with no task given '', entity_people filled in
-const SCHEMA_STEP = 1;
-
 function openStore(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
   const file = path.join(dataDir, 'wipboard.db');
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;');
-  const hasTable = (table) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
-  const hasColumn = (table, column) => !!db.prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name = ?`).get(column);
-  const step = db.prepare('PRAGMA user_version').get().user_version;
-  // What a board was before a round of changes used to be called a version. Versions are now what the
-  // catalogue keeps, so the board's own are snapshots, and a database from before has its table renamed.
-  const oldSnapshots = hasTable('versions') && hasColumn('versions', 'sig');
-  const oldComments = step < 1 && hasTable('items') && !!db.prepare(`SELECT 1 FROM items WHERE type = 'comment' OR (type = 'stroke' AND data LIKE '%"cid"%') LIMIT 1`).get();
-  const nullTasks = step < 1 && !oldSnapshots && hasTable('versions') && !!db.prepare('SELECT 1 FROM versions WHERE task IS NULL LIMIT 1').get();
-  // The database as it was is copied aside first, whole, in case anything about the move is not as it should be.
-  if (oldSnapshots || oldComments || nullTasks) {
-    fs.mkdirSync(path.join(dataDir, 'backups'), { recursive: true });
-    const copy = path.join(dataDir, 'backups', `wipboard-before-${oldSnapshots || oldComments ? 'catalogue' : 'upgrade'}-${Date.now()}.db`);
-    db.prepare('VACUUM INTO ?').run(copy);
-  }
-  if (oldSnapshots) db.exec('ALTER TABLE versions RENAME TO snapshots');
   db.exec(SCHEMA);
-  // Added later, so databases from before get the columns here: a file's checksum, which a zip of it
-  // needs; what a board is set to (see BOARD_SETTINGS in server.js); whether a folder is a project and
-  // what it is set to; and which catalogue version an item on a board shows.
-  if (!hasColumn('media', 'crc')) db.exec('ALTER TABLE media ADD COLUMN crc INTEGER');
-  // A video's phone copy: the smaller file phones and slow connections play instead (see "phone copies" in server.js).
-  if (!hasColumn('media', 'phone')) db.exec('ALTER TABLE media ADD COLUMN phone TEXT');
-  if (!hasColumn('boards', 'settings')) db.exec('ALTER TABLE boards ADD COLUMN settings TEXT');
-  if (!hasColumn('folders', 'project')) db.exec('ALTER TABLE folders ADD COLUMN project INTEGER NOT NULL DEFAULT 0');
-  if (!hasColumn('folders', 'settings')) db.exec('ALTER TABLE folders ADD COLUMN settings TEXT');
-  if (!hasColumn('items', 'version_id')) db.exec('ALTER TABLE items ADD COLUMN version_id TEXT');
-  if (!hasColumn('versions', 'deleted_at')) db.exec('ALTER TABLE versions ADD COLUMN deleted_at INTEGER');
-  if (!hasColumn('entities', 'artists')) db.exec('ALTER TABLE entities ADD COLUMN artists TEXT');
-  if (!hasColumn('entities', 'cc')) db.exec('ALTER TABLE entities ADD COLUMN cc TEXT');
-  db.exec('CREATE INDEX IF NOT EXISTS items_by_version ON items (version_id)');
-  if (step < 1) {
-    if (oldComments) {
-      moveCommentsToNotes(db);
-      moveDrawingsToNotes(db);
-    }
-    tasksNotNull(db);
-    fillEntityPeople(db);
-  }
-  if (step < SCHEMA_STEP) db.exec(`PRAGMA user_version = ${SCHEMA_STEP}`);
-  // With no task stored as '', a number is one per entity and task. Should an old row still have NULL
-  // for its task, the index treats it as '' all the same.
-  try {
-    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS versions_numbered ON versions (entity_id, coalesce(task, ''), number)");
-  } catch (err) {
-    console.error(`Two versions share a number, so it could not be made sure they never do: ${err.message}`);
-  }
 
   // One write, all or nothing. Called again from inside one (filing several versions at once, say), it
   // is part of the outer one: whatever goes wrong anywhere undoes all of it.
@@ -596,14 +422,9 @@ function openStore(dataDir) {
   }
   const snapshots = (boardId) => listSnapshots.all(boardId);
   const lastSnapshotAt = (boardId) => newestSnapshot.get(boardId)?.at || 0;
-  // Snapshots from before notes had their own table hold the comments too, and what was drawn for
-  // them; those are not put back.
-  const noteExists = db.prepare('SELECT 1 FROM notes WHERE id = ?');
   function snapshot(boardId, at) {
     const row = readSnapshot.get(boardId, at);
-    if (!row) return null;
-    return JSON.parse(zlib.gunzipSync(row.items).toString('utf8'))
-      .filter((it) => it.type !== 'comment' && !(it.type === 'stroke' && typeof it.cid === 'string' && noteExists.get(it.cid)));
+    return row ? JSON.parse(zlib.gunzipSync(row.items).toString('utf8')) : null;
   }
 
   const readItems = db.prepare('SELECT data FROM items WHERE board_id = ? ORDER BY rowid');
@@ -618,7 +439,7 @@ function openStore(dataDir) {
   });
 
   // What the board list shows for boards nobody has open: how many things are on each, and its first stills.
-  const readCounts = db.prepare("SELECT board_id, count(*) AS n FROM items WHERE type NOT IN ('comment', 'stroke') GROUP BY board_id");
+  const readCounts = db.prepare("SELECT board_id, count(*) AS n FROM items WHERE type != 'stroke' GROUP BY board_id");
   const readThumbs = db.prepare(`
     SELECT board_id, thumb FROM (
       SELECT board_id, thumb, row_number() OVER (PARTITION BY board_id ORDER BY rowid) AS n FROM items WHERE thumb IS NOT NULL
@@ -1098,10 +919,6 @@ function openStore(dataDir) {
       UNION SELECT json_extract(j.value, '$.view') FROM versions v JOIN entities e ON e.id = v.entity_id, json_each(v.look, '$.views') j WHERE e.project_id = ? AND v.deleted_at IS NULL
     ) WHERE name IS NOT NULL ORDER BY name`);
   const projectViews = (projectId) => readViews.all(projectId, projectId).map((r) => r.name);
-  // What most of a project's versions are shown as first (their main look's view), or null when most say none.
-  const readMainView = db.prepare(`SELECT json_extract(v.look, '$.view') AS name, count(*) AS n FROM versions v JOIN entities e ON e.id = v.entity_id
-    WHERE e.project_id = ? AND v.deleted_at IS NULL GROUP BY name ORDER BY n DESC, name LIMIT 1`);
-  const mainView = (projectId) => (readMainView.get(projectId) || {}).name || null;
   const putGone = db.prepare('UPDATE versions SET deleted_at = ? WHERE id = ?');
   const deleteVersion = (id) => putGone.run(Date.now(), id).changes > 0;
   const restoreVersion = (id) => putGone.run(null, id).changes > 0;
@@ -1273,7 +1090,7 @@ function openStore(dataDir) {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
     transaction, entities, streamHeads, findVersions, projectFilers, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, entitiesOf, entitiesFiledBy, happenings, people, entityCount,
-    addVersion, addView, projectViews, mainView, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
+    addVersion, addView, projectViews, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
     note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesBesides, unfileVersion, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, getStudio, setStudio, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,

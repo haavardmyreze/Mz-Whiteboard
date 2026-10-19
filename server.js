@@ -1073,16 +1073,10 @@ const presetOf = (project) => naming.preset(namingOf(project));
 // Whether a project counts its versions by task (see cleanProjectSettings).
 const usesTasks = (project) => !(project.settings && project.settings.tasks === false);
 // The ways a project's versions are shown, the main one first, or null for one way (see
-// cleanProjectSettings). A project from before the setting that has filed views has those, its main
-// one being what most of its versions are shown as first ("main" when they are not named).
+// cleanProjectSettings).
 function viewsOf(project) {
   const set = project.settings && project.settings.views;
-  if (set === false) return null;
-  if (Array.isArray(set) && set.length > 1) return set;
-  const had = store.projectViews(project.id);
-  if (!had.length) return null;
-  const main = store.mainView(project.id) || 'main';
-  return [main, ...had.filter((v) => v !== main)];
+  return Array.isArray(set) && set.length > 1 ? set : null;
 }
 // Which view a file is filed as: null for the main one (a version of its own), else one of the project's
 // views, to go with a version that has not got it. A project shown one way has none at all.
@@ -2295,7 +2289,7 @@ async function sendBoardZip(req, res, board) {
   head['Content-Length'] = end - start + 1;
   res.writeHead(status, head);
   if (req.method === 'HEAD') return res.end();
-  // Files from before checksums were kept have theirs worked out the first time, and kept from then on.
+  // A file the database has no checksum for has it worked out the first time, and kept from then on.
   const crcOf = async (e) => {
     const known = store.media(e.upload);
     if (known && known.crc != null) return known.crc >>> 0;

@@ -1403,45 +1403,6 @@ test('a file name fills in what it can, and a name that says nothing is no troub
   assert.equal(naming.label('char-robot', null, 2), 'char-robot v2');
 });
 
-test('a database from before keeps its comments, as notes, and its board history, as snapshots', () => {
-  const { DatabaseSync } = require('node:sqlite');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wipboard-old-'));
-  try {
-    const old = new DatabaseSync(path.join(dir, 'wipboard.db'));
-    old.exec(`
-      CREATE TABLE versions (board_id TEXT NOT NULL, at INTEGER NOT NULL, who TEXT, count INTEGER NOT NULL, sig TEXT NOT NULL, items BLOB NOT NULL, PRIMARY KEY (board_id, at));
-      CREATE TABLE items (board_id TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, type TEXT NOT NULL, label TEXT, label_key TEXT, frame_id TEXT, parent_id TEXT,
-        media TEXT, thumb TEXT, created_at INTEGER NOT NULL, created_by TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY (board_id, id));
-      CREATE TABLE folders (id TEXT PRIMARY KEY, name TEXT NOT NULL, parent_id TEXT, workspace TEXT NOT NULL, created_at INTEGER NOT NULL);`);
-    const add = old.prepare('INSERT INTO items (board_id, id, data, type, created_at, created_by, updated_at) VALUES (?, ?, ?, ?, 1, ?, 1)');
-    add.run('board1', 'imageone1', JSON.stringify({ id: 'imageone1', type: 'image', src: '/uploads/a.png' }), 'image', 'Anna');
-    add.run('board1', 'comment01', JSON.stringify({ id: 'comment01', type: 'comment', on: 'imageone1', text: 'Lovely', name: 'Ben', t: 5 }), 'comment', 'Ben');
-    add.run('board1', 'comment02', JSON.stringify({ id: 'comment02', type: 'comment', on: 'imageone1', re: 'comment01', text: 'Thanks', name: 'Anna', t: 6 }), 'comment', 'Anna');
-    old.prepare('INSERT INTO versions VALUES (?, ?, ?, ?, ?, ?)').run('board1', 100, 'Anna', 1, 'x',
-      require('node:zlib').gzipSync(JSON.stringify([{ id: 'imageone1', type: 'image' }, { id: 'commentold', type: 'comment', on: 'imageone1', text: 'old' }])));
-    old.close();
-
-    const store = openStore(dir);
-    assert.deepEqual(store.loadItems('board1').map((it) => it.id), ['imageone1']);
-    const notes = store.notesForBoard('board1');
-    assert.deepEqual(notes.map((n) => [n.id, n.itemId, n.re, n.data.text, n.createdBy]), [['comment01', 'imageone1', null, 'Lovely', 'Ben'], ['comment02', 'imageone1', 'comment01', 'Thanks', 'Anna']]);
-    assert.deepEqual(store.snapshots('board1').map((v) => v.at), [100]);
-    // what a snapshot from before held of the comments is not put back with the board
-    assert.deepEqual(store.snapshot('board1', 100).map((it) => it.id), ['imageone1']);
-    assert.deepEqual(store.folders(), []);
-    // and the database as it was is kept aside
-    assert.equal(fs.readdirSync(path.join(dir, 'backups')).filter((f) => f.startsWith('wipboard-before-catalogue-')).length, 1);
-    store.close();
-    // opening it again changes nothing
-    const again = openStore(dir);
-    assert.equal(again.notesForBoard('board1').length, 2);
-    assert.equal(fs.readdirSync(path.join(dir, 'backups')).length, 1);
-    again.close();
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 test('a project is a folder with a catalogue: not inside another project, and not dissolved like a folder', async (t) => {
   const s = start(4836);
   t.after(s.stop);
@@ -1626,31 +1587,6 @@ test('putting a board back moves what is on it, never what was said', async (t) 
   await pause(150);
   const init = anna.seen.filter((m) => m.t === 'init').pop();
   assert.deepEqual(init.items.map((it) => [it.id, it.x ?? null]), [['imageone1', 0], ['comment01', null]]);
-});
-
-test('what is drawn for a comment is kept with it, and a database from before has its comment drawings moved in', () => {
-  const { DatabaseSync } = require('node:sqlite');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wipboard-ink-'));
-  try {
-    const old = new DatabaseSync(path.join(dir, 'wipboard.db'));
-    old.exec(`CREATE TABLE items (board_id TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, type TEXT NOT NULL, label TEXT, label_key TEXT, frame_id TEXT, parent_id TEXT,
-      media TEXT, thumb TEXT, created_at INTEGER NOT NULL, created_by TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY (board_id, id));`);
-    const add = old.prepare('INSERT INTO items (board_id, id, data, type, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1)');
-    add.run('b1', 'imageone1', JSON.stringify({ id: 'imageone1', type: 'image', x: 100, y: 50, w: 500, h: 250 }), 'image');
-    add.run('b1', 'comment01', JSON.stringify({ id: 'comment01', type: 'comment', on: 'imageone1', text: 'Here' }), 'comment');
-    // drawn for the comment, and drawn for one never sent: that one is an ordinary drawing
-    add.run('b1', 'stroke001', JSON.stringify({ id: 'stroke001', type: 'stroke', pid: 'imageone1', cid: 'comment01', x: 150, y: 100, w: 50, h: 25, pts: [0, 0, 1, 1], ws: [1, 1], size: 2, color: '#e5484d' }), 'stroke');
-    add.run('b1', 'stroke002', JSON.stringify({ id: 'stroke002', type: 'stroke', pid: 'imageone1', cid: 'neversent', x: 0, y: 0, w: 10, h: 10, pts: [0, 0], size: 2 }), 'stroke');
-    old.close();
-    const store = openStore(dir);
-    assert.deepEqual(store.loadItems('b1').map((it) => it.id), ['imageone1', 'stroke002']);
-    const [note] = store.notesForBoard('b1');
-    // measured against the piece, whose width is 1000
-    assert.deepEqual(note.data.drawing, [{ x: 100, y: 100, w: 100, h: 50, pts: [0, 0, 1, 1], size: 4, color: '#e5484d', ws: [1, 1] }]);
-    store.close();
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 });
 
 test('the catalogue viewer has every note on an entity live, and what is written there reaches the boards', async (t) => {
@@ -2608,45 +2544,6 @@ test('shot names are read by the project\'s naming rules, whatever their sequenc
 });
 
 // ---------------------------------------------------------------- the database, brought up to date
-
-test('a database from before has its untasked versions numbered once each, and one bad row does not stop it opening', () => {
-  const { DatabaseSync } = require('node:sqlite');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wipboard-upgrade-'));
-  try {
-    openStore(dir).close();
-    // as a server from before left it: no-task versions as NULL (two with one number), a drawing that
-    // cannot be read, a comment on nothing, and no record of having been brought up to date
-    const old = new DatabaseSync(path.join(dir, 'wipboard.db'));
-    old.exec('DROP INDEX versions_numbered; PRAGMA user_version = 0;');
-    const put = old.prepare("INSERT INTO versions (id, entity_id, task, number, kind, look, created_at) VALUES (?, 'e1', NULL, ?, 'image', '{}', ?)");
-    put.run('first', 1, 1);
-    put.run('second', 1, 2);
-    put.run('third', 2, 3);
-    const item = old.prepare('INSERT INTO items (board_id, id, data, type, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1)');
-    item.run('b1', 'stroke001', '{"cid": broken', 'stroke');
-    item.run('b1', 'pin000001', JSON.stringify({ id: 'pin000001', type: 'comment', text: 'On the board itself' }), 'comment');
-    old.close();
-
-    const store = openStore(dir);
-    assert.deepEqual(['first', 'second', 'third'].map((id) => [store.version(id).task, store.version(id).number]), [[null, 1], [null, 3], [null, 2]]);
-    assert.throws(() => store.addVersion({ id: 'fourth', entityId: 'e1', number: 3, kind: 'image', look: {} }), /taken/);
-    // the row that cannot be read is still there, untouched, and only left out of the board
-    const raw = new DatabaseSync(path.join(dir, 'wipboard.db'));
-    assert.deepEqual(raw.prepare("SELECT id FROM items WHERE board_id = 'b1'").all().map((r) => r.id), ['stroke001']);
-    raw.close();
-    assert.deepEqual(store.loadItems('b1'), []);
-    assert.deepEqual(store.notesForBoard('b1').map((n) => [n.id, n.itemId, n.data.text]), [['pin000001', '', 'On the board itself']]);
-    assert.equal(fs.readdirSync(path.join(dir, 'backups')).filter((f) => f.startsWith('wipboard-before-')).length, 1);
-    store.close();
-    const again = new DatabaseSync(path.join(dir, 'wipboard.db'));
-    assert.equal(again.prepare('PRAGMA user_version').get().user_version, 1);
-    again.close();
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-// ---------------------------------------------------------------- uploads
 
 test('nobody has more than twenty files on their way in at once', async (t) => {
   const s = start(4854);

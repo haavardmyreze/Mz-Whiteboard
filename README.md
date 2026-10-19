@@ -86,8 +86,8 @@ private networks, otherwise only the host machine can connect.
   review copy and behind anything else the board is waiting for; the video says so in its corner until
   it is there. A selected image or video, or the one that is open, downloads as it was uploaded, and
   the download button in the bar brings every image and video on the board down as one zip (a download
-  that is cut off carries on where it stopped). A video from before originals were kept, or one larger
-  than `WIPBOARD_MAX_UPLOAD_MB`, comes down as its review copy, and the board says which. People
+  that is cut off carries on where it stopped). A video whose original was larger than
+  `WIPBOARD_MAX_UPLOAD_MB` comes down as its review copy, and the board says which. People
   holding a read-only link are offered neither.
 - **Board settings.** The sliders button in the bar opens a small panel for what is particular to a
   board: whether every image and video shows its file name (the same for everyone on the board, and
@@ -157,8 +157,7 @@ private networks, otherwise only the host machine can connect.
   than throwing out what is wanted. A small service worker (`public/sw.js`) answers the pages' own
   video players from the kept copies, scrubbing included, so a card scrubbed on hover or the
   timeline's next shot plays from the disk too. What is kept is listed in IndexedDB, a record a video,
-  and a lock for each file keeps two tabs from fetching the same one; the list from before (in
-  localStorage) is taken over the first time.
+  and a lock for each file keeps two tabs from fetching the same one.
 - **Seeing what is cached.** Every video card (in the catalogue, an asset's versions, the Versions
   list, Home) has a badge in its top right corner: a green tick once it is cached on this computer, a
   ring filling while it comes, a cloud while it still plays from the server. The ring a board has in
@@ -500,8 +499,7 @@ filed in it.
   that lacks it. A version's card lists its views. In the player, and on the timeline, a dropdown in the
   bar picks the view, by the project's names and in its order, remembered per project; a shot without
   that view shows its main one, and the bar says which is showing. Changing the view stays on the same
-  moment. A project from before the setting that filed views has them as filed, its main one called by
-  what most of its versions were first filed as.
+  moment.
 - **Looking without choosing.** Move the pointer across a video's picture in the catalogue and it
   scrubs through it, as if the pointer were dragging its playhead. An asset, set or shot's picture
   plays its newest version at once ("Latest"); its name goes to its page, which has Play latest too.
@@ -696,9 +694,8 @@ opens it, so the number of old boards does not slow the server down.
 and copy the whole `data` folder. Copying `wipboard.db` while the server runs can catch it halfway
 through a write; the files in `data/backups/` are always whole.
 
-**Updating from before projects** moves every board's comments into the notes table and renames the
-boards' history to snapshots, once, the first time the server starts. A copy of the database as it was
-is put in `data/backups/` first (`wipboard-before-catalogue-<time>.db`).
+**Updating.** The app is in development: a new version may not read a database an older one wrote,
+and nothing is moved across for it. Start from a fresh `data` folder when it does not.
 
 **Deleted boards** are kept, only hidden. To bring one back, stop the server and run
 `node scripts/restore-board.js` to list them, then `node scripts/restore-board.js <board id>`. It
@@ -757,8 +754,8 @@ after it was filed (see Taking it back). A project's catalogue (`GET /api/projec
 entity's `heads`, the newest version of each task, beside `tops`. Its settings (`PATCH /api/folders/<id>`
 with `settings`) take `tasks: false` to count without tasks, `views` (`["cmp", "bty"]`, the main one
 first, or `false`; the catalogue gives the views in force as `viewList`), and `rules`, the whole list of what it has
-learned (patterns, `[{ "pattern": ["nhmoc", "{seq}", "{shot}", "*", "{version}"], "seqs", "like", "as" }]`, or the
-older `[{ "word", "seq" }]` and `[{ "word", "name" }]`), and `naming`, the id of the convention it follows.
+learned (patterns, `[{ "pattern": ["nhmoc", "{seq}", "{shot}", "*", "{version}"], "seqs", "like", "as" }]`, or, from a
+first word alone, `[{ "word", "seq" }]` and `[{ "word", "name" }]`), and `naming`, the id of the convention it follows.
 `GET /api/conventions` lists the naming conventions (built in first, each with what it says and the
 projects following it), the studio's `default` and whether you may change them; an admin can
 `POST` `{ "convention" }` to keep a new one (its id made from its name), `PUT /api/conventions/<id>`

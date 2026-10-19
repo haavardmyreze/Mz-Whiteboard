@@ -106,17 +106,6 @@
     if (!usable) return false;
     try {
       await loadIndex();
-      // What the boards kept before this list was in IndexedDB (a browser that had the older app).
-      const old = store('wb:kept');
-      if (old && typeof old === 'object') {
-        for (const [src, k] of Object.entries(old)) {
-          if (!Array.isArray(k) || index.has(src)) continue;
-          const row = { src, size: k[0] || 0, used: k[1] || Date.now() };
-          index.set(src, row);
-          await putRow(row);
-        }
-        try { localStorage.removeItem('wb:kept'); } catch { /* left as it is */ }
-      }
       tell({ t: 'who' });
       await measureQuota();
       return !!(await cache());
@@ -570,7 +559,6 @@
       // nothing kept, or no leave to say so
     }
     await idb('readwrite', (s) => s.clear()).catch(() => {});
-    try { localStorage.removeItem('wb:kept'); } catch { /* nothing there */ }
     tell({ t: 'cleared' });
     changed();
   }

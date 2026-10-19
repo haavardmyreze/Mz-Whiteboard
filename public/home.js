@@ -3047,9 +3047,10 @@
         },
       });
       const { ent, task, tier } = f;
-      // A version number read from its name by a learned pattern is its number.
-      if (ruled && ruled.number) {
-        num.value = String(ruled.number);
+      // The version its name says (v111), read by the project's naming or a learned pattern, is its number.
+      const named = (ruled && ruled.number) || (r.parsed.entity && r.parsed.hip) || null;
+      if (named) {
+        num.value = String(named);
         r.numTouched = true;
       }
       num.addEventListener('input', () => { r.numTouched = num.value !== ''; resyncAll(); });

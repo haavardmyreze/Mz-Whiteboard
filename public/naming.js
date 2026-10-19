@@ -263,8 +263,8 @@
   };
 
   // Whatever can be read from a file name: { entity, tier, task, descriptor, artist, hip, view }, each null
-  // when the name does not say. `hip` is the number after v; nothing is made of it, since the catalogue
-  // counts versions itself, but it is read so that the rest of the name is.
+  // when the name does not say. `hip` is the number after v: the version it is filed as, unless another
+  // is said (otherwise the catalogue counts on from the last).
   function parse(filename, presetId) {
     const out = { entity: null, tier: null, task: null, descriptor: null, artist: null, hip: null, view: null };
     const stem = String(filename || '').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '').toLowerCase().trim();
@@ -359,7 +359,7 @@
         out.entity = p.entity || ruled.entity;
         if (useTasks && (p.task || (ruled && ruled.task))) out.task = p.task || ruled.task;
         out.view = ctx.useViews === false ? null : p.view || (ruled && ruled.view) || null;
-        if (ruled && ruled.number) out.number = ruled.number;
+        out.number = (ruled ? ruled.number : p.hip) || null;
         if (ruled) out.short = `read by the rule for “${ruled.rule.word}”`;
         return out;
       }

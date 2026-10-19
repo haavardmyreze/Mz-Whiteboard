@@ -24,7 +24,7 @@ test('filing: a typed line says the name, and the task, version and view after i
   assert.deepEqual(read('set living room dressing'), { entity: 'set-living-room', task: 'dressing', number: null, view: null });
   assert.equal(read('char robot rig').entity, 'char-robot');
   // A file name pasted in is read as a file name is.
-  assert.deepEqual(read('kilo-0010_anim_erik_v012_bty.mov'), { entity: 'kilo-0010', task: 'anim', number: null, view: 'bty' });
+  assert.deepEqual(read('kilo-0010_anim_erik_v012_bty.mov'), { entity: 'kilo-0010', task: 'anim', number: 12, view: 'bty' });
   // A project that does not count by task never reads one, and says what it did not read.
   assert.deepEqual(read('kilo-0010 anim', { useTasks: false }), { entity: 'kilo-0010', task: undefined, number: null, view: null, rest: ['anim'] });
 });

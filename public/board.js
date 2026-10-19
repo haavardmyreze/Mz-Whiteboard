@@ -4736,7 +4736,7 @@
         entity,
         task: before ? before.task || '' : parsed.task || (ruled && ruled.task) || (entity && remembered && entity === remembered.entity && entity === lastOne ? remembered.task || '' : ''),
         named: !before && !!(parsed.entity || ruled), piece: () => it,
-        number: before ? before.number : (ruled && ruled.number) || null,
+        number: before ? before.number : (ruled && ruled.number) || (parsed.entity && parsed.hip) || null,
         view: before ? before.view : parsed.view || (ruled && ruled.view),
       });
       const row = { it, f, ent: f.ent, task: f.task, tier: f.tier, taught: !parsed.entity && !(ruled && ruled.rule.pattern) };

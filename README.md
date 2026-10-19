@@ -408,12 +408,14 @@ filed in it.
     first word is learned, as a sequence or one asset or set (`robot` → `char-robot`), never a word that
     says nothing (screenshot, render, final...). The project's settings list what it has learned, as
     chips to forget.
-- **Numbering.** The catalogue counts versions itself: `kilo-0010 anim v1`, `v2`, `v3`, per asset, set
-  or shot and task, in the order they were filed. Each task has its own count (lookdev starts at v1
+- **Numbering.** A version is the number its file's name says (`kilo-0010_anim_erik_v012.mov` is
+  v12, and so is `NHMoc_CHAP01_010_cmp_v012` once the project has learned names like it); otherwise the
+  catalogue counts on itself: `kilo-0010 anim v1`, `v2`, `v3`, per asset, set or shot and task, in the
+  order they were filed. The newest is the highest number, so an older one filed later stays behind it. Each task has its own count (lookdev starts at v1
   beside model v10), and versions with no task have one of their own too. A project that has no use
   for tasks says so in its settings ("Count by task" off): filing then asks for none and ignores any a
-  file's name gives, and each asset, set or shot has one count. A version number in the file's name
-  (`_v012`) is not used or shown; the number can be changed by hand (see below).
+  file's name gives, and each asset, set or shot has one count. The number can always be typed over
+  before filing, and changed by hand after (see below).
 - **On the board.** A piece that is a version says which in its corner. When a newer one of the same
   thing has been filed since, the chip says so; click it to swap the newer one in, or to see them all.
   The layers button in the bar opens the project's catalogue beside the board: pick an asset, set or

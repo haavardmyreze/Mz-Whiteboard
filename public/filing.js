@@ -938,9 +938,13 @@ const WBFiling = (() => {
   // not have, offered to be kept, and to fill in the rows still to go that it reads. `filed` is what it
   // was filed as ({ entity, task, number, view, views }: see ruleFrom in naming.js). `others` are those
   // rows, each { filename, fields }; `save(rules)` keeps the project's rules.
+  // A pattern is offered once while the page is open, however many files like it are filed (several at
+  // once, say), and whatever was answered: Not now is not asked again until the page is opened anew.
+  const offered = new Set();
   function offerRule({ filename, filed, presetId, rules, others = [], tasks = [], save }) {
     const rule = N.ruleFrom(filename, filed, presetId);
-    if (!rule || (rules || []).some((r) => N.ruleKey(r) === N.ruleKey(rule))) return;
+    if (!rule || (rules || []).some((r) => N.ruleKey(r) === N.ruleKey(rule)) || offered.has(N.ruleKey(rule))) return;
+    offered.add(N.ruleKey(rule));
     const reads = others.filter((o) => !o.fields.name() && N.byRules(o.filename, [rule], tasks, presetId));
     const said = (r) => N.label(r.entity, r.task, r.number || '').replace(/ v$/, '') + (r.view ? ` ${r.view}` : '');
     const stem = (f) => String(f).replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
@@ -964,7 +968,7 @@ const WBFiling = (() => {
             reads.length > shown.length ? el('li', { class: 'rule-rest', text: `and ${reads.length - shown.length} more` }) : null)) : null,
         el('div', { class: 'dlg-actions' },
           el('button', { type: 'button', class: 'btn', text: 'Not now', onclick: () => dlg.close() }),
-          reads.length && el('button', { type: 'button', class: 'btn', text: 'Remember', onclick: async () => { dlg.close(); await save([...(rules || []), rule]); } }),
+          reads.length ? el('button', { type: 'button', class: 'btn', text: 'Remember', onclick: async () => { dlg.close(); await save([...(rules || []), rule]); } }) : null,
           el('button', {
             type: 'submit', class: 'btn primary', text: reads.length ? `Remember and fill in ${reads.length}` : 'Remember',
             onclick: async (e) => { e.preventDefault(); dlg.close(); await fill(); },

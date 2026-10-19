@@ -15,7 +15,7 @@
 // its parts as it is typed. What the line does not say (a change of length, and anything that looks
 // wrong: a near miss of a name the project has, a name not to the project's naming, a new sequence like
 // one there is, a second count for one shot) is behind a mark at its end, a warning when something is
-// to be sorted out: clicked, it says it, worst first, each with the fix a click away. Rows that need nothing from anyone fold into one line (readyFold). Suggestions come before anything
+// to be sorted out: clicked, it says it, worst first, each with the fix a click away. Suggestions come before anything
 // is typed: what the piece looks like a new version of (by its picture, asked of the server), the row
 // above, the next shot. Ctrl+D copies the row above; Shift+Enter numbers the rows below on from this one.
 // Loaded after naming.js, before the pages that file.
@@ -192,37 +192,6 @@ const WBFiling = (() => {
     for (const v of compare.box.querySelectorAll('video')) v.removeAttribute('src');
     compare.box.remove();
     compare = null;
-  }
-
-  // ---- rows that need nothing from anyone, folded away
-
-  // A line over the rows saying which need nothing from anyone (see certain in fields) and folding them
-  // away, so what is left in sight is what needs looking at: "✓ 4 ready: kilo-0010 anim v2, ... Show".
-  // `items()` are the rows still to be filed, each { f, node }; `file(list)`, when given, files those.
-  // A row someone is working in is never folded under them.
-  function readyFold({ items, file = null }) {
-    const node = el('div', { class: 'file-ready', hidden: true });
-    let open = false;
-    function paint() {
-      const list = items();
-      const sure = list.filter((i) => i.f.certain() && !i.node.contains(document.activeElement));
-      const fold = sure.length >= 2;
-      for (const i of list) {
-        const was = i.node.classList.contains('folded');
-        i.node.classList.toggle('folded', fold && !open && sure.includes(i));
-        if (was && !i.node.classList.contains('folded')) i.f.sync();
-      }
-      node.hidden = !fold;
-      if (!fold) return;
-      const names = sure.map((i) => i.f.summary());
-      const shown = names.slice(0, 4).join(', ') + (names.length > 4 ? `, and ${names.length - 4} more` : '');
-      node.replaceChildren(
-        el('span', { class: 'file-ready-mark', text: '✓' }),
-        el('span', { class: 'file-ready-text' }, el('b', { text: `${sure.length} ready` }), el('span', { text: open ? ': named by their files, nothing to check' : `: ${shown}` })),
-        el('button', { type: 'button', class: 'btn small ghost', text: open ? 'Fold' : 'Show', 'aria-expanded': String(open), onclick: () => { open = !open; paint(); } }),
-        file && el('button', { type: 'button', class: 'btn small', text: `File ${sure.length}`, onclick: () => file(sure) }));
-    }
-    return { node, paint };
   }
 
   // ---- a small box of words over the page, opened from a button, one at a time
@@ -516,7 +485,7 @@ const WBFiling = (() => {
 
     // What there is to say about the row, each { text, fixes: [{ label, run }] } and how much it
     // matters: `warn` (with its `rank`, the worst lowest), `ok`, or neither (only telling). Asked for
-    // several times in a repaint (the line under the row, the fold, filing), and worked out once until
+    // several times in a repaint (the mark at the end of the line, filing), and worked out once until
     // something changes: it reads the rows above, so working it out each time would be slow with many.
     let judged = null;
     let likelyAt = 0;
@@ -631,14 +600,6 @@ const WBFiling = (() => {
       const n = name();
       return !!n && !line().rest.length && !viewProblem && (!!have(n) || !!N.tierOf(n, presetId) || !!tier.value);
     };
-    // Needing nothing from anyone: named by its own file (or the page), ready, nothing wrong with it, and
-    // not the first shot of a sequence. A page may fold such rows away (see readyFold).
-    const certain = () => fromName && ready() && !checks().some((c) => c.warn || c.newSeq);
-    // What it will be, in a few words: "kilo-0010 anim v2", and its change of length if any.
-    const summary = () => {
-      const change = lengthChange();
-      return `${N.label(name(), taskName(), number())}${viewName() ? ` ${viewName()}` : ''}${change ? ` (${change.frames > 0 ? '+' : '−'}${Math.abs(change.frames)}f)` : ''}`;
-    };
 
     // The number it gets: the page's, or the one typed, or one past the highest of its entity and task,
     // counting what the rows above going there will get (as the server numbers them, in order).
@@ -744,11 +705,9 @@ const WBFiling = (() => {
       if (viewSel) viewSel.classList.toggle('auto', !viewSel.value);
     }
 
-    // A row folded away (see readyFold) is painted when it is shown again.
     const sync = () => {
       const n = name();
       tier.hidden = !n || !!have(n) || !!N.tierOf(n, presetId);
-      if (readout.closest('.folded')) return;
       paintLine();
       paintReadout();
     };
@@ -854,7 +813,7 @@ const WBFiling = (() => {
     if (viewSel) viewSel.addEventListener('change', () => { changed(); viewProblem = null; sync(); onChange(); });
     sync();
     return Object.assign(self, {
-      ent, task: taskIn, tier, readout, sync, line: line_, version: verIn, name, have, taskName, settle, setLine, checks, ready, number, certain, summary,
+      ent, task: taskIn, tier, readout, sync, line: line_, version: verIn, name, have, taskName, settle, setLine, checks, ready, number,
       typedNumber: () => (numberOf ? null : own.number), viewSel, viewName, setView,
       // A number and view read for it from elsewhere (a learned rule), as if typed on its line; `named`
       // when what it is was read from its own file's name so.
@@ -1028,5 +987,5 @@ const WBFiling = (() => {
     return !max || file.size <= max;
   };
 
-  return { UNFILE_WITHIN, lineHead, readyFold, suggest, entitySource, taskSource, fields, changed, series, keysButton, forAll, confirmSequences, findLikely, offerRule, originalFits, streamsOf, nextOf };
+  return { UNFILE_WITHIN, lineHead, suggest, entitySource, taskSource, fields, changed, series, keysButton, forAll, confirmSequences, findLikely, offerRule, originalFits, streamsOf, nextOf };
 })();

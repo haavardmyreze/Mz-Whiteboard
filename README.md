@@ -384,11 +384,8 @@ filed in it.
     short line with nothing to go by (`.` with nothing above or filed before) says so. A row cannot be
     filed while it has words that could not be read, or is a new name whose shape does not say what it
     is until that is chosen (nothing is assumed). Escape asks before closing over what was typed.
-  - **Only what needs you.** Rows that need nothing from anyone (named by their own files, nothing
-    wrong, not starting a sequence) fold into one line over the rest: "✓ 4 ready: kilo-0010 anim v2
-    (−12f), kilo-0010 lighting v1, ...", with Show, and in the import strip File to file just those.
-    What is left in sight is what needs looking at. A row's own File shows on the row under the
-    pointer, or the one being worked in; "File all" is for the rest.
+  - **Filing them.** A row's own File shows on the row under the pointer, or the one being worked in;
+    "File all" is for the rest. Every row stays in sight until it is filed.
   - **Keys.** Ctrl+D copies the row above. Shift+Enter fills the rows below on from this one: shots
     go on in their sequence's step (kilo-0010, kilo-0020...), anything else is the same for each. A row
     its own file's name named is kept as it is, and what was done is said with an Undo. The keys are

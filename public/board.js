@@ -4768,11 +4768,8 @@
       },
     });
 
-    // The rows that need nothing from anyone, folded into one line (filing.js); File files them with the rest.
-    const fold = WBFiling.readyFold({ items: () => rows.map((row) => ({ f: row.f, node: row.node })) });
     function paint() {
       for (const row of rows) row.f.sync();
-      fold.paint();
       const missing = rows.filter((row) => !nameOf(row)).length;
       const unsure = rows.filter((row) => nameOf(row) && !row.f.ready()).length;
       ok.disabled = missing + unsure > 0;
@@ -4796,7 +4793,6 @@
     },
     el('div', { class: 'file-dlg-head' }, el('h2', { text: list.length > 1 ? `File ${list.length} pieces as versions` : 'File as a version' }), WBFiling.keysButton()),
     list.length > 1 && fill,
-    fold.node,
     el('div', { class: 'file-rows' },
       // What each part of the rows' lines is, said once over them.
       el('div', { class: 'file-row file-labels-row' }, el('span'), el('span'), el('span', { class: 'file-fields' }, WBFiling.lineHead({ useTasks, views: cat.viewList || null }))),

@@ -2910,11 +2910,6 @@
     // each row then says which it is (filing.js).
     const viewList = () => (cat ? cat.viewList : Array.isArray(settings().views) ? settings().views : null) || null;
     const head = el('div', { class: 'imp-head' }, title, fillAll, el('span', { class: 'imp-gap' }), WBFiling.keysButton(), aiBtn, clearBtn, fileAll);
-    // The rows that need nothing from anyone, folded into one line over the rest (filing.js).
-    const fold = WBFiling.readyFold({
-      items: () => rows.filter((o) => o.fields && unfiled(o) && o.status !== 'failed').map((o) => ({ f: o.fields.f, node: o.node, r: o })),
-      file: (list) => { for (const i of list) if (canFile(i.r)) fileRow(i.r); },
-    });
     // What each part of the rows' lines is, said once over them, as the project's settings have them.
     const labels = el('div', { class: 'imp-row imp-labels', hidden: true });
     let labelsFor = '';
@@ -2926,7 +2921,7 @@
       }
       labels.hidden = !rows.some(unfiled);
     };
-    const tray = el('div', { class: 'imp', hidden: true }, head, ai && ai.node, fold.node, labels, list);
+    const tray = el('div', { class: 'imp', hidden: true }, head, ai && ai.node, labels, list);
     const picker = el('input', { type: 'file', multiple: true, accept: 'image/*,video/mp4,video/webm,video/quicktime', hidden: true });
     document.body.append(picker);
     let pickFor = null;
@@ -3164,7 +3159,6 @@
       clearBtn.hidden = !filed && !rows.some((r) => r.status === 'failed' && !r.look);
       fillAll.hidden = rows.filter((r) => r.status !== 'filed').length < 2;
       if (aiBtn) aiBtn.hidden = !rows.some(unfiled);
-      fold.paint();
       paintLabels();
       if (ai && aiBtn.hidden) ai.node.hidden = true;
     }

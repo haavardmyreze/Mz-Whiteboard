@@ -964,7 +964,7 @@ const WBFiling = (() => {
     const shown = reads.slice(0, 6);
     const dlg = el('dialog', { class: 'dlg rule-dlg' },
       el('form', { method: 'dialog' },
-        el('h2', { text: 'Read names like this from now on?' }),
+        el('h2', { text: 'Remember this pattern?' }),
         el('div', { class: 'rule-pair' }, el('code', { text: stem(filename) }), el('span', { class: 'rule-arrow', html: WB.icon('arrow', 14) }), el('b', { text: said(filed) })),
         shown.length ? el('div', { class: 'rule-more' },
           el('span', { text: `${reads.length === 1 ? 'One more' : `${reads.length} more`} waiting would be filed as` }),

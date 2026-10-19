@@ -336,8 +336,6 @@
   // ------------------------------------------------------------- rendering
 
   const { plural } = WB;
-  // The sequence a shot of a catalogue is in, as the project's convention writes its shots.
-  const seqIn = (cat, name) => N.seqOf(name, cat && cat.preset && cat.preset.id);
 
   // A project is never inside another, nor around one.
   const inProject = (id) => trailTo(id).some((f) => f.project);
@@ -369,15 +367,13 @@
     let rules = [...((project.settings && project.settings.rules) || [])];
     const ruleList = el('div', { class: 'ps-chips' });
     const paintRules = () => {
-      ruleList.replaceChildren(...rules.map((r) => el('span', { class: 'ps-chip' }, el('span', { text: N.ruleText(r, project.settings && project.settings.naming) }),
-        el('button', { type: 'button', class: 'ps-chip-x', html: icon('close', 12), title: `Forget ${N.ruleText(r, project.settings && project.settings.naming)}`, 'aria-label': `Forget ${N.ruleText(r, project.settings && project.settings.naming)}`, onclick: () => { rules = rules.filter((x) => x !== r); paintRules(); } }))));
+      ruleList.replaceChildren(...rules.map((r) => el('span', { class: 'ps-chip' }, el('span', { text: N.ruleText(r) }),
+        el('button', { type: 'button', class: 'ps-chip-x', html: icon('close', 12), title: `Forget ${N.ruleText(r)}`, 'aria-label': `Forget ${N.ruleText(r)}`, onclick: () => { rules = rules.filter((x) => x !== r); paintRules(); } }))));
       if (rulesRow) rulesRow.hidden = !rules.length;
     };
     let rulesRow = null;
     let model = was ? { url: was.model, name: was.name || 'Model' } : null;
     const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`).catch(() => null);
-    // How it names what it makes: a convention of the studio's (see naming-ui.js).
-    const conv = await WBNamingUI.projectRow(project, cat);
     // Its views, as set.
     const list = (cat && cat.viewList) || null;
     const byView = el('input', { type: 'checkbox', class: 'switch', ...(list && { checked: true }), 'aria-label': 'Several views of each version' });
@@ -453,7 +449,7 @@
           }
           save.disabled = true;
           try {
-            await api('PATCH', `/api/folders/${project.id}`, { settings: { naming: conv.value(), tasks: byTask.checked, views: byView.checked ? named() : false, rules, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value } : null } });
+            await api('PATCH', `/api/folders/${project.id}`, { settings: { tasks: byTask.checked, views: byView.checked ? named() : false, rules, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value } : null } });
             catalogues.delete(project.id);
             await refresh();
             dlg.close();
@@ -465,9 +461,6 @@
         },
       },
       el('h2', { text: `${project.name}: settings` }),
-      el('h3', { class: 'ps-sec', text: 'Naming' }),
-      row('Naming convention', 'How its assets, sets and shots are named, and how file names are read', conv.control),
-      conv.detail,
       el('h3', { class: 'ps-sec', text: 'Versions' }),
       row('Count by task', 'anim v1, lighting v1… rather than one count', byTask),
       row('Several views of each version', 'Each version as more than one file: cmp and bty, say', byView),
@@ -613,7 +606,7 @@
     if (v.tier) return `t:${rt.id}:${v.tier}`;
     if (v.entity) {
       const e = (catalogues.get(rt.id)?.entities || []).find((x) => x.id === v.entity);
-      const seq = e && e.tier === 'shot' && seqIn(catalogues.get(rt.id), e.name);
+      const seq = e && e.tier === 'shot' && N.seqOf(e.name);
       if (seq) return `s:${rt.id}:${seq}`;
       return e ? `t:${rt.id}:${e.tier}` : `c:${rt.id}`;
     }
@@ -675,12 +668,12 @@
         loadCatalogue(f.id);
         return [el('div', { class: 'side-row side-note', style: pad, text: 'Loading…' })];
       }
-      return cat.preset.tiers.flatMap((t) => {
+      return cat.tiers.flatMap((t) => {
         const of = cat.entities.filter((e) => e.tier === t.id);
-        const seqs = t.id === 'shot' ? [...new Set(of.map((e) => seqIn(cat, e.name)).filter(Boolean))].sort() : [];
+        const seqs = t.id === 'shot' ? [...new Set(of.map((e) => N.seqOf(e.name)).filter(Boolean))].sort() : [];
         return sideRow({
           key: `t:${f.id}:${t.id}`, depth: depth + 2, icon: ICON_DOT, label: t.label, href: WB.href.catalogue(f.id, { tier: t.id }), count: of.length, hereK,
-          kids: seqs.length ? () => seqs.flatMap((q) => sideRow({ key: `s:${f.id}:${q}`, depth: depth + 3, icon: ICON_DOT, label: q, href: WB.href.catalogue(f.id, { seq: q }), count: of.filter((e) => seqIn(cat, e.name) === q).length, hereK })) : null,
+          kids: seqs.length ? () => seqs.flatMap((q) => sideRow({ key: `s:${f.id}:${q}`, depth: depth + 3, icon: ICON_DOT, label: q, href: WB.href.catalogue(f.id, { seq: q }), count: of.filter((e) => N.seqOf(e.name) === q).length, hereK })) : null,
         });
       });
     };
@@ -812,9 +805,9 @@
           const cat = catalogues.get(f.id);
           const e = v.entity && cat && cat.entities.find((x) => x.id === v.entity);
           const tier = v.tier || (v.seq && 'shot') || (e && e.tier);
-          const t = tier && cat && cat.preset.tiers.find((x) => x.id === tier);
+          const t = tier && cat && cat.tiers.find((x) => x.id === tier);
           if (t) parts.push([t.label, WB.href.catalogue(f.id, { tier: t.id })]);
-          const seq = v.seq || (e && e.tier === 'shot' && seqIn(cat, e.name));
+          const seq = v.seq || (e && e.tier === 'shot' && N.seqOf(e.name));
           if (seq) parts.push([seq, WB.href.catalogue(f.id, { seq: seq })]);
           if (v.entity) {
             const name = e ? e.name : shownEntity && shownEntity.id === v.entity ? shownEntity.name : '…';
@@ -894,7 +887,7 @@
       }
       const tier = p.what === 'tier' && (/\/t\/([\w-]+)$/.exec(p.href) || [])[1];
       const of = p.kind === 'entity' ? cat.entities.filter((e) => e.id === p.id)
-        : p.what === 'sequence' ? cat.entities.filter((e) => e.tier === 'shot' && seqIn(cat, e.name) === p.name)
+        : p.what === 'sequence' ? cat.entities.filter((e) => e.tier === 'shot' && N.seqOf(e.name) === p.name)
           : cat.entities.filter((e) => e.tier === tier);
       pinned.push(...of.slice().sort((a, b) => (b.latestAt || 0) - (a.latestAt || 0)).slice(0, 40).map((e) => videoOf(e.newest)));
     }
@@ -1205,7 +1198,7 @@
   }
 
   // The groups the list is shown in, each { key, title, sub, list }, in the order they come.
-  function versionGroups(list, st, tierName, cat) {
+  function versionGroups(list, st, tierName) {
     if (st.group === 'time') {
       // By day; within a day, by who filed them (whoever filed last first), however their filing was
       // interleaved with others'.
@@ -1222,7 +1215,7 @@
       return days.map((d) => ({ key: `d${d.day}`, title: dayName(d.day), runs: d.runs }));
     }
     const keyOf = {
-      seq: (v) => (v.tier === 'shot' && seqIn(cat, v.entity)) || `${tierName(v.tier)}s`,
+      seq: (v) => (v.tier === 'shot' && N.seqOf(v.entity)) || `${tierName(v.tier)}s`,
       entity: (v) => v.entity,
       task: (v) => v.task || 'No task',
       by: (v) => v.createdBy || 'Somebody',
@@ -1245,7 +1238,7 @@
     }
     const cat = catalogues.get(project.id);
     const tierName = (id) => {
-      const t = cat && cat.preset.tiers.find((x) => x.id === id);
+      const t = cat && cat.tiers.find((x) => x.id === id);
       const word = t ? t.one : id || '';
       return word.charAt(0).toUpperCase() + word.slice(1);
     };
@@ -1263,7 +1256,7 @@
       });
     };
     const grid = (vs) => el('div', { class: 'board-grid ent-grid vl-grid' }, vs.map((v) => versionCard(project, { id: v.entityId, name: v.entity, tier: v.tier }, v, { list: true, tierName })));
-    const groups = versionGroups(list, st, tierName, cat);
+    const groups = versionGroups(list, st, tierName);
     // Shift and a click picks a run as it is shown.
     vpick.order = groups.flatMap((g) => (g.runs ? g.runs.flatMap((r) => r.list) : g.list).map((v) => v.id));
     const out = [...versionsTools(project, st, data)];
@@ -1368,7 +1361,7 @@
       };
     };
     const entIn = el('input', { type: 'text', class: 'be-in', placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': 'Move them to' });
-    WB.combo(entIn, WBFiling.entitySource(() => cat.entities, cat.preset.id));
+    WB.combo(entIn, WBFiling.entitySource(() => cat.entities));
     const taskIn = el('input', { type: 'text', class: 'be-in', placeholder: 'Task', spellcheck: 'false', 'aria-label': 'Their task' });
     WB.combo(taskIn, WBFiling.taskSource(() => cat.tasks));
     const artistIn = el('input', { type: 'text', class: 'be-in', placeholder: 'Artist', spellcheck: 'false', 'aria-label': 'Their artist' });
@@ -1391,7 +1384,7 @@
           const have = cat.entities.find((x) => x.name === to);
           const edits = chosen.map((v) => ({
             id: v.id,
-            ...(ent.how.value === 'set' && { entity: have ? have.id : { name: to, tier: N.tierOf(to, cat.preset.id) || 'asset' } }),
+            ...(ent.how.value === 'set' && { entity: have ? have.id : { name: to, tier: N.kindOf(to, cat.entities) || 'asset' } }),
             ...(task && task.how.value === 'set' && { task: taskIn.value }), ...(task && task.how.value === 'none' && { task: null }),
             ...(artist.how.value === 'set' && { artist: artistIn.value }), ...(artist.how.value === 'none' && { artist: null }),
             ...(hide.how.value && { hidden: hide.how.value === 'archive' }),
@@ -1944,7 +1937,7 @@
     const cat = catalogues.get(project.id);
     const act = activities.get(project.id);
     const boards = boardsIn(project.id).slice().sort((a, b) => b.updatedAt - a.updatedAt);
-    const counts = cat ? cat.preset.tiers.map((t) => plural(cat.entities.filter((e) => e.tier === t.id).length, t.one)).join(' · ') : '…';
+    const counts = cat ? cat.tiers.map((t) => plural(cat.entities.filter((e) => e.tier === t.id).length, t.one)).join(' · ') : '…';
     const filed = cat ? cat.entities.filter((e) => e.latestAt) : [];
     const part = (icon, name, meta, href) => el('a', { class: 'card folder place', href },
       el('div', { class: 'folder-icon', html: icon }),
@@ -2052,11 +2045,11 @@
   // Each sequence as a strip of its shots, in order: filed this week, filed before, or nothing yet; and
   // how many of each. A shot in the strip opens it.
   function homeSequences(project, cat, label) {
-    const shots = cat.entities.filter((e) => e.tier === 'shot' && seqIn(cat, e.name));
+    const shots = cat.entities.filter((e) => e.tier === 'shot' && N.seqOf(e.name));
     if (!shots.length) return null;
     const bySeq = new Map();
     for (const e of shots.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))) {
-      const q = seqIn(cat, e.name);
+      const q = N.seqOf(e.name);
       if (!bySeq.has(q)) bySeq.set(q, []);
       bySeq.get(q).push(e);
     }
@@ -2139,7 +2132,7 @@
     };
     const artists = peopleRow('artists', 'Artists');
     const cc = peopleRow('cc', 'CC');
-    const tiers = cat.preset.tiers;
+    const tiers = cat.tiers;
     const tierNow = [...new Set(chosen.map((e) => e.tier))];
     const tierSel = el('select', { class: 'be-how', 'aria-label': 'What they are' },
       el('option', { value: '', text: tierNow.length === 1 ? `Leave as ${tierNow[0]}${chosen.length > 1 ? 's' : ''}` : 'Leave as they are' }),
@@ -2231,9 +2224,8 @@
   // Setting a project up with what it has from the start: names, one a line, each an asset, a set or a
   // shot by its shape (or as chosen). A run of shots can be filled in from a sequence and its numbers.
   function addEntities(project) {
-    const presetId = project.settings && project.settings.naming;
     const cat = catalogues.get(project.id);
-    const tiers = cat ? cat.preset.tiers : N.preset(presetId).tiers;
+    const tiers = N.TIER_LIST;
     const box = el('textarea', { rows: 8, spellcheck: 'false', placeholder: 'char-robot\nset-harbour\nkilo-0010\nkilo-0020', 'aria-label': 'Names, one a line' });
     const tierSel = el('select', { 'aria-label': 'What they are' },
       el('option', { value: '', text: 'What each name says' }), tiers.map((t) => el('option', { value: t.id, text: `All ${t.label.toLowerCase()}` })));
@@ -2249,7 +2241,7 @@
       const list = wanted();
       const have = new Set((catalogues.get(project.id)?.entities || []).map((e) => e.name));
       const fresh = list.filter((n) => !have.has(n));
-      const tierOf = (n) => tierSel.value || N.tierOf(n, presetId) || 'asset';
+      const tierOf = (n) => tierSel.value || N.kindOf(n, catalogues.get(project.id)?.entities || []) || 'asset';
       const counts = tiers.map((t) => [t, fresh.filter((n) => tierOf(n) === t.id).length]).filter(([, n]) => n);
       preview.textContent = !list.length ? 'Nothing yet.'
         : `${fresh.length ? `Adds ${counts.map(([t, n]) => `${n} ${n === 1 ? t.one : t.label.toLowerCase()}`).join(', ')}.` : 'Nothing new.'}${list.length > fresh.length ? ` ${list.length - fresh.length} already there.` : ''}`;
@@ -2266,7 +2258,7 @@
       const by = Math.max(1, Number(step.value) || 1);
       if (!q || !(b >= a) || (b - a) / by > 1000) return;
       const names = [];
-      for (let n = a; n <= b; n += by) names.push(N.shotName(q, n, presetId));
+      for (let n = a; n <= b; n += by) names.push(N.shotName(q, n));
       box.value = `${box.value.trim() ? `${box.value.trim()}\n` : ''}${names.join('\n')}`;
       paint();
     };
@@ -2466,11 +2458,11 @@
   function catalogueView(project, cat, view = {}) {
     const q = WBNaming.tokenize($('q').value);
     const list = cat.entities.filter((e) => (!q || e.name.includes(q))
-      && (!view.tier || e.tier === view.tier) && (!view.seq || (e.tier === 'shot' && seqIn(cat, e.name) === view.seq)));
+      && (!view.tier || e.tier === view.tier) && (!view.seq || (e.tier === 'shot' && N.seqOf(e.name) === view.seq)));
     const label = (text, n) => el('div', { class: 'section-label' }, text, el('span', { class: 'tally', text: String(n) }));
     const out = [];
     picking.order = [];
-    for (const tier of cat.preset.tiers) {
+    for (const tier of cat.tiers) {
       const of = list.filter((e) => e.tier === tier.id);
       if (!of.length) continue;
       out.push(label(tier.label, of.length));
@@ -2482,7 +2474,7 @@
       // Shots by sequence, as they are on disk.
       const seqs = new Map();
       for (const e of of) {
-        const seq = seqIn(cat, e.name) || 'other';
+        const seq = N.seqOf(e.name) || 'other';
         (seqs.get(seq) || seqs.set(seq, []).get(seq)).push(e);
       }
       for (const [seq, shots] of seqs) {
@@ -2518,7 +2510,6 @@
   // asset or task with its number left as it was, it becomes the next one there.
   async function editVersion(project, entity, v) {
     const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`).catch(() => null);
-    const presetId = project.settings && project.settings.naming;
     const field = (label, input) => el('label', { class: 've-field' }, el('span', { text: label }), input);
     const ent = el('input', { type: 'text', value: entity.name, required: true, spellcheck: 'false' });
     const task = el('input', { type: 'text', value: v.task || '', placeholder: 'None', spellcheck: 'false' });
@@ -2550,7 +2541,7 @@
           const e2 = N.tokenize(ent.value);
           if (!e2) return;
           const body = { task: task.value, artist: artist.value, descriptor: desc.value };
-          if (e2 !== entity.name) body.entity = { name: e2, tier: N.tierOf(e2, presetId) || entity.tier };
+          if (e2 !== entity.name) body.entity = { name: e2, tier: N.kindOf(e2, cat ? cat.entities : []) || entity.tier };
           if (num.value) body.number = Number(num.value);
           save.disabled = true;
           try {
@@ -2578,7 +2569,7 @@
         save)));
     dlg.addEventListener('close', () => dlg.remove());
     document.body.append(dlg);
-    WB.combo(ent, WBFiling.entitySource(() => (cat ? cat.entities : []), presetId));
+    WB.combo(ent, WBFiling.entitySource(() => (cat ? cat.entities : [])));
     WB.combo(task, WBFiling.taskSource(() => (cat ? cat.tasks : [])));
     WB.combo(artist, WBFiling.taskSource(() => (cat ? cat.artists : [])));
     dlg.showModal();
@@ -2841,11 +2832,10 @@
   function importer(project) {
     let state = imports.get(project.id);
     if (state) return state;
-    const presetId = project.settings && project.settings.naming;
     const rows = [];
     let cat = catalogues.get(project.id) || null;
     const catalogue = async () => cat || (cat = await api('GET', `/api/projects/${project.id}`));
-    const tasks = () => (cat ? cat.tasks : N.preset(presetId).tasks);
+    const tasks = () => (cat ? cat.tasks : N.TASKS);
     const known = (name) => cat && cat.entities.find((e) => e.name === name);
     // What the project is set to: whether it counts by task, and the names it has learned to read.
     const settings = () => (cat && cat.project && cat.project.settings) || project.settings || {};
@@ -2878,7 +2868,7 @@
     } });
     // The same answer for every file not yet filed, to start from (filing.js, as on a board).
     const fillAll = WBFiling.forAll({
-      presetId, getEntities: () => (cat ? cat.entities : []), getTasks: tasks, cls: 'imp-fill', useTasks: useTasks(),
+      getEntities: () => (cat ? cat.entities : []), getTasks: tasks, cls: 'imp-fill', useTasks: useTasks(),
       apply: (ent, task) => {
         // In order, so that a short line (+) is read by each row after the one above it.
         for (const r of rows) {
@@ -2979,6 +2969,18 @@
       return n;
     }
     const resyncAll = () => { for (const o of rows) if (o.fields) o.fields.sync(); };
+    // Rows nobody has named yet, read again by what the project now has: a file filed as char-robot
+    // makes char-robot_model_v1 one of its versions, and char-dog_rig_v2 an asset like it.
+    const reread = () => {
+      for (const o of rows) {
+        if (!o.fields || o.touched || !unfiled(o) || o.fields.f.name()) continue;
+        const p = N.parse(o.file.name, cat ? cat.entities : []);
+        if (!p.entity) continue;
+        o.parsed = p;
+        o.fields.f.setLine(p.entity, p.task || undefined);
+        o.fields.f.take({ number: p.hip, view: p.view, named: true });
+      }
+    };
 
     // What Claude would file each row not yet filed as, put into the rows. Undo puts back what they said.
     const unfiled = (r) => r.status !== 'filed' && r.status !== 'filing';
@@ -3045,11 +3047,11 @@
       // The version it is to be: the next of that asset, set or shot and task (after any rows above going
       // to the same), unless another is typed (in its field, or at the end of the line: kilo-0010 v12).
       const num = el('input', { type: 'number', min: '1', step: '1', class: 'imp-num', 'aria-label': 'Version', title: 'Version: the next one, unless you say another' });
-      const ruled = !r.parsed.entity && N.byRules(r.file.name, rules(), tasks(), presetId);
+      const ruled = !r.parsed.entity && N.byRules(r.file.name, rules(), tasks());
       // Named some other way, and not by a pattern the project has: filing it may teach one.
       r.taught = !r.entity && !r.parsed.entity && !(ruled && ruled.rule.pattern);
       const f = WBFiling.fields({
-        presetId, getEntities: () => (cat ? cat.entities : []), getTasks: tasks, views: viewList(), view: r.parsed.view || (ruled && ruled.view), label: r.file.name,
+        getEntities: () => (cat ? cat.entities : []), getTasks: tasks, views: viewList(), view: r.parsed.view || (ruled && ruled.view), label: r.file.name,
         entity: r.entity ? r.entity.name : r.parsed.entity || (ruled && ruled.entity) || '', task: r.parsed.task || (ruled && ruled.task) || '', onChange: resyncAll,
         named: !!(r.entity || r.parsed.entity || ruled), piece: () => r.look,
         useTasks: useTasks(), rules, peers, remembered: store(`wb:file:${project.id}`) || null,
@@ -3063,7 +3065,7 @@
         },
       });
       const { ent, task, tier } = f;
-      // The version its name says (v111), read by the project's naming or a learned pattern, is its number.
+      // The version its name says (v111), read as the app writes names or by a learned pattern, is its number.
       const named = (ruled && ruled.number) || (r.parsed.entity && r.parsed.hip) || null;
       if (named) {
         num.value = String(named);
@@ -3095,7 +3097,7 @@
       };
       for (const input of [ent, task, num]) {
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented && canFile(r)) fileRow(r); });
-        input.addEventListener('input', () => setMark(r, null));
+        input.addEventListener('input', () => { r.touched = true; setMark(r, null); });
       }
       r.fields = { f, ent, task, num, view: f.viewSel, tier, go, status, bar, thumb, said, undo, box: fields, sync };
       // Taken back: whatever is under way for it stops, and the row goes.
@@ -3226,12 +3228,13 @@
         // What is filed now has its number: the rows still to go count on from it.
         cat = null;
         await catalogue().catch(() => {});
+        reread();
         resyncAll();
         showFiled();
         // A file named some other way teaches how such names are read, if it is wanted, and fills in the rest.
         if (r.taught) {
           WBFiling.offerRule({
-            filename: r.file.name, presetId, rules: rules(), tasks: tasks(),
+            filename: r.file.name, rules: rules(), tasks: tasks(),
             filed: { entity: name, task, number: r.version.number, view: viewOf(r), views: viewList() || [] },
             others: rows.filter((o) => o !== r && o.fields && unfiled(o)).map((o) => ({ filename: o.file.name, fields: o.fields.f })),
             save: async (next) => {
@@ -3293,7 +3296,7 @@
       let n = 0;
       for (const file of files) {
         if (!/^(image|video)\//.test(file.type) && !/\.(png|jpe?g|gif|webp|avif|bmp|svg|mp4|m4v|webm|mov)$/i.test(file.name)) continue;
-        const r = { key: WB.uid(), file, entity, status: 'queued', progress: 0, parsed: N.parse(file.name, presetId), look: null, preview: null, ctl: new AbortController() };
+        const r = { key: WB.uid(), file, entity, status: 'queued', progress: 0, parsed: N.parse(file.name, cat ? cat.entities : []), look: null, preview: null, ctl: new AbortController() };
         rows.push(r);
         list.append(makeRow(r));
         paintRow(r);

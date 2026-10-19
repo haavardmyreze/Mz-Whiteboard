@@ -37,7 +37,7 @@ test('ai: asks Claude with the key, the model, the rules and the files, and must
   assert.ok(q.headers['anthropic-version']);
   assert.equal(q.body.model, DEFAULT_MODEL);
   assert.deepEqual(q.body.tool_choice, { type: 'tool', name: 'file_versions' });
-  assert.match(q.body.system, /four digits/);
+  assert.match(q.body.system, /<sequence>-<shot number in 4 digits>/);
   assert.match(q.body.system, /kilo-0010 \(shot\)/);
   assert.match(q.body.system, /This project has: anim/);
   assert.match(q.body.messages[0].content, /These are all shots of ch02/);
@@ -56,12 +56,12 @@ test('ai: what Claude says is made to fit before it is shown', async () => {
       { key: '0', entity: 'twice', tier: 'shot', task: null, version: null }, // the first answer stands
       { key: 'x', entity: 'ch02-0030', tier: 'shot', task: null, version: null }, // not asked about
       { key: '2', entity: '', tier: 'shot', task: null, version: null }, // no name: no answer
-      { key: '3', entity: 'set-kitchen', tier: 'nonsense', task: null, version: 12345, view: 'BTY Left' }, // tier from its shape; the view as a token
+      { key: '3', entity: 'set-kitchen', tier: 'nonsense', task: null, version: 12345, view: 'BTY Left' }, // tier as the project's set- names are; the view as a token
     ],
   });
   const ai = createAi({ key: 'k', fetchImpl: claude.fetchImpl });
   const files = ['0', '1', '2', '3'].map((key) => ({ key, filename: `${key}.mov` }));
-  const out = await ai.fileNames({ files, entities: [], views: ['cmp', 'bty-left'] });
+  const out = await ai.fileNames({ files, entities: [{ id: 's', name: 'set-harbour', tier: 'set' }], views: ['cmp', 'bty-left'] });
   assert.deepEqual(Object.keys(out).sort(), ['0', '1', '3']);
   assert.deepEqual(out['0'], { entity: 'ch02-0010', tier: 'shot', task: 'anim', version: 3, view: null, note: 'from the name', fits: true });
   assert.equal(out['3'].view, 'bty-left');
@@ -108,16 +108,4 @@ test('ai: what goes wrong is said plainly', async () => {
   await fails(fakeClaude({ files: [] }, { stop: 'max_tokens' }), /cut short/);
   await fails(fakeClaude(null), /did not give an answer/);
   await fails({ fetchImpl: async () => { throw new TypeError('fetch failed'); } }, /could not be reached/, 504);
-});
-
-test('ai: is told the project’s own convention, or that it has none', async () => {
-  const claude = fakeClaude({ files: [] });
-  const ai = createAi({ key: 'sk-test', base: 'http://claude.local/', fetchImpl: claude.fetchImpl });
-  await ai.fileNames({ files: [{ key: '0', filename: 'a.mov' }], presetId: 'free', entities: [], tasks: ['anim'] });
-  await ai.fileNames({ files: [{ key: '0', filename: 'a.mov' }], presetId: 'episodic', entities: [], tasks: ['anim'] });
-  const [free, episodic] = claude.asked.map((q) => q.body.system);
-  assert.match(free, /no naming convention/);
-  assert.doesNotMatch(free, /four digits/);
-  assert.match(episodic, /Episodic/);
-  assert.match(episodic, /<sequence>-sh<shot>/);
 });

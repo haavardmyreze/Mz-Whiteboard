@@ -28,19 +28,19 @@ class AiError extends Error {
 const clip = (text, n) => String(text == null ? '' : text).slice(0, n);
 const versionOf = (n) => (Number.isSafeInteger(n) && n >= 1 && n <= 9999 ? n : null);
 
-// The naming rules of a project's preset, in words, for the prompt.
-function rules(presetId, tasks) {
-  const p = naming.preset(presetId);
-  const things = p.tiers.map((t) => `${t.one}s`).join(', ');
+// How names are written in a project, in words, for the prompt (see naming.js).
+function rules(tasks) {
   return [
-    p.free ? `The project has no naming convention: name its ${things} as their files suggest, short and plain.` : `The project names things by the "${p.name}":`,
+    'The project is made of assets, sets, and shots in sequences, named this way:',
     '- Every name is lower case; words are joined by "-"; no spaces, no underscores.',
-    ...p.tiers.filter((t) => t.name).map((t) => `- A ${t.one} is named ${t.shape}.`),
-    ...(p.free || p.strict ? [] : [`- A ${p.tiers.filter((t) => !t.name).map((t) => t.one).join(' or ')} may be named anything.`]),
-    `- It has only ${things}: nothing is anything else.`,
-    `- Tasks are single tokens. This project has: ${(tasks && tasks.length ? tasks : p.tasks).join(', ')}.`,
+    `- A shot is <sequence>-<shot number in ${naming.DIGITS} digits> (kilo-0010, ch01-0020); its sequence is everything before the number.`,
+    '- An asset or a set is named in plain words, like the project\'s own names that are like it (if it has char-robot, a new character is char-something).',
+    '- It has only assets, sets and shots: nothing is anything else.',
+    `- Tasks are single tokens. This project has: ${(tasks && tasks.length ? tasks : naming.TASKS).join(', ')}.`,
   ].join('\n');
 }
+// Whether a name is written as what it is: a shot as a shot, anything else not as one.
+const fitsTier = (name, tier) => (tier === 'shot') === (naming.tierOf(name) === 'shot');
 
 function knownList(entities) {
   const list = (entities || []).slice(0, MAX_KNOWN);
@@ -96,13 +96,13 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
   // What each file should be filed as. `files`: [{ key, filename, now: { entity, task, version, view } }] where
   // `now` is what its row says at the moment; `views` are the views the project's versions are shown in
   // already. Returns { key -> { entity, tier, task, version, view, note, fits } }.
-  async function fileNames({ instruction, files, presetId, entities, tasks, views = [], useViews = true, useTasks = true }) {
+  async function fileNames({ instruction, files, entities, tasks, views = [], useViews = true, useTasks = true }) {
     const list = (files || []).slice(0, MAX_FILES).filter((f) => f && f.key != null && f.filename);
     if (!list.length) throw new AiError('No files to ask about', 400);
-    const tiers = naming.preset(presetId).tiers.map((t) => t.id);
+    const tiers = naming.TIERS;
     const system = [
       'You file review media (renders, playblasts, stills) into an animation and VFX project\'s catalogue. Each file becomes a version of an asset, a set or a shot, under a task.',
-      rules(presetId, tasks),
+      rules(tasks),
       knownList(entities),
       [
         'For each file, say:',
@@ -163,11 +163,11 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
       if (!keys.has(k) || answers[k]) continue;
       const entity = naming.tokenize(a.entity);
       if (!entity) continue;
-      const tier = tiers.includes(a.tier) ? a.tier : naming.tierOf(entity, presetId) || null;
+      const tier = tiers.includes(a.tier) ? a.tier : naming.kindOf(entity, entities || []) || null;
       if (!tier) continue;
       answers[k] = {
         entity, tier, task: (useTasks && naming.tokenize(a.task)) || null, version: versionOf(a.version), view: useViews && views.slice(1).includes(naming.tokenize(a.view)) ? naming.tokenize(a.view) : null,
-        note: clip(a.note, 200), fits: naming.tierOf(entity, presetId) === tier,
+        note: clip(a.note, 200), fits: fitsTier(entity, tier),
       };
     }
     return answers;
@@ -176,14 +176,14 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
   // New names, or what they are, for some of a project's assets, sets and shots. `chosen`: [{ id, name,
   // tier, versions: [file names it was filed from] }]. Returns { id -> { name, tier, note, fits } }, only for
   // those it would change.
-  async function renameEntities({ instruction, chosen, presetId, entities, tasks }) {
+  async function renameEntities({ instruction, chosen, entities, tasks }) {
     const list = (chosen || []).slice(0, MAX_ENTITIES);
     if (!list.length) throw new AiError('Nothing to ask about', 400);
-    const tiers = naming.preset(presetId).tiers.map((t) => t.id);
+    const tiers = naming.TIERS;
     const ids = new Set(list.map((e) => e.id));
     const system = [
       'You tidy up the names of assets, sets and shots in an animation and VFX project\'s catalogue.',
-      rules(presetId, tasks),
+      rules(tasks),
       knownList((entities || []).filter((e) => !ids.has(e.id))),
       [
         'For each of the ones you are given, say its name and tier as they should be, by the person\'s instruction and the rules above. Use what the files it was filed from were called when they say more than its name does.',
@@ -225,7 +225,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
       const name = naming.tokenize(a.name);
       const tier = tiers.includes(a.tier) ? a.tier : e.tier;
       if (!name || (name === e.name && tier === e.tier)) continue;
-      answers[e.id] = { name, tier, note: clip(a.note, 200), fits: naming.tierOf(name, presetId) === tier };
+      answers[e.id] = { name, tier, note: clip(a.note, 200), fits: fitsTier(name, tier) };
     }
     return answers;
   }

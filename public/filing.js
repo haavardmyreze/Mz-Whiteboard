@@ -13,7 +13,7 @@
 // "kilo-0010 anim v12 bty", a file name pasted in, or a short way to say a shot (20, +, .); a space after
 // a name the project has, or a shot, moves on to the task, and a line that reads one way only goes into
 // its parts as it is typed. What the line does not say (a change of length, and anything that looks
-// wrong: a near miss of a name the project has, a name not to the project's naming, a new sequence like
+// wrong: a near miss of a name the project has, a shot written short, a new one nothing says the kind of, a new sequence like
 // one there is, a second count for one shot) is behind a mark at its end, a warning when something is
 // to be sorted out: clicked, it says it, worst first, each with the fix a click away. Suggestions come before anything
 // is typed: what the piece looks like a new version of (by its picture, asked of the server), the row
@@ -50,10 +50,10 @@ const WBFiling = (() => {
       hint: hint || (s ? `v${s.number} → v${nextOf(e, s.task)}` : `${e.tier}${e.versions ? ` · ${WB.plural(e.versions, 'version')}` : ''}`),
     };
   }
-  const newOption = (name, presetId, hint) => ({ value: name, task: undefined, label: `New: ${name}`, hint: hint || N.tierOf(name, presetId) || 'say what it is', make: true });
+  const newOption = (name, kinds, hint) => ({ value: name, task: undefined, label: `New: ${name}`, hint: hint || N.kindOf(name, kinds || []) || 'say what it is', make: true });
 
   // Suggestions for "which asset, set or shot", as a line is typed, best first. `ctx` is what the row
-  // knows besides: { entities, tasks, presetId, useTasks, line context (see readLine), likely, above }.
+  // knows besides: { entities, tasks, useTasks, line context (see readLine), likely, above }.
   function suggest(ctx, typed, max = 9) {
     const list = ctx.entities || [];
     const names = list.map((e) => e.name);
@@ -86,13 +86,13 @@ const WBFiling = (() => {
         const e = byName.get(last.entity);
         const s = e && streamsOf(e).find((x) => x.task === (last.task || null));
         push(e ? { ...streamOption(e, s, ctx.above ? 'same as above' : 'same as last', useTasks), task: useTasks ? last.task || null : null }
-          : { ...newOption(last.entity, ctx.presetId, ctx.above ? 'same as above' : 'same as last'), task: useTasks ? last.task || null : null });
+          : { ...newOption(last.entity, ctx.entities, ctx.above ? 'same as above' : 'same as last'), task: useTasks ? last.task || null : null });
       }
       if (out.length) out[0].first = true;
       const seq = ctx.line && ctx.line.seq;
       if (seq) {
-        const next = N.nextShot([...names, ...((ctx.line && ctx.line.taken) || [])], seq, ctx.presetId);
-        push({ ...newOption(next, ctx.presetId, `next shot in ${seq}`), task: useTasks && last ? last.task || null : undefined });
+        const next = N.nextShot([...names, ...((ctx.line && ctx.line.taken) || [])], seq);
+        push({ ...newOption(next, ctx.entities, `next shot in ${seq}`), task: useTasks && last ? last.task || null : undefined });
       }
       for (const l of likely) if (!looksAlike(l) && byName.has(l.entity)) push(likeOption(l));
       for (const e of [...list].filter((x) => x.latestAt).sort((a, b) => b.latestAt - a.latestAt)) push(streamOption(e, streamsOf(e).find((s) => useTasks || !s.task), 'lately', useTasks));
@@ -103,7 +103,7 @@ const WBFiling = (() => {
     // A short way to say a shot, or a file name pasted in: what it was read as, first.
     if (line.short && name) {
       if (byName.has(name)) push({ ...streamOption(byName.get(name), null, line.short, useTasks), task: line.task });
-      else push({ ...newOption(name, ctx.presetId, line.short), task: line.task });
+      else push({ ...newOption(name, ctx.entities, line.short), task: line.task });
     }
     // A name the project has, and more after it: its tasks that start with what was typed.
     const words = text.split(/\s+/);
@@ -122,11 +122,11 @@ const WBFiling = (() => {
     }
     // "kilo-": the sequence's next shot.
     const seqTyped = /^([a-z0-9]+(?:-[a-z0-9]+)*)-$/.exec(text.toLowerCase());
-    if (seqTyped && names.some((n) => N.seqOf(n, ctx.presetId) === seqTyped[1])) push(newOption(N.nextShot(names, seqTyped[1], ctx.presetId), ctx.presetId, `next shot in ${seqTyped[1]}`));
+    if (seqTyped && names.some((n) => N.seqOf(n) === seqTyped[1])) push(newOption(N.nextShot(names, seqTyped[1]), ctx.entities, `next shot in ${seqTyped[1]}`));
     if (name && !byName.has(name)) {
       for (const miss of N.nearMisses(name, names)) push(streamOption(byName.get(miss), null, 'did you mean?', useTasks));
-      for (const c of N.corrections(name, ctx.presetId, names)) push(byName.has(c.name) ? streamOption(byName.get(c.name), null, 'to the naming', useTasks) : newOption(c.name, ctx.presetId, `new ${c.tier}`));
-      push(newOption(name, ctx.presetId));
+      for (const c of N.corrections(name, names)) push(byName.has(c.name) ? streamOption(byName.get(c.name), null, 'as a shot', useTasks) : newOption(c.name, ctx.entities, `new ${c.tier}`));
+      push(newOption(name, ctx.entities));
     }
     // A pick keeps what else the line said: a suggestion names only the entity (and perhaps its task).
     for (const o of out) {
@@ -276,7 +276,7 @@ const WBFiling = (() => {
   // `say(text, undo)` tells the person something the keys did (a toast unless the page says otherwise).
   // `piece()` is the look of what is being filed (to compare it with the version it follows).
   function fields({
-    entity = '', task = '', presetId, getEntities, getTasks, label = 'it', onChange = () => {},
+    entity = '', task = '', getEntities, getTasks, label = 'it', onChange = () => {},
     useTasks = true, peers = () => [], remembered = null, numberOf = null, onLine = null, rules = () => [],
     number: typedNumber = null, view: namedView = null, views = null, named = false, say = null, piece = () => null,
     numInput = null, numAuto = null,
@@ -284,11 +284,12 @@ const WBFiling = (() => {
     const readout = el('div', { class: 'file-says', id: `fs-${WB.uid()}` });
     const ent = el('input', { type: 'text', value: entity, placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': `What ${label} is`, 'aria-describedby': readout.id, title: SHORT_HELP });
     const taskIn = el('input', { type: 'text', value: task, placeholder: 'task', spellcheck: 'false', 'aria-label': 'Task', hidden: !useTasks });
-    // What it is: said by the project when it has it, by the shape of a new name, or asked: a new name
-    // whose shape does not say has to be told (`tier`), nothing is assumed.
+    // What it is, as an icon: the project's when it has it; for a new one, what it is said to be (`tier`),
+    // else a shot by its shape, else what the project's names starting the same way are, else a question.
+    // A new one's icon has the choice laid over it, to say otherwise.
     const kind = el('span', { class: 'file-kind' });
-    const tier = el('select', { class: 'file-ask', 'aria-label': 'What it is', title: 'A new one: what is it?' },
-      el('option', { value: '', text: '?' }), N.preset(presetId).tiers.map((t) => el('option', { value: t.id, text: t.one })));
+    const tier = el('select', { class: 'file-ask', 'aria-label': 'What it is', title: 'What is it?' },
+      el('option', { value: '', text: '?' }), N.TIER_LIST.map((t) => el('option', { value: t.id, text: t.one })));
     // The version it follows, and the one it is to be: typed, or the next (faint).
     const prevSlot = el('span', { class: 'file-follows' });
     const verIn = numInput || el('input', { type: 'text', inputmode: 'numeric', value: typedNumber ? String(typedNumber) : '', spellcheck: 'false', 'aria-label': 'Version', title: 'Version: the next one, unless you say another' });
@@ -354,13 +355,13 @@ const WBFiling = (() => {
       const prev = above.length ? above[above.length - 1] : null;
       const last = () => (prev && prev.name() ? { entity: prev.name(), task: prev.taskName() } : remembered);
       return {
-        presetId, names: entities().map((e) => e.name), tasks: getTasks() || [], views: views || [], useViews: !!views, useTasks, rules: rules(), above: !!prev,
+        entities: entities(), names: entities().map((e) => e.name), tasks: getTasks() || [], views: views || [], useViews: !!views, useTasks, rules: rules(), above: !!prev,
         get last() { return last(); },
         get taken() { return above.map((p) => p.name()).filter(Boolean); },
         get seq() {
-          for (let i = above.length - 1; i >= 0; i--) if (N.tierOf(above[i].name(), presetId) === 'shot') return N.seqOf(above[i].name(), presetId);
+          for (let i = above.length - 1; i >= 0; i--) if (N.tierOf(above[i].name()) === 'shot') return N.seqOf(above[i].name());
           const l = last();
-          return l && N.tierOf(l.entity, presetId) === 'shot' ? N.seqOf(l.entity, presetId) : null;
+          return l && N.tierOf(l.entity) === 'shot' ? N.seqOf(l.entity) : null;
         },
       };
     }
@@ -417,7 +418,7 @@ const WBFiling = (() => {
     }
 
     const combo = WB.combo(ent, (typed) => suggest({
-      entities: entities(), presetId, useTasks, likely, line: lineContext(), above: lineContext().above,
+      entities: entities(), useTasks, likely, line: lineContext(), above: lineContext().above,
     }, typed), {
       quiet: true,
       onPick: (o) => {
@@ -454,7 +455,7 @@ const WBFiling = (() => {
         e.stopImmediatePropagation();
         settle();
         combo.hide();
-        const done = series(self, peers(), entities(), presetId);
+        const done = series(self, peers(), entities());
         if (done) tell(done.text, done.undo);
         onChange();
       } else if (e.key === 'Enter' && !ent.value.trim() && combo.list.hidden) {
@@ -523,27 +524,29 @@ const WBFiling = (() => {
       if (!e) {
         const misses = N.nearMisses(n, names);
         if (misses.length) out.push({ text: 'Not in the project. Did you mean', fixes: misses.map((m) => ({ label: m, run: () => setLine(m) })), warn: true, rank: 1 });
-        const tierNow = N.tierOf(n, presetId);
-        // Only where every name has a shape is one of none of them not to the project's naming.
-        if (!tierNow && N.preset(presetId).strict) {
-          const fixes = N.corrections(n, presetId, names).filter((c) => !misses.includes(c.name)).slice(0, 4);
-          if (fixes.length || !misses.length) out.push({ text: fixes.length ? 'Not to the project’s naming. Perhaps' : 'Not to the project’s naming: say what it is', title: `${N.preset(presetId).name}: ${N.preset(presetId).tiers.map((t) => `a ${t.one} is ${t.shape}`).join('; ')}`, fixes: fixes.map((c) => ({ label: c.name, run: () => setLine(c.name) })), warn: true, rank: 2 });
+        const tierNow = N.tierOf(n);
+        // A shot written short (kilo-10) or run on (kilo10) is offered as the shot it is.
+        const fixes = N.corrections(n, names).filter((c) => !misses.includes(c.name)).slice(0, 2);
+        if (fixes.length) out.push({ text: 'A shot? Perhaps', fixes: fixes.map((c) => ({ label: c.name, run: () => setLine(c.name) })), warn: true, rank: 2 });
+        // Nothing says what a new one is: it is asked, nothing is assumed.
+        if (!tier.value && !N.kindOf(n, list)) {
+          out.push({ text: 'New: what is it?', fixes: N.TIER_LIST.map((t) => ({ label: t.one, run: () => { changed(); tier.value = t.id; sync(); } })), warn: true, rank: 2 });
         }
         if (tierNow === 'shot') {
-          const seq = N.seqOf(n, presetId);
-          const seqs = [...new Set(names.filter((x) => N.tierOf(x, presetId) === 'shot').map((x) => N.seqOf(x, presetId)))];
+          const seq = N.seqOf(n);
+          const seqs = [...new Set(names.filter((x) => N.tierOf(x) === 'shot').map((x) => N.seqOf(x)))];
           const taken = lineContext().taken;
-          const above = taken.some((x) => N.seqOf(x, presetId) === seq && N.tierOf(x, presetId) === 'shot');
+          const above = taken.some((x) => N.seqOf(x) === seq && N.tierOf(x) === 'shot');
           if (!seqs.includes(seq) && !above) {
             // A warning when it is a letter or two from one there is; otherwise said in the tag that says
             // it is new (see paintReadout), and asked about when filed.
             const like = N.nearMisses(seq, seqs);
-            out.push({ text: like.length ? `A new sequence, ${seq}. Did you mean` : '', fixes: like.map((q) => ({ label: q, run: () => setLine(N.shotName(q, N.shotNumber(n, presetId), presetId)) })), warn: like.length > 0, rank: 1, newSeq: seq });
+            out.push({ text: like.length ? `A new sequence, ${seq}. Did you mean` : '', fixes: like.map((q) => ({ label: q, run: () => setLine(N.shotName(q, N.shotNumber(n))) })), warn: like.length > 0, rank: 1, newSeq: seq });
           } else {
             // Past the last shot there is, or that a row above is making: a run of new shots warns once, at its jump.
-            const sq = N.sequence([...names, ...taken], seq, presetId);
-            const num = N.shotNumber(n, presetId);
-            if (sq.last && num > sq.last + 10 * sq.step) out.push({ text: `Far past the last shot of ${seq} (${N.pad(sq.last, presetId)})`, warn: true, rank: 5 });
+            const sq = N.sequence([...names, ...taken], seq);
+            const num = N.shotNumber(n);
+            if (sq.last && num > sq.last + 10 * sq.step) out.push({ text: `Far past the last shot of ${seq} (${N.pad(sq.last)})`, warn: true, rank: 5 });
           }
         }
       }
@@ -598,7 +601,7 @@ const WBFiling = (() => {
     // Ready to file: it says what it is, every word of it is read, and a new one says what it is.
     const ready = () => {
       const n = name();
-      return !!n && !line().rest.length && !viewProblem && (!!have(n) || !!N.tierOf(n, presetId) || !!tier.value);
+      return !!n && !line().rest.length && !viewProblem && (!!have(n) || !!tier.value || !!N.kindOf(n, entities()));
     };
 
     // The number it gets: the page's, or the one typed, or one past the highest of its entity and task,
@@ -670,18 +673,20 @@ const WBFiling = (() => {
     function paintLine() {
       const n = name();
       const e = n ? have(n) : null;
-      const shape = n && !e ? N.tierOf(n, presetId) : null;
-      const ask = !!n && !e && !shape;
-      tier.hidden = !ask;
-      kind.hidden = ask;
-      const tid = e ? e.tier : shape || tier.value || null;
-      const t = tid && N.preset(presetId).every.find((x) => x.id === tid);
-      const seq = tid === 'shot' ? N.seqOf(n, presetId) : null;
+      const guess = n && !e && !tier.value ? N.kindOf(n, entities()) : null;
+      const tid = e ? e.tier : tier.value || guess || null;
+      const t = tid && N.TIER_LIST.find((x) => x.id === tid);
+      const seq = tid === 'shot' ? N.seqOf(n) : null;
       const newSeq = !e && seq && checks().some((c) => c.newSeq);
-      kind.innerHTML = n && tid ? WB.icon(TIER_ICON[tid] || 'dot', 15) : '';
-      kind.className = `file-kind${!n || e ? '' : ' new'}${newSeq ? ' new-seq' : ''}`;
-      kind.title = !n || !tid ? '' : e ? `${n}: a ${t ? t.one : tid} the project has` : `${n} is new: a ${t ? t.one : tid}${seq ? `, in ${newSeq ? 'a new sequence, ' : ''}${seq}` : ''}${shape ? ', by the shape of its name' : ''}`;
-      kind.setAttribute('aria-label', kind.title);
+      tier.hidden = !n || !!e;
+      kind.innerHTML = !n ? '' : tid ? WB.icon(TIER_ICON[tid] || 'dot', 15) : '?';
+      kind.className = `file-kind${!n || e ? '' : ' new'}${newSeq ? ' new-seq' : ''}${n && !tid ? ' ask' : ''}`;
+      const why = guess === 'shot' ? ', by the shape of its name' : guess ? ', as the project\'s names like it are' : '';
+      const a = t && /^[aeiou]/.test(t.one) ? 'an' : 'a';
+      const said = !n ? '' : !tid ? `${n} is new: say what it is` : e ? `${n}: ${a} ${t.one} the project has`
+        : `${n} is new: ${a} ${t.one}${seq ? `, in ${newSeq ? 'a new sequence, ' : ''}${seq}` : ''}${why}`;
+      kind.title = said;
+      tier.title = said ? `${said}. Click to say otherwise` : '';
       // The version it follows: its still (with a tick when the piece looks like it), which shows the two
       // side by side under the pointer or the keyboard.
       const head = n ? headOf() : null;
@@ -707,7 +712,6 @@ const WBFiling = (() => {
 
     const sync = () => {
       const n = name();
-      tier.hidden = !n || !!have(n) || !!N.tierOf(n, presetId);
       paintLine();
       paintReadout();
     };
@@ -737,7 +741,7 @@ const WBFiling = (() => {
       if (e.inputType !== 'insertText' || e.data !== ' ' || ent.selectionStart !== ent.value.length) return;
       const l = N.readLine(ent.value, lineContext());
       if (!l.entity || l.rest.length) return;
-      const whole = !!have(l.entity) || !!l.short || N.tierOf(l.entity, presetId) === 'shot';
+      const whole = !!have(l.entity) || !!l.short || N.tierOf(l.entity) === 'shot';
       const more = l.task !== undefined || l.number != null || !!l.view;
       if (!more && !whole) return;
       combo.hide();
@@ -829,7 +833,7 @@ const WBFiling = (() => {
       entity: () => {
         const n = name();
         const h = have(n);
-        return h ? h.id : { name: n, tier: N.tierOf(n, presetId) || tier.value };
+        return h ? h.id : { name: n, tier: tier.value || N.kindOf(n, entities()) };
       },
       // The project does not have it yet: it is made when filed.
       isNew: () => !!name() && !have(name()),
@@ -849,15 +853,15 @@ const WBFiling = (() => {
   // Shift+Enter: the rows below `from` are filled in on from it. Shots go on in their sequence's step
   // (kilo-0010, kilo-0020...), skipping any the project has; anything else is the same for them all. A
   // row whose own file's name said what it is keeps it. Gives what to say about it, and how to undo it.
-  function series(from, list, entities, presetId) {
+  function series(from, list, entities) {
     const at = list.indexOf(from);
     const n = from.name();
     if (at < 0 || !n) return null;
     const task = from.taskName();
     const names = entities.map((e) => e.name);
-    const shot = N.tierOf(n, presetId) === 'shot' ? N.seqOf(n, presetId) : null;
-    const step = shot ? N.sequence(names, shot, presetId).step : 0;
-    let num = shot ? N.shotNumber(n, presetId) : 0;
+    const shot = N.tierOf(n) === 'shot' ? N.seqOf(n) : null;
+    const step = shot ? N.sequence(names, shot).step : 0;
+    let num = shot ? N.shotNumber(n) : 0;
     const before = [];
     let kept = 0;
     for (const p of list.slice(at + 1)) {
@@ -867,9 +871,9 @@ const WBFiling = (() => {
       }
       before.push({ p, ent: p.ent.value, task: p.task.value });
       if (shot) {
-        const most = 10 ** N.preset(presetId).shot.digits - 1;
-        do num += step; while (names.includes(N.shotName(shot, num, presetId)) && num < most);
-        p.setLine(N.shotName(shot, num, presetId), task || '');
+        const most = 10 ** N.DIGITS - 1;
+        do num += step; while (names.includes(N.shotName(shot, num)) && num < most);
+        p.setLine(N.shotName(shot, num), task || '');
       } else p.setLine(n, task || '');
     }
     if (!before.length && !kept) return null;
@@ -894,10 +898,10 @@ const WBFiling = (() => {
 
   // "For all": one answer to start every row from. `apply(entity, task)` fills the rows (either may be '').
   // A line that says a shot short (+, 20) is read by each row in turn, so + numbers them one after another.
-  function forAll({ presetId, getEntities, getTasks, apply, cls = 'file-fill', useTasks = true }) {
+  function forAll({ getEntities, getTasks, apply, cls = 'file-fill', useTasks = true }) {
     const ent = el('input', { type: 'text', placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': 'Asset, set or shot for all', title: 'A name for every row. + gives each row the next shot in turn' });
     const task = el('input', { type: 'text', placeholder: 'Task', spellcheck: 'false', 'aria-label': 'Task for all', hidden: !useTasks });
-    WB.combo(ent, (typed) => suggest({ entities: getEntities(), presetId, useTasks, line: { presetId, names: (getEntities() || []).map((e) => e.name), tasks: getTasks() || [], useTasks } }, typed));
+    WB.combo(ent, (typed) => suggest({ entities: getEntities(), useTasks, line: { entities: getEntities() || [], names: (getEntities() || []).map((e) => e.name), tasks: getTasks() || [], useTasks } }, typed));
     WB.combo(task, (typed) => WB.rank(getTasks() || [], typed).map((t) => ({ value: t, label: t })));
     const go = () => apply(ent.value.trim(), useTasks ? task.value.trim() : '');
     return el('div', { class: cls }, el('span', { text: 'For all' }), ent, task,
@@ -941,18 +945,18 @@ const WBFiling = (() => {
   // A pattern is offered once while the page is open, however many files like it are filed (several at
   // once, say), and whatever was answered: Not now is not asked again until the page is opened anew.
   const offered = new Set();
-  function offerRule({ filename, filed, presetId, rules, others = [], tasks = [], save }) {
-    const rule = N.ruleFrom(filename, filed, presetId);
+  function offerRule({ filename, filed, rules, others = [], tasks = [], save }) {
+    const rule = N.ruleFrom(filename, filed);
     if (!rule || (rules || []).some((r) => N.ruleKey(r) === N.ruleKey(rule)) || offered.has(N.ruleKey(rule))) return;
     offered.add(N.ruleKey(rule));
-    const reads = others.filter((o) => !o.fields.name() && N.byRules(o.filename, [rule], tasks, presetId));
+    const reads = others.filter((o) => !o.fields.name() && N.byRules(o.filename, [rule], tasks));
     const said = (r) => N.label(r.entity, r.task, r.number || '').replace(/ v$/, '') + (r.view ? ` ${r.view}` : '');
     const stem = (f) => String(f).replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
     // Asked in the middle of the page, not in a corner: what is learned here reads every name like it.
     const fill = async () => {
       await save([...(rules || []), rule]);
       for (const o of reads) {
-        const r = N.byRules(o.filename, [rule], tasks, presetId);
+        const r = N.byRules(o.filename, [rule], tasks);
         o.fields.setLine(r.entity, r.task || undefined);
         o.fields.take({ number: r.number, view: r.view, named: true });
       }
@@ -964,7 +968,7 @@ const WBFiling = (() => {
         el('div', { class: 'rule-pair' }, el('code', { text: stem(filename) }), el('span', { class: 'rule-arrow', html: WB.icon('arrow', 14) }), el('b', { text: said(filed) })),
         shown.length ? el('div', { class: 'rule-more' },
           el('span', { text: `${reads.length === 1 ? 'One more' : `${reads.length} more`} waiting would be filed as` }),
-          el('ul', {}, shown.map((o) => el('li', {}, el('code', { text: stem(o.filename) }), el('b', { text: said(N.byRules(o.filename, [rule], tasks, presetId)) }))),
+          el('ul', {}, shown.map((o) => el('li', {}, el('code', { text: stem(o.filename) }), el('b', { text: said(N.byRules(o.filename, [rule], tasks)) }))),
             reads.length > shown.length ? el('li', { class: 'rule-rest', text: `and ${reads.length - shown.length} more` }) : null)) : null,
         el('div', { class: 'dlg-actions' },
           el('button', { type: 'button', class: 'btn', text: 'Not now', onclick: () => dlg.close() }),
@@ -979,9 +983,9 @@ const WBFiling = (() => {
   }
 
   // Suggestions for a name or a task typed anywhere else (a version's Edit), the same as a row's.
-  const entitySource = (getEntities, presetId) => (typed) => {
+  const entitySource = (getEntities) => (typed) => {
     const list = getEntities() || [];
-    return suggest({ entities: list, presetId, line: { presetId, names: list.map((e) => e.name) } }, typed);
+    return suggest({ entities: list, line: { entities: list, names: list.map((e) => e.name) } }, typed);
   };
   const taskSource = (getTasks) => (typed) => WB.rank(getTasks() || [], typed).map((t) => ({ value: t, label: t }));
 

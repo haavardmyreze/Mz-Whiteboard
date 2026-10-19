@@ -4697,16 +4697,15 @@
   // says. `prefill` (by piece) is what the rows said before, when filing is changed straight after or
   // was refused (`problem` then says why).
   function openFiling(list, cat, prefill = null, problem = null) {
-    const presetId = project.naming;
     const settings = (cat.project && cat.project.settings) || {};
     const useTasks = settings.tasks !== false;
     const rules = settings.rules || [];
     const remembered = store(`wb:file:${project.id}`) || null;
-    const known = (name) => !!name && (cat.entities.some((e) => e.name === name) || !!N.tierOf(name, presetId));
+    const known = (name) => !!name && (cat.entities.some((e) => e.name === name) || !!N.tierOf(name));
     // The fields are the catalogue importer's too (filing.js).
     const rows = [];
     const shared = {
-      presetId, useTasks, remembered, getEntities: () => cat.entities, getTasks: () => cat.tasks, views: cat.viewList || null,
+      useTasks, remembered, getEntities: () => cat.entities, getTasks: () => cat.tasks, views: cat.viewList || null,
       peers: () => rows.map((row) => row.f), rules: () => rules, onChange: () => paint(),
     };
 
@@ -4723,8 +4722,8 @@
     };
     const ok = el('button', { type: 'submit', class: 'btn primary', text: list.length > 1 ? `File ${list.length}` : 'File' });
     for (const it of list) {
-      const parsed = N.parse(it.name || '', presetId);
-      const ruled = !parsed.entity && N.byRules(it.name || '', rules, cat.tasks, cat.preset && cat.preset.id);
+      const parsed = N.parse(it.name || '', cat.entities);
+      const ruled = !parsed.entity && N.byRules(it.name || '', rules, cat.tasks);
       const frame = frameOf(it);
       const fromFrame = frame && known(N.tokenize(frame.title)) ? N.tokenize(frame.title) : null;
       const before = prefill && prefill.get(it.id);
@@ -4831,7 +4830,7 @@
         const taught = rows.find((row) => row.taught && row.it.name);
         if (taught) {
           WBFiling.offerRule({
-            filename: taught.it.name, presetId, rules, tasks: cat.tasks,
+            filename: taught.it.name, rules, tasks: cat.tasks,
             filed: { entity: nameOf(taught), task: taught.f.taskName(), number: res.versions[rows.indexOf(taught)].number, view: taught.f.viewName(), views: cat.viewList || [] },
             save: (next) => WB.api('PATCH', `/api/folders/${project.id}`, { settings: { rules: next } }),
           });
@@ -4915,7 +4914,7 @@
     // Typed as it is spoken ("kilo 0010") or as it is written (kilo-0010), it finds the same.
     const q = catQuery ? WBNaming.tokenize(catQuery) : '';
     const shown = catSeen.entities.filter((e) => !q || e.name.includes(q));
-    const groups = catSeen.preset.tiers.map((t) => [t, shown.filter((e) => e.tier === t.id)]).filter(([, list]) => list.length);
+    const groups = catSeen.tiers.map((t) => [t, shown.filter((e) => e.tier === t.id)]).filter(([, list]) => list.length);
     catBody.replaceChildren(...(groups.length ? groups.map(([t, list]) => el('section', { class: 'cat-group' },
       el('h3', {}, t.label, el('span', { class: 'tally', text: String(list.length) })),
       el('div', { class: 'cat-grid' }, list.map((e) => el('button', { type: 'button', class: 'cat-tile', title: `${e.name}: ${e.versions} ${e.versions === 1 ? 'version' : 'versions'}`, onclick: () => { catEntity = e.id; paintCatalogue(); } },

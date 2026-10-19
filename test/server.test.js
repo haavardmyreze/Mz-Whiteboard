@@ -1384,16 +1384,20 @@ const naming = require('../public/naming');
 
 test('a file name fills in what it can, and a name that says nothing is no trouble', () => {
   assert.deepEqual(naming.parse('kilo-0010_anim_erik_v012.mov'), { entity: 'kilo-0010', tier: 'shot', task: 'anim', descriptor: null, artist: 'erik', hip: 12, view: null });
-  assert.deepEqual(naming.parse('char-robot_lookdev_metal_worn_anna_v3.png'), { entity: 'char-robot', tier: 'asset', task: 'lookdev', descriptor: 'metal_worn', artist: 'anna', hip: 3, view: null });
-  assert.equal(naming.parse('set-living-room_dressing_v001.jpg').task, 'dressing');
-  assert.equal(naming.parse('set-living-room_erik_v001.jpg').artist, 'erik');
+  // An asset or a set is read when the project has it, or names like it.
+  const known = [{ name: 'char-dog', tier: 'asset' }, { name: 'set-harbour', tier: 'set' }];
+  assert.deepEqual(naming.parse('char-robot_lookdev_metal_worn_anna_v3.png', known), { entity: 'char-robot', tier: 'asset', task: 'lookdev', descriptor: 'metal_worn', artist: 'anna', hip: 3, view: null });
+  assert.equal(naming.parse('char-robot_lookdev_metal_worn_anna_v3.png').entity, null);
+  assert.equal(naming.parse('set-living-room_dressing_v001.jpg', known).task, 'dressing');
+  assert.equal(naming.parse('set-living-room_erik_v001.jpg', known).artist, 'erik');
   assert.deepEqual(naming.parse('screenshoot_090126.png'), { entity: null, tier: null, task: null, descriptor: null, artist: null, hip: null, view: null });
   // A word after the version is the view the file shows.
   assert.equal(naming.parse('ch04-0030_comp_erik_v110_bty-left.mp4').view, 'bty-left');
   assert.equal(naming.parse('ch04-0030_comp_erik_v110_bty-left.mp4').hip, 110);
   assert.equal(naming.parse('Robot Final v3.png').hip, 3);
   assert.equal(naming.tierOf('kilo-0010'), 'shot');
-  assert.equal(naming.tierOf('veh-truck'), 'asset');
+  assert.equal(naming.tierOf('veh-truck'), null);
+  assert.equal(naming.kindOf('veh-truck', [{ name: 'veh-car', tier: 'asset' }]), 'asset');
   assert.equal(naming.tierOf('robot'), null);
   assert.equal(naming.tokenize('  Living Room! '), 'living-room');
   assert.equal(naming.seqOf('kilo-0010'), 'kilo');
@@ -1419,7 +1423,6 @@ test('a project is a folder with a catalogue: not inside another project, and no
   const marked = await call('PATCH', `/api/folders/${kilo.id}`, { project: true });
   assert.equal(marked.status, 200);
   assert.equal(marked.body.project, true);
-  assert.equal(marked.body.settings.naming, 'myreze');
   assert.equal((await call('GET', '/api/library')).body.folders.find((f) => f.id === kilo.id).project, true);
   // not inside it, nor around it
   assert.equal((await call('PATCH', `/api/folders/${inside.id}`, { project: true })).status, 400);
@@ -1723,14 +1726,18 @@ test('a project is set up with its assets, sets and shots ahead, each with artis
   const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
   await call('PATCH', `/api/folders/${project.id}`, { project: true });
 
-  // many at once, the tier read from each name; one the project has is left alone
-  const setUp = await call('POST', `/api/projects/${project.id}/entities`, { names: ['kilo-0010', 'Kilo-0020 ', 'char-robot', 'set-harbour', 'kilo-0010', ''] });
+  // many at once: a shot by its shape, anything else an asset unless said; one the project has is left alone
+  const setUp = await call('POST', `/api/projects/${project.id}/entities`, { names: ['kilo-0010', 'Kilo-0020 ', 'char-robot', 'kilo-0010', ''] });
   assert.equal(setUp.status, 201);
-  assert.deepEqual(setUp.body.made.map((e) => [e.name, e.tier]), [['kilo-0010', 'shot'], ['kilo-0020', 'shot'], ['char-robot', 'asset'], ['set-harbour', 'set']]);
+  assert.deepEqual(setUp.body.made.map((e) => [e.name, e.tier]), [['kilo-0010', 'shot'], ['kilo-0020', 'shot'], ['char-robot', 'asset']]);
+  await call('POST', `/api/projects/${project.id}/entities`, { names: ['set-harbour'], tier: 'set' });
+  // A new name is what the project's names starting the same way are.
+  const guessed = (await call('POST', `/api/projects/${project.id}/entities`, { names: ['set-street', 'char-dog'] })).body;
+  assert.deepEqual(guessed.made.map((e) => [e.name, e.tier]), [['set-street', 'set'], ['char-dog', 'asset']]);
   const again = (await call('POST', `/api/projects/${project.id}/entities`, { names: ['kilo-0010', 'mystery'], tier: 'asset' })).body;
   assert.deepEqual([again.had, again.made.map((e) => [e.name, e.tier])], [['kilo-0010'], [['mystery', 'asset']]]);
   const cat = (await call('GET', `/api/projects/${project.id}`)).body;
-  assert.equal(cat.entities.length, 5);
+  assert.equal(cat.entities.length, 7);
   assert.ok(cat.entities.every((e) => e.versions === 0));
 
   // artists and cc
@@ -2946,78 +2953,4 @@ test('a video is given a phone copy by one browser, and it is put everywhere the
   // A review copy as light as a phone copy is its own.
   assert.deepEqual((await call('POST', '/api/phone-copy/claim', { src: light })).body, { go: true });
   assert.equal((await call('POST', '/api/phone-copy', { src: light, lo: light })).body.lo, light);
-});
-
-test('a studio keeps naming conventions of its own: checked, followed by projects, its default for new ones, and not lost while used', async (t) => {
-  const json = { 'Content-Type': 'application/json' };
-  // One kept from before, as the server finds it when it starts.
-  const s = start(4899, {}, (data) => {
-    const db = openStore(data);
-    db.setStudio('conventions', { older: { name: 'Older', tiers: [{ id: 'shot', name: '{seq}-s{shot:3}' }], file: { sep: '_', version: 'v' } } });
-    db.close();
-  });
-  t.after(s.stop);
-  await s.ready;
-  const send = (method, url, body) => fetch(`${s.base}${url}`, { method, headers: json, ...(body && { body: JSON.stringify(body) }) });
-  let list = await (await send('GET', '/api/conventions')).json();
-  assert.deepEqual(list.conventions.map((c) => c.id), ['myreze', 'episodic', 'free', 'older']);
-  assert.equal(list.default, 'myreze');
-  assert.equal(list.canEdit, true);
-  // The pages have it before anything else of theirs runs.
-  const script = await (await fetch(`${s.base}/conventions.js`)).text();
-  assert.match(script, /^WBNaming\.setConventions\(\{"older":/);
-
-  // A convention that is not one is refused with what is wrong; one that is gets an id from its name.
-  let res = await send('POST', '/api/conventions', { convention: { name: 'Bad', tiers: [{ id: 'shot', name: '{seq}{shot:4}' }] } });
-  assert.equal(res.status, 400);
-  assert.match((await res.json()).error, /between a shot's sequence and its number/);
-  const northern = { name: 'Northern Lights', tiers: [
-    { id: 'asset', label: 'Assets', name: '{prefix}-{what}', prefixes: ['chr', 'prp'] },
-    { id: 'set', label: 'Locations', one: 'location', name: 'loc-{what}' },
-    { id: 'shot', name: '{seq}-sh{shot:4}' },
-  ], file: { sep: '_', version: 'v' }, tasks: ['comp'] };
-  res = await send('POST', '/api/conventions', { convention: northern });
-  assert.equal(res.status, 201);
-  assert.equal((await res.json()).id, 'northern-lights');
-  res = await send('PUT', '/api/conventions/myreze', { convention: northern });
-  assert.equal(res.status, 400);
-
-  // A project follows it: names are read by it, here and in what the pages are told.
-  const folder = await (await send('POST', '/api/folders', { name: 'North' })).json();
-  await send('PATCH', `/api/folders/${folder.id}`, { project: true });
-  await send('PATCH', `/api/folders/${folder.id}`, { settings: { naming: 'northern-lights' } });
-  const cat = await (await fetch(`${s.base}/api/projects/${folder.id}`)).json();
-  assert.equal(cat.preset.id, 'northern-lights');
-  assert.deepEqual(cat.preset.tiers.map((x) => x.label), ['Assets', 'Locations', 'Shots']);
-  assert.equal(cat.preset.strict, true);
-  res = await send('POST', `/api/projects/${folder.id}/entities`, { names: ['sq010-sh0040', 'loc-harbour'] });
-  const made = await (await fetch(`${s.base}/api/projects/${folder.id}`)).json();
-  assert.deepEqual(made.entities.map((e) => `${e.name}:${e.tier}`).sort(), ['loc-harbour:set', 'sq010-sh0040:shot']);
-
-  // The studio's default: what new projects start with.
-  res = await send('PATCH', '/api/conventions', { default: 'northern-lights' });
-  assert.equal((await res.json()).default, 'northern-lights');
-  const second = await (await send('POST', '/api/folders', { name: 'South' })).json();
-  await send('PATCH', `/api/folders/${second.id}`, { project: true });
-  assert.equal((await (await fetch(`${s.base}/api/projects/${second.id}`)).json()).preset.id, 'northern-lights');
-
-  // A tier hidden later is still listed where a project has some of it, and nowhere else.
-  const hidden = { ...northern, tiers: northern.tiers.map((x) => (x.id === 'set' ? { ...x, hidden: true } : x)) };
-  assert.equal((await send('PUT', '/api/conventions/northern-lights', { convention: hidden })).status, 200);
-  assert.deepEqual((await (await fetch(`${s.base}/api/projects/${folder.id}`)).json()).preset.tiers.map((x) => x.id), ['asset', 'set', 'shot']);
-  assert.deepEqual((await (await fetch(`${s.base}/api/projects/${second.id}`)).json()).preset.tiers.map((x) => x.id), ['asset', 'shot']);
-
-  // Not forgotten while followed; forgotten once not.
-  res = await send('DELETE', '/api/conventions/northern-lights');
-  assert.equal(res.status, 409);
-  assert.match((await res.json()).error, /2 projects follow it \(North, South\)/);
-  res = await send('DELETE', '/api/conventions/older');
-  list = await res.json();
-  assert.deepEqual(list.conventions.map((c) => c.id), ['myreze', 'episodic', 'free', 'northern-lights']);
-
-  // From elsewhere it is an admin's to change, not anybody's.
-  const far = { ...json, 'X-Forwarded-For': '203.0.113.9' };
-  res = await fetch(`${s.base}/api/conventions`, { method: 'PATCH', headers: far, body: JSON.stringify({ default: 'free' }) });
-  assert.equal(res.status, 403);
-  assert.equal((await (await fetch(`${s.base}/api/conventions`, { headers: far })).json()).canEdit, false);
 });

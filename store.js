@@ -202,13 +202,6 @@ CREATE TABLE IF NOT EXISTS user_state (
   PRIMARY KEY (user, key)
 );
 
--- What the studio keeps for all its projects, by key: its naming conventions, and which one projects
--- follow when they say none.
-CREATE TABLE IF NOT EXISTS studio (
-  key TEXT PRIMARY KEY,
-  value TEXT
-);
-
 CREATE TABLE IF NOT EXISTS media (
   name TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
@@ -1059,13 +1052,6 @@ function openStore(dataDir) {
     return row ? JSON.parse(row.value) : null;
   };
   const setState = (user, key, value) => writeState.run(user, key, JSON.stringify(value));
-  const readStudio = db.prepare('SELECT value FROM studio WHERE key = ?');
-  const writeStudio = db.prepare('INSERT INTO studio (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value');
-  const getStudio = (key) => {
-    const row = readStudio.get(key);
-    return row ? JSON.parse(row.value) : null;
-  };
-  const setStudio = (key, value) => writeStudio.run(key, JSON.stringify(value));
 
   // A copy of the whole database, safe to take while the server runs. Keeps the newest `keep` of them.
   function backup(dir, keep = 7) {
@@ -1092,7 +1078,7 @@ function openStore(dataDir) {
     transaction, entities, streamHeads, findVersions, projectFilers, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, entitiesOf, entitiesFiledBy, happenings, people, entityCount,
     addVersion, addView, projectViews, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
     note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesBesides, unfileVersion, notesForBoard, notesOfVersions,
-    find, commentsForNotices, getState, setState, getStudio, setStudio, backup, close, isOpen: () => !closed,
+    find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,
     grants, setGrant, removeGrant, removeGrantsOn,
     presentations, savePresentation, deletePresentation, setMediaPhone, itemsWithMedia, setLook, versionsWithFile,

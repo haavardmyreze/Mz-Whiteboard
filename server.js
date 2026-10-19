@@ -122,17 +122,6 @@ try {
   process.exit(1);
 }
 
-// The studio's own naming conventions, beside those built in, and the one its projects follow when
-// they say none (see naming.js). Kept in the studio table; each is checked again as it is read.
-function loadConventions() {
-  for (const [id, c] of Object.entries(store.getStudio('conventions') || {})) {
-    const ok = naming.validate(c);
-    if (ok.convention) naming.register(id, ok.convention);
-  }
-  naming.setDefault(store.getStudio('naming') || naming.DEFAULT);
-}
-loadConventions();
-
 // ---------------------------------------------------------------- boards
 
 const ID_RE = /^[\w-]{4,40}$/;
@@ -858,7 +847,7 @@ function holdsProject(folder) {
   for (const f of folders.values()) if (f.project && isWithin(f.id, folder.id)) return true;
   return false;
 }
-// A project's settings: its naming preset, and its 3D preview: the model of the venue its work is shown
+// A project's settings: its 3D preview: the model of the venue its work is shown
 // on (an uploaded .glb), the name of the material its projection surface has (`screen` unless said), and
 // which view of a version goes on it (its main one unless said). `preview3d: null` takes the 3D preview away.
 // `tasks: false` says its versions are not counted by task: each asset, set or shot has one count.
@@ -868,7 +857,6 @@ function holdsProject(folder) {
 function cleanProjectSettings(asked, was = {}) {
   const out = { ...was };
   if (!asked || typeof asked !== 'object') return out;
-  if (typeof asked.naming === 'string' && naming.PRESETS[asked.naming]) out.naming = asked.naming;
   if (asked.tasks === false) out.tasks = false;
   else if (asked.tasks === true) delete out.tasks;
   if (asked.views === false) out.views = false;
@@ -1064,12 +1052,6 @@ function retellEntities(entityIds) {
 }
 const retellEntity = (entityId) => retellEntities(new Set([entityId]));
 
-// The convention a project follows: its own, if there still is one by that name, else the studio's.
-const namingOf = (project) => {
-  const id = project.settings && project.settings.naming;
-  return naming.PRESETS[id] ? id : naming.defaultId();
-};
-const presetOf = (project) => naming.preset(namingOf(project));
 // Whether a project counts its versions by task (see cleanProjectSettings).
 const usesTasks = (project) => !(project.settings && project.settings.tasks === false);
 // The ways a project's versions are shown, the main one first, or null for one way (see
@@ -1101,8 +1083,7 @@ function entityFor(project, spec) {
   if (!name) throw refusal(400, 'An asset, set or shot needs a name');
   const have = store.entityNamed(project.id, name);
   if (have) return have;
-  const presetId = project.settings && project.settings.naming;
-  const tier = naming.TIERS.includes(spec.tier) ? spec.tier : naming.tierOf(name, presetId) || 'asset';
+  const tier = naming.TIERS.includes(spec.tier) ? spec.tier : naming.kindOf(name, store.entities(project.id)) || 'asset';
   return { name, tier, make: true };
 }
 // That entity, made now if it is to be (or the one of that name, should it have been made meanwhile).
@@ -1138,7 +1119,7 @@ function fileVersions(req, project, body) {
   const by = actor(req, body);
   const files = Array.isArray(body.files) ? body.files.slice(0, 500) : [];
   if (!files.length) throw refusal(400, 'Nothing to file');
-  const presetId = project.settings && project.settings.naming;
+  const known = store.entities(project.id);
   const pieces = new Set();
   const plan = files.map((f) => {
     if (!f || typeof f !== 'object') throw refusal(400, 'Each file is a piece on a board or an uploaded file');
@@ -1161,7 +1142,7 @@ function fileVersions(req, project, body) {
       look = cleanLook(f.look);
       if (!look) throw refusal(400, 'That file is not on the server');
     }
-    const parsed = naming.parse(look.name || '', presetId);
+    const parsed = naming.parse(look.name || '', known);
     const pick = (key) => (f[key] !== undefined ? f[key] : body[key]);
     // A number may be asked for (one a file says on its own); otherwise it is the next.
     const asked = f.number ?? null;
@@ -1295,14 +1276,11 @@ async function handleCatalogue(req, res, parts) {
     const project = projectFor(parts[2]);
     if (!project) return sendJson(res, 404, { error: 'Project not found' });
     if (parts.length === 3 && req.method === 'GET') {
-      const preset = presetOf(project);
-      const entities = store.entities(project.id);
       return sendJson(res, 200, {
         project: publicFolder(project),
-        // Its tiers, with any its convention hides that it has some of from before.
-        preset: { id: namingOf(project), name: preset.name, free: preset.free, strict: preset.strict, tiers: preset.every.filter((t) => !t.hidden || entities.some((e) => e.tier === t.id)).map((t) => ({ id: t.id, label: t.label, one: t.one, shape: t.shape })), tasks: preset.tasks },
-        entities,
-        tasks: [...new Set([...preset.tasks, ...store.projectTasks(project.id)])],
+        tiers: naming.TIER_LIST,
+        entities: store.entities(project.id),
+        tasks: [...new Set([...naming.TASKS, ...store.projectTasks(project.id)])],
         artists: store.projectArtists(project.id),
         views: store.projectViews(project.id),
         // How its versions are shown: its views, the main one first, or null for one way.
@@ -1367,8 +1345,8 @@ async function handleCatalogue(req, res, parts) {
           const ents = store.entities(project.id);
           out.facets = {
             tasks: store.projectTasks(project.id), filers: store.projectFilers(project.id), artists: store.projectArtists(project.id),
-            seqs: [...new Set(ents.filter((e) => e.tier === 'shot' && naming.seqOf(e.name, namingOf(project))).map((e) => naming.seqOf(e.name, namingOf(project))))].sort(),
-            tiers: presetOf(project).tiers.filter((t) => ents.some((e) => e.tier === t.id)).map((t) => ({ id: t.id, label: t.label })),
+            seqs: [...new Set(ents.filter((e) => e.tier === 'shot' && naming.seqOf(e.name)).map((e) => naming.seqOf(e.name)))].sort(),
+            tiers: naming.TIER_LIST.filter((t) => ents.some((e) => e.tier === t.id)).map((t) => ({ id: t.id, label: t.label })),
             untasked: ents.some((e) => e.tops && e.tops['']),
           };
         }
@@ -1456,7 +1434,7 @@ async function handleCatalogue(req, res, parts) {
         const cols = new Map();
         for (const v of list) {
           const e = store.entity(v.entityId);
-          const key = e.tier === 'shot' ? `0:${naming.seqOf(e.name, namingOf(project)) || e.name}` : `${e.tier === 'asset' ? 1 : 2}:${e.tier === 'asset' ? 'Assets' : 'Sets'}`;
+          const key = e.tier === 'shot' ? `0:${naming.seqOf(e.name) || e.name}` : `${e.tier === 'asset' ? 1 : 2}:${e.tier === 'asset' ? 'Assets' : 'Sets'}`;
           (cols.get(key) || cols.set(key, []).get(key)).push({ v, name: e.name });
         }
         let x = 0;
@@ -1524,7 +1502,7 @@ async function handleCatalogue(req, res, parts) {
         shots: shots.map((e) => {
           const v = task ? store.newestOfTask(e.id, naming.tokenize(task) || null) : e.newest;
           return {
-            id: e.id, name: e.name, seq: naming.seqOf(e.name, namingOf(project)), artists: e.artists,
+            id: e.id, name: e.name, seq: naming.seqOf(e.name), artists: e.artists,
             version: v && { ...v, label: naming.label(e.name, v.task, v.number) },
           };
         }),
@@ -1611,14 +1589,13 @@ async function handleCatalogue(req, res, parts) {
       if (aiBusy.has(who)) return sendJson(res, 429, { error: 'Claude is still answering your last question' });
       aiBusy.add(who);
       try {
-        const presetId = project.settings && project.settings.naming;
         const entities = store.entities(project.id);
         const tasks = store.projectTasks(project.id);
         if (parts[4] === 'files') {
           const files = (Array.isArray(body.files) ? body.files : []).filter((f) => f && typeof f === 'object')
             .map((f) => ({ key: String(f.key), filename: String(f.filename || ''), now: f.now && typeof f.now === 'object' ? f.now : null }));
           if (files.length > ai.MAX_FILES) return sendJson(res, 400, { error: `Ask about at most ${ai.MAX_FILES} files at a time` });
-          const answers = await ai.fileNames({ instruction: body.instruction, files, presetId, entities, tasks, views: viewsOf(project) || [], useViews: !!viewsOf(project), useTasks: usesTasks(project) });
+          const answers = await ai.fileNames({ instruction: body.instruction, files, entities, tasks, views: viewsOf(project) || [], useViews: !!viewsOf(project), useTasks: usesTasks(project) });
           return sendJson(res, 200, { model: ai.model, answers });
         }
         const ids = Array.isArray(body.ids) ? [...new Set(body.ids.map(String))] : [];
@@ -1629,7 +1606,7 @@ async function handleCatalogue(req, res, parts) {
           id: e.id, name: e.name, tier: e.tier,
           files: [...new Set(store.versionsOf(e.id).map((v) => v.originalName).filter(Boolean))].slice(0, 3),
         }));
-        const answers = await ai.renameEntities({ instruction: body.instruction, chosen: withFiles, presetId, entities, tasks });
+        const answers = await ai.renameEntities({ instruction: body.instruction, chosen: withFiles, entities, tasks });
         return sendJson(res, 200, { model: ai.model, answers });
       } finally {
         aiBusy.delete(who);
@@ -2348,7 +2325,6 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { auth: auth.mode, user: req.user || null, admin: admin.allows(req), canShare: SHARING, maxUpload: MAX_UPLOAD, publicUrl: auth.publicUrl || null, shareBases: shareBases(), signOut: !!auth.interactive, ai: ai.enabled ? { model: ai.model } : null });
   }
   if (parts[1] === 'admin') return admin.handle(req, res, parts.slice(2));
-  if (parts[1] === 'conventions') return handleConventions(req, res, parts.slice(2));
   if (parts[1] === 'projects' && parts[3] === 'present' && parts.length <= 5) {
     const project = visibleFolder(req.user, parts[2]) && folders.get(parts[2]).project ? folders.get(parts[2]) : null;
     if (!project) return sendJson(res, 404, { error: 'Project not found' });
@@ -2401,7 +2377,7 @@ async function handleApi(req, res, url) {
           if (body.project) {
             if (projectOf(folder.parentId) || holdsProject(folder)) return sendJson(res, 400, { error: 'A project cannot be inside another project, or hold one' });
             folder.project = true;
-            folder.settings = cleanProjectSettings({ naming: naming.defaultId() }, folder.settings);
+            folder.settings = folder.settings || {};
           } else {
             if (store.entityCount(folder.id)) return sendJson(res, 409, { error: 'This project has a catalogue, so it stays a project' });
             folder.project = false;
@@ -2675,7 +2651,7 @@ async function handleRequest(req, res) {
 
   // Pages, data and files need a signed-in user. The scripts, styles and fonts do not, so the sign-in page can use them.
   const isPage = pathname === '/' || /^\/b\/[\w-]+\/?$/.test(pathname) || pathname === '/index.html' || pathname === '/board.html' || pathname === '/admin' || pathname === '/admin.html';
-  const guarded = auth.mode === 'iap' || isPage || pathname.startsWith('/api/') || pathname.startsWith('/uploads/') || pathname === '/conventions.js';
+  const guarded = auth.mode === 'iap' || isPage || pathname.startsWith('/api/') || pathname.startsWith('/uploads/');
   if (guarded) {
     const who = await auth.authenticate(req);
     if (who.status && !(pathname.startsWith('/uploads/') && (sharedFile(req, path.basename(pathname)) || watchedFile(req, path.basename(pathname))))) {
@@ -2722,7 +2698,6 @@ async function handleRequest(req, res) {
     if (file.startsWith(root + path.sep)) return sendStatic(req, res, file, { cache: 'public, max-age=86400' });
   }
 
-  if (pathname === '/conventions.js') return conventionsScript(res);
   let file;
   if (pathname === '/') file = 'index.html';
   else if (pathname === '/auth/login') file = 'login.html';
@@ -2733,78 +2708,6 @@ async function handleRequest(req, res) {
   if (!full.startsWith(PUBLIC_DIR + path.sep)) return sendJson(res, 404, { error: 'Not found' });
   // The typeface never changes under the same name, so browsers may keep it.
   sendStatic(req, res, full, { cache: file.startsWith('fonts/') ? 'public, max-age=31536000, immutable' : 'no-cache' });
-}
-
-// GET /api/conventions: every naming convention there is, built in first, each { id, name, custom,
-// convention (what it says), projects (the names of those following it) }, the studio's `default`, and
-// whether this person may change them (`canEdit`: an admin's to do). POST { convention } keeps a new one
-// of the studio's own, PUT /:id { convention } changes one, DELETE /:id forgets one no project follows,
-// and PATCH { default } says which projects follow when they say none (and new projects start with).
-async function handleConventions(req, res, rest) {
-  const own = () => store.getStudio('conventions') || {};
-  const list = () => {
-    const projects = [...folders.values()].filter((f) => f.project);
-    return {
-      conventions: naming.conventions().map((c) => ({
-        ...c, convention: c.custom ? own()[c.id] : naming.CONVENTIONS[c.id],
-        projects: projects.filter((f) => namingOf(f) === c.id).map((f) => f.name),
-      })),
-      default: naming.defaultId(),
-      canEdit: admin.allows(req),
-    };
-  };
-  if (req.method === 'GET' && !rest.length) return sendJson(res, 200, list());
-  if (!admin.allows(req)) return sendJson(res, 403, { error: 'Only an admin can change the studio’s naming conventions' });
-  const keep = (id, convention) => {
-    store.setStudio('conventions', { ...own(), [id]: convention });
-    naming.register(id, convention);
-  };
-  if (req.method === 'PATCH' && !rest.length) {
-    const body = await readJson(req, 16 * 1024);
-    if (!naming.PRESETS[body.default]) return sendJson(res, 400, { error: 'There is no such convention' });
-    store.setStudio('naming', body.default);
-    naming.setDefault(body.default);
-    return sendJson(res, 200, list());
-  }
-  if (req.method === 'POST' && !rest.length) {
-    const body = await readJson(req, 64 * 1024);
-    const ok = naming.validate(body.convention);
-    if (ok.error) return sendJson(res, 400, { error: ok.error });
-    const base = naming.tokenize(ok.convention.name).slice(0, 32) || 'convention';
-    let id = base;
-    for (let n = 2; naming.PRESETS[id]; n++) id = `${base}-${n}`;
-    keep(id, ok.convention);
-    return sendJson(res, 201, { id, ...list() });
-  }
-  const id = rest[0];
-  if (rest.length !== 1 || !naming.PRESETS[id]) return sendJson(res, 404, { error: 'There is no such convention' });
-  if (naming.BUILT_IN.includes(id)) return sendJson(res, 400, { error: `${naming.preset(id).name} is built in: make a copy of it to change` });
-  if (req.method === 'PUT') {
-    const body = await readJson(req, 64 * 1024);
-    const ok = naming.validate(body.convention);
-    if (ok.error) return sendJson(res, 400, { error: ok.error });
-    keep(id, ok.convention);
-    return sendJson(res, 200, list());
-  }
-  if (req.method === 'DELETE') {
-    const using = list().conventions.find((c) => c.id === id).projects;
-    if (using.length) return sendJson(res, 409, { error: `${using.length === 1 ? `${using[0]} follows it` : `${using.length} projects follow it (${using.slice(0, 3).join(', ')}${using.length > 3 ? '…' : ''})`}: move ${using.length === 1 ? 'it' : 'them'} to another first` });
-    const { [id]: gone, ...rest2 } = own();
-    store.setStudio('conventions', rest2);
-    naming.register(id, null);
-    if (naming.defaultId() !== (store.getStudio('naming') || naming.DEFAULT)) store.setStudio('naming', naming.defaultId());
-    return sendJson(res, 200, list());
-  }
-  return sendJson(res, 405, { error: 'Method not allowed' });
-}
-
-// The studio's own conventions for the pages, as a script run before theirs, so that every name is read by
-// them from the start (see naming.js).
-function conventionsScript(res) {
-  const own = store.getStudio('conventions') || {};
-  const js = `WBNaming.setConventions(${JSON.stringify(own).replace(/</g, '\\u003c')}, ${JSON.stringify(naming.defaultId())});\n`;
-  res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(js);
 }
 
 // Nothing one request does may take the server, and everybody's open boards, down with it.
@@ -3033,7 +2936,7 @@ function sendInit(board, peer, restored = false) {
     t: 'init',
     you: peer.id,
     board: { id: board.id, name: board.name, settings: board.settings || {} },
-    project: project ? { id: project.id, name: project.name, naming: namingOf(project) } : null,
+    project: project ? { id: project.id, name: project.name } : null,
     items: [...board.items.values()],
     versions: boardVersions(board),
     view3d: board3d(board),
@@ -3680,7 +3583,7 @@ function handleWatchApi(req, res, url, token, rest) {
     if (!wasShown(pres, 'run', null, naming.tokenize(task) || '')) return sendJson(res, 404, { error: 'Not shown' });
     return sendJson(res, 200, {
       project: projectOut, tasks: store.projectTasks(project.id), views: store.projectViews(project.id),
-      shots: timelineShots(project.id, task).map(({ e, v }) => ({ id: e.id, name: e.name, seq: naming.seqOf(e.name, namingOf(project)), version: v && versionOut(v, e) })),
+      shots: timelineShots(project.id, task).map(({ e, v }) => ({ id: e.id, name: e.name, seq: naming.seqOf(e.name), version: v && versionOut(v, e) })),
     });
   }
   return sendJson(res, 404, { error: 'Not found' });

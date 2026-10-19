@@ -1311,13 +1311,18 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
 .file-line input[type="number"] { -moz-appearance: textfield; }
 .file-line input[type="number"]::-webkit-inner-spin-button, .file-line input[type="number"]::-webkit-outer-spin-button { margin: 0; -webkit-appearance: none; }
 .file-is { display: flex; align-items: center; }
-.file-is > [hidden] { display: none; }
 .file-is { justify-content: center; }
 /* What it is, as an icon: a dot on it when it is new (in the warning colour when its sequence is new too). */
 .file-kind { position: relative; display: grid; place-items: center; width: 100%; height: 100%; color: var(--text-2); }
 .file-kind.new::after { content: ''; position: absolute; top: 7px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .file-kind.new-seq::after { background: var(--warn-fg); }
-.file-line select.file-ask { padding: 0 0 0 11px; background-color: var(--warn-bg); background-image: none; color: var(--warn-fg); font-size: 13px; font-weight: 600; }
+/* A new one's kind can be said otherwise: the choice lies over its icon, unseen, and opens from it. */
+.file-is { position: relative; }
+.file-line select.file-ask { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; padding: 0; opacity: 0; cursor: pointer; }
+.file-line select.file-ask[hidden] { display: none; }
+.file-is:has(select.file-ask:not([hidden]):hover) .file-kind, .file-is:has(select.file-ask:focus-visible) .file-kind { background: var(--hover); color: var(--text); }
+.file-kind.ask { background: var(--warn-bg); color: var(--warn-fg); font-size: 13px; font-weight: 600; }
+.file-kind.ask::after { display: none; }
 /* What there is to say about the row, behind a mark at the end of its line. */
 .file-info-cell { display: grid; place-items: center; }
 .file-info { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--r-1); background: transparent; color: var(--muted); cursor: pointer; }

@@ -2728,6 +2728,21 @@ test('a project is presented through a link of its presenter: live only while th
   const host = await open(`present=${token}`, anna, { name: 'Anna' });
   assert.equal(last(carla, 'live').presenter.name, 'Anna');
   assert.deepEqual(last(host, 'watchers').list.map((w) => w.name), ['Carla']);
+  assert.equal(last(host, 'watchers').list[0].cache, null, 'nothing said about the cache yet');
+
+  // She sees how much of what is shown Carla has cached, cleaned of anything else.
+  carla.ws.send(JSON.stringify({ t: 'cache', k: 0.456, v: [1, 3], m: 0.2, off: 'data', evil: 'x' }));
+  await wait(150);
+  assert.deepEqual(last(host, 'watchers').list[0].cache, { k: 0.456, v: [1, 3], m: 0.2, off: 'data' });
+  carla.ws.send(JSON.stringify({ t: 'cache', k: 7, v: [9, 3], m: 'x', off: 'because' }));
+  await wait(150);
+  assert.deepEqual(last(host, 'watchers').list[0].cache, { k: 1, v: [3, 3], m: null, off: null });
+  carla.ws.send(JSON.stringify({ t: 'cache', k: 'lots' }));
+  await wait(150);
+  assert.equal(last(host, 'watchers').list[0].cache, null);
+  carla.ws.send(JSON.stringify({ t: 'cache', k: 1, v: [2, 2], m: null, off: null }));
+  await wait(150);
+  assert.equal(last(host, 'watchers').list[0].cache.k, 1);
   assert.deepEqual((await call(ben, 'GET', '/api/library')).body.presenting.map((p) => [p.projectId, p.name, p.token]), [[kilo.id, 'Anna', token]], 'the team sees who presents');
 
   // She opens a shot's versions: those watching are shown it, and only it.
@@ -2736,6 +2751,7 @@ test('a project is presented through a link of its presenter: live only while th
   const scene = last(carla, 'scene');
   assert.deepEqual(scene.scene, { k: 'entity', entity: e10.id, view: '' });
   assert.deepEqual(scene.p, { f: v10, m: [v10, 1.5, 1] });
+  assert.deepEqual(last(host, 'watchers').list[0].cache, { wait: true }, 'a new scene: what they had cached was for the one before');
   const shown = await call(null, 'GET', `/api/watch/${token}/entity/${e10.id}`);
   assert.equal(shown.status, 200);
   assert.deepEqual(shown.body.versions.map((v) => v.label), ['kilo-0010 anim v1']);

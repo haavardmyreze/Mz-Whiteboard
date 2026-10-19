@@ -3342,7 +3342,7 @@ function presentationRuntime(record) {
     awayTimer: 0,
     scene: null,
     p: {},
-    watchers: new Set(), // { ws, name, color }
+    watchers: new Set(), // { ws, name, color, cache }
     shown: [],           // scenes shown since it was made live, as { k, id, task }
     files: null,         // what may be loaded through it, worked out from `shown` when asked (see presentedFiles)
     filesAt: 0,
@@ -3374,7 +3374,21 @@ const tellWatchers = (pres, msg) => {
 const tellHosts = (pres, msg) => {
   for (const ws of pres.hosts) send(ws, msg);
 };
-const tellWatching = (pres) => tellHosts(pres, { t: 'watchers', list: [...pres.watchers].map((w) => ({ name: w.name, color: w.color })) });
+const tellWatching = (pres) => tellHosts(pres, { t: 'watchers', list: [...pres.watchers].map((w) => ({ name: w.name, color: w.color, cache: w.cache })) });
+
+// How much of what is shown somebody watching has cached on their computer, as their page says it (see
+// watch.js): the whole of it (k), the videos done and there are (v), the model of the venue (m, or null
+// where there is none), why caching is not going on (off), or that it is still working that out (wait).
+const CACHE_OFF = ['unavailable', 'off', 'data', 'full'];
+function cleanCache(msg) {
+  if (msg.wait) return { wait: true };
+  const part = (n) => (typeof n === 'number' && Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : null);
+  const count = (n) => (Number.isInteger(n) ? Math.min(9999, Math.max(0, n)) : 0);
+  const k = part(msg.k);
+  if (k === null) return null;
+  const v = Array.isArray(msg.v) ? [count(msg.v[0]), count(msg.v[1])] : [0, 0];
+  return { k, v: [Math.min(v[0], v[1]), v[1]], m: part(msg.m), off: CACHE_OFF.includes(msg.off) ? msg.off : null };
+}
 
 // Everybody watching through it, on the link's own page or on a board's, is shown the door.
 function closeWatchers(pres, code, reason) {
@@ -3687,6 +3701,9 @@ function presentHost(ws, pres, user) {
       pres.p = p;
       pres.mAt = Date.now();
       tellWatchers(pres, { t: 'scene', scene, p });
+      // What they had cached was for what was shown before: they say how it stands for this.
+      for (const w of pres.watchers) w.cache = { wait: true };
+      tellWatching(pres);
       retellWatcherNotes(pres);
       return;
     }
@@ -3733,7 +3750,7 @@ function presentHost(ws, pres, user) {
 
 // Somebody watching through the link, on its own page.
 function presentWatcher(ws, pres) {
-  const w = { ws, name: 'Guest', color: VIEWER_COLORS[0] };
+  const w = { ws, name: 'Guest', color: VIEWER_COLORS[0], cache: null };
   let joined = false;
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
@@ -3744,7 +3761,12 @@ function presentWatcher(ws, pres) {
     } catch {
       return;
     }
-    if (!msg || msg.t !== 'hello' || joined) return;
+    if (!msg) return;
+    if (msg.t === 'cache' && joined) {
+      w.cache = cleanCache(msg);
+      return tellWatching(pres);
+    }
+    if (msg.t !== 'hello' || joined) return;
     if (presentationFor(pres.token) !== pres) return ws.close(4005, 'Link no longer shared');
     joined = true;
     w.name = String(msg.name || '').replace(/\s+/g, ' ').trim().slice(0, 32) || `Viewer ${pres.watchers.size + 1}`;

@@ -1943,8 +1943,9 @@
   let keptRing = null;
   // The ring is painted on every progress tick: what it measures is worked out again only when the board changed.
   let ringItems = [];
+  let boardLoaded = false; // the board's pieces have come: before that its videos are not yet known
   keptRing = media.ring($('kept'), () => {
-    if (orderDirty) {
+    if (orderDirty && boardLoaded) {
       orderDirty = false;
       ringItems = mediaOrder().filter((it) => it.type === 'video').map((it) => ({ src: WB.playable(it), name: it.name }));
       // Watching a presentation, the page around this one shows how much of the board is cached.
@@ -4293,7 +4294,11 @@
     for (const v of msg.versions || []) versionInfo.set(v.id, v);
     board3d = msg.view3d || null;
     // The board's project has a model of its venue: the 3D view is made ready now, so it is there when asked for.
-    if (board3d && [...versionInfo.values()].some((v) => v.look3d)) viewer.prepare3d(board3d);
+    if (board3d && [...versionInfo.values()].some((v) => v.look3d)) {
+      viewer.prepare3d(board3d);
+      // Watching a presentation, the page around this one counts the model among what is cached.
+      if (spectating) window.parent.postMessage({ wb: 'model', src: board3d.model }, location.origin);
+    }
     project = msg.project || null;
     $('catalogue').hidden = !project || viewOnly;
     showPresent();
@@ -4307,6 +4312,8 @@
       renderItem(it);
     }
     cmDirty = true;
+    boardLoaded = true;
+    orderDirty = true;
     setBoardName(msg.board.name);
     applySettings(msg.board.settings || {}, true);
     // What was open may have been deleted while this window was disconnected.
@@ -4327,6 +4334,7 @@
     if (msg.restored && !firstInit) toast('A snapshot was put back. Undo starts afresh from here.', { ms: 6000 });
     setSel([...sel]);
     afterChange();
+    paintKept();
     refreshPeerSel();
 
     if (firstInit) {

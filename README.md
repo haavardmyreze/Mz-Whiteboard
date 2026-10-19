@@ -553,6 +553,13 @@ filed in it.
     fetched ahead on their computer from the piece open on, and a ring in their corner says how much is
     there. The 3D view is made ready as soon as a project with a model is shown; should you turn to 3D
     before it is, they see "Loading the venue in 3D" and how much has come, over everything.
+  - *You see how cached they are.* In the pill at the foot of the page, each person watching is a face
+    with a ring around it: how much of what you show (its videos, and the venue's 3D model where it can be
+    seen on it) they have cached on their computer. A full green ring is ready to play, a filling one
+    means wait, a dashed one is a browser that cannot cache (saving data, a plain http address) and plays
+    from the server, and an empty one is somebody whose page is still putting up what you opened. Hover a
+    face for the detail ("1 of 3 videos, 3D model 20%"). The pill says "All cached", or how many of them
+    are. Turning to something else starts every ring afresh for it.
   - *One link each, per project, kept.* The same link every time, so it can go in the invitation to every
     review; it is live only while you present, and between times it says it is waiting for you (and
     picks you up once you start, without a reload). It can show only what you show, or also the

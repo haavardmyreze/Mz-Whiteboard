@@ -250,6 +250,34 @@ const WBPresent = (() => {
   // ---- what it looks like: the bar's button, and a pill while presenting
 
   const pill = el('div', { class: 'present-pill', hidden: true, role: 'status' });
+
+  // Each person watching is a face with a ring around it: how much of what is shown they have cached on
+  // their own computer (its videos, and the model of the venue where it can be seen on it). A full green
+  // ring is ready to play; one still filling says wait; a dashed one is a browser that cannot cache and plays
+  // from the server; an empty one is a person whose page has not said yet, or is putting up what you opened.
+  const FACES = 6;
+  const CIRCLE = 2 * Math.PI * 15;
+  const WHY = { unavailable: 'this browser cannot keep videos here', off: 'it is turned off in their settings', data: 'their browser is saving data', full: 'their device has no more room' };
+  const ready = (c) => !!c && !c.wait && c.k >= 1;
+  function cacheSays(w) {
+    const c = w.cache;
+    if (!c) return { state: 'wait', text: 'has not said yet' };
+    if (c.wait) return { state: 'wait', text: 'is loading what you opened' };
+    const parts = [];
+    if (c.v[1]) parts.push(`${c.v[0]} of ${WB.plural(c.v[1], 'video')}`);
+    if (c.m !== null) parts.push(`3D model ${Math.floor(c.m * 100)}%`);
+    if (c.k >= 1) return { state: 'full', text: c.v[1] || c.m !== null ? `has it all cached (${parts.join(', ')}): ready to play` : 'has nothing to cache here: ready to play' };
+    if (c.off) return { state: 'off', text: `cannot cache (${WHY[c.off]}), so it plays from the server: ${parts.join(', ')} cached` };
+    return { state: 'filling', text: `is caching: ${parts.join(', ')} (${Math.floor(c.k * 100)}% in all)` };
+  }
+  function face(w) {
+    const says = cacheSays(w);
+    const k = says.state === 'wait' ? 0 : says.state === 'off' ? 0 : w.cache.k;
+    return el('span', {
+      class: `present-face ${says.state}`, title: `${w.name} ${says.text}`,
+      html: `<svg viewBox="0 0 34 34" aria-hidden="true"><circle class="track" cx="17" cy="17" r="15"/><circle class="arc" cx="17" cy="17" r="15" stroke-dasharray="${CIRCLE}" stroke-dashoffset="${CIRCLE * (1 - k)}"/></svg>`,
+    }, WB.avatar(w.name, w.color));
+  }
   function paint() {
     const live = !!token();
     for (const b of buttons) {
@@ -260,12 +288,19 @@ const WBPresent = (() => {
     pill.hidden = !live;
     if (!live) return;
     const names = watching.map((w) => w.name).join(', ');
-    pill.replaceChildren(
+    const ok = watching.filter((w) => ready(w.cache)).length;
+    pill.replaceChildren(...[
       el('i', { class: 'live' }),
       el('span', { class: 'present-what', text: 'Presenting' }),
-      el('span', { class: 'present-who', title: names || 'Nobody has the link open yet', text: watching.length ? `${watching.length} watching` : 'Nobody watching yet' }),
+      watching.length > 0 && el('span', { class: 'present-faces' }, watching.slice(0, FACES).map(face),
+        watching.length > FACES && el('span', { class: 'avatar sm more', title: watching.slice(FACES).map((w) => w.name).join(', '), text: `+${watching.length - FACES}` })),
+      el('span', {
+        class: 'present-who', title: names || 'Nobody has the link open yet',
+        text: !watching.length ? 'Nobody watching yet' : ok === watching.length ? 'All cached' : `${ok} of ${watching.length} cached`,
+      }),
       el('button', { class: 'btn small', text: 'Link', onclick: () => openDialog() }),
-      el('button', { class: 'btn small', text: 'Stop', onclick: () => stop() }));
+      el('button', { class: 'btn small', text: 'Stop', onclick: () => stop() }),
+    ].filter(Boolean));
   }
 
   function button() {

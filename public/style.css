@@ -2672,6 +2672,19 @@ input.switch:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-s
 .present-pill .live { background: var(--brand); animation: on-air 1.6s ease-in-out infinite; }
 .present-what { font-weight: 600; }
 .present-who { color: var(--text-2); }
+/* The people watching, each ringed by how much they have cached of what is shown. */
+.present-faces { display: flex; align-items: center; gap: 3px; }
+.present-face { position: relative; flex: none; display: grid; place-items: center; width: 34px; height: 34px; }
+.present-face > svg { position: absolute; inset: 0; width: 34px; height: 34px; transform: rotate(-90deg); }
+.present-face circle { fill: none; stroke-width: 3; }
+.present-face .track { stroke: var(--line-strong); }
+.present-face .arc { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset 0.3s var(--ease), stroke 0.2s var(--ease); }
+.present-face.full .arc { stroke: var(--ok); }
+.present-face.wait .arc { opacity: 0; }
+.present-face.off .track { stroke: var(--muted); stroke-dasharray: 3 3; }
+.present-face.off .arc { opacity: 0; }
+.present-face .avatar.sm { width: 24px; height: 24px; font-size: 10px; }
+.present-faces > .avatar.sm { margin: 0; }
 /* Over a video, above its timeline; beside the board's own tools at the foot of a phone. */
 body.focus-video .present-pill { bottom: 96px; }
 body.focus .present-pill { left: calc((100vw + var(--film, 0px) - var(--side, 0px)) / 2); }

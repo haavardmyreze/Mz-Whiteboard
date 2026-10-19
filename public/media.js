@@ -600,6 +600,15 @@
     return job && job.total ? job.loaded / job.total : partialOf(src);
   }
   const coming = (src) => !index.has(src) && (inflight.has(src) || partials.has(src));
+  // How much of a list of files is here: those that can be kept on this computer, how many of them are, and
+  // how far along the whole is (what is on its way counts for as much of itself as has arrived).
+  function tally(list) {
+    const srcs = [...new Set(list)].filter((src) => keepable(src) && !failed.has(src));
+    const done = srcs.filter((src) => index.has(src)).length;
+    let part = 0;
+    for (const src of srcs) if (coming(src)) part += progressOf(src);
+    return { n: srcs.length, done, k: srcs.length ? WB.clamp((done + part) / srcs.length, 0, 1) : 0 };
+  }
 
   function ring(button, scope) {
     const el = WB.el;
@@ -679,11 +688,7 @@
         if (!pop.hidden) toggle(false);
         return;
       }
-      const done = m.here.length;
-      // What is on its way counts for as much of itself as has arrived.
-      let part = 0;
-      for (const src of m.srcs) if (coming(src)) part += progressOf(src);
-      const k = clamp((done + part) / n, 0, 1);
+      const { done, k } = tally(m.srcs);
       const full = done >= n;
       const videos = n === 1 ? 'video' : 'videos';
       button.querySelector('.arc').style.strokeDashoffset = R * (1 - k);
@@ -746,7 +751,7 @@
     },
     whole, releaseWhole, wholeEntry: (src) => wholes.get(src), onEvict: (fn) => { evictListeners.add(fn); return () => evictListeners.delete(fn); },
     WHOLE_HELD,
-    ring, badge, sizeLabel,
+    ring, badge, sizeLabel, tally,
     get, want, on: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
     stats, clear, ahead, setAhead, kinds, setKind,
   };

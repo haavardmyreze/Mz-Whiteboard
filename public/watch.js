@@ -52,6 +52,43 @@
   };
   const keptBtn = el('button', { class: 'watch-kept' });
   const keptRing = WB.media.ring(keptBtn, () => ({ label: 'what is shown', items: shownItems() }));
+
+  // The same, told to the presenter, who sees it as a ring around each face: how much of what is shown
+  // (its videos, and the project's model of its venue where it can be seen on it) is cached here, so they
+  // know whether to wait before playing. While what is shown is still being put up, it says so instead.
+  let modelSrc = null;   // the project's model, once what is shown can be seen on it
+  let scoped = false;    // the board in the frame has said which videos it has
+  let cacheSig = '';
+  let cacheTimer = 0;
+  function cacheNow() {
+    if (mounting || (scene && scene.k === 'board' && !scoped)) return { wait: 1 };
+    const srcs = shownItems().map((x) => x.src);
+    const videos = WB.media.tally(srcs);
+    const model = modelSrc ? WB.media.tally([modelSrc]) : { n: 0, k: 0 };
+    const all = WB.media.tally(modelSrc ? [...srcs, modelSrc] : srcs);
+    return {
+      k: all.n ? Math.round(all.k * 100) / 100 : 1,
+      v: [videos.done, videos.n],
+      m: model.n ? Math.round(model.k * 100) / 100 : null,
+      off: all.done < all.n ? WB.media.status().paused : null,
+    };
+  }
+  function tellCache() {
+    cacheTimer = 0;
+    if (!ws || ws.readyState !== 1) return;
+    const now = cacheNow();
+    const sig = JSON.stringify(now);
+    if (sig === cacheSig) return;
+    cacheSig = sig;
+    ws.send(JSON.stringify({ t: 'cache', ...now }));
+  }
+  // However often the cache moves, no more than a couple of times a second; a change of what is shown at once.
+  function cacheSoon(atOnce = false) {
+    if (atOnce) clearTimeout(cacheTimer);
+    else if (cacheTimer) return;
+    cacheTimer = setTimeout(tellCache, atOnce ? 0 : 400);
+  }
+  WB.media.on(() => cacheSoon());
   // Once a video is on this device it plays and scrubs without waiting on the network, which on a phone is
   // the whole difference. So everything shown in this visit stays wanted, not only what is shown now: what
   // is shown now first (from the piece open on), then what was shown before, latest first, in case the
@@ -59,6 +96,7 @@
   const shownBefore = []; // src, the latest shown first
   function fetchAhead() {
     keptRing.paint();
+    cacheSoon();
     if (!scene) return;
     const items = shownItems().map((x) => x.src);
     const open = items.indexOf((viewer.host().media() || []).find((p) => p.id === viewer.current())?.src);
@@ -77,7 +115,12 @@
     if (e.origin !== location.origin || !e.data) return;
     if (e.data.wb === 'scope' && Array.isArray(e.data.items)) {
       frameItems = e.data.items.filter((x) => x && typeof x.src === 'string');
+      scoped = true;
       fetchAhead();
+      cacheSoon(true);
+    } else if (e.data.wb === 'model' && typeof e.data.src === 'string') {
+      modelSrc = e.data.src;
+      cacheSoon();
     } else if (e.data.wb === '3dload') loading3d(e.data.k);
   });
 
@@ -191,6 +234,8 @@
 
   function tearDown() {
     frameItems = [];
+    scoped = false;
+    modelSrc = null;
     WB.media.want('watch', []);
     if (venue) loading3d(false);
     shownKey = '';
@@ -204,6 +249,9 @@
   async function show(next) {
     scene = next;
     const key = keyOf(next);
+    // The presenter is told how this stands for each new word of theirs about what is shown.
+    cacheSig = '';
+    cacheSoon(true);
     if (!key) return paintWaiting();
     if (key === shownKey || (mounting && mounting.key === key)) {
       if (next.k === 'entity' && shownKey === key) viewer.host().setView?.(next.view);
@@ -213,6 +261,7 @@
     tearDown();
     const job = { key };
     mounting = job;
+    cacheSoon(true);
     paintWaiting();
     try {
       if (next.k === 'board') {
@@ -224,7 +273,10 @@
         if (mounting !== job) return;
         // The project has a model of its venue: 3D is made ready now, before the presenter turns to it.
         const venue3d = page.project.settings && page.project.settings.preview3d;
-        if (venue3d && venue3d.model) viewer.prepare3d({ ...venue3d, key: page.project.id });
+        if (venue3d && venue3d.model) {
+          viewer.prepare3d({ ...venue3d, key: page.project.id });
+          modelSrc = venue3d.model;
+        }
         await WBViewer.openEntity(viewer, next.entity, {
           version: typeof state.f === 'string' ? state.f : null, me, title: info.project.name,
           follow: { page, view: next.view, room: noteRoom, read: info.access === 'comments' },
@@ -233,7 +285,10 @@
         const data = await WB.api('GET', `/api/watch/${token}/timeline${next.task ? `?task=${encodeURIComponent(next.task)}` : ''}`);
         if (mounting !== job) return;
         const preview3d = data.project.settings && data.project.settings.preview3d;
-        if (preview3d && preview3d.model) viewer.prepare3d({ ...preview3d, key: data.project.id });
+        if (preview3d && preview3d.model) {
+          viewer.prepare3d({ ...preview3d, key: data.project.id });
+          modelSrc = preview3d.model;
+        }
         let in3d = false;
         let reload = () => {};
         const load = () => WBViewer.runPieces(data, { seq: next.seq, task: next.task, withEmpty: next.empty, view: in3d ? preview3d.view : next.view });
@@ -260,6 +315,7 @@
     paintWaiting();
     apply();
     fetchAhead();
+    cacheSoon(true);
   }
 
   // Whoever is watching is shown what the presenter's player does: the piece, 2D or 3D, the moment, the
@@ -295,7 +351,11 @@
   function connect() {
     if (dead) return;
     ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?watch=${encodeURIComponent(token)}`);
-    ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', name: me.name, color: me.color }));
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ t: 'hello', name: me.name, color: me.color }));
+      cacheSig = '';
+      cacheSoon(true);
+    };
     ws.onmessage = (e) => {
       let msg;
       try {

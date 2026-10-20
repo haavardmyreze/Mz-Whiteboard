@@ -6,7 +6,8 @@
 // What it is given is the project's setting (see cleanProjectSettings in server.js): the model, and the
 // name of the material its projection surface has; every mesh with that material (or one named like it,
 // "screen-left") shows the picture through its own UVs, unlit. The rest of the room is lit from all round,
-// so no side of anything is ever black.
+// so no side of anything is ever black; how much, the shade in its corners and creases, and whether the
+// screens light it too, are the player's settings (`setLook`).
 //
 // It opens through the model's main camera (the one the project's settings choose; without one, the camera
 // named "main", or else its first): its place, lens
@@ -87,12 +88,15 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x1b1c1e);
   scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
-  scene.environmentIntensity = 0.3;
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x707070, 0.55));
-  scene.add(new THREE.AmbientLight(0xffffff, 0.22));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.4);
-  sun.position.set(4, 10, 6);
-  scene.add(sun);
+  // The room's light, each at what it gives with the room light full (see setLook).
+  const lights = [
+    [scene, 'environmentIntensity', 0.3],
+    [new THREE.HemisphereLight(0xffffff, 0x707070), 'intensity', 0.55],
+    [new THREE.AmbientLight(0xffffff), 'intensity', 0.22],
+    [new THREE.DirectionalLight(0xffffff), 'intensity', 1.4],
+  ];
+  lights[3][0].position.set(4, 10, 6);
+  for (const [light] of lights.slice(1)) scene.add(light);
 
   // `camera` is the one flown; `view` is what is drawn through: the frame held, the flown one, or a glide
   // between them.
@@ -123,11 +127,18 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     if (model === modelUrl && room) {
       main = mainOf(cams, chosen);
       if (fixed && fixed.cam) fixed = main;
-      return applyScreens();
+      applyScreens();
+      return survey();
     }
     const gltf = await loadModel(model);
+    // Put up by another call while this one waited for it: as it is, with the view left where it is.
+    if (model === modelUrl && room) return load({ model, screen, camera: chosen });
     if (room) scene.remove(room);
     room = gltf.scene.clone(true);
+    // Its materials are this view's own: the screens' light is put into them (see litByScreens).
+    room.traverse((o) => {
+      if (o.isMesh) o.material = Array.isArray(o.material) ? o.material.map((m) => m.clone()) : o.material.clone();
+    });
     modelUrl = model;
     scene.add(room);
     room.updateMatrixWorld(true);
@@ -158,11 +169,16 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     fixed = main;
     speed = Math.max(1, size.length() / 12);
     applyScreens();
+    survey();
     settle();
   }
 
   // Every mesh with the screen's material shows the picture; a material the model does not give is fully
   // metal in glTF, which shows only reflections and comes out nearly black, so none is more than half metal.
+  const isScreen = (m) => {
+    const name = ((m.userData.was || m).name || '').toLowerCase();
+    return name === screenName || [`${screenName}-`, `${screenName}_`, `${screenName}.`].some((p) => name.startsWith(p));
+  };
   function applyScreens() {
     if (!room) return;
     room.traverse((o) => {
@@ -170,11 +186,10 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       const mats = Array.isArray(o.material) ? o.material : [o.material];
       mats.forEach((m, i) => {
         const was = m.userData.was || m;
-        const name = (was.name || '').toLowerCase();
-        const isScreen = name === screenName || [`${screenName}-`, `${screenName}_`, `${screenName}.`].some((p) => name.startsWith(p));
-        if (!isScreen) {
+        if (!isScreen(was)) {
           mats[i] = was;
           if ('metalness' in was && was.metalness > 0.5 && !was.metalnessMap) was.metalness = 0.5;
+          litByScreens(was);
           return;
         }
         const lit = m.userData.was ? m : new THREE.MeshBasicMaterial({ toneMapped: false, side: THREE.DoubleSide });
@@ -186,6 +201,343 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       });
       o.material = Array.isArray(o.material) ? mats : mats[0];
     });
+  }
+
+  // ---- how the room is drawn: its light, the shade in its corners and creases, and the screens' light
+  //
+  // `look` is the player's 3D settings (setLook): the room's light from 0 (dark) to 2, with 1 as it is lit
+  // otherwise; ambient occlusion (`ao`, 0 to 1, reaching `aoRadius` metres) and cavity (0 to 1), both
+  // shading the room and never the screens; and the light the screens throw on the room (`glow`, on or
+  // off, at `glowAmount`, 1 being as bright as the picture is).
+  const look = { light: 1, ao: 0, aoRadius: 0.5, cavity: 0, glow: false, glowAmount: 1 };
+  function setLook(o) {
+    for (const key of Object.keys(look)) if (o && typeof o[key] === typeof look[key] && (typeof o[key] !== 'number' || Number.isFinite(o[key]))) look[key] = o[key];
+    for (const [light, key, full] of lights) light[key] = full * look.light;
+  }
+  setLook();
+
+  // Drawn over the whole of what is shown (`quad`, through `flat`), for the passes below.
+  const flat = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+  quad.frustumCulled = false;
+  const QUAD_VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+  const shader = (fragmentShader, uniforms, extra = {}) => new THREE.ShaderMaterial({ vertexShader: QUAD_VS, fragmentShader, uniforms, depthTest: false, depthWrite: false, ...extra });
+  function pass(material, target) {
+    quad.material = material;
+    renderer.setRenderTarget(target);
+    renderer.render(quad, flat);
+  }
+
+  // The screens' light. Lumen traces the scene; a browser has to be cheaper than that, and a venue's
+  // light comes almost all from its screens, which are known. So each screen is cut into patches by
+  // its UVs (at most PATCHES of them all told, as many as fit in a grid over the picture: 8 by 4, then
+  // fewer), each a small lamp at its place, facing as the screen does there, as large as its part of the
+  // screen, with the colour of its part of the picture now. Every frame the picture is brought down to
+  // GLOW (and its mipmaps), and each patch takes its colour from there, all on the graphics card; the
+  // room's materials add what each patch gives a point (as a disc of light would: no shadows, which is
+  // what keeps it cheap) to the light that comes from all round, so the room's own textures and baked
+  // occlusion tint it as they do the rest.
+  const PATCHES = 32;
+  const GLOW = [256, 128];
+  const patchAt = Array.from({ length: PATCHES }, () => new THREE.Vector4()); // world place, and area
+  const patchFacing = Array.from({ length: PATCHES }, () => new THREE.Vector4()); // its normal
+  const patchUv = Array.from({ length: PATCHES }, () => new THREE.Vector3()); // its part of the picture, and the mipmap that averages it
+  const glowRT = new THREE.WebGLRenderTarget(...GLOW, { type: THREE.HalfFloatType, depthBuffer: false, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+  const patchRT = new THREE.WebGLRenderTarget(PATCHES, 1, { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+  const glowUniforms = {
+    screenGlow: { value: 0 },
+    screenPatches: { value: 0 },
+    screenPatchAt: { value: patchAt },
+    screenPatchFacing: { value: patchFacing },
+    screenPatchColor: { value: patchRT.texture },
+  };
+  // The picture brought down to GLOW, each pixel the mean of four samples across it.
+  const glowDown = shader(`
+    uniform sampler2D map; uniform vec2 texel; varying vec2 vUv;
+    void main() {
+      vec2 d = texel * 0.25;
+      gl_FragColor = vec4(0.25 * (texture2D(map, vUv - d).rgb + texture2D(map, vUv + d).rgb
+        + texture2D(map, vUv + vec2(d.x, -d.y)).rgb + texture2D(map, vUv + vec2(-d.x, d.y)).rgb), 1.0);
+    }`, { map: { value: null }, texel: { value: new THREE.Vector2(1 / GLOW[0], 1 / GLOW[1]) } });
+  // Each patch's colour: one pixel each, the mean of its part of the picture.
+  const glowPatches = shader(`
+    uniform sampler2D glow; uniform vec3 at[${PATCHES}];
+    void main() { vec3 a = at[int(gl_FragCoord.x)]; gl_FragColor = vec4(textureLod(glow, a.xy, a.z).rgb, 1.0); }`,
+  { glow: { value: glowRT.texture }, at: { value: patchUv } });
+  const GLOW_HEAD = `
+    uniform float screenGlow; uniform int screenPatches;
+    uniform vec4 screenPatchAt[${PATCHES}]; uniform vec4 screenPatchFacing[${PATCHES}];
+    uniform sampler2D screenPatchColor;`;
+  // A disc of area A and radiance L lights a point d away, facing it, with pi L A / (pi d^2 + A): the
+  // inverse square far off, and no more than the whole disc can give up close. Each side of a screen
+  // gives light, as a model's screen may face either way.
+  const GLOW_BODY = `
+    if (screenGlow > 0.0) {
+      vec3 here = -vViewPosition;
+      vec3 lit = vec3(0.0);
+      for (int i = 0; i < ${PATCHES}; i++) {
+        if (i >= screenPatches) break;
+        vec4 at = screenPatchAt[i];
+        vec3 L = (viewMatrix * vec4(at.xyz, 1.0)).xyz - here;
+        float d2 = dot(L, L);
+        L *= inversesqrt(max(d2, 1e-8));
+        float facing = abs(dot((viewMatrix * vec4(screenPatchFacing[i].xyz, 0.0)).xyz, L)) * max(dot(normal, L), 0.0);
+        lit += texelFetch(screenPatchColor, ivec2(i, 0), 0).rgb * (at.w * facing / (PI * d2 + at.w));
+      }
+      reflectedLight.indirectDiffuse += screenGlow * PI * lit * BRDF_Lambert(material.diffuseColor);
+    }`;
+  function litByScreens(m) {
+    if (!m.isMeshStandardMaterial || m.userData.litByScreens) return;
+    m.userData.litByScreens = true;
+    m.onBeforeCompile = (s) => {
+      Object.assign(s.uniforms, glowUniforms);
+      s.fragmentShader = s.fragmentShader
+        .replace('void main() {', `${GLOW_HEAD}\nvoid main() {`)
+        .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>\n${GLOW_BODY}`);
+    };
+    m.customProgramCacheKey = () => 'lit-by-screens';
+    m.needsUpdate = true;
+  }
+  // The screens' patches, from their triangles: points spread evenly over them, gathered by mesh and by
+  // the cell of the grid their UVs fall in, each cell a patch where its points are on average.
+  let patches = 0;
+  function findPatches() {
+    patches = 0;
+    const tris = [];
+    let total = 0;
+    let mesh = 0;
+    const v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+    const t = [new THREE.Vector2(), new THREE.Vector2(), new THREE.Vector2()];
+    room.traverse((o) => {
+      if (!o.isMesh || !o.geometry.attributes.uv) return;
+      const g = o.geometry;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      const index = g.index;
+      const count = index ? index.count : g.attributes.position.count;
+      const groups = Array.isArray(o.material) && g.groups.length ? g.groups : [{ start: 0, count, materialIndex: 0 }];
+      let any = false;
+      for (const group of groups) {
+        if (!mats[group.materialIndex] || !isScreen(mats[group.materialIndex])) continue;
+        any = true;
+        const end = Math.min(count, group.start + group.count);
+        for (let i = group.start; i + 2 < end; i += 3) {
+          for (let k = 0; k < 3; k++) {
+            const n = index ? index.getX(i + k) : i + k;
+            v[k].fromBufferAttribute(g.attributes.position, n).applyMatrix4(o.matrixWorld);
+            t[k].fromBufferAttribute(g.attributes.uv, n);
+          }
+          const normal = new THREE.Vector3().subVectors(v[1], v[0]).cross(new THREE.Vector3().subVectors(v[2], v[0]));
+          const area = normal.length() / 2;
+          if (!(area > 0)) continue;
+          tris.push({ v: v.map((x) => x.clone()), t: t.map((x) => x.clone()), normal: normal.normalize(), area, mesh });
+          total += area;
+        }
+      }
+      if (any) mesh++;
+    });
+    if (!total) return;
+    // The points, the same each time (a fixed sequence, not chance), weighted by the area each stands for.
+    let seed = 1;
+    const rand = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+    const points = [];
+    for (const tri of tris) {
+      const n = Math.max(1, Math.round((tri.area / total) * 6000));
+      for (let i = 0; i < n; i++) {
+        let a = rand();
+        let b = rand();
+        if (a + b > 1) [a, b] = [1 - a, 1 - b];
+        const c = 1 - a - b;
+        points.push({
+          p: new THREE.Vector3().addScaledVector(tri.v[0], c).addScaledVector(tri.v[1], a).addScaledVector(tri.v[2], b),
+          u: tri.t[0].x * c + tri.t[1].x * a + tri.t[2].x * b,
+          w: tri.t[0].y * c + tri.t[1].y * a + tri.t[2].y * b,
+          normal: tri.normal, area: tri.area / n, mesh: tri.mesh,
+        });
+      }
+    }
+    for (const [gx, gy] of [[8, 4], [4, 4], [4, 2], [2, 2], [2, 1], [1, 1]]) {
+      const cells = new Map();
+      for (const x of points) {
+        const key = `${x.mesh}:${THREE.MathUtils.clamp(Math.floor(x.u * gx), 0, gx - 1)}:${THREE.MathUtils.clamp(Math.floor(x.w * gy), 0, gy - 1)}`;
+        let cell = cells.get(key);
+        if (!cell) cells.set(key, (cell = { p: new THREE.Vector3(), normal: new THREE.Vector3(), u: 0, w: 0, area: 0 }));
+        cell.p.addScaledVector(x.p, x.area);
+        cell.normal.addScaledVector(x.normal, x.area);
+        cell.u += x.u * x.area;
+        cell.w += x.w * x.area;
+        cell.area += x.area;
+      }
+      if (cells.size > PATCHES && gx > 1) continue;
+      const lod = Math.log2(Math.max(GLOW[0] / gx, GLOW[1] / gy));
+      [...cells.values()].sort((a, b) => b.area - a.area).slice(0, PATCHES).forEach((cell, i) => {
+        patchAt[i].set(cell.p.x / cell.area, cell.p.y / cell.area, cell.p.z / cell.area, cell.area);
+        if (cell.normal.lengthSq() < 1e-12) cell.normal.set(0, 1, 0);
+        cell.normal.normalize();
+        patchFacing[i].set(cell.normal.x, cell.normal.y, cell.normal.z, 0);
+        patchUv[i].set(cell.u / cell.area, cell.w / cell.area, lod);
+        patches = i + 1;
+      });
+      break;
+    }
+  }
+  // Every frame the screens' light is on: the picture's colours, now, into the patches.
+  function glowNow() {
+    glowUniforms.screenPatches.value = patches;
+    glowUniforms.screenGlow.value = look.glow && texture && patches ? look.glowAmount : 0;
+    if (!glowUniforms.screenGlow.value) return;
+    glowDown.uniforms.map.value = texture;
+    pass(glowDown, glowRT);
+    pass(glowPatches, patchRT);
+    renderer.setRenderTarget(null);
+  }
+
+  // The shade in the room's corners and creases, worked out from what was drawn (screen space, as Unreal's
+  // and Blender's viewports do it), and laid over it: the room is drawn again with only which way each
+  // surface faces and how far it is (`facing`), the screens left out, then
+  // - ambient occlusion: from each point, 16 samples in the half of a ball of `aoRadius` over its
+  //   surface, turned a little from pixel to pixel in a 4 by 4 pattern, each one behind what is drawn there
+  //   a little shade; at half size, then smoothed over the 4 by 4 (not across an edge in depth);
+  // - cavity: where the surface's facing changes from pixel to pixel as it does into a crease, a little
+  //   dark, as Blender's cavity does its valleys;
+  // and what is drawn is multiplied by both. Nothing of it is done while both are off.
+  const facing = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthTexture: new THREE.DepthTexture(1, 1) });
+  const aoRT = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+  const aoSmooth = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
+  const screenMark = new THREE.ShaderMaterial({ vertexShader: 'void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }', fragmentShader: 'void main() { gl_FragColor = vec4(0.0); }', side: THREE.DoubleSide });
+  const facingOf = new Map();
+  const facingFor = (m) => {
+    const key = `${m.side}:${m.flatShading ? 1 : 0}`;
+    if (!facingOf.has(key)) facingOf.set(key, new THREE.MeshNormalMaterial({ side: m.side, flatShading: !!m.flatShading }));
+    return facingOf.get(key);
+  };
+  let parts = []; // { o: a mesh of the room, as: what it is drawn with for `facing` }
+  function survey() {
+    parts = [];
+    room.traverse((o) => {
+      if (!o.isMesh) return;
+      const one = (m) => (isScreen(m) ? screenMark : facingFor(m));
+      parts.push({ o, as: Array.isArray(o.material) ? o.material.map(one) : one(o.material) });
+    });
+    findPatches();
+  }
+  const KERNEL = Array.from({ length: 16 }, (_, i) => {
+    const t = (i + 0.5) / 16;
+    const turn = i * 2.39996;
+    const r = Math.sqrt(t);
+    const reach = 0.1 + 0.9 * ((i + 1) / 16) ** 2;
+    return new THREE.Vector3(r * Math.cos(turn), r * Math.sin(turn), Math.sqrt(1 - t)).multiplyScalar(reach);
+  });
+  const DEPTH = `
+    #include <packing>
+    uniform sampler2D tDepth; uniform sampler2D tFacing; uniform float near; uniform float far;
+    float zAt(vec2 uv) { return perspectiveDepthToViewZ(texture2D(tDepth, uv).x, near, far); }`;
+  const depthUniforms = () => ({ tDepth: { value: facing.depthTexture }, tFacing: { value: facing.texture }, near: { value: 0.05 }, far: { value: 5000 } });
+  const occlusion = shader(`${DEPTH}
+    uniform mat4 proj; uniform mat4 projInv; uniform vec3 kernel[16]; uniform float radius; varying vec2 vUv;
+    vec3 placeAt(vec2 uv, float d) { vec4 p = projInv * vec4(vec3(uv, d) * 2.0 - 1.0, 1.0); return p.xyz / p.w; }
+    void main() {
+      float d = texture2D(tDepth, vUv).x;
+      vec4 f = texture2D(tFacing, vUv);
+      if (d >= 1.0 || f.a < 0.5) { gl_FragColor = vec4(1.0); return; }
+      vec3 P = placeAt(vUv, d);
+      vec3 N = normalize(f.xyz * 2.0 - 1.0);
+      ivec2 px = ivec2(gl_FragCoord.xy) % 4;
+      float turn = float((px.x * 4 + px.y) * 7 % 16) * 0.3926991;
+      vec3 T = vec3(cos(turn), sin(turn), 0.0);
+      T -= N * dot(T, N);
+      T = dot(T, T) < 1e-4 ? cross(N, vec3(0.0, 0.0, 1.0)) : T;
+      T = normalize(T);
+      mat3 tbn = mat3(T, cross(N, T), N);
+      float shade = 0.0;
+      for (int i = 0; i < 16; i++) {
+        vec3 s = P + tbn * kernel[i] * radius;
+        vec4 o = proj * vec4(s, 1.0);
+        vec2 uv = o.xy / o.w * 0.5 + 0.5;
+        if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) continue;
+        float z = zAt(uv);
+        shade += step(s.z + 0.02 * radius, z) * smoothstep(0.0, 1.0, radius / abs(P.z - z));
+      }
+      gl_FragColor = vec4(vec3(1.0 - shade / 16.0), 1.0);
+    }`, { ...depthUniforms(), proj: { value: null }, projInv: { value: null }, kernel: { value: KERNEL }, radius: { value: 0.5 } });
+  const smoothing = shader(`${DEPTH}
+    uniform sampler2D tAo; uniform vec2 texel; varying vec2 vUv;
+    void main() {
+      float z0 = zAt(vUv);
+      float sum = 0.0;
+      float n = 0.0;
+      for (int x = -2; x < 2; x++) for (int y = -2; y < 2; y++) {
+        vec2 uv = vUv + vec2(x, y) * texel;
+        float w = step(abs(zAt(uv) - z0), 0.05 * abs(z0));
+        sum += texture2D(tAo, uv).r * w;
+        n += w;
+      }
+      gl_FragColor = vec4(vec3(n > 0.0 ? sum / n : texture2D(tAo, vUv).r), 1.0);
+    }`, { ...depthUniforms(), tAo: { value: aoRT.texture }, texel: { value: new THREE.Vector2() } });
+  // Laid over what is drawn: multiplied into it (so the letterbox and the screens are left as they are).
+  const shading = shader(`${DEPTH}
+    uniform sampler2D tAo; uniform vec2 texel; uniform float ao; uniform float cavity; varying vec2 vUv;
+    vec3 facingNear(vec2 uv, vec3 n0, float z0) {
+      vec4 f = texture2D(tFacing, uv);
+      return f.a < 0.5 || abs(zAt(uv) - z0) > 0.04 * abs(z0) ? n0 : f.xyz * 2.0 - 1.0;
+    }
+    void main() {
+      vec4 f = texture2D(tFacing, vUv);
+      if (f.a < 0.5) { gl_FragColor = vec4(1.0); return; }
+      float k = 1.0;
+      if (ao > 0.0) k *= pow(texture2D(tAo, vUv).r, 2.0 * ao);
+      if (cavity > 0.0) {
+        vec3 n = f.xyz * 2.0 - 1.0;
+        float z = zAt(vUv);
+        float bend = 0.0;
+        for (int i = 1; i <= 2; i++) {
+          vec2 dx = vec2(texel.x * float(i) * 1.5, 0.0);
+          vec2 dy = vec2(0.0, texel.y * float(i) * 1.5);
+          bend += facingNear(vUv + dx, n, z).x - facingNear(vUv - dx, n, z).x + facingNear(vUv + dy, n, z).y - facingNear(vUv - dy, n, z).y;
+        }
+        k *= 1.0 - clamp(-bend * 0.4 * cavity, 0.0, 0.8);
+      }
+      gl_FragColor = vec4(vec3(k), 1.0);
+    }`, { ...depthUniforms(), tAo: { value: aoSmooth.texture }, texel: { value: new THREE.Vector2() }, ao: { value: 0 }, cavity: { value: 0 } }, {
+    blending: THREE.CustomBlending, blendSrc: THREE.ZeroFactor, blendDst: THREE.SrcColorFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
+  });
+  // After the room is drawn into the part of the canvas `w` by `h` pixels that the viewport is set to.
+  function shade(w, h) {
+    if (!room || !(look.ao > 0 || look.cavity > 0)) return;
+    if (facing.width !== w || facing.height !== h) {
+      facing.setSize(w, h);
+      aoRT.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
+      aoSmooth.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
+    }
+    const ground = scene.background;
+    scene.background = null;
+    for (const p of parts) {
+      p.was = p.o.material;
+      p.o.material = p.as;
+    }
+    renderer.setClearColor(0x000000, 0);
+    renderer.setRenderTarget(facing);
+    renderer.render(scene, view);
+    for (const p of parts) p.o.material = p.was;
+    scene.background = ground;
+    for (const m of [occlusion, smoothing, shading]) {
+      m.uniforms.near.value = view.near;
+      m.uniforms.far.value = view.far;
+    }
+    if (look.ao > 0) {
+      occlusion.uniforms.proj.value = view.projectionMatrix;
+      occlusion.uniforms.projInv.value = view.projectionMatrixInverse;
+      occlusion.uniforms.radius.value = look.aoRadius;
+      pass(occlusion, aoRT);
+      smoothing.uniforms.texel.value.set(1 / aoRT.width, 1 / aoRT.height);
+      pass(smoothing, aoSmooth);
+    }
+    shading.uniforms.texel.value.set(1 / w, 1 / h);
+    shading.uniforms.ao.value = look.ao;
+    shading.uniforms.cavity.value = look.cavity;
+    const auto = renderer.autoClear;
+    renderer.autoClear = false;
+    pass(shading, null);
+    renderer.autoClear = auto;
   }
 
   // ---- the picture: the player's own <video> or <img>
@@ -346,6 +698,38 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     const r = (v, d) => Math.round(v * 10 ** d) / 10 ** d;
     return { p: camera.position.toArray().map((v) => r(v, 3)), q: camera.quaternion.toArray().map((v) => r(v, 5)), fov: r(camera.fov, 2), t: Math.round(performance.now()) };
   }
+  // Where the view is, to be put back there another time (`place`): flown to a place ({ f }), on a camera
+  // of the model's ({ c }: its number in cameras()), or on a comment's frame ({ q }).
+  function where() {
+    if (free) {
+      const { p, q, fov } = flight();
+      return { f: { p, q, fov } };
+    }
+    if (fixed.cam) return { c: cams.indexOf(fixed) };
+    const q = pose();
+    return q ? { q } : null;
+  }
+  function place(w) {
+    if (!w) return false;
+    const f = w.f;
+    if (f && Array.isArray(f.p) && f.p.length === 3 && Array.isArray(f.q) && f.q.length === 4 && Number.isFinite(f.fov) && [...f.p, ...f.q].every(Number.isFinite)) {
+      fly();
+      glide = null;
+      track.length = 0;
+      vel.set(0, 0, 0);
+      camera.position.fromArray(f.p);
+      camera.quaternion.fromArray(f.q).normalize();
+      const e = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+      yaw = viewYaw = e.y;
+      pitch = viewPitch = e.x;
+      camera.fov = f.fov;
+      return true;
+    }
+    if (Number.isInteger(w.c)) return goTo(w.c, false);
+    if (w.q) return goTo(w.q, false);
+    return false;
+  }
+
   // Following somebody's flight: the places they were sent from are kept, and the view is put where they were
   // a moment ago (BEHIND), in between the two places either side of then. Played back that way, a move
   // is as smooth here as it was there, whatever the network did to when each place arrived.
@@ -551,10 +935,12 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     view.fov = fovOf(tan);
     view.aspect = (rect.w * r.width) / (rect.h * r.height);
     view.updateProjectionMatrix();
+    glowNow();
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, w, h);
     if (rect.x <= 0.0005 && rect.y <= 0.0005 && rect.w >= 0.999 && rect.h >= 0.999) {
       renderer.render(scene, view);
+      shade(w, h);
       return;
     }
     // Letterboxed: the part drawn into, where the frame is (WebGL counts up from the bottom), and the rest
@@ -566,6 +952,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     renderer.setScissor(...box);
     renderer.setScissorTest(true);
     renderer.render(scene, view);
+    shade(Math.max(1, box[2]), Math.max(1, box[3]));
     renderer.setScissorTest(false);
   }
   // Made ready ahead of being shown: what draws the room and the screens compiled now, with a stand-in for
@@ -610,7 +997,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   }
 
   return {
-    canvas, load, setSource, start, stop, warm, key, hold, goTo, at, pose, flight, steer,
+    canvas, load, setSource, start, stop, warm, key, hold, goTo, at, pose, flight, steer, where, place, setLook,
     // The shape of the frame held (or last held, flying), which the player lays its frame out at.
     aspect: () => fixed.aspect,
     // The model's cameras, by name, and which of them is held (its number), or -1.

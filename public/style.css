@@ -2792,6 +2792,21 @@ body.viewonly #hint .hint-guest { display: inline; }
 .v-cams .iconbtn:hover { color: var(--text); }
 .v-cams .v-cam-more { width: 22px; color: var(--text-2); }
 .v-cams .v-cam-more svg { width: 14px; height: 14px; transform: rotate(90deg); }
+/* How the venue is drawn: a slider to a row, its name and what it is at above it. */
+.v-look { width: 248px; }
+.v-look-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding: 8px 8px 4px; font-size: var(--fs-ui); }
+.v-look-row[hidden] { display: none; }
+.v-look-switch { padding-bottom: 8px; cursor: pointer; }
+.v-look-val { color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.v-look input[type="range"] { -webkit-appearance: none; appearance: none; grid-column: 1 / -1; width: 100%; height: 16px; margin: 0; background: transparent; cursor: pointer; --p: 0%; }
+.v-look input[type="range"]:focus-visible { outline: none; }
+.v-look input[type="range"]::-webkit-slider-runnable-track { height: 3px; border-radius: var(--r-pill); background: linear-gradient(to right, var(--text) var(--p), var(--line-strong) var(--p)); }
+.v-look input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 11px; height: 11px; margin-top: -4px; border: 0; border-radius: 50%; background: var(--text); box-shadow: var(--shadow-1); }
+.v-look input[type="range"]::-moz-range-track { height: 3px; border-radius: var(--r-pill); background: var(--line-strong); }
+.v-look input[type="range"]::-moz-range-progress { height: 3px; border-radius: var(--r-pill); background: var(--text); }
+.v-look input[type="range"]::-moz-range-thumb { width: 11px; height: 11px; border: 0; border-radius: 50%; background: var(--text); box-shadow: var(--shadow-1); }
+.v-look input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-soft); }
+.v-look input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--accent-soft); }
 /* A project's settings. */
 .ps-dlg { width: min(520px, calc(100vw - 32px)); }
 .ps-sec { margin: 18px 0 2px; font-size: var(--fs-ui); font-weight: 600; }

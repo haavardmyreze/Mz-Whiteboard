@@ -341,7 +341,8 @@ const WBViewer = (() => {
     const d3Pct = el('span', { class: 'v-3dpct' });
     const D3_TITLE = 'See it on the venue, in 3D';
     const d3Btn = el('button', { class: 'iconbtn v-3d-btn', html: ICON.cube, title: D3_TITLE, 'aria-label': '3D', 'aria-pressed': 'false', onclick: () => set3d(!in3d) }, d3Pct);
-    const dims = el('span', { class: 'bar-group v-dims', hidden: true }, d3Btn);
+    const lookBtn = el('button', { class: 'iconbtn v-look-btn', html: ICON.settings, title: 'How the venue is drawn', 'aria-label': '3D view settings', 'aria-haspopup': 'menu', 'aria-expanded': 'false', hidden: true, onclick: () => lookMenu() });
+    const dims = el('span', { class: 'bar-group v-dims', hidden: true }, d3Btn, lookBtn);
     const camBtn = el('button', { class: 'iconbtn v-cam', html: ICON.focus, title: 'Look through the main camera (V)', 'aria-label': 'Main camera', 'aria-pressed': 'false', onclick: () => toCamera('main') });
     const camMore = el('button', { class: 'iconbtn v-cam-more', html: ICON.chevron, title: "The model's other cameras", 'aria-haspopup': 'menu', onclick: () => cameraMenu() });
     const camGroup = el('span', { class: 'bar-group v-cams', hidden: true }, camBtn, camMore);
@@ -572,6 +573,9 @@ const WBViewer = (() => {
       // The player always opens on the picture itself (2D); 3D is a switch away. A piece that cannot be seen
       // on the model is shown as it is.
       if (in3d && !has3d()) set3d(false);
+      // Opened again in this tab, it opens as it was left: in 3D, where the view was (a comment picked
+      // goes where it was made instead, and somebody followed is seen as they see it).
+      if (!was && !followed && !thread) recall3d();
       paintDims();
       warm3d();
       document.body.classList.toggle('focus-video', piece.type === 'video');
@@ -591,6 +595,7 @@ const WBViewer = (() => {
 
     function close() {
       if (!open) return;
+      remember3d();
       WB.media.want('run', []);
       const was = open;
       leavePiece(was);
@@ -732,6 +737,7 @@ const WBViewer = (() => {
           // Drawing, erasing and pointing are done on the frame held; any other press moves the view.
           holds: (e) => e.button === 0 && !spaceDown && (tool === 'pen' || tool === 'eraser' || tool === 'laser'),
         });
+        three.setLook(look3d);
       }
       await three.load(setting);
       if (warm) await three.warm();
@@ -824,8 +830,112 @@ const WBViewer = (() => {
       else look();
     }
     const povHere = () => (in3d && three ? three.pose() : null);
+
+    // Where the venue was last seen from in this tab (sessionStorage, by model): whether the player was in
+    // 3D, and where the view was. Kept as the player closes, and as the page goes, wherever it could have
+    // been in 3D; the next piece opened in this project opens that way.
+    const placeKey = () => (opts.view3d && opts.view3d.model ? `wb:3dat:${opts.view3d.model}` : '');
+    function remember3d() {
+      if (!placeKey() || !has3d()) return;
+      try {
+        sessionStorage.setItem(placeKey(), JSON.stringify(in3d && three ? { on: 1, at: three.where() } : { on: 0 }));
+      } catch {
+        // Storage can be blocked: it opens in 2D.
+      }
+    }
+    window.addEventListener('pagehide', () => { if (open) remember3d(); });
+    async function recall3d() {
+      if (in3d || !has3d()) return;
+      let was = null;
+      try {
+        was = JSON.parse(sessionStorage.getItem(placeKey()));
+      } catch {
+        return;
+      }
+      if (!was || !was.on) return;
+      const id = open.id;
+      await set3d(true);
+      if (!in3d || !three || !open || open.id !== id || !was.at || !three.place(was.at)) return;
+      emit('3d');
+      if (Math.round(1600 / three.aspect()) !== H) {
+        sizeBox();
+        fit();
+      }
+      paintDims();
+      paintInk();
+    }
+
+    // How the venue is drawn, under the button beside the 3D switch: how much the room is lit, the shade in
+    // its corners and creases (ambient occlusion, and cavity), and the light the screens throw on it.
+    // Kept by this browser.
+    const LOOK = { light: 1, ao: 0, aoRadius: 0.5, cavity: 0, glow: false, glowAmount: 1 };
+    let look3d = { ...LOOK, ...(store('wb:3dlook') || {}) };
+    function setLook3d(change) {
+      look3d = { ...look3d, ...change };
+      store('wb:3dlook', look3d);
+      if (three) three.setLook(look3d);
+    }
+    const pct = (v) => `${Math.round(v * 100)}%`;
+    function lookMenu() {
+      if (document.querySelector('.v-look')) return void WB.closeMenus();
+      const slider = (label, key, min, max, step, says) => {
+        const value = el('span', { class: 'v-look-val' });
+        const input = el('input', { type: 'range', min, max, step, value: look3d[key], 'aria-label': label });
+        const paint = () => {
+          value.textContent = says(look3d[key]);
+          input.style.setProperty('--p', `${((look3d[key] - min) / (max - min)) * 100}%`);
+        };
+        input.addEventListener('input', () => {
+          setLook3d({ [key]: Number(input.value) });
+          paint();
+          reach.hidden = !look3d.ao;
+        });
+        // The arrows move the slider, not the player along its pieces.
+        input.addEventListener('keydown', (e) => { if (/^(Arrow|Page|Home|End)/.test(e.key)) e.stopPropagation(); });
+        paint();
+        return el('label', { class: 'v-look-row' }, el('span', { text: label }), value, input);
+      };
+      // How far the occlusion reaches is only asked while there is some; the screens' strength, while they light.
+      const reach = slider('Reach', 'aoRadius', 0.1, 4, 0.05, (v) => `${v.toFixed(2)} m`);
+      reach.hidden = !look3d.ao;
+      const glowAmount = slider('Strength', 'glowAmount', 0.1, 3, 0.05, pct);
+      glowAmount.hidden = !look3d.glow;
+      const glow = el('input', { type: 'checkbox', class: 'switch', checked: look3d.glow, 'aria-label': 'Screen light' });
+      glow.addEventListener('change', () => {
+        setLook3d({ glow: glow.checked });
+        glowAmount.hidden = !glow.checked;
+      });
+      const node = WB.menu(lookBtn, [
+        slider('Room light', 'light', 0, 2, 0.01, pct),
+        el('div', { class: 'menu-sep' }),
+        slider('Ambient occlusion', 'ao', 0, 1, 0.01, (v) => (v ? pct(v) : 'Off')),
+        reach,
+        slider('Cavity', 'cavity', 0, 1, 0.01, (v) => (v ? pct(v) : 'Off')),
+        el('div', { class: 'menu-sep' }),
+        el('label', { class: 'v-look-row v-look-switch', title: 'The picture on the screens lights the room' }, el('span', { text: 'Screen light' }), glow),
+        glowAmount,
+        el('div', { class: 'menu-sep' }),
+        el('button', {
+          type: 'button', class: 'menu-item', text: 'Reset',
+          onclick: () => {
+            setLook3d(LOOK);
+            WB.closeMenus();
+            lookMenu();
+          },
+        }),
+      ], { cls: 'v-look' });
+      node.querySelector('input').focus({ preventScroll: true });
+      lookBtn.setAttribute('aria-expanded', 'true');
+      new MutationObserver((_, watch) => {
+        if (node.isConnected) return;
+        lookBtn.setAttribute('aria-expanded', 'false');
+        watch.disconnect();
+      }).observe(document.body, { childList: true });
+    }
+
     function paintDims() {
       dims.hidden = !has3d();
+      lookBtn.hidden = !(in3d && three);
       d3Btn.setAttribute('aria-pressed', String(in3d));
       d3Btn.title = in3d ? 'Back to the picture as it is (2D)' : D3_TITLE;
       camGroup.hidden = !(in3d && three);

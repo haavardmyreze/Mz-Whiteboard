@@ -515,7 +515,13 @@ filed in it.
   box clicked into) the view holds still where it is, letterboxed 16:9, and that view is kept with the
   comment, so what is drawn lands on the same thing for everyone. Picking the comment glides back to it
   (turning the player to 3D if need be); a drawing shows only from there. Such a comment says
-  "Drawing in 3D", or "In 3D" with no drawing. The player always opens in 2D. The room is lit from all round so nothing in it is black.
+  "Drawing in 3D", or "In 3D" with no drawing. The player opens as it was last left in this tab, project by
+  project: in 3D, where the view was (flying, on a camera of the model's or on a comment's frame), whatever
+  piece it opens on, or in 2D. The room is lit from all round so nothing in it is black. The settings
+  button beside the 3D switch says how the venue is drawn, kept by the browser: Room light (from dark
+  to twice as lit; the screens stay as they are), Ambient occlusion and how far it reaches, Cavity (a
+  little dark in creases, as in Blender), and Screen light: the picture on the screens lighting the room
+  as it plays, at a strength (no shadows: see docs/3d-preview.md).
   On the project's boards the player has the same switch, for a piece that is a version and has the view
   the project puts on its model (with the main view, any catalogued picture or video): in 3D it shows that
   view's file, whichever view is on the board. A piece that is not a version, or lacks that view, shows

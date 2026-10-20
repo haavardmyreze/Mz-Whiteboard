@@ -36,6 +36,25 @@ How it fits together:
   version a board shows with its `look3d` (boardVersion in server.js), and the board's model as `view3d`
   with its init, and again when the project's setting changes. Following someone on a board, or watching
   a presentation, follows 2D or 3D, the camera and the flight (`d` in the presence).
+- **How the venue is drawn** is the viewer's own, kept by the browser (`wb:3dlook`), and set under the
+  settings button beside the 3D switch (setLook in view3d.js). Room light scales the room's lights and
+  its environment, never the screens. Ambient occlusion and cavity are done in screen space, as Unreal's
+  and Blender's viewports do them: the room is drawn a second time with only its normals and depth (the
+  screens marked to be left alone), occlusion is worked out from that at half size and smoothed, cavity
+  from how the normals bend from pixel to pixel, and both are multiplied into what was drawn. Off, neither
+  costs anything.
+- **Screen light.** Lumen traces the scene, which a browser cannot afford every frame; but a venue's light
+  comes almost all from its screens, whose shape is known. So each screen is cut by its UVs into at most
+  32 patches (8 by 4 cells of the picture, fewer when there are several screens), each a small lamp at
+  its place, facing as the screen does, as large as its part of the screen. Every frame the picture is
+  brought down to 256 by 128 and its mipmaps on the graphics card, each patch takes the mean colour of
+  its cell from there, and the room's materials add what every patch gives a point, as a disc of light
+  would, to their light from all round. No shadows (light goes through a wall), and no bounce; about 32
+  lamps' worth of work for each pixel of the room, and none while it is off.
+- **Where it was left.** Closing the player (or leaving the page) keeps, for this tab and by model,
+  whether it was in 3D and where the view was (`wb:3dat:<model>` in sessionStorage: a flight's place, a
+  camera's number or a comment's frame); the next piece opened in the project opens that way, unless it
+  is opened on a comment or to follow somebody.
 - **Not yet:** a model replaced or moved after comments were made in it would leave their views (and
   drawings) off target; keep a model once it is in use.
 

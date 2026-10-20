@@ -1269,6 +1269,33 @@ function pageAfter(before) {
 async function handleCatalogue(req, res, parts) {
   const projectFor = (id) => (visibleFolder(req.user, id) && folders.get(id).project ? folders.get(id) : null);
   const boardsSeen = (list) => list.filter((b) => canSee(req.user, b.workspace)).map((b) => ({ id: b.id, name: b.name }));
+  // Versions as a list shows them (the Versions page, a playlist): each read with its entity's name and
+  // tier. `full` sends the whole of each one's look, as the player needs it to play them one after another.
+  const shape = (list, { full = false } = {}) => {
+    const on = store.boardsWithVersions(list.map((v) => v.id));
+    return list.map((v) => {
+      const { src, poster, th, dur, fps, nw, nh, type } = v.look;
+      return {
+        id: v.id, entityId: v.entityId, entity: v.entityName, tier: v.entityTier, task: v.task, number: v.number,
+        label: naming.label(v.entityName, v.task, v.number), kind: v.kind, thumb: v.thumb, look: full ? v.look : { type, src, poster, th, dur, fps, nw, nh },
+        views: [v.look.view || '', ...(v.look.views || []).map((x) => x.view)].filter((x, i) => i || (v.look.views || []).length),
+        artist: v.artist, createdAt: v.createdAt, createdBy: v.createdBy, hidden: v.hidden, originalName: v.originalName, boards: boardsSeen(on.get(v.id)),
+      };
+    });
+  };
+  // A playlist's versions, in its order: those still there, each with its entity.
+  const playlistVersions = (p) => p.versions.map((id) => liveVersion(id)).filter(Boolean).map((v) => {
+    const e = store.entity(v.entityId);
+    return e && e.projectId === p.projectId ? { ...v, entityName: e.name, entityTier: e.tier } : null;
+  }).filter(Boolean);
+  // A playlist as a list of them shows it: its name, how many versions, the first stills, when it changed.
+  const playlistCard = (p) => {
+    const list = playlistVersions(p);
+    return { id: p.id, name: p.name, count: list.length, thumbs: list.map((v) => v.thumb).filter(Boolean).slice(0, 4), createdBy: p.createdBy, createdAt: p.createdAt, updatedAt: p.updatedAt };
+  };
+  // Versions asked to go on a playlist of `project`: each once, only its own and still there.
+  const versionsFor = (project, ids) => [...new Set(Array.isArray(ids) ? ids : [])].slice(0, 1000)
+    .filter((id) => typeof id === 'string' && liveVersion(id) && store.entity(liveVersion(id).entityId)?.projectId === project.id);
   // GET /api/projects/:id                  the project and its entities
   // POST /api/projects/:id/entities        { name, tier }
   // POST /api/projects/:id/versions        { files, entity, task, descriptor, artist }
@@ -1286,7 +1313,19 @@ async function handleCatalogue(req, res, parts) {
         // How its versions are shown: its views, the main one first, or null for one way.
         viewList: viewsOf(project),
         boards: [...boards.values()].filter((b) => visible(req.user, b) && boardProject(b) === project).map((b) => ({ id: b.id, name: b.name })),
+        playlists: store.playlists(project.id).map((p) => ({ id: p.id, name: p.name, count: playlistVersions(p).length, updatedAt: p.updatedAt })),
       });
+    }
+    // GET /api/projects/:id/playlists          its playlists, the one changed last first
+    // POST /api/projects/:id/playlists { name, versions }   a new one, with these versions on it to begin with
+    if (parts.length === 4 && parts[3] === 'playlists') {
+      if (req.method === 'GET') return sendJson(res, 200, { playlists: store.playlists(project.id).map(playlistCard) });
+      if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+      const body = await readJson(req, 256 * 1024);
+      const name = cleanName(body.name, null);
+      if (!name) return sendJson(res, 400, { error: 'A playlist needs a name' });
+      const p = store.addPlaylist({ id: newId(), projectId: project.id, name, versions: versionsFor(project, body.versions), by: actor(req, body) });
+      return sendJson(res, 200, playlistCard(p));
     }
     // POST /api/projects/:id/likely { looks: [{ key, type, dur, fps, nw, nh, wf }] }: for each video about
     // to be filed, the assets, sets and shots (and tasks) whose newest version it most likely follows,
@@ -1320,18 +1359,6 @@ async function handleCatalogue(req, res, parts) {
       const sp = new URL(req.url, 'http://x').searchParams;
       // Which boards each is on is read from the database, so what is waiting to be written goes first.
       flushAll();
-      const shape = (list) => {
-        const on = store.boardsWithVersions(list.map((v) => v.id));
-        return list.map((v) => {
-          const { src, poster, th, dur, fps, nw, nh, type } = v.look;
-          return {
-            id: v.id, entityId: v.entityId, entity: v.entityName, tier: v.entityTier, task: v.task, number: v.number,
-            label: naming.label(v.entityName, v.task, v.number), kind: v.kind, thumb: v.thumb, look: { type, src, poster, th, dur, fps, nw, nh },
-            views: [v.look.view || '', ...(v.look.views || []).map((x) => x.view)].filter((x, i) => i || (v.look.views || []).length),
-            artist: v.artist, createdAt: v.createdAt, createdBy: v.createdBy, hidden: v.hidden, originalName: v.originalName, boards: boardsSeen(on.get(v.id)),
-          };
-        });
-      };
       if (sp.get('find')) {
         const listOf = (key) => (sp.get(key) === null ? null : sp.get(key).split(',').map((x) => x.trim()).slice(0, 100));
         const offset = Math.max(0, Math.min(1e6, Number(sp.get('offset')) || 0));
@@ -1701,6 +1728,39 @@ async function handleCatalogue(req, res, parts) {
     // What they are cc'd on, the same way: its newest is what a browser keeps ahead for them.
     const cc = mine.filter((e) => e.role === 'cc').map(card).sort(byLatest);
     return sendJson(res, 200, { name, work, cc, items });
+  }
+  // GET /api/playlists/:id      the playlist, and its versions in order, each whole, to list and to play
+  // PATCH { name }              renamed
+  // PATCH { versions }          its versions given anew, in their new order (moved, taken off)
+  // PATCH { add }               these put at its end (any it has already stay where they are)
+  // DELETE                      gone; its versions are not touched
+  if (parts[1] === 'playlists' && parts.length === 3) {
+    const p = store.playlist(parts[2]);
+    const project = p && projectFor(p.projectId);
+    if (!project) return sendJson(res, 404, { error: 'Playlist not found' });
+    if (req.method === 'GET') {
+      flushAll();
+      return sendJson(res, 200, { playlist: playlistCard(p), versions: shape(playlistVersions(p), { full: true }) });
+    }
+    if (req.method === 'DELETE') {
+      store.deletePlaylist(p.id);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (req.method !== 'PATCH') return sendJson(res, 405, { error: 'Method not allowed' });
+    const body = await readJson(req, 256 * 1024);
+    const patch = {};
+    if (body.name !== undefined) {
+      patch.name = cleanName(body.name, null);
+      if (!patch.name) return sendJson(res, 400, { error: 'A playlist needs a name' });
+    }
+    if (body.versions !== undefined) patch.versions = versionsFor(project, body.versions);
+    if (body.add !== undefined) {
+      const have = patch.versions || p.versions;
+      patch.versions = [...have, ...versionsFor(project, body.add).filter((id) => !have.includes(id))].slice(0, 1000);
+    }
+    if (!Object.keys(patch).length) return sendJson(res, 400, { error: 'Nothing to change' });
+    const done = store.setPlaylist(p.id, patch);
+    return sendJson(res, 200, playlistCard(done));
   }
   // GET /api/versions/:id
   // PATCH  { entity, task, number, descriptor, artist }   what it is filed as: its name follows
@@ -2330,7 +2390,7 @@ async function handleApi(req, res, url) {
     if (!project) return sendJson(res, 404, { error: 'Project not found' });
     return handlePresentApi(req, res, url, project, parts[4] || '');
   }
-  if (['projects', 'entities', 'versions', 'people', 'feed'].includes(parts[1])) return handleCatalogue(req, res, parts);
+  if (['projects', 'entities', 'versions', 'playlists', 'people', 'feed'].includes(parts[1])) return handleCatalogue(req, res, parts);
   if (parts[1] === 'library' && req.method === 'GET') {
     return sendJson(res, 200, {
       folders: [...folders.values()].filter((f) => canSee(req.user, f.workspace)).map(publicFolder),

@@ -252,6 +252,20 @@ CREATE TABLE IF NOT EXISTS grants (
   UNIQUE (target_type, target_id, principal_type, principal_id)
 );
 
+-- A playlist: some of a project's versions, in the order they are to be looked at, as a review is run
+-- through them one after another (as in ShotGrid). versions is their ids, as JSON, in that order; a
+-- version deleted since is left out when the list is read.
+CREATE TABLE IF NOT EXISTS playlists (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  versions TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  created_by TEXT,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS playlists_by_project ON playlists (project_id);
+
 -- A link to watch somebody present a project: whoever opens it sees what they show, as they show it, and
 -- nothing else. One per person per project, so the same link can be sent ahead of every review. The owner
 -- is who presents: their sign-in's id, or where nobody signs in, the name they go by.
@@ -464,6 +478,32 @@ function openStore(dataDir) {
   const savePresentation = (p) => putPresentation.run(p.token, p.projectId, p.owner, p.ownerName || null, p.access, p.expiresAt || null, p.createdAt);
   const dropPresentation = db.prepare('DELETE FROM presentations WHERE token = ?');
   const deletePresentation = (token) => dropPresentation.run(token).changes > 0;
+
+  // ---- playlists
+
+  const playlistOf = (r) => ({ id: r.id, projectId: r.project_id, name: r.name, versions: JSON.parse(r.versions), createdAt: r.created_at, createdBy: r.created_by, updatedAt: r.updated_at });
+  const readPlaylists = db.prepare('SELECT * FROM playlists WHERE project_id = ? ORDER BY updated_at DESC');
+  const playlists = (projectId) => readPlaylists.all(projectId).map(playlistOf);
+  const readPlaylist = db.prepare('SELECT * FROM playlists WHERE id = ?');
+  const playlist = (id) => {
+    const r = readPlaylist.get(id);
+    return r ? playlistOf(r) : null;
+  };
+  const putPlaylist = db.prepare('INSERT INTO playlists (id, project_id, name, versions, created_at, created_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  function addPlaylist({ id, projectId, name, versions = [], by = null, at = Date.now() }) {
+    putPlaylist.run(id, projectId, name, JSON.stringify(versions), at, by, at);
+    return playlist(id);
+  }
+  const updatePlaylist = db.prepare('UPDATE playlists SET name = ?, versions = ?, updated_at = ? WHERE id = ?');
+  // Renamed, or its versions given anew (in their new order); what is left out stays as it was.
+  function setPlaylist(id, { name, versions } = {}, at = Date.now()) {
+    const p = playlist(id);
+    if (!p) return null;
+    updatePlaylist.run(name ?? p.name, JSON.stringify(versions ?? p.versions), at, id);
+    return playlist(id);
+  }
+  const dropPlaylist = db.prepare('DELETE FROM playlists WHERE id = ?');
+  const deletePlaylist = (id) => dropPlaylist.run(id).changes > 0;
 
   const readFolders = db.prepare('SELECT * FROM folders');
   const folders = () => readFolders.all().map((r) => ({
@@ -1082,6 +1122,7 @@ function openStore(dataDir) {
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,
     grants, setGrant, removeGrant, removeGrantsOn,
     presentations, savePresentation, deletePresentation, setMediaPhone, itemsWithMedia, setLook, versionsWithFile,
+    playlists, playlist, addPlaylist, setPlaylist, deletePlaylist,
   };
 }
 

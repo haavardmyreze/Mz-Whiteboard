@@ -2970,3 +2970,58 @@ test('a video is given a phone copy by one browser, and it is put everywhere the
   assert.deepEqual((await call('POST', '/api/phone-copy/claim', { src: light })).body, { go: true });
   assert.equal((await call('POST', '/api/phone-copy', { src: light, lo: light })).body.lo, light);
 });
+
+test('a playlist holds some of a project\'s versions in an order, which can be changed, and only its own', async (t) => {
+  const s = start(4899);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const other = (await call('POST', '/api/folders', { name: 'Lima' })).body;
+  await call('PATCH', `/api/folders/${other.id}`, { project: true });
+  const up = async (name) => (await (await fetch(`${s.base}/api/upload?name=${name}`, { method: 'POST', body: crypto.randomBytes(400) })).json()).url;
+  const file = async (p, name) => (await call('POST', `/api/projects/${p.id}/versions`, { files: [{ look: { type: 'image', src: await up('a.png'), name } }] })).body.versions[0];
+  const a = await file(project, 'kilo-0010_comp_v001.png');
+  const b = await file(project, 'kilo-0020_comp_v001.png');
+  const c = await file(project, 'kilo-0030_comp_v001.png');
+  const theirs = await file(other, 'lima-0010_comp_v001.png');
+
+  // made with some versions; one of another project, and one given twice, are left out
+  assert.equal((await call('POST', `/api/projects/${project.id}/playlists`, { name: '  ' })).status, 400);
+  const made = await call('POST', `/api/projects/${project.id}/playlists`, { name: 'Dailies', versions: [b.id, a.id, b.id, theirs.id], by: 'Anna' });
+  assert.equal(made.status, 200);
+  assert.equal(made.body.count, 2);
+  const id = made.body.id;
+  const order = async () => (await call('GET', `/api/playlists/${id}`)).body.versions.map((v) => v.label);
+  assert.deepEqual(await order(), ['kilo-0020 comp v1', 'kilo-0010 comp v1']);
+  // each is whole, as the player plays it
+  assert.equal((await call('GET', `/api/playlists/${id}`)).body.versions[0].look.name, 'kilo-0020_comp_v001.png');
+
+  // more put at the end, what it has already stays where it is
+  await call('PATCH', `/api/playlists/${id}`, { add: [a.id, c.id] });
+  assert.deepEqual(await order(), ['kilo-0020 comp v1', 'kilo-0010 comp v1', 'kilo-0030 comp v1']);
+  // moved and taken off by giving the list anew
+  await call('PATCH', `/api/playlists/${id}`, { versions: [c.id, b.id] });
+  assert.deepEqual(await order(), ['kilo-0030 comp v1', 'kilo-0020 comp v1']);
+  // renamed; the project lists it, with how many it has
+  assert.equal((await call('PATCH', `/api/playlists/${id}`, { name: '' })).status, 400);
+  await call('PATCH', `/api/playlists/${id}`, { name: 'Dailies Tuesday' });
+  const listed = (await call('GET', `/api/projects/${project.id}/playlists`)).body.playlists;
+  assert.deepEqual(listed.map((p) => [p.name, p.count, p.createdBy]), [['Dailies Tuesday', 2, 'Anna']]);
+  assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.playlists.map((p) => p.name), ['Dailies Tuesday']);
+  assert.deepEqual((await call('GET', `/api/projects/${other.id}/playlists`)).body.playlists, []);
+
+  // a version deleted since is left out
+  await call('DELETE', `/api/versions/${c.id}`);
+  assert.deepEqual(await order(), ['kilo-0020 comp v1']);
+
+  // deleted, and its versions are still there
+  assert.equal((await call('DELETE', `/api/playlists/${id}`)).status, 200);
+  assert.equal((await call('GET', `/api/playlists/${id}`)).status, 404);
+  assert.equal((await call('GET', `/api/versions/${b.id}`)).status, 200);
+});

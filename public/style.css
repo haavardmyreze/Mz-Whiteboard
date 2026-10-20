@@ -2813,6 +2813,21 @@ input.switch:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-s
 @media (prefers-reduced-motion: reduce) { input.switch, input.switch::after { transition: none; } }
 /* What it has learned of file names: chips, each forgotten with its ×. */
 .ps-chips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+/* A setting whose control needs the width: its words above it. */
+.ps-row.stack { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.ps-row.stack .ps-control { justify-content: stretch; }
+/* What a project has learned of names from elsewhere: a row each, the name learned from (as typed, in mono)
+   and what it was filed as, then quieter how every name like it is read. */
+.ps-rules { width: 100%; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.ps-rule { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; row-gap: 2px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.ps-rule-main { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ps-rule-from { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--text-2); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--fs-sm); text-overflow: ellipsis; white-space: nowrap; }
+.ps-rule-arrow { flex: none; display: inline-grid; color: var(--muted); transform: rotate(45deg); }
+.ps-rule-as { flex: none; font-weight: 600; white-space: nowrap; }
+.ps-rule-shape { grid-column: 1; color: var(--muted); font-size: var(--fs-cap); overflow-wrap: anywhere; }
+.ps-rule-shape i { padding: 0 4px; border-radius: var(--r-1); background: var(--surface-3); color: var(--text-2); font-style: normal; font-weight: 500; }
+.ps-rule-sep { padding: 0 1px; opacity: 0.6; }
+.ps-rule-x { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
 .ps-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 9px; border-radius: var(--r-pill); background: var(--surface-2); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
 .ps-chip-x { display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
 .ps-chip-x:hover { background: var(--hover); color: var(--text); }

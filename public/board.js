@@ -4863,7 +4863,7 @@
           WBFiling.offerRule({
             filename: taught.it.name, rules, tasks: cat.tasks,
             filed: { entity: nameOf(taught), task: taught.f.taskName(), number: res.versions[rows.indexOf(taught)].number, view: taught.f.viewName(), views: cat.viewList || [] },
-            save: (next) => WB.api('PATCH', `/api/folders/${project.id}`, { settings: { rules: next } }),
+            save: (rule) => WB.api('PATCH', `/api/folders/${project.id}`, { settings: { addRules: [rule] } }),
           });
         }
       } catch (err) {

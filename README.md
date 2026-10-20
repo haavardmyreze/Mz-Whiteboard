@@ -436,8 +436,11 @@ filed in it.
     (`sh010`); a sequence named otherwise there (`KLO_010` filed as kilo-0010) is kept as that. A pattern
     needs a word of its own (`nhmoc`) or one of those sequences to know its names by. Without one, the
     first word is learned, as a sequence or one asset or set (`robot` → `char-robot`), never a word that
-    says nothing (screenshot, render, final...). The project's settings list what it has learned, as
-    chips to forget.
+    says nothing (screenshot, render, final...). Each pattern learned is kept beside those the project
+    has by then, so two learned while filing one batch (names with a frame range and names without) are
+    both kept. The project's settings list what it has learned, a row each: the name it was learned from,
+    what that was filed as, and how names like it are read (psh26_ sequence _ shot _..._ version), each
+    forgotten with its ×.
 - **Numbering.** A version is the number its file's name says (`kilo-0010_anim_erik_v012.mov` is
   v12, and so is `NHMoc_CHAP01_010_cmp_v012` once the project has learned names like it); otherwise the
   catalogue counts on itself: `kilo-0010 anim v1`, `v2`, `v3`, per asset, set or shot and task, in the

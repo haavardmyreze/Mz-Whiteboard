@@ -1882,6 +1882,14 @@ test('a project can count without tasks, learn how names from elsewhere read, an
   assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.project.settings.rules, [
     nh, { pattern: ['{seq}', '{shot}', '*'], seqs: { klo: 'kilo' }, like: '', as: '' },
   ]);
+  // Two learned one after the other while filing one batch are both kept, each added to what is there by then;
+  // one it has already is not kept twice.
+  const ranged = { pattern: ['psh26', '{seq}', '{shot}', '*', '{version}', '*', '*'], like: 'PSH26_HAUS_0110_vr_v500.[00000-00299]', as: 'haus-0110 v500' };
+  const plain = { pattern: ['psh26', '{seq}', '{shot}', '*', '{version}'], like: 'PSH26_HAUS_0090_vr_v100', as: 'haus-0090 v100' };
+  await call('PATCH', `/api/folders/${project.id}`, { settings: { addRules: [ranged] } });
+  await call('PATCH', `/api/folders/${project.id}`, { settings: { addRules: [plain, nh] } });
+  assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.project.settings.rules.map((r) => r.like),
+    ['NHMoc_CHAP01_010_cmp_v111', '', 'PSH26_HAUS_0110_vr_v500.[00000-00299]', 'PSH26_HAUS_0090_vr_v100']);
   // An empty list forgets them all.
   await call('PATCH', `/api/folders/${project.id}`, { settings: { rules: [] } });
   assert.equal((await call('GET', `/api/projects/${project.id}`)).body.project.settings.rules, undefined);

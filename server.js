@@ -872,24 +872,31 @@ function cleanProjectSettings(asked, was = {}) {
     if (seqs.length) out.seqs = seqs;
     else delete out.seqs;
   }
-  if (Array.isArray(asked.rules)) {
+  // The names from elsewhere it has learned to read (see ruleFrom in naming.js): `rules` is all of them,
+  // given anew (one forgotten); `addRules` are more to keep beside those it has now, so that two learned
+  // at about the same time (two patterns offered while filing one batch) are both kept.
+  const ruleOf = (r) => {
+    if (!r || typeof r !== 'object') return null;
+    // A whole name's pattern (see patternFrom in naming.js): where its sequence and shot are, at least.
+    if (Array.isArray(r.pattern)) {
+      const pattern = r.pattern.slice(0, 16);
+      if (!pattern.length || !pattern.every((t) => typeof t === 'string' && naming.PATTERN_TOKEN.test(t))) return null;
+      if (!pattern.includes('{seq}') || !pattern.some((t) => t.startsWith('{shot'))) return null;
+      const seqs = Object.fromEntries(Object.entries(r.seqs && typeof r.seqs === 'object' ? r.seqs : {})
+        .filter(([from, to]) => /^[a-z0-9]{1,40}$/.test(from) && seqName(to)).slice(0, 50));
+      return { pattern, ...(Object.keys(seqs).length && { seqs }), like: String(r.like || '').slice(0, 120), as: String(r.as || '').slice(0, 80) };
+    }
+    if (typeof r.word !== 'string' || !/^[a-z0-9]{1,40}$/.test(r.word)) return null;
+    if (seqName(r.seq)) return { word: r.word, seq: r.seq, ...(r.glued === true && { glued: true }) };
+    if (typeof r.name === 'string' && naming.tokenize(r.name) === r.name) return { word: r.word, name: r.name };
+    return null;
+  };
+  if (Array.isArray(asked.rules) || Array.isArray(asked.addRules)) {
     const rules = new Map();
-    for (const r of asked.rules.slice(0, 200)) {
-      if (!r || typeof r !== 'object') continue;
-      // A whole name's pattern (see patternFrom in naming.js): where its sequence and shot are, at least.
-      if (Array.isArray(r.pattern)) {
-        const pattern = r.pattern.slice(0, 16);
-        if (!pattern.length || !pattern.every((t) => typeof t === 'string' && naming.PATTERN_TOKEN.test(t))) continue;
-        if (!pattern.includes('{seq}') || !pattern.some((t) => t.startsWith('{shot'))) continue;
-        const seqs = Object.fromEntries(Object.entries(r.seqs && typeof r.seqs === 'object' ? r.seqs : {})
-          .filter(([from, to]) => /^[a-z0-9]{1,40}$/.test(from) && seqName(to)).slice(0, 50));
-        const rule = { pattern, ...(Object.keys(seqs).length && { seqs }), like: String(r.like || '').slice(0, 120), as: String(r.as || '').slice(0, 80) };
-        rules.set(naming.ruleKey(rule), rule);
-        continue;
-      }
-      if (typeof r.word !== 'string' || !/^[a-z0-9]{1,40}$/.test(r.word)) continue;
-      if (seqName(r.seq)) rules.set(`w:${r.word}`, { word: r.word, seq: r.seq, ...(r.glued === true && { glued: true }) });
-      else if (typeof r.name === 'string' && naming.tokenize(r.name) === r.name) rules.set(`w:${r.word}`, { word: r.word, name: r.name });
+    const given = Array.isArray(asked.rules) ? asked.rules : [...(out.rules || []), ...asked.addRules];
+    for (const r of given.slice(0, 200)) {
+      const rule = ruleOf(r);
+      if (rule) rules.set(naming.ruleKey(rule), rule);
     }
     if (rules.size) out.rules = [...rules.values()];
     else delete out.rules;

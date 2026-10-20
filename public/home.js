@@ -503,12 +503,29 @@
   async function projectSettings(project) {
     const was = (project.settings && project.settings.preview3d) || null;
     const byTask = el('input', { type: 'checkbox', class: 'switch', ...(!(project.settings && project.settings.tasks === false) && { checked: true }), 'aria-label': 'Count versions by task' });
-    // What it has learned of file names from elsewhere: each a chip, forgotten with its ×. Only there once there are some.
+    // What it has learned of file names from elsewhere, a row each between hairlines: the name it was learned
+    // from, what that was filed as, and under them how every name like it is read (its words, where the
+    // sequence, the shot and the version are, … for what changes). Forgotten with its ×. Only there once
+    // there are some.
     let rules = [...((project.settings && project.settings.rules) || [])];
-    const ruleList = el('div', { class: 'ps-chips' });
+    const ruleList = el('ul', { class: 'ps-rules' });
+    const PART = { '{seq}': 'sequence', '{version}': 'version', '{task}': 'task', '{view}': 'view' };
+    const reads = (r) => (r.pattern
+      ? r.pattern.map((t) => (PART[t] ? el('i', { text: PART[t] }) : t.startsWith('{shot') ? el('i', { text: `${t.slice(6, -1)}shot` }) : t === '*' ? '…' : t))
+      : [r.word, el('i', { text: r.seq ? 'shot' : 'anything' })]);
     const paintRules = () => {
-      ruleList.replaceChildren(...rules.map((r) => el('span', { class: 'ps-chip' }, el('span', { text: N.ruleText(r) }),
-        el('button', { type: 'button', class: 'ps-chip-x', html: icon('close', 12), title: `Forget ${N.ruleText(r)}`, 'aria-label': `Forget ${N.ruleText(r)}`, onclick: () => { rules = rules.filter((x) => x !== r); paintRules(); } }))));
+      ruleList.replaceChildren(...rules.map((r) => {
+        const from = r.pattern ? r.like : `${r.word}${r.seq && !r.glued ? '_' : ''}${r.seq ? '010' : '…'}`;
+        const as = r.pattern ? r.as : r.seq ? N.shotName(r.seq, 10) : r.name;
+        const shape = reads(r).flatMap((x, i) => (i ? [el('span', { class: 'ps-rule-sep', text: '_' }), x] : [x]));
+        return el('li', { class: 'ps-rule' },
+          el('div', { class: 'ps-rule-main' },
+            el('code', { class: 'ps-rule-from', text: from, title: from }),
+            el('span', { class: 'ps-rule-arrow', html: icon('arrow', 12) }),
+            el('b', { class: 'ps-rule-as', text: as })),
+          el('div', { class: 'ps-rule-shape' }, el('span', { text: 'Reads ' }), ...shape),
+          el('button', { type: 'button', class: 'iconbtn mini ps-rule-x', html: icon('close', 12), title: `Forget ${N.ruleText(r)}`, 'aria-label': `Forget ${N.ruleText(r)}`, onclick: () => { rules = rules.filter((x) => x !== r); paintRules(); } }));
+      }));
       if (rulesRow) rulesRow.hidden = !rules.length;
     };
     let rulesRow = null;
@@ -614,7 +631,8 @@
     const surfaceRow = sub('Screen material', 'What the screens are called in the model', screen);
     cameraRow = sub('Main camera', 'Where the work is judged from: the 3D view opens through it', camera);
     pictureRow = sub('On the screens', 'Which view of a version is shown', view);
-    rulesRow = row('Learned file names', 'Names from elsewhere, read this way when filing', ruleList);
+    rulesRow = row('Learned file names', 'Names from elsewhere, read this way when filing. Forget one with its ×', ruleList);
+    rulesRow.classList.add('stack');
     paintRules();
     const dlg = el('dialog', { class: 'dlg ps-dlg' },
       el('form', {
@@ -3860,8 +3878,8 @@
             filename: r.file.name, rules: rules(), tasks: tasks(),
             filed: { entity: name, task, number: r.version.number, view: viewOf(r), views: viewList() || [] },
             others: rows.filter((o) => o !== r && o.fields && unfiled(o)).map((o) => ({ filename: o.file.name, fields: o.fields.f })),
-            save: async (next) => {
-              await api('PATCH', `/api/folders/${project.id}`, { settings: { rules: next } });
+            save: async (rule) => {
+              await api('PATCH', `/api/folders/${project.id}`, { settings: { addRules: [rule] } });
               cat = null;
               await catalogue().catch(() => {});
               await refresh();

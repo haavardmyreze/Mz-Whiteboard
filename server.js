@@ -872,24 +872,31 @@ function cleanProjectSettings(asked, was = {}) {
     if (seqs.length) out.seqs = seqs;
     else delete out.seqs;
   }
-  if (Array.isArray(asked.rules)) {
+  // The names from elsewhere it has learned to read (see ruleFrom in naming.js): `rules` is all of them,
+  // given anew (one forgotten); `addRules` are more to keep beside those it has now, so that two learned
+  // at about the same time (two patterns offered while filing one batch) are both kept.
+  const ruleOf = (r) => {
+    if (!r || typeof r !== 'object') return null;
+    // A whole name's pattern (see patternFrom in naming.js): where its sequence and shot are, at least.
+    if (Array.isArray(r.pattern)) {
+      const pattern = r.pattern.slice(0, 16);
+      if (!pattern.length || !pattern.every((t) => typeof t === 'string' && naming.PATTERN_TOKEN.test(t))) return null;
+      if (!pattern.includes('{seq}') || !pattern.some((t) => t.startsWith('{shot'))) return null;
+      const seqs = Object.fromEntries(Object.entries(r.seqs && typeof r.seqs === 'object' ? r.seqs : {})
+        .filter(([from, to]) => /^[a-z0-9]{1,40}$/.test(from) && seqName(to)).slice(0, 50));
+      return { pattern, ...(Object.keys(seqs).length && { seqs }), like: String(r.like || '').slice(0, 120), as: String(r.as || '').slice(0, 80) };
+    }
+    if (typeof r.word !== 'string' || !/^[a-z0-9]{1,40}$/.test(r.word)) return null;
+    if (seqName(r.seq)) return { word: r.word, seq: r.seq, ...(r.glued === true && { glued: true }) };
+    if (typeof r.name === 'string' && naming.tokenize(r.name) === r.name) return { word: r.word, name: r.name };
+    return null;
+  };
+  if (Array.isArray(asked.rules) || Array.isArray(asked.addRules)) {
     const rules = new Map();
-    for (const r of asked.rules.slice(0, 200)) {
-      if (!r || typeof r !== 'object') continue;
-      // A whole name's pattern (see patternFrom in naming.js): where its sequence and shot are, at least.
-      if (Array.isArray(r.pattern)) {
-        const pattern = r.pattern.slice(0, 16);
-        if (!pattern.length || !pattern.every((t) => typeof t === 'string' && naming.PATTERN_TOKEN.test(t))) continue;
-        if (!pattern.includes('{seq}') || !pattern.some((t) => t.startsWith('{shot'))) continue;
-        const seqs = Object.fromEntries(Object.entries(r.seqs && typeof r.seqs === 'object' ? r.seqs : {})
-          .filter(([from, to]) => /^[a-z0-9]{1,40}$/.test(from) && seqName(to)).slice(0, 50));
-        const rule = { pattern, ...(Object.keys(seqs).length && { seqs }), like: String(r.like || '').slice(0, 120), as: String(r.as || '').slice(0, 80) };
-        rules.set(naming.ruleKey(rule), rule);
-        continue;
-      }
-      if (typeof r.word !== 'string' || !/^[a-z0-9]{1,40}$/.test(r.word)) continue;
-      if (seqName(r.seq)) rules.set(`w:${r.word}`, { word: r.word, seq: r.seq, ...(r.glued === true && { glued: true }) });
-      else if (typeof r.name === 'string' && naming.tokenize(r.name) === r.name) rules.set(`w:${r.word}`, { word: r.word, name: r.name });
+    const given = Array.isArray(asked.rules) ? asked.rules : [...(out.rules || []), ...asked.addRules];
+    for (const r of given.slice(0, 200)) {
+      const rule = ruleOf(r);
+      if (rule) rules.set(naming.ruleKey(rule), rule);
     }
     if (rules.size) out.rules = [...rules.values()];
     else delete out.rules;
@@ -1019,6 +1026,36 @@ function boardVersions(board) {
   for (const it of board.items.values()) if (it.type !== 'comment' && typeof it.ver === 'string') ids.add(it.ver);
   const model = board3d(board);
   return [...ids].map((id) => boardVersion(id, model)).filter(Boolean);
+}
+
+// The versions a board shows, in the order it reads (as board.js reads it, mediaOrder): rows first, then
+// left to right, a frame counting as one piece among the loose ones, what it holds read in the same way.
+// Each once, where it first comes.
+function boardReadingVersions(board) {
+  openItems(board);
+  const inOrder = (list) => {
+    const rows = [];
+    for (const it of list.slice().sort((a, b) => a.y - b.y)) {
+      const row = rows[rows.length - 1];
+      if (row && it.y < row.y + row.h * 0.5) row.list.push(it);
+      else rows.push({ y: it.y, h: it.h || 0, list: [it] });
+    }
+    return rows.flatMap((row) => row.list.sort((a, b) => a.x - b.x));
+  };
+  const held = new Map();
+  const pieces = [];
+  for (const it of board.items.values()) {
+    if ((it.type !== 'image' && it.type !== 'video') || it.pid || !Number.isFinite(it.x) || !Number.isFinite(it.y)) continue;
+    const frame = it.fid && board.items.get(it.fid);
+    if (!frame || frame.type !== 'frame') pieces.push(it);
+    else if (held.has(frame.id)) held.get(frame.id).push(it);
+    else {
+      held.set(frame.id, [it]);
+      pieces.push(frame);
+    }
+  }
+  const order = inOrder(pieces).flatMap((p) => (p.type === 'frame' ? inOrder(held.get(p.id)) : [p]));
+  return [...new Set(order.map((it) => it.ver).filter((id) => typeof id === 'string'))];
 }
 
 // The model of its venue the project a board is in has, if it has one (see cleanProjectSettings).
@@ -1321,18 +1358,27 @@ async function handleCatalogue(req, res, parts) {
         // How its versions are shown: its views, the main one first, or null for one way.
         viewList: viewsOf(project),
         boards: [...boards.values()].filter((b) => visible(req.user, b) && boardProject(b) === project).map((b) => ({ id: b.id, name: b.name })),
-        playlists: store.playlists(project.id).map((p) => ({ id: p.id, name: p.name, count: playlistVersions(p).length, updatedAt: p.updatedAt })),
+        playlists: store.playlists(project.id).map(playlistCard),
       });
     }
     // GET /api/projects/:id/playlists          its playlists, the one changed last first
     // POST /api/projects/:id/playlists { name, versions }   a new one, with these versions on it to begin with
+    // POST /api/projects/:id/playlists { name, board }      a new one of the versions a board of the project
+    //                                                        shows, in the order the board reads
     if (parts.length === 4 && parts[3] === 'playlists') {
       if (req.method === 'GET') return sendJson(res, 200, { playlists: store.playlists(project.id).map(playlistCard) });
       if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
       const body = await readJson(req, 256 * 1024);
       const name = cleanName(body.name, null);
       if (!name) return sendJson(res, 400, { error: 'A playlist needs a name' });
-      const p = store.addPlaylist({ id: newId(), projectId: project.id, name, versions: versionsFor(project, body.versions), by: actor(req, body) });
+      let ids = body.versions;
+      if (body.board !== undefined) {
+        const board = boards.get(body.board);
+        if (!visible(req.user, board) || boardProject(board) !== project) return sendJson(res, 404, { error: 'Board not found' });
+        ids = boardReadingVersions(board);
+        if (!ids.length) return sendJson(res, 400, { error: 'Nothing on that board is filed as a version' });
+      }
+      const p = store.addPlaylist({ id: newId(), projectId: project.id, name, versions: versionsFor(project, ids), by: actor(req, body) });
       return sendJson(res, 200, playlistCard(p));
     }
     // POST /api/projects/:id/likely { looks: [{ key, type, dur, fps, nw, nh, wf }] }: for each video about

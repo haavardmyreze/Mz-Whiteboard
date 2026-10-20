@@ -1882,6 +1882,14 @@ test('a project can count without tasks, learn how names from elsewhere read, an
   assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.project.settings.rules, [
     nh, { pattern: ['{seq}', '{shot}', '*'], seqs: { klo: 'kilo' }, like: '', as: '' },
   ]);
+  // Two learned one after the other while filing one batch are both kept, each added to what is there by then;
+  // one it has already is not kept twice.
+  const ranged = { pattern: ['psh26', '{seq}', '{shot}', '*', '{version}', '*', '*'], like: 'PSH26_HAUS_0110_vr_v500.[00000-00299]', as: 'haus-0110 v500' };
+  const plain = { pattern: ['psh26', '{seq}', '{shot}', '*', '{version}'], like: 'PSH26_HAUS_0090_vr_v100', as: 'haus-0090 v100' };
+  await call('PATCH', `/api/folders/${project.id}`, { settings: { addRules: [ranged] } });
+  await call('PATCH', `/api/folders/${project.id}`, { settings: { addRules: [plain, nh] } });
+  assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.project.settings.rules.map((r) => r.like),
+    ['NHMoc_CHAP01_010_cmp_v111', '', 'PSH26_HAUS_0110_vr_v500.[00000-00299]', 'PSH26_HAUS_0090_vr_v100']);
   // An empty list forgets them all.
   await call('PATCH', `/api/folders/${project.id}`, { settings: { rules: [] } });
   assert.equal((await call('GET', `/api/projects/${project.id}`)).body.project.settings.rules, undefined);
@@ -3026,6 +3034,23 @@ test('a playlist holds some of a project\'s versions in an order, which can be c
   // a version deleted since is left out
   await call('DELETE', `/api/versions/${c.id}`);
   assert.deepEqual(await order(), ['kilo-0020 comp v1']);
+
+  // made from a board of the project: the versions it shows, in the order it reads (rows, then left to right)
+  const board = (await call('POST', '/api/boards', { name: 'Standup', folderId: project.id })).body;
+  const anna = await joiner(4899)(`board=${board.id}`, 'Anna');
+  t.after(() => anna.ws.close());
+  anna.ws.send(JSON.stringify({ t: 'op', ops: [
+    { t: 'add', item: { id: 'piece0001', type: 'image', x: 600, y: 0, w: 400, h: 200, src: a.look.src, ver: a.id } },
+    { t: 'add', item: { id: 'piece0002', type: 'image', x: 0, y: 20, w: 400, h: 200, src: b.look.src, ver: b.id } },
+    { t: 'add', item: { id: 'piece0003', type: 'image', x: 0, y: 500, w: 400, h: 200, src: a.look.src, ver: a.id } },
+    { t: 'add', item: { id: 'piece0004', type: 'image', x: 0, y: 900, w: 400, h: 200, src: a.look.src } },
+  ] }));
+  await pause(300);
+  const fromBoard = await call('POST', `/api/projects/${project.id}/playlists`, { name: 'From the standup', board: board.id });
+  assert.equal(fromBoard.status, 200);
+  assert.deepEqual((await call('GET', `/api/playlists/${fromBoard.body.id}`)).body.versions.map((v) => v.label), ['kilo-0020 comp v1', 'kilo-0010 comp v1']);
+  const empty = (await call('POST', '/api/boards', { name: 'Empty', folderId: project.id })).body;
+  assert.equal((await call('POST', `/api/projects/${project.id}/playlists`, { name: 'Nothing', board: empty.id })).status, 400);
 
   // deleted, and its versions are still there
   assert.equal((await call('DELETE', `/api/playlists/${id}`)).status, 200);

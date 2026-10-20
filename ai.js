@@ -43,6 +43,8 @@ function rules(tasks) {
 }
 // Whether a name is written as what it is: a shot as a shot, anything else not as one.
 const fitsTier = (name, tier) => (tier === 'shot') === (naming.tierOf(name) === 'shot');
+// An answer that is no name: a placeholder for "I cannot tell" (unknown, none, <UNKNOWN>, n/a, tbd).
+const placeholder = (said) => /[<>]/.test(String(said || '')) || /^(unknown|none|null|nothing|n-?a|tbd|tba|excluded?|skip(ped)?)$/.test(naming.tokenize(said) || '');
 
 function knownList(entities) {
   const list = (entities || []).slice(0, MAX_KNOWN);
@@ -119,6 +121,8 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
           : '- view: always null: this project shows each version one way, whatever a file name says.',
         '- note: a few words on why, for the person checking your answer.',
         'Read everything the original file name says. The person\'s instruction comes first where it says otherwise, but every name keeps the shape the rules give.',
+        'An instruction is always about how the files are named, never about which files are filed: every file is filed, and you answer for every one. When it says to exclude, drop, remove, strip or ignore a word (a project code, a prefix, a client name), it means leaving that word out of the names: "psh26 should be excluded" files PSH26_HAUS_0110_vr_v500.mp4 as the shot haus-0110, version 500.',
+        'Never answer a placeholder (unknown, none, n/a, <UNKNOWN>): when you cannot tell, answer what the file is set to now.',
         'Say in `only` which fields the instruction asks you to fill in, when it names them ("fill in chapter, shot and version" is entity, version; the entity includes its chapter or sequence and its tier). Leave `only` null when it does not name any. Whatever is not in `only` is left as it is, whatever you answer for it; what you do answer for is yours to change or to clear.',
         'Answer for every file, with the key it was given.',
       ].join('\n'),
@@ -172,7 +176,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
       const answer = { note: clip(a.note, 200) };
       if (takes('entity')) {
         const entity = naming.tokenize(a.entity);
-        if (!entity) continue;
+        if (!entity || placeholder(a.entity)) continue;
         const tier = tiers.includes(a.tier) ? a.tier : naming.kindOf(entity, entities || []) || null;
         if (!tier) continue;
         Object.assign(answer, { entity, tier, fits: fitsTier(entity, tier) });

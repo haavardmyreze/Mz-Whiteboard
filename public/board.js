@@ -141,7 +141,7 @@
   const FRAME_HEAD = 80;
   const BLOCK_W = FRAME_W;
   // A block is a band, as tall as one line of its heading: only its width changes.
-  const BLOCK_H = 180;
+  const BLOCK_H = 120;
   const BLOCK_FS = 56;
   const SNAP_PX = 7;
   // Sizes are screen pixels at the zoom the text was created at.
@@ -4546,7 +4546,7 @@
     $('back').removeAttribute('title');
   }
   else {
-    $('back').href = meta.folderId ? WB.href.abs(WB.href.boards(meta.folderId)) : '/';
+    $('back').href = meta.folderId ? WB.href.abs(WB.href.folder(meta.folderId)) : '/';
     // Where the board is, between the logo and its name: the folders (or the project) it is in, each a
     // way back to it.
     if (meta.folderId) {
@@ -4554,8 +4554,10 @@
         const byId = new Map(lib.folders.map((f) => [f.id, f]));
         const trail = [];
         for (let f = byId.get(meta.folderId); f && trail.length < 8; f = byId.get(f.parentId)) trail.unshift(f);
+        // Back from a board of a project is to the project's reviews, where the board is listed.
+        if (byId.get(meta.folderId)?.project) $('back').href = WB.href.abs(WB.href.reviews(meta.folderId));
         $('boardname').before(...trail.flatMap((f) => [
-          el('a', { class: 'bar-crumb board-folder', draggable: 'false', href: WB.href.abs(f.project ? WB.href.folder(f.id) : WB.href.boards(f.id)), text: f.name, title: f.project ? `The ${f.name} project` : `The ${f.name} folder` }),
+          el('a', { class: 'bar-crumb board-folder', draggable: 'false', href: WB.href.abs(WB.href.folder(f.id)), text: f.name, title: f.project ? `The ${f.name} project` : `The ${f.name} folder` }),
           el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' }),
         ]));
       }).catch(() => { /* the logo still goes back */ });
@@ -4863,7 +4865,7 @@
           WBFiling.offerRule({
             filename: taught.it.name, rules, tasks: cat.tasks,
             filed: { entity: nameOf(taught), task: taught.f.taskName(), number: res.versions[rows.indexOf(taught)].number, view: taught.f.viewName(), views: cat.viewList || [] },
-            save: (next) => WB.api('PATCH', `/api/folders/${project.id}`, { settings: { rules: next } }),
+            save: (rule) => WB.api('PATCH', `/api/folders/${project.id}`, { settings: { addRules: [rule] } }),
           });
         }
       } catch (err) {

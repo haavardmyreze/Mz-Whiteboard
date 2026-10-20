@@ -31,7 +31,8 @@ private networks, otherwise only the host machine can connect.
 
 - **Getting around the home page.** A sidebar on the left holds Home, then what you pinned (each a row
   that goes there), then each workspace with its folders and projects as a tree. A project opens to its
-  Boards, Catalogue, Versions and Timeline, and the catalogue to its assets, sets and shots, the shots by
+  Reviews (its boards and playlists, each under it), Catalogue, Versions and Timeline, and the catalogue
+  to its assets, sets and shots, the shots by
   sequence, each with a count. Only what you are in is open: the way to the page you are on is opened
   for you, and the rest close as you go elsewhere (an arrow opens a row for a look in the meantime). Rows
   with nothing in them show no count. Every page opens with its title, set large: the place you are in
@@ -436,8 +437,11 @@ filed in it.
     (`sh010`); a sequence named otherwise there (`KLO_010` filed as kilo-0010) is kept as that. A pattern
     needs a word of its own (`nhmoc`) or one of those sequences to know its names by. Without one, the
     first word is learned, as a sequence or one asset or set (`robot` → `char-robot`), never a word that
-    says nothing (screenshot, render, final...). The project's settings list what it has learned, as
-    chips to forget.
+    says nothing (screenshot, render, final...). Each pattern learned is kept beside those the project
+    has by then, so two learned while filing one batch (names with a frame range and names without) are
+    both kept. The project's settings list what it has learned, a row each: the name it was learned from,
+    what that was filed as, and how names like it are read (psh26_ sequence _ shot _..._ version), each
+    forgotten with its ×.
 - **Numbering.** A version is the number its file's name says (`kilo-0010_anim_erik_v012.mov` is
   v12, and so is `NHMoc_CHAP01_010_cmp_v012` once the project has learned names like it); otherwise the
   catalogue counts on itself: `kilo-0010 anim v1`, `v2`, `v3`, per asset, set or shot and task, in the
@@ -456,15 +460,15 @@ filed in it.
 - **A project's home.** Clicking a project opens its home page, not its boards: how it is doing and what
   needs a look. Under its title, this week as one line of figures: versions filed and comments written
   (each beside the week before), how many assets, sets and shots moved on, and who filed. Under that,
-  quieter, what it holds (how many shots, boards, and the timeline), each a way there; its parts are in
+  quieter, what it holds (how many shots, boards and playlists, and the timeline), each a way there; its parts are in
   the sidebar too. Then the work leads: what was filed last, large, and its Activity of the last two
   weeks, by day: each person's filing that day is one row ("Anna filed 23 versions", with their first
   stills and names), and what one person said about one version is one row, each opened for every line
   of it with a click. Beside it, each sequence as a strip of its shots in order, toned by whether each was
   filed this week, before, or not yet (a shot opens with a click), with how many are filed; what is
-  waiting (set up with nothing filed, or quiet for two weeks or more); and the boards last worked on. Its
-  boards are at `#/f/<project>/boards`.
-- **The catalogue page.** A project has its Boards and its Catalogue, both in the sidebar. The catalogue
+  waiting (set up with nothing filed, or quiet for two weeks or more); and the reviews (boards and
+  playlists) last worked on. Its reviews are at `#/f/<project>/reviews`.
+- **The catalogue page.** A project has its Reviews and its Catalogue, both in the sidebar. The catalogue
   is laid out like the project on disk: assets, sets, and shots by sequence, each with its newest
   still. An asset, set or shot opens on every version of it (where each is on a board, who filed it,
   what its name said) and every note made about any of them, on any board. Click a version and it opens
@@ -660,10 +664,15 @@ filed in it.
   out as the edit is: a column for each sequence, left to right, its shots going down from first to
   last (assets and sets in columns after them). Either way they are those versions, with their notes.
   "Add to playlist" puts them at the end of one of the project's playlists, or makes a new one with them.
-- **Playlists.** A board is laid out to present; a playlist is simply some of a project's versions in
-  the order a review goes through them, as in ShotGrid. A project's Playlists (in the sidebar, each one
-  under it) lists them, each with its first stills, how many versions it has and when it changed, with
-  a new one first. Versions go on from anywhere they are listed: pick them on the Versions page, the
+- **Reviews: boards and playlists.** Both are a compilation of the project's work to show, in two ways: a
+  board lays pieces out freely, and a playlist is simply some of its versions in the order a review goes
+  through them, as in ShotGrid. A project's Reviews (in the sidebar, each board and playlist under it)
+  lists them together, the one changed last first, with New first, which makes either kind (and so does
+  the arrow beside New board in the bar). Each says which it is where both are there: a board's stills
+  are a grid, a playlist's a strip, and its line says Board or Playlist. One can be made into the other:
+  a board's menu has Make a playlist of it (the versions on it, in the order it reads: rows first, then
+  left to right, a frame read through as one piece), and a playlist's has Lay out on a board (a new
+  board with its versions in rows, in its order). Versions go on a playlist from anywhere they are listed: pick them on the Versions page, the
   catalogue or a shot's page and press Add to playlist, or use Add to playlist… in a version's menu. A
   playlist's page has Play and its versions in order: drag one to where it should go, take some off
   (Take off, with the selection; or from a version's menu, and Undo puts them back), or open one, which

@@ -40,25 +40,35 @@
         </button>
         <section id="notices" class="notices" role="dialog" hidden aria-label="Notifications"></section>
       </div>
-      <span id="layoutslot"></span>
-      <span id="themeslot"></span>
       <button id="me" class="chip" title="Change your name"></button>
       <span id="presentslot" hidden></span>
-      <button id="newfolder" class="btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>
-        New folder
-      </button>
-      <button id="new" class="btn primary">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-        <span class="lbl">New board</span>
-      </button>
+      <!-- What can be made here, in one control: a board, and beside it the rest (a folder). -->
+      <span id="newsplit" class="split">
+        <button id="new" class="btn primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          <span class="lbl">New board</span>
+        </button>
+        <button id="newmore" class="btn primary split-more" type="button" aria-haspopup="menu" aria-label="More to make" title="New board or folder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10l5 5 5-5"/></svg>
+        </button>
+      </span>
     </div>
   </header>
   <div class="home-wrap">
     <nav id="side" class="side" aria-label="Workspaces and folders"></nav>
     <div id="sidescrim" class="side-scrim"></div>
     <main>
-      <nav id="crumbs" class="crumbs" aria-label="Where you are"></nav>
+      <!-- Where you are: the way here as one small line, and the place itself as the page's title, with
+           what belongs to it (its pin, its settings) beside it and the way lists are shown at the end. -->
+      <header class="page-head">
+        <nav id="crumbs" class="crumbs" aria-label="Where you are"></nav>
+        <div class="page-title-row">
+          <h1 id="pagetitle" class="page-title"></h1>
+          <span id="pagetools" class="page-tools"></span>
+          <span class="spacer"></span>
+          <span id="layoutslot"></span>
+        </div>
+      </header>
       <div id="content"></div>
       <p id="empty" class="home-empty" hidden></p>
     </main>

@@ -16,10 +16,11 @@
   let space = 'myreze';
   let dragging = null; // { kind: 'board' | 'folder', id }
 
-  $('themeslot').replaceWith(WB.themeButton());
-  // How every list is shown (cards, compact rows or a table): the switch in the bar, and the page drawn
-  // again when it changes, here or in Your account.
-  $('layoutslot').replaceWith(WB.layoutSwitch());
+  // How every list is shown (cards, compact rows or a table): the switch at the end of the page's title,
+  // beside the lists it changes, and the page drawn again when it changes, here or in Your account. The
+  // theme is chosen in Your account.
+  const layoutSeg = WB.layoutSwitch();
+  $('layoutslot').replaceWith(layoutSeg);
   window.addEventListener('wb:layout', () => render());
   // On a phone the search is a button in the bar, opening the box over it.
   $('searchtoggle').addEventListener('click', () => {
@@ -275,7 +276,7 @@
   // A table's grid at each of five steps, each leaving out more (the columns it keeps; at the last, at
   // their `phone` width). The table takes the first step whose columns fit how wide it is, measured as it
   // changes (data-level; style.css lays it out).
-  const VT_GAP = 14;
+  const VT_GAP = 20;
   const vtMin = (w) => Number((/(\d+)px/.exec(w) || [0, 0])[1]);
   const vtFit = new ResizeObserver((seen) => {
     for (const { target, contentRect } of seen) {
@@ -921,8 +922,9 @@
     }, el('i', { class: 'live', style: { background: p.color } }), el('span', { text: `${p.name} is presenting` }), el('b', { text: 'Watch' })));
   }
 
-  // One line: the workspace, the folders down to here, and in a catalogue the tier, the sequence and
-  // the asset, set or shot. Every part goes there, folders take drops, and the star pins what is here.
+  // Where you are: the workspace, the folders down to here, and in a catalogue the tier, the sequence and
+  // the asset, set or shot. The last is the page's title; the rest are one small line above it. Every
+  // part goes there, folders take drops, and the star beside the title pins what is here.
 
   function renderCrumbs(rt) {
     const parts = []; // [label, href, folderId for drops (undefined: none), ws]
@@ -966,15 +968,22 @@
         }
       }
     }
-    const nodes = parts.map(([label, href, folderId, ws], i) => {
-      const node = el('a', { class: `crumb${i === parts.length - 1 ? ' current' : ''}`, href, text: label, 'aria-current': i === parts.length - 1 ? 'page' : null });
+    const nodes = parts.slice(0, -1).map(([label, href, folderId, ws]) => {
+      const node = el('a', { class: 'crumb', href, text: label });
       if (folderId !== undefined) dropTarget(node, folderId, ws);
       return node;
     });
+    $('crumbs').replaceChildren(...nodes.flatMap((node, i) => (i ? [el('span', { class: 'crumb-sep', 'aria-hidden': 'true', text: '/' }), node] : [node])));
+    $('crumbs').hidden = !nodes.length;
+    const [title, , titleFolder, titleWs] = parts[parts.length - 1];
+    const heading = el('span', { class: 'page-title-text', text: title, title });
+    if (titleFolder !== undefined) dropTarget(heading, titleFolder, titleWs);
+    $('pagetitle').replaceChildren(heading);
+    // Lists are shown one of three ways, and only the timeline has none.
+    layoutSeg.hidden = !!(rt.kind === 'folder' && folderById(rt.id)?.project && currentView().page === 'timeline');
     const pinned = pin && isPinned(pin.kind, pin.id);
-    $('crumbs').replaceChildren(
-      ...[...nodes.flatMap((node, i) => (i ? [el('span', { class: 'crumb-sep', 'aria-hidden': 'true', text: '/' }), node] : [node])),
-      pin && el('button', {
+    $('pagetools').replaceChildren(
+      ...[pin && el('button', {
         type: 'button', class: `iconbtn crumb-pin${pinned ? ' on' : ''}`, html: ICON_STAR,
         title: pinned ? 'Pinned to Home. Click to unpin' : 'Pin to Home', 'aria-pressed': String(!!pinned),
         onclick: () => togglePin(pin),
@@ -1407,7 +1416,10 @@
       });
     };
     // Grouped by day, a row's time is enough; otherwise it says the day too.
-    const grid = (vs) => objectList('version', versionsOf(project, null, vs, { list: true, tierName, day: st.group !== 'time' }), { grid: 'board-grid ent-grid vl-grid', bare: true });
+    // What every one of them is goes unsaid: a card says it is a video, or a shot, only where the page has others.
+    const kinds = new Set(list.map((v) => v.kind)).size > 1;
+    const tiers = new Set(list.map((v) => v.tier)).size > 1;
+    const grid = (vs) => objectList('version', versionsOf(project, null, vs, { list: true, tierName, day: st.group !== 'time', kinds, tiers }), { grid: 'board-grid ent-grid vl-grid', bare: true });
     const groups = versionGroups(list, st, tierName);
     // Shift and a click picks a run as it is shown.
     vpick.order = groups.flatMap((g) => (g.runs ? g.runs.flatMap((r) => r.list) : g.list).map((v) => v.id));
@@ -1962,10 +1974,9 @@
     }[view.page] || 'Search boards and folders';
     $('q').disabled = view.page === 'timeline';
     const makesBoards = rt.kind !== 'folder' || !inProjectHere || view.page === 'boards' || view.page === 'home';
-    $('new').hidden = !makesBoards;
     // Present, in a project (and wherever you are while presenting, to get to the link and to stop).
     if (presentBtn) presentBtn.hidden = !(projectHere() || WBPresent.token());
-    $('newfolder').hidden = !makesBoards;
+    $('newsplit').hidden = !makesBoards;
     // Searching from a project's home looks through its boards.
     if (view.page === 'home' && $('q').value.trim()) view.page = 'boards';
     $('empty').hidden = true;
@@ -2087,51 +2098,49 @@
     if (cat) renderSide(route());
   }
 
-  // A project's home: how it is doing and what needs a look, not only the way to its parts. Its parts
-  // along the top; this week at a glance (what was filed, said and moved, and by whom); what happened,
-  // by day, each person's filing in one row ("Anna filed 23 versions", opened for the rest) and what was
-  // said about a version in one; each sequence as a strip of its shots (filed this week, before, or not
-  // yet); and what is waiting (set up with nothing filed, or quiet for two weeks).
+  // A project's home: how it is doing and what needs a look. The work leads: this week as one line of
+  // figures (what was filed, said and moved, and by whom), then what was filed last, large, and what
+  // happened, by day, each person's filing in one row ("Anna filed 23 versions", opened for the rest) and
+  // what was said about a version in one. Beside it, each sequence as a strip of its shots (filed this
+  // week, before, or not yet), what is waiting (set up with nothing filed, or quiet for two weeks), and the
+  // boards last worked on. Its parts (catalogue, boards, versions, timeline) are in the sidebar.
   const homeOpen = new Set(); // groups of the activity opened, by key
   const WEEK = 7 * 864e5;
   function projectHomeView(project) {
     const cat = catalogues.get(project.id);
     const act = activities.get(project.id);
     const boards = boardsIn(project.id).slice().sort((a, b) => b.updatedAt - a.updatedAt);
-    const counts = cat ? cat.tiers.map((t) => plural(cat.entities.filter((e) => e.tier === t.id).length, t.one)).join(' · ') : '…';
     const filed = cat ? cat.entities.filter((e) => e.latestAt) : [];
-    const part = (icon, name, meta, href) => el('a', { class: 'card folder place', href },
-      el('div', { class: 'folder-icon', html: icon }),
-      el('div', { class: 'card-body' }, el('div', { class: 'card-name', text: name }), el('div', { class: 'card-meta', text: meta })));
-    const parts = el('div', { class: 'folder-grid ph-parts' },
-      part(ICON_CAT, 'Catalogue', counts, WB.href.catalogue(project.id)),
-      part(ICON_BOARDS, 'Boards', plural(boards.length, 'board'), WB.href.boards(project.id)),
-      part(ICON_LIST, 'Versions', cat ? plural(cat.entities.reduce((n, e) => n + (e.versions || 0), 0), 'version') : '…', WB.href.versions(project.id)),
-      part(ICON_FILM, 'Timeline', 'Every shot, played through', WB.href.timeline(project.id)));
     const items = act ? act.items : null;
+    const latest = filed.sort((a, b) => b.latestAt - a.latestAt).slice(0, 6).map((e) => entityObj(project, e));
     const main = el('section', { class: 'home-main' },
-      items && items.length ? homePulse(items) : null,
+      label('Latest filed', null, el('span', { class: 'label-gap' }), el('a', { class: 'btn small ghost', href: WB.href.versions(project.id), text: 'All versions' })),
+      !cat ? el('p', { class: 'home-quiet', text: 'Loading…' })
+        : latest.length ? objectList('entity', latest, { grid: 'board-grid ent-grid ph-latest' })
+          : el('p', { class: 'home-quiet', text: 'Nothing is filed yet. Drop images and videos on the catalogue to file them.' }),
       label('Activity', null),
       !items ? el('p', { class: 'home-quiet', text: 'Loading…' })
         : items.length ? homeActivity(project, items)
           : el('p', { class: 'home-quiet', text: 'Nothing in the last two weeks. Versions filed and comments written in the project come here.' }));
-    const latest = filed.sort((a, b) => b.latestAt - a.latestAt).slice(0, 4).map((e) => entityObj(project, e));
     const side = el('aside', { class: 'home-side' },
       cat && homeSequences(project, cat),
       cat && homeWaiting(project, cat),
-      label('Latest filed', null, el('span', { class: 'label-gap' }), el('a', { class: 'btn small ghost', href: WB.href.versions(project.id), text: 'All versions' })),
-      !cat ? el('p', { class: 'home-quiet', text: 'Loading…' })
-        : latest.length ? objectList('entity', latest, { grid: 'board-grid ent-grid home-work' })
-          : el('p', { class: 'home-quiet', text: 'Nothing is filed yet. Drop images and videos on the catalogue to file them.' }),
       label('Recent boards', null, el('span', { class: 'label-gap' }), el('a', { class: 'btn small ghost', href: WB.href.boards(project.id), text: 'All boards' })),
       boards.length ? objectList('board', boards.slice(0, 4).map((b) => boardObj(b)), { grid: 'board-grid home-work' })
         : el('p', { class: 'home-quiet', text: 'No boards yet.' }));
-    return [parts, el('div', { class: 'home-cols' }, main, side)];
+    return [homePulse(project, cat, items, boards), el('div', { class: 'home-cols' }, main, side)];
   }
 
-  // This week at a glance, beside the week before: versions filed, comments, how many assets, sets and
-  // shots had something new, and who filed.
-  function homePulse(items) {
+  // This week at a glance, as one line of figures under the title, each beside the week before: versions
+  // filed, comments, how many assets, sets and shots had something new, and who filed. Then what the
+  // project holds, quieter, each a way to it.
+  function homePulse(project, cat, items, boards) {
+    const counts = cat ? cat.tiers.map((t) => [cat.entities.filter((e) => e.tier === t.id).length, t]).filter(([k]) => k) : [];
+    const holds = el('div', { class: 'ph-holds' },
+      counts.map(([k, t]) => el('a', { href: WB.href.catalogue(project.id, { tier: t.id }), text: plural(k, t.one) })),
+      el('a', { href: WB.href.boards(project.id), text: plural(boards.length, 'board') }),
+      el('a', { href: WB.href.timeline(project.id), text: 'Timeline' }));
+    if (!items || !items.length) return el('div', { class: 'ph-pulse' }, holds);
     const now = Date.now();
     const thisWeek = items.filter((x) => now - x.at < WEEK);
     const lastWeek = items.filter((x) => now - x.at >= WEEK && now - x.at < 2 * WEEK);
@@ -2140,14 +2149,15 @@
     const moved = new Set(thisWeek.filter((x) => x.kind === 'version').map((x) => x.entity.id)).size;
     const who = new Map();
     for (const x of thisWeek) if (x.kind === 'version') who.set(x.by || 'Somebody', (who.get(x.by || 'Somebody') || 0) + 1);
-    const tile = (value, name, sub) => el('div', { class: 'ph-stat' }, el('b', { text: value.toLocaleString() }), el('span', { text: name }), sub && el('small', { text: sub }));
-    return el('div', { class: 'ph-pulse', role: 'group', 'aria-label': 'This week' },
-      tile(n(thisWeek, 'version'), 'versions this week', versus(n(thisWeek, 'version'), n(lastWeek, 'version'))),
-      tile(n(thisWeek, 'note'), 'comments', versus(n(thisWeek, 'note'), n(lastWeek, 'note'))),
-      tile(moved, moved === 1 ? 'asset, set or shot moved on' : 'assets, sets and shots moved on'),
-      el('div', { class: 'ph-stat ph-who' }, el('span', { text: 'Filed this week by' }),
-        el('div', { class: 'ph-faces' }, who.size ? [...who].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, k]) => el('span', { class: 'ph-face', title: `${name}: ${plural(k, 'version')}` }, WB.avatar(name), el('small', { text: String(k) })))
-          : el('small', { text: 'nobody yet' }))));
+    const fig = (value, name, sub) => el('div', { class: 'ph-fig' }, el('b', { text: value.toLocaleString() }), el('span', { text: name }), sub && el('small', { text: sub }));
+    return el('div', { class: 'ph-pulse' },
+      el('div', { class: 'ph-figs', role: 'group', 'aria-label': 'This week' },
+        fig(n(thisWeek, 'version'), n(thisWeek, 'version') === 1 ? 'version this week' : 'versions this week', versus(n(thisWeek, 'version'), n(lastWeek, 'version'))),
+        fig(n(thisWeek, 'note'), n(thisWeek, 'note') === 1 ? 'comment' : 'comments', versus(n(thisWeek, 'note'), n(lastWeek, 'note'))),
+        fig(moved, moved === 1 ? 'asset, set or shot moved on' : 'moved on'),
+        who.size > 0 && el('div', { class: 'ph-fig ph-who' }, el('span', { text: 'filed by' }),
+          el('span', { class: 'ph-faces' }, [...who].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, k]) => el('span', { class: 'ph-face', title: `${name}: ${plural(k, 'version')}` }, WB.avatar(name)))))),
+      holds);
   }
 
   // What happened, by day. A person's filing that day is one row (their stills, what it was, opened for
@@ -2253,14 +2263,15 @@
   const ICON_IMPORT = icon('import', 16);
   const ICON_PLUS = icon('plus', 18);
 
-  // Above the catalogue: the way to bring files in. Whatever a file's name says files it; the rest are asked about.
+  // Above the catalogue: the way to bring files in, first and in ink (or drop them anywhere on the page).
+  // Whatever a file's name says files it; the rest are asked about. Then setting up what the project has,
+  // and, quieter, selecting and the timeline.
   function catTools(project) {
     return el('div', { class: 'cat-tools' },
-      el('span', { class: 'cat-hint', text: 'Drop images and videos anywhere here to add them' }),
-      el('button', { type: 'button', class: `btn pick-toggle${pickingIn(project) ? ' on' : ''}`, html: `${ICON_CHECKS}<span>Select</span>`, title: 'Select assets, sets and shots to change them together', onclick: () => setPicking(project, !pickingIn(project)) }),
-      el('a', { class: 'btn', href: WB.href.timeline(project.id), html: `${ICON_PLAY}<span>Timeline</span>`, title: 'Every shot in order, played through' }),
-      el('button', { type: 'button', class: 'btn', html: `${ICON_PLUS}<span>Add assets, sets &amp; shots</span>`, title: 'Set up what the project has, before anything is filed of it', onclick: () => addEntities(project) }),
-      el('button', { type: 'button', class: 'btn', html: `${ICON_IMPORT}<span>Import</span>`, title: 'Bring images and videos into the catalogue', onclick: () => importer(project).pick() }));
+      el('button', { type: 'button', class: 'btn primary', html: `${ICON_IMPORT}<span>Import</span>`, title: 'Bring images and videos into the catalogue. Or drop them anywhere on the page', onclick: () => importer(project).pick() }),
+      el('button', { type: 'button', class: 'btn', html: `${ICON_PLUS}<span>Add<span class="cat-long"> assets, sets &amp; shots</span></span>`, title: 'Set up what the project has, before anything is filed of it', onclick: () => addEntities(project) }),
+      el('button', { type: 'button', class: `btn ghost pick-toggle${pickingIn(project) ? ' on' : ''}`, html: `${ICON_CHECKS}<span>Select</span>`, title: 'Select assets, sets and shots to change them together', onclick: () => setPicking(project, !pickingIn(project)) }),
+      el('a', { class: 'btn ghost', href: WB.href.timeline(project.id), html: `${ICON_PLAY}<span>Timeline</span>`, title: 'Every shot in order, played through' }));
   }
 
   // Changing many at once: who works on them and who is cc'd (added, taken off, or set outright), and
@@ -2923,12 +2934,13 @@
   // its shot and the rest of its label, what is known of it, the boards it is on, and its menu. On the
   // Versions page (`list`) it says which asset, set or shot it is (a link to it) and when it was filed, as
   // the page groups by who filed it (and the day too, in a table not grouped by day: `day`); on the
-  // asset, set or shot's own page, who filed it and when.
-  function versionObj(project, entity, v, { list = false, tierName = (t) => t, day = false } = {}) {
+  // asset, set or shot's own page, who filed it and when. Whether it is an image or a video (`kinds`), and
+  // an asset, set or shot (`tiers`), is said only where the list has more than one.
+  function versionObj(project, entity, v, { list = false, tierName = (t) => t, day = false, kinds = false, tiers = false } = {}) {
     const views = verViews(v);
     const about = [
       list && clock(v.createdAt),
-      list && tierName(v.tier),
+      list && tiers && tierName(v.tier),
       v.artist && !(list && v.artist === (v.createdBy || '').toLowerCase()) && `by ${v.artist}`,
       v.descriptor,
     ].filter(Boolean).join(' · ') || (!list && v.originalName) || '';
@@ -2936,7 +2948,7 @@
       kind: 'version', state: v.hidden && 'hidden-ver', picked: vpick.ids.has(v.id), attrs: verPicks(project, entity, v),
       pick: (range) => pickVersion(project, v.id, range),
       box: verBox(project, v),
-      still: verStill(entity, v, WB.layout() !== 'table'),
+      still: verStill(entity, v, kinds && WB.layout() !== 'table'),
       name: verName(project, entity, v, list), title: v.label,
       lines: [
         about,
@@ -2958,7 +2970,7 @@
       menu: versionActions(project, entity, v),
     };
   }
-  const versionsOf = (project, entity, vs, opts) => vs.map((v) => versionObj(project, entity || { id: v.entityId, name: v.entity, tier: v.tier }, v, opts));
+  const versionsOf = (project, entity, vs, opts = { kinds: new Set(vs.map((v) => v.kind)).size > 1 }) => vs.map((v) => versionObj(project, entity || { id: v.entityId, name: v.entity, tier: v.tier }, v, opts));
 
   let showHidden = false;
   function entityPage(project, page) {
@@ -3590,7 +3602,7 @@
   }
   $('new').addEventListener('click', newBoard);
 
-  $('newfolder').addEventListener('click', async () => {
+  async function newFolder() {
     const name = await WB.dialog({ title: 'New folder', value: '', placeholder: 'Folder name', ok: 'Create folder' });
     if (!name) return;
     try {
@@ -3599,7 +3611,8 @@
     } catch (err) {
       fail(err);
     }
-  });
+  }
+  $('newmore').addEventListener('click', (e) => openMenu(e.currentTarget, [['New board', newBoard], ['New folder', newFolder]]));
 
   // ------------------------------------------------------------- notifications (notices.js)
 

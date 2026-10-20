@@ -259,7 +259,7 @@ const WB = (() => {
   // ---- layout: how every list of things is shown (boards, folders, the catalogue, versions), the same
   // everywhere and remembered per browser: as cards, as compact rows (a small still beside each name, many
   // to a screen), or as a table (a row each, with what is known of it in columns). boot.js reads it first.
-  const LAYOUTS = [['cards', 'boards', 'Cards'], ['rows', 'rows', 'Compact rows'], ['table', 'table', 'Table']];
+  const LAYOUTS = [['cards', 'boards', 'Cards'], ['rows', 'rows', 'Rows'], ['table', 'table', 'Table']];
   const layout = () => {
     const k = document.documentElement.dataset.layout;
     return k === 'rows' || k === 'table' ? k : 'cards';

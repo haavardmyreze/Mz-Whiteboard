@@ -168,7 +168,6 @@ const WBCutTrack = (() => {
     let dpr = 1;
     let live = false;
     let raf = 0;
-    let accent = '#4f8cff';
 
     const later = () => {
       if (!raf && live) raf = requestAnimationFrame(() => { raf = 0; draw(); });
@@ -180,7 +179,6 @@ const WBCutTrack = (() => {
       H = Math.round(r.height);
       canvas.width = Math.max(1, Math.round(W * dpr));
       canvas.height = Math.max(1, Math.round(H * dpr));
-      accent = getComputedStyle(node).getPropertyValue('--accent').trim() || accent;
       draw();
     };
     const watch = new ResizeObserver(resize);
@@ -230,9 +228,9 @@ const WBCutTrack = (() => {
         ctx.beginPath();
         ctx.rect(x0, 0, x1 - x0, H);
         ctx.clip();
-        // The band: shots shaded in turn, so neighbours never run together, and the one at the playhead in
-        // the accent colour.
-        ctx.fillStyle = here ? accent : i % 2 ? '#2b2b2b' : '#333';
+        // The band: shots shaded in turn, so neighbours never run together, and the one at the playhead
+        // light, in ink, as the tool in hand is.
+        ctx.fillStyle = here ? '#e6e6e6' : i % 2 ? '#2b2b2b' : '#333';
         ctx.fillRect(x0, 0, x1 - x0, HEAD);
         ctx.fillStyle = '#1a1a1a';
         ctx.fillRect(x0, tileY, x1 - x0, tileH);
@@ -283,10 +281,10 @@ const WBCutTrack = (() => {
         }
         // In the band: where a sequence begins, its name; then the shot's, and its version. Held at the left
         // of the track while the rest of the shot is still going by.
-        const seq = c.seqStart ? String(p.seq || '').toUpperCase() : '';
+        const seq = c.seqStart ? String(p.seq || '') : '';
         const name = p.name || '';
         const ver = p.empty ? 'nothing filed' : versionOf(p);
-        ctx.font = '700 9.5px Inter, system-ui, sans-serif';
+        ctx.font = '600 10px Inter, system-ui, sans-serif';
         const sw = seq ? ctx.measureText(seq).width + 8 : 0;
         ctx.font = '600 11px Inter, system-ui, sans-serif';
         const nw = ctx.measureText(name).width;
@@ -294,14 +292,14 @@ const WBCutTrack = (() => {
         const vw = ver ? ctx.measureText(ver).width + 6 : 0;
         const textW = (sw ? sw + 6 : 0) + nw + vw;
         let tx = clamp(Math.max(x0, 0) + 6, x0 + 6, Math.max(x0 + 6, x1 - textW - 6));
-        const ink = here ? '#fff' : '#f2f2f2';
-        const quiet = here ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.6)';
+        const ink = here ? '#111' : '#f2f2f2';
+        const quiet = here ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255, 255, 255, 0.6)';
         const baseline = HEAD / 2 + 4;
         if (seq) {
-          ctx.fillStyle = here ? 'rgba(0, 0, 0, 0.35)' : 'rgba(255, 255, 255, 0.9)';
+          ctx.fillStyle = here ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.9)';
           roundRect(ctx, tx, 3, sw, HEAD - 6, 3);
-          ctx.fillStyle = here ? '#fff' : '#111';
-          ctx.font = '700 9.5px Inter, system-ui, sans-serif';
+          ctx.fillStyle = '#111';
+          ctx.font = '600 10px Inter, system-ui, sans-serif';
           ctx.fillText(seq, tx + 4, baseline - 0.5);
           tx += sw + 6;
         }

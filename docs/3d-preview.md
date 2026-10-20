@@ -37,7 +37,10 @@ How it fits together:
   with its init, and again when the project's setting changes. Following someone on a board, or watching
   a presentation, follows 2D or 3D, the camera and the flight (`d` in the presence).
 - **How the venue is drawn** is the viewer's own, kept by the browser (`wb:3dlook`), and set under the
-  settings button beside the 3D switch (setLook in view3d.js). Room light scales the room's lights and
+  settings button beside the 3D switch (setLook in view3d.js). They start at a dim room (5%) lit by its
+  screens (95%), with occlusion (59%, reaching 0.55 m) and cavity (40%). The Effects switch over them,
+  off, draws the venue plainly (`PLAIN` in viewer.js: the room fully lit, no shade, no screen light) and
+  keeps the settings for when it is turned on again. Room light scales the room's lights and
   its environment, never the screens. Ambient occlusion and cavity are done in screen space, as Unreal's
   and Blender's viewports do them: the room is drawn a second time with only its normals and depth (the
   screens marked to be left alone), occlusion is worked out from that at half size and smoothed, cavity

@@ -737,7 +737,7 @@ const WBViewer = (() => {
           // Drawing, erasing and pointing are done on the frame held; any other press moves the view.
           holds: (e) => e.button === 0 && !spaceDown && (tool === 'pen' || tool === 'eraser' || tool === 'laser'),
         });
-        three.setLook(look3d);
+        three.setLook(lookShown());
       }
       await three.load(setting);
       if (warm) await three.warm();
@@ -866,14 +866,17 @@ const WBViewer = (() => {
     }
 
     // How the venue is drawn, under the button beside the 3D switch: how much the room is lit, the shade in
-    // its corners and creases (ambient occlusion, and cavity), and the light the screens throw on it.
+    // its corners and creases (ambient occlusion, and cavity), and the light the screens throw on it, all
+    // under one switch: off, the venue is drawn plainly (PLAIN), and the settings wait as they were.
     // Kept by this browser.
-    const LOOK = { light: 1, ao: 0, aoRadius: 0.5, cavity: 0, glow: false, glowAmount: 1 };
+    const LOOK = { on: true, light: 0.05, ao: 0.59, aoRadius: 0.55, cavity: 0.4, glow: true, glowAmount: 0.95 };
+    const PLAIN = { light: 1, ao: 0, cavity: 0, glow: false };
     let look3d = { ...LOOK, ...(store('wb:3dlook') || {}) };
+    const lookShown = () => (look3d.on ? look3d : { ...look3d, ...PLAIN });
     function setLook3d(change) {
       look3d = { ...look3d, ...change };
       store('wb:3dlook', look3d);
-      if (three) three.setLook(look3d);
+      if (three) three.setLook(lookShown());
     }
     const pct = (v) => `${Math.round(v * 100)}%`;
     function lookMenu() {
@@ -905,7 +908,7 @@ const WBViewer = (() => {
         setLook3d({ glow: glow.checked });
         glowAmount.hidden = !glow.checked;
       });
-      const node = WB.menu(lookBtn, [
+      const body = el('div', { class: 'v-look-body' },
         slider('Room light', 'light', 0, 2, 0.01, pct),
         el('div', { class: 'menu-sep' }),
         slider('Ambient occlusion', 'ao', 0, 1, 0.01, (v) => (v ? pct(v) : 'Off')),
@@ -913,7 +916,22 @@ const WBViewer = (() => {
         slider('Cavity', 'cavity', 0, 1, 0.01, (v) => (v ? pct(v) : 'Off')),
         el('div', { class: 'menu-sep' }),
         el('label', { class: 'v-look-row v-look-switch', title: 'The picture on the screens lights the room' }, el('span', { text: 'Screen light' }), glow),
-        glowAmount,
+        glowAmount);
+      // The one switch over all of them: off, they are greyed out and out of reach.
+      const on = el('input', { type: 'checkbox', class: 'switch', checked: look3d.on, 'aria-label': 'Effects' });
+      const paintOn = () => {
+        body.classList.toggle('off', !look3d.on);
+        for (const input of body.querySelectorAll('input')) input.disabled = !look3d.on;
+      };
+      on.addEventListener('change', () => {
+        setLook3d({ on: on.checked });
+        paintOn();
+      });
+      paintOn();
+      const node = WB.menu(lookBtn, [
+        el('label', { class: 'v-look-row v-look-switch', title: 'Off, the venue is drawn plainly: lit as it was, with no shade and no light from the screens' }, el('span', { text: 'Effects' }), on),
+        el('div', { class: 'menu-sep' }),
+        body,
         el('div', { class: 'menu-sep' }),
         el('button', {
           type: 'button', class: 'menu-item', text: 'Reset',

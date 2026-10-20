@@ -850,17 +850,21 @@
         });
       });
     };
-    const kids = () => [
-      ...sideRow({ key: `p:${f.id}`, depth: depth + 1, icon: ICON_BOARDS, label: 'Boards', href: WB.href.boards(f.id), count: boardsIn(f.id).length, drop, hereK }),
-      ...sideRow({ key: `c:${f.id}`, depth: depth + 1, icon: ICON_CAT, label: 'Catalogue', href: WB.href.catalogue(f.id), kids: tierRows, hereK }),
-      ...sideRow({ key: `vl:${f.id}`, depth: depth + 1, icon: ICON_LIST, label: 'Versions', href: WB.href.versions(f.id), hereK }),
-      ...sideRow({
-        key: `pls:${f.id}`, depth: depth + 1, icon: ICON_PLAYLIST, label: 'Playlists', href: WB.href.playlists(f.id), count: cat ? (cat.playlists || []).length : null, hereK,
-        kids: cat && (cat.playlists || []).length ? () => cat.playlists.flatMap((p) => sideRow({ key: `pl:${f.id}:${p.id}`, depth: depth + 2, icon: null, label: p.name, href: WB.href.playlists(f.id, p.id), hereK })) : null,
-      }),
-      ...sideRow({ key: `tl:${f.id}`, depth: depth + 1, icon: ICON_FILM, label: 'Timeline', href: WB.href.timeline(f.id), hereK }),
-      ...subs(),
-    ];
+    // Its playlists come with its catalogue, so an open project has it fetched.
+    const kids = () => {
+      if (!cat) loadCatalogue(f.id);
+      return [
+        ...sideRow({ key: `p:${f.id}`, depth: depth + 1, icon: ICON_BOARDS, label: 'Boards', href: WB.href.boards(f.id), count: boardsIn(f.id).length, drop, hereK }),
+        ...sideRow({ key: `c:${f.id}`, depth: depth + 1, icon: ICON_CAT, label: 'Catalogue', href: WB.href.catalogue(f.id), kids: tierRows, hereK }),
+        ...sideRow({ key: `vl:${f.id}`, depth: depth + 1, icon: ICON_LIST, label: 'Versions', href: WB.href.versions(f.id), hereK }),
+        ...sideRow({
+          key: `pls:${f.id}`, depth: depth + 1, icon: ICON_PLAYLIST, label: 'Playlists', href: WB.href.playlists(f.id), count: cat ? (cat.playlists || []).length : null, hereK,
+          kids: cat && (cat.playlists || []).length ? () => cat.playlists.flatMap((p) => sideRow({ key: `pl:${f.id}:${p.id}`, depth: depth + 2, icon: null, label: p.name, href: WB.href.playlists(f.id, p.id), hereK })) : null,
+        }),
+        ...sideRow({ key: `tl:${f.id}`, depth: depth + 1, icon: ICON_FILM, label: 'Timeline', href: WB.href.timeline(f.id), hereK }),
+        ...subs(),
+      ];
+    };
     return sideRow({ key: `f:${f.id}`, depth, icon: PROJECT_SM, label: f.name, href: WB.href.folder(f.id), kids, drop, hereK, cls: 'project' });
   }
 
@@ -3246,13 +3250,14 @@
   async function playlistsPage(project, fresh, sig) {
     const show = (list) => {
       if (shownProject !== sig) return;
-      $('content').replaceChildren(
+      $('content').replaceChildren(...[
         label('Playlists', list ? list.length : null),
         !list ? el('p', { class: 'home-quiet', text: 'Loading…' })
           : objectList('playlist', list.map((p) => playlistObj(project, p)), {
             lead: { name: 'New playlist', meta: 'Versions to review, in order', title: 'A new playlist. Add versions to it from the Versions page, the catalogue or a shot', onclick: () => newPlaylist(project) },
           }),
-        list && !list.length && el('p', { class: 'home-quiet', text: 'A playlist is some of the project\'s versions in the order a review goes through them. Pick versions on the Versions page and press Add to playlist, or start one here.' }));
+        list && !list.length && el('p', { class: 'home-quiet', text: 'A playlist is some of the project\'s versions in the order a review goes through them. Pick versions on the Versions page and press Add to playlist, or start one here.' }),
+      ].filter(Boolean));
     };
     if (fresh) show(null);
     try {

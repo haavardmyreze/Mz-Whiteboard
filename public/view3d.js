@@ -208,12 +208,14 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   // `look` is the player's 3D settings (setLook): the room's light from 0 (dark) to 2, with 1 as it is lit
   // otherwise; ambient occlusion (`ao`, 0 to 1, reaching `aoRadius` metres) and cavity (0 to 1), both
   // shading the room and never the screens; and the light the screens throw on the room (`glow`, on or
-  // off, at `glowAmount`, 1 being as bright as the picture is). `low` is for slower graphics cards: the occlusion
-  // is worked from half the samples at a quarter of the size, and the screens' light from fewer lamps (LOW).
-  // The picture drawn keeps its resolution.
+  // off, at `glowAmount`, 1 being as bright as the picture is). `low` is for slower graphics cards, and takes
+  // from what is worked out on top of the room, never from the picture drawn, which keeps its resolution
+  // (LOW): the normals and depth that shade is worked from are drawn at half the size across; the occlusion
+  // is 4 samples at an eighth, not 16 at a half; cavity looks one step out, not two; and the screens' light
+  // is 4 lamps, not 32, taking the picture's colours every other frame.
   const look = { light: 1, ao: 0, aoRadius: 0.5, cavity: 0, glow: false, glowAmount: 1, low: false };
-  const LOW = { aoSize: 4, aoStride: 2, patches: 8 };
-  const FULL_QUALITY = { aoSize: 2, aoStride: 1, patches: 32 };
+  const LOW = { shadeSize: 2, aoSize: 8, aoStride: 4, cavitySteps: 1, patches: 4, glowEvery: 2 };
+  const FULL_QUALITY = { shadeSize: 1, aoSize: 2, aoStride: 1, cavitySteps: 2, patches: 32, glowEvery: 1 };
   const quality = () => (look.low ? LOW : FULL_QUALITY);
   function setLook(o) {
     const was = look.low;
@@ -238,7 +240,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
 
   // The screens' light. Lumen traces the scene; a browser has to be cheaper than that, and a venue's
   // light comes almost all from its screens, which are known. So each screen is cut into patches by
-  // its UVs (at most PATCHES of them all told, 8 when quality is lower, as many as fit in a grid over the
+  // its UVs (at most PATCHES of them all told, 4 when quality is lower, as many as fit in a grid over the
   // picture: 8 by 4, then fewer), each a small lamp at its place, facing as the screen does there, as large as its part of the
   // screen, with the colour of its part of the picture now. Every frame the picture is brought down to
   // GLOW (and its mipmaps), and each patch takes its colour from there, all on the graphics card; the
@@ -389,11 +391,13 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       break;
     }
   }
-  // Every frame the screens' light is on: the picture's colours, now, into the patches.
+  // Every frame the screens' light is on (every other, at lower quality, the patches keeping their colours
+  // between): the picture's colours, now, into the patches.
+  let glowFrame = 0;
   function glowNow() {
     glowUniforms.screenPatches.value = patches;
     glowUniforms.screenGlow.value = look.glow && texture && patches ? look.glowAmount : 0;
-    if (!glowUniforms.screenGlow.value) return;
+    if (!glowUniforms.screenGlow.value || glowFrame++ % quality().glowEvery) return;
     glowDown.uniforms.map.value = texture;
     pass(glowDown, glowRT);
     pass(glowPatches, patchRT);
@@ -406,10 +410,12 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   // - ambient occlusion: from each point, 16 samples in the half of a ball of `aoRadius` over its
   //   surface, turned a little from pixel to pixel in a 4 by 4 pattern, each one behind what is drawn there
   //   a little shade; at half size, then smoothed over the 4 by 4 (not across an edge in depth); with
-  //   lower quality, 8 samples at a quarter of the size;
+  //   lower quality, 4 samples at an eighth of the size;
   // - cavity: where the surface's facing changes from pixel to pixel as it does into a crease, a little
   //   dark, as Blender's cavity does its valleys;
-  // and what is drawn is multiplied by both. Nothing of it is done while both are off.
+  // and what is drawn is multiplied by both. Nothing of it is done while both are off. All of it but the
+  // last step depends only on where the view is, so it is worked out again only when the view, the size or
+  // the settings change, not for each frame of a video played on a view held still.
   const facing = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthTexture: new THREE.DepthTexture(1, 1) });
   const aoRT = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
   const aoSmooth = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
@@ -423,6 +429,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   let parts = []; // { o: a mesh of the room, as: what it is drawn with for `facing` }
   function survey() {
     parts = [];
+    shaded = '';
     room.traverse((o) => {
       if (!o.isMesh) return;
       const one = (m) => (isScreen(m) ? screenMark : facingFor(m));
@@ -462,7 +469,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       int taps = 16 / stride;
       for (int i = 0; i < 16; i++) {
         if (i >= taps) break;
-        vec3 s = P + tbn * kernel[i * stride] * radius;
+        vec3 s = P + tbn * kernel[i * stride + stride - 1] * radius;
         vec4 o = proj * vec4(s, 1.0);
         vec2 uv = o.xy / o.w * 0.5 + 0.5;
         if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) continue;
@@ -487,7 +494,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     }`, { ...depthUniforms(), tAo: { value: aoRT.texture }, texel: { value: new THREE.Vector2() } });
   // Laid over what is drawn: multiplied into it (so the letterbox and the screens are left as they are).
   const shading = shader(`${DEPTH}
-    uniform sampler2D tAo; uniform vec2 texel; uniform float ao; uniform float cavity; varying vec2 vUv;
+    uniform sampler2D tAo; uniform vec2 texel; uniform float ao; uniform float cavity; uniform int steps; varying vec2 vUv;
     vec3 facingNear(vec2 uv, vec3 n0, float z0) {
       vec4 f = texture2D(tFacing, uv);
       return f.a < 0.5 || abs(zAt(uv) - z0) > 0.04 * abs(z0) ? n0 : f.xyz * 2.0 - 1.0;
@@ -502,54 +509,63 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
         float z = zAt(vUv);
         float bend = 0.0;
         for (int i = 1; i <= 2; i++) {
+          if (i > steps) break;
           vec2 dx = vec2(texel.x * float(i) * 1.5, 0.0);
           vec2 dy = vec2(0.0, texel.y * float(i) * 1.5);
           bend += facingNear(vUv + dx, n, z).x - facingNear(vUv - dx, n, z).x + facingNear(vUv + dy, n, z).y - facingNear(vUv - dy, n, z).y;
         }
-        k *= 1.0 - clamp(-bend * 0.4 * cavity, 0.0, 0.8);
+        k *= 1.0 - clamp(-bend * 0.4 * cavity * (2.0 / float(steps)), 0.0, 0.8);
       }
       gl_FragColor = vec4(vec3(k), 1.0);
-    }`, { ...depthUniforms(), tAo: { value: aoSmooth.texture }, texel: { value: new THREE.Vector2() }, ao: { value: 0 }, cavity: { value: 0 } }, {
+    }`, { ...depthUniforms(), tAo: { value: aoSmooth.texture }, texel: { value: new THREE.Vector2() }, ao: { value: 0 }, cavity: { value: 0 }, steps: { value: 2 } }, {
     blending: THREE.CustomBlending, blendSrc: THREE.ZeroFactor, blendDst: THREE.SrcColorFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
   });
   // After the room is drawn into the part of the canvas `w` by `h` pixels that the viewport is set to.
+  let shaded = ''; // what facing, aoRT and aoSmooth were last worked out for (the key below)
   function shade(w, h) {
     if (!room || !(look.ao > 0 || look.cavity > 0)) return;
     const q = quality();
+    const fw = Math.ceil(w / q.shadeSize);
+    const fh = Math.ceil(h / q.shadeSize);
     const aw = Math.ceil(w / q.aoSize);
     const ah = Math.ceil(h / q.aoSize);
-    if (facing.width !== w || facing.height !== h) facing.setSize(w, h);
-    if (aoRT.width !== aw || aoRT.height !== ah) {
-      aoRT.setSize(aw, ah);
-      aoSmooth.setSize(aw, ah);
-    }
-    const ground = scene.background;
-    scene.background = null;
-    for (const p of parts) {
-      p.was = p.o.material;
-      p.o.material = p.as;
-    }
-    renderer.setClearColor(0x000000, 0);
-    renderer.setRenderTarget(facing);
-    renderer.render(scene, view);
-    for (const p of parts) p.o.material = p.was;
-    scene.background = ground;
+    const key = [fw, fh, aw, ah, look.ao > 0 ? look.aoRadius : -1, q.aoStride, ...view.matrixWorld.elements, ...view.projectionMatrix.elements].join();
     for (const m of [occlusion, smoothing, shading]) {
       m.uniforms.near.value = view.near;
       m.uniforms.far.value = view.far;
     }
-    if (look.ao > 0) {
-      occlusion.uniforms.proj.value = view.projectionMatrix;
-      occlusion.uniforms.projInv.value = view.projectionMatrixInverse;
-      occlusion.uniforms.radius.value = look.aoRadius;
-      occlusion.uniforms.stride.value = q.aoStride;
-      pass(occlusion, aoRT);
-      smoothing.uniforms.texel.value.set(1 / aoRT.width, 1 / aoRT.height);
-      pass(smoothing, aoSmooth);
+    if (key !== shaded) {
+      shaded = key;
+      if (facing.width !== fw || facing.height !== fh) facing.setSize(fw, fh);
+      if (aoRT.width !== aw || aoRT.height !== ah) {
+        aoRT.setSize(aw, ah);
+        aoSmooth.setSize(aw, ah);
+      }
+      const ground = scene.background;
+      scene.background = null;
+      for (const p of parts) {
+        p.was = p.o.material;
+        p.o.material = p.as;
+      }
+      renderer.setClearColor(0x000000, 0);
+      renderer.setRenderTarget(facing);
+      renderer.render(scene, view);
+      for (const p of parts) p.o.material = p.was;
+      scene.background = ground;
+      if (look.ao > 0) {
+        occlusion.uniforms.proj.value = view.projectionMatrix;
+        occlusion.uniforms.projInv.value = view.projectionMatrixInverse;
+        occlusion.uniforms.radius.value = look.aoRadius;
+        occlusion.uniforms.stride.value = q.aoStride;
+        pass(occlusion, aoRT);
+        smoothing.uniforms.texel.value.set(1 / aoRT.width, 1 / aoRT.height);
+        pass(smoothing, aoSmooth);
+      }
     }
-    shading.uniforms.texel.value.set(1 / w, 1 / h);
+    shading.uniforms.texel.value.set(1 / facing.width, 1 / facing.height);
     shading.uniforms.ao.value = look.ao;
     shading.uniforms.cavity.value = look.cavity;
+    shading.uniforms.steps.value = q.cavitySteps;
     const auto = renderer.autoClear;
     renderer.autoClear = false;
     pass(shading, null);

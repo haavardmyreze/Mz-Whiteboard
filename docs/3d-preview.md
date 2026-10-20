@@ -45,9 +45,14 @@ How it fits together:
   and Blender's viewports do them: the room is drawn a second time with only its normals and depth (the
   screens marked to be left alone), occlusion is worked out from that at half size and smoothed, cavity
   from how the normals bend from pixel to pixel, and both are multiplied into what was drawn. Off, neither
-  costs anything. Lower quality (`low` in the look, also kept in `wb:3dlook`, but not part of what Reset
-  restores) takes 8 occlusion samples instead of 16, at a quarter of the size instead of half, and cuts the
-  screens into at most 8 patches instead of 32 (LOW in view3d.js); the canvas keeps its resolution.
+  costs anything. All of it but the last step depends only on where the view is, so the room's normals
+  and depth, the occlusion and its smoothing are kept while the view is still (a frame held while a video
+  plays) and worked out again only when the view, the size or the settings change.
+  Lower quality (`low` in the look, also kept in `wb:3dlook`, but not part of what Reset restores) takes
+  from this and from the screen light, never from the canvas, which keeps its resolution (LOW in view3d.js):
+  the normals and depth are drawn at half the size across, the occlusion is 4 samples at an eighth of the
+  size instead of 16 at a half, cavity looks one step out instead of two, and the screens are cut into at
+  most 4 patches instead of 32, which take the picture's colours every other frame.
 - **Screen light.** Lumen traces the scene, which a browser cannot afford every frame; but a venue's light
   comes almost all from its screens, whose shape is known. So each screen is cut by its UVs into at most
   32 patches (8 by 4 cells of the picture, fewer when there are several screens), each a small lamp at

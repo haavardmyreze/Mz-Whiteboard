@@ -528,8 +528,9 @@ filed in it.
   docs/3d-preview.md). They start as a dim room lit by its screens, with some shade. One switch above
   them, Effects, turns them all off and greys them out: the room is then lit plainly from all round, so
   nothing in it is black, with no shade and no light from the screens. Lower quality, below them, is for a
-  slower computer: the shade and the screens' light are worked out more roughly (fewer samples, fewer
-  lamps) while the picture keeps its full resolution; it holds with Effects on or off, and Reset leaves it.
+  slower computer: the shade and the screens' light are worked out more roughly (a fraction of the
+  samples, a few lamps, refreshed every other frame) while the picture keeps its full resolution; it holds
+  with Effects on or off, and Reset leaves it.
   On the project's boards the player has the same switch, for a piece that is a version and has the view
   the project puts on its model (with the main view, any catalogued picture or video): in 3D it shows that
   view's file, whichever view is on the board. A piece that is not a version, or lacks that view, shows

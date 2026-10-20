@@ -500,7 +500,9 @@ filed in it.
   beside the star on the project's home, or Project settings in its menu: a `.glb`, and once there is
   one, the name of the material its screens have and, with views, which goes on them) has a 2D / 3D switch in the
   player's bar, in the catalogue and on the timeline. In 3D the picture plays on the model's screens
-  (through their own UVs), seen through the model's camera named `main`, letterboxed at that camera's frame;
+  (through their own UVs), seen through the model's main camera, letterboxed at that camera's frame (Main
+  camera in the settings lists the cameras in the file to choose from; without a choice, the one named
+  `main`, or else the first);
   the timeline, comments, strip and sidebar are as ever, since it is the same video drawn another way. Any
   move of the view leaves the main camera: a drag (with both buttons held, it slides the camera along the
   view's plane: sideways, up and down), the wheel, W A S D (along the view, wherever it points) or Q and E

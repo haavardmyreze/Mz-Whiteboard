@@ -904,6 +904,8 @@ function cleanProjectSettings(asked, was = {}) {
         name: typeof p.name === 'string' ? p.name.slice(0, 200) : '',
         screen: typeof p.screen === 'string' && p.screen.trim() ? p.screen.trim().slice(0, 80) : 'screen',
         view: viewName(p.view) || '',
+        // The camera of the model's that the 3D view opens through (its name); none, the one named main, or its first.
+        camera: typeof p.camera === 'string' ? p.camera.slice(0, 120) : '',
       };
     }
   }

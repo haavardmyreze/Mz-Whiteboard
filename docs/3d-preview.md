@@ -117,8 +117,9 @@ that remember the camera another day; drawing onto the surface is the larger, op
   frame, top left at the top left). If the projection UVs are on a second channel, that can be chosen
   (`uv1`), but the first is simplest.
 - **The projection area's material named `screen`** (or `screen-left`, `screen-top`… for several).
-- **One camera named `main`**, placed where the work is judged from (the best seat, say), with its
-  aspect ratio set to the shape the review should have. Its lens and frame are what every drawing is
+- **A main camera**, placed where the work is judged from (the best seat, say), with its aspect ratio
+  set to the shape the review should have. Choose it as Main camera in the project's settings (they list
+  the cameras the file has); without a choice, the one named `main` is taken, or else the first. Its lens and frame are what every drawing is
   made through. Other cameras (the control booth, a side seat) become viewpoints to move from.
 - **Metres, Y up**, the glTF default.
 - **Keep it light**: a venue as blocks, no hidden detail; textures on the room are fine but not needed.

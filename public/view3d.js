@@ -8,7 +8,8 @@
 // "screen-left") shows the picture through its own UVs, unlit. The rest of the room is lit from all round,
 // so no side of anything is ever black.
 //
-// It opens through the model's main camera (the camera named "main", or else its first): its place, lens
+// It opens through the model's main camera (the one the project's settings choose; without one, the camera
+// named "main", or else its first): its place, lens
 // and frame's shape, letterboxed where the player's piece box is (`frameOf()`), on bars darker than the
 // room's ground, so it is the same picture on every screen. The model's other cameras are frames to look
 // through as well, and so is the place a comment was made from (`hold()`, `goTo(pov)`, `pose()`): what is
@@ -114,9 +115,16 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
 
   // ---- the model
 
-  async function load({ model, screen = 'screen' }) {
+  // The model's main camera: the one the project names, else one named main, else its first.
+  const mainOf = (list, chosen) => (chosen && list.find((c) => c.name === chosen)) || list.find((c) => c.name.toLowerCase() === 'main') || list[0];
+
+  async function load({ model, screen = 'screen', camera: chosen = '' }) {
     screenName = (screen || 'screen').toLowerCase();
-    if (model === modelUrl && room) return applyScreens();
+    if (model === modelUrl && room) {
+      main = mainOf(cams, chosen);
+      if (fixed && fixed.cam) fixed = main;
+      return applyScreens();
+    }
     const gltf = await loadModel(model);
     if (room) scene.remove(room);
     room = gltf.scene.clone(true);
@@ -146,7 +154,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       look.lookAt(centre);
       cams.push({ cam: true, name: '', position: look.position.clone(), quaternion: look.quaternion.clone(), fov: 50, aspect: 16 / 9 });
     }
-    main = cams.find((c) => c.name.toLowerCase() === 'main') || cams[0];
+    main = mainOf(cams, chosen);
     fixed = main;
     speed = Math.max(1, size.length() / 12);
     applyScreens();

@@ -546,6 +546,20 @@
     const remove = el('button', { type: 'button', class: 'btn small ghost', text: 'Remove', onclick: () => { model = null; paint(); } });
     const screen = el('input', { type: 'text', value: (was && was.screen) || 'screen', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Material of the projection surface' });
     const view = el('select', { 'aria-label': 'Which view goes on the model' });
+    // Which of the model's cameras the 3D view opens through, from those its file names.
+    const camera = el('select', { 'aria-label': 'The camera the 3D view opens through' });
+    let cameras = [];
+    let cameraRow = null;
+    const paintCameras = () => {
+      const chosen = camera.value || (was && was.camera) || '';
+      const pick = cameras.includes(chosen) ? chosen : cameras.find((c) => c.toLowerCase() === 'main') || cameras[0] || '';
+      camera.replaceChildren(...cameras.map((c) => el('option', { value: c, text: c, ...(c === pick && { selected: true }) })));
+      if (cameraRow) cameraRow.hidden = !model || cameras.length < 2;
+    };
+    const readCameras = async (from) => {
+      cameras = from ? await glbCameras(from).catch(() => []) : [];
+      paintCameras();
+    };
     // The ways it can show a version on the model: its views as they are being set here, the main one first.
     const paintViews = () => {
       const now = byView.checked && named().length > 1 ? named() : null;
@@ -568,6 +582,7 @@
       remove.hidden = !model;
       // What goes with a model, only once there is one.
       surfaceRow.hidden = !model;
+      paintCameras();
       paintViews();
     };
     picker.addEventListener('change', async () => {
@@ -578,6 +593,8 @@
       try {
         const up = await WBIngest.upload(f, '.glb', (k) => { file.textContent = `Uploading ${f.name}… ${Math.round(k * 100)}%`; });
         model = { url: up.url, name: f.name };
+        camera.value = '';
+        await readCameras(f);
       } catch (err) {
         WB.toast(`${f.name} could not be uploaded: ${err.message}`, { ms: 6000 });
       }
@@ -595,6 +612,7 @@
     };
     viewsRow = sub('Views', 'The main one first: a file of it is a version, the others go with one', viewNames);
     const surfaceRow = sub('Screen material', 'What the screens are called in the model', screen);
+    cameraRow = sub('Main camera', 'Where the work is judged from: the 3D view opens through it', camera);
     pictureRow = sub('On the screens', 'Which view of a version is shown', view);
     rulesRow = row('Learned file names', 'Names from elsewhere, read this way when filing', ruleList);
     paintRules();
@@ -610,7 +628,7 @@
           }
           save.disabled = true;
           try {
-            await api('PATCH', `/api/folders/${project.id}`, { settings: { tasks: byTask.checked, views: byView.checked ? named() : false, rules, seqs, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value } : null } });
+            await api('PATCH', `/api/folders/${project.id}`, { settings: { tasks: byTask.checked, views: byView.checked ? named() : false, rules, seqs, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value, camera: camera.value } : null } });
             catalogues.delete(project.id);
             await refresh();
             dlg.close();
@@ -630,14 +648,34 @@
       seqNames.length > 1 && el('h3', { class: 'ps-sec', text: 'Sequences' }),
       seqNames.length > 1 && row('Order', 'First to last, as the timeline plays them and every list shows them', el('div', { class: 'ps-seq-box' }, seqList, seqReset)),
       el('h3', { class: 'ps-sec', text: '3D' }),
-      row('Venue model', 'A .glb with a camera named “main”: the player gets a 2D / 3D switch', el('div', { class: 'ps-model' }, file, choose, remove), picker),
+      row('Venue model', 'A .glb with its screens and cameras: the player gets a 2D / 3D switch', el('div', { class: 'ps-model' }, file, choose, remove), picker),
       surfaceRow,
+      cameraRow,
       pictureRow,
       el('div', { class: 'dlg-actions' }, el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }), save)));
     dlg.addEventListener('close', () => dlg.remove());
     paint();
+    if (model) readCameras(model.url);
     document.body.append(dlg);
     dlg.showModal();
+  }
+
+  // The names of the cameras in a .glb (a File, or the address of one), read from the JSON at its start
+  // without loading the rest: a camera is a node with a camera on it. An address is read in two small
+  // pieces (its header, then its JSON), where the server gives pieces; otherwise whole.
+  async function glbCameras(from) {
+    const bytes = async (start, length) => {
+      if (from instanceof Blob) return from.slice(start, start + length).arrayBuffer();
+      const res = await fetch(from, { headers: { Range: `bytes=${start}-${start + length - 1}` } });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const buf = await res.arrayBuffer();
+      return res.status === 206 ? buf : buf.slice(start, start + length);
+    };
+    const head = new DataView(await bytes(0, 20));
+    // "glTF", then the first chunk's length and its kind, "JSON".
+    if (head.getUint32(0, true) !== 0x46546c67 || head.getUint32(16, true) !== 0x4e4f534a) return [];
+    const json = JSON.parse(new TextDecoder().decode(await bytes(20, head.getUint32(12, true))));
+    return [...new Set((json.nodes || []).filter((n) => n.camera != null).map((n, i) => n.name || `Camera ${i + 1}`))];
   }
 
   // A folder (or a project) as an object: what is in it, and its menu. Things are dropped on it to move

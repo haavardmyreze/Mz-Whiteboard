@@ -2050,7 +2050,9 @@ test('a project can hold a 3D model of its venue, uploaded as a .glb, and let it
   assert.match(glb, /\.glb$/);
   const set = async (preview3d) => (await call('PATCH', `/api/folders/${project.id}`, { settings: { preview3d } })).body.settings;
   // the model, the screen's material (screen unless said) and the view that goes on it (as a token)
-  assert.deepEqual((await set({ model: glb, name: 'venue.glb', screen: ' ', view: 'CMP' })).preview3d, { model: glb, name: 'venue.glb', screen: 'screen', view: 'cmp' });
+  assert.deepEqual((await set({ model: glb, name: 'venue.glb', screen: ' ', view: 'CMP' })).preview3d, { model: glb, name: 'venue.glb', screen: 'screen', view: 'cmp', camera: '' });
+  // and the camera it opens through, by its name in the model
+  assert.equal((await set({ model: glb, name: 'venue.glb', camera: 'booth' })).preview3d.camera, 'booth');
   // anything that is not an uploaded .glb is not a model, and leaves the setting as it was
   assert.equal((await set({ model: await up('a.png') })).preview3d.model, glb);
   assert.equal((await set({ model: '/uploads/nothere.glb' })).preview3d.model, glb);

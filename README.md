@@ -217,7 +217,7 @@ private networks, otherwise only the host machine can connect.
   follow it when it moves, scales, is duplicated or deleted.
 - **Headers and colour blocks.** Every frame has a header with its title and an item count; colour a
   frame and its header band takes the colour while the card stays neutral. Colour blocks (B) are
-  free-standing banners for headings, resizable and left- or centre-aligned. Their colours are a painter's
+  free-standing banners for headings, left- or centre-aligned. A block is always the same height: it is made wider or narrower from its sides, and keeps its height when drawn out or scaled with other things. Their colours are a painter's
   box, each named for its pigment (graphite, cadmium red, yellow ochre, burnt sienna, viridian,
   ultramarine, quinacridone violet, Payne's grey, ivory black), and a new block starts in graphite.
 - **Frames that fit their contents.** Drag an item onto a frame and the frame wraps it;

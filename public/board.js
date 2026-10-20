@@ -140,6 +140,7 @@
   // Every frame has a header band for its title and a count; blocks are free-standing coloured headings.
   const FRAME_HEAD = 80;
   const BLOCK_W = FRAME_W;
+  // A block is a band, as tall as one line of its heading: only its width changes.
   const BLOCK_H = 180;
   const BLOCK_FS = 56;
   const SNAP_PX = 7;
@@ -244,6 +245,7 @@
       return { x: it.x, y: it.y, w: node ? node.offsetWidth : it.fs * 4, h: node ? node.offsetHeight : it.fs * 1.2 };
     }
     if (it.type === 'note') return { x: it.x, y: it.y, w: it.w, h: node ? node.offsetHeight : it.h || it.fs * 3 };
+    if (it.type === 'block') return { x: it.x, y: it.y, w: it.w, h: BLOCK_H };
     return { x: it.x, y: it.y, w: it.w, h: it.h };
   }
 
@@ -665,7 +667,7 @@
     } else if (it.type === 'block') {
       const fill = mute(it.color);
       st.width = `${it.w}px`;
-      st.height = `${it.h}px`;
+      st.height = `${BLOCK_H}px`;
       st.fontSize = `${BLOCK_FS}px`;
       st.background = fill;
       st.color = '#ffffff';
@@ -1101,10 +1103,12 @@
     const h = r.h * cam.z;
     selbox.hidden = false;
     selbox.classList.toggle('noresize', [...sel].some((id) => items.get(id)?.type === 'text'));
-    // One block or frame can be stretched from any side, one note from its left or right (its text decides its height).
+    // One frame can be stretched from any side; one note from its left or right (its text decides its
+    // height); one block only from its left or right, as its height is fixed.
     const one = sel.size === 1 ? items.get([...sel][0]) : null;
-    selbox.classList.toggle('sides', !!one && (one.type === 'block' || one.type === 'frame'));
-    selbox.classList.toggle('sides-x', !!one && one.type === 'note');
+    selbox.classList.toggle('sides', !!one && one.type === 'frame');
+    selbox.classList.toggle('sides-x', !!one && (one.type === 'note' || one.type === 'block'));
+    selbox.classList.toggle('width-only', !!one && one.type === 'block');
     selbox.style.transform = `translate(${a.x}px, ${a.y}px)`;
     selbox.style.width = `${w}px`;
     selbox.style.height = `${h}px`;
@@ -1364,6 +1368,7 @@
   // its type size, a note together with its writing, a drawing together with its line weight.
   function scaledSize(it, s) {
     if (it.type === 'text') return { fs: round(it.fs * s) };
+    if (it.type === 'block') return { w: round(it.w * s), h: BLOCK_H };
     const patch = { w: round(it.w * s), h: round((it.h || 0) * s) };
     if (it.type === 'note') patch.fs = round(it.fs * s);
     if (it.type === 'stroke') patch.size = round(it.size * s);
@@ -1653,7 +1658,8 @@
   // naming it. Shared by drawing one out with the tool and dropping one from the toolbar.
   function makeFrameLike(kind, r) {
     if (kind === 'block') {
-      const block = { id: uid(), type: 'block', x: round(r.x), y: round(r.y), w: round(r.w), h: round(r.h), text: '', color: BLOCK_COLORS[0], fs: BLOCK_FS, align: 'center', z: topZ() + 1 };
+      // Drawn out, a block takes the width drawn; its height is always the same.
+      const block = { id: uid(), type: 'block', x: round(r.x), y: round(r.y + (r.h - BLOCK_H) / 2), w: round(r.w), h: BLOCK_H, text: '', color: BLOCK_COLORS[0], fs: BLOCK_FS, align: 'center', z: topZ() + 1 };
       exec(addOps([block]));
       setTool('select');
       setSel([block.id]);
@@ -3250,7 +3256,7 @@
       const defW = isBlock ? BLOCK_W : FRAME_W;
       const defH = isBlock ? BLOCK_H : FRAME_H;
       let r = { x: Math.min(g.p0.x, g.p1.x), y: Math.min(g.p0.y, g.p1.y), w: Math.abs(g.p1.x - g.p0.x), h: Math.abs(g.p1.y - g.p0.y) };
-      if (r.w < 24 / cam.z || r.h < 24 / cam.z) {
+      if (r.w < 24 / cam.z || (!isBlock && r.h < 24 / cam.z)) {
         r = { x: g.p0.x - defW / 2, y: g.p0.y - defH / 2, w: defW, h: defH };
       }
       makeFrameLike(g.kind, r);

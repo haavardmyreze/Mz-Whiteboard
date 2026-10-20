@@ -943,7 +943,7 @@ body.focus #viewport { background-image: none; background-color: var(--viewer-bg
 .handle.se { right: -5px; bottom: -5px; cursor: nwse-resize; }
 .handle.ne { right: -5px; top: -5px; cursor: nesw-resize; }
 .handle.sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
-#selbox.noresize .handle { display: none; }
+#selbox.noresize .handle, #selbox.width-only .handle:not(.side) { display: none; }
 /* Sides: the whole edge can be taken hold of, with a small bar in its middle to show it. */
 .handle.side { display: none; width: auto; height: auto; border: 0; background: transparent; box-shadow: none; }
 #selbox.sides .handle.side, #selbox.sides-x .handle.side:is(.e, .w) { display: block; }

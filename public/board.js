@@ -141,7 +141,7 @@
   const FRAME_HEAD = 80;
   const BLOCK_W = FRAME_W;
   // A block is a band, as tall as one line of its heading: only its width changes.
-  const BLOCK_H = 180;
+  const BLOCK_H = 120;
   const BLOCK_FS = 56;
   const SNAP_PX = 7;
   // Sizes are screen pixels at the zoom the text was created at.

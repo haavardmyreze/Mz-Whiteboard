@@ -109,9 +109,18 @@
   // writing on dark, so a coloured note is no brighter than a plain one.
   const noteFill = (c) => (isPlainNote(c) ? noteColor(c) : isLight() ? tone(c, 0.94, 0.06, [0.9, 0.97]) : tone(c, 0.42, 0.075, [0.26, 0.4]));
   const swatchColor = (c) => (c === 'ink' ? inkColor(c) : c === 'note' ? noteColor(c) : c);
-  // Vivid header colours for frames and the free-standing heading blocks.
-  const BLOCK_COLORS = ['#ff6bd6', '#7ed957', '#4d7cff', '#ffd43b', '#ff9a3c', '#b388ff', '#2dd4bf', '#6b6b73', '#17171a'];
-  const FRAME_COLORS = ['#8a8a93', ...BLOCK_COLORS];
+  // The colours of frames and the free-standing heading blocks: a painter's box rather than a highlighter
+  // set, each named for its pigment, and set through `mute` and `deepen` so every one carries white type.
+  // A new block starts in graphite: a heading, not a shout.
+  const PIGMENTS = [
+    ['#3d3d40', 'Graphite'], ['#c0392b', 'Cadmium red'], ['#c8952c', 'Yellow ochre'], ['#a65a3a', 'Burnt sienna'],
+    ['#2e7d67', 'Viridian'], ['#3f4fb0', 'Ultramarine'], ['#7d4b8e', 'Quinacridone violet'], ['#4a5d73', "Payne's grey"],
+    ['#17171a', 'Ivory black'],
+  ];
+  const BLOCK_COLORS = PIGMENTS.map(([c]) => c);
+  // A frame starts untinted; its header can take any pigment but graphite, which is next to untinted.
+  const FRAME_COLORS = ['#8a8a93', ...BLOCK_COLORS.slice(1)];
+  const PIGMENT_NAMES = new Map([['#8a8a93', 'No colour'], ...PIGMENTS]);
   const PEN_SIZES = [4, 8, 16];
   const FRAME_PAD = 28;
   // World-unit sizes for new items: what you get does not depend on how far you are zoomed in.
@@ -120,6 +129,10 @@
   const IMG_MAX_H = 1080;
   const NOTE_W = 260;
   const NOTE_FS = 16;
+  // A note is made to be read where it is made: on a board zoomed out, a new note is made larger, in a few
+  // steps (so notes made at about the same zoom match), until its writing is near its usual size on screen.
+  // Zoomed in, it is the usual note.
+  const NOTE_STEPS = [1, 1.5, 2, 3, 4, 6];
   // A frame starts at the width it needs to hold one piece of media at its imported width, and a block
   // at the same width as a frame, since it usually sits above one as its header.
   const FRAME_W = IMG_W + 2 * FRAME_PAD;
@@ -138,6 +151,7 @@
     { lvl: 0, label: 'Text', size: 18, title: 'Plain text' },
   ];
   const levelSize = (lvl) => (TEXT_LEVELS.find((l) => l.lvl === lvl) || TEXT_LEVELS[1]).size;
+  const noteScale = () => NOTE_STEPS.find((s) => s * cam.z >= 0.8) || NOTE_STEPS[NOTE_STEPS.length - 1];
   const COLORABLE = new Set(['note', 'text', 'frame', 'block', 'stroke']);
   const ITEM_TYPES = new Set(['image', 'video', 'note', 'text', 'frame', 'block', 'stroke']);
   const ICON = WB.iconSet(20); // icons.js
@@ -302,7 +316,7 @@
     settleTimer = setTimeout(() => {
       // Not before the board has loaded and been framed: the view remembered from last time is still waiting to be read.
       // Nor while something is open in the viewer: what is remembered is where the board was left, not a close-up of one piece.
-      if (!firstInit && !unframed) store(`wb:cam:${boardId}`, { x: cam.x, y: cam.y, z: cam.z });
+      if (!firstInit && !unframed) store(`wb:cam:${boardId}`, { x: cam.x, y: cam.y, z: cam.z, w: vp.clientWidth });
       checkRes();
     }, 200);
   }
@@ -430,15 +444,18 @@
     fitRect(r, { dur, maxZ: 1.5 });
   }
 
-  // The view a board opens on: where this browser left it, otherwise everything. A window that has no
-  // size yet (opened minimised, or in a pane that is not showing) cannot be framed, so that waits
-  // until it has one instead of settling on a speck in the corner and remembering it.
+  // The view a board opens on: where this browser left it, otherwise everything. A view left in a window
+  // of a very different width (a phone turned, a window made narrow) would cut the board off at one side,
+  // so then it opens on everything too. A window that has no size yet (opened minimised, or in a pane
+  // that is not showing) cannot be framed, so that waits until it has one instead of settling on a speck
+  // in the corner and remembering it.
   let unframed = false;
   function frameFirst() {
     unframed = !vp.clientWidth || !vp.clientHeight;
     if (unframed) return;
     const saved = store(`wb:cam:${boardId}`);
-    if (saved && isFinite(saved.x) && isFinite(saved.y) && saved.z > 0) setCam(saved.x, saved.y, saved.z);
+    const sameWidth = saved && saved.w > 0 && saved.w / vp.clientWidth > 0.75 && saved.w / vp.clientWidth < 1.33;
+    if (sameWidth && isFinite(saved.x) && isFinite(saved.y) && saved.z > 0) setCam(saved.x, saved.y, saved.z);
     else fitAll(0);
   }
 
@@ -1124,7 +1141,7 @@
       const only = types.size === 1 ? [...types][0] : null;
       const palette = only === 'note' ? NOTE_FILLS : only === 'frame' ? FRAME_COLORS : only === 'block' ? BLOCK_COLORS : INK;
       for (const c of palette) {
-        kids.push(el('button', { class: 'swatch', style: { background: only === 'note' ? noteFill(c) : only === 'block' ? mute(c) : only === 'frame' ? (c === FRAME_COLORS[0] ? c : deepen(c)) : swatchColor(c) }, title: 'Set colour', onclick: () => colorSel(c) }));
+        kids.push(el('button', { class: 'swatch', style: { background: only === 'note' ? noteFill(c) : only === 'block' ? mute(c) : only === 'frame' ? (c === FRAME_COLORS[0] ? c : deepen(c)) : swatchColor(c) }, title: (only === 'block' || only === 'frame') && PIGMENT_NAMES.get(c) || 'Set colour', onclick: () => colorSel(c) }));
       }
       kids.push(el('span', { class: 'sep' }));
     }
@@ -2090,7 +2107,7 @@
     const frame = frameAt(p);
     if (frame) base.fid = frame.id;
     const item = type === 'note'
-      ? { ...base, w: NOTE_W, h: 0, fs: NOTE_FS, color: NOTE_FILLS[0] }
+      ? { ...base, w: NOTE_W * noteScale(), h: 0, fs: NOTE_FS * noteScale(), color: NOTE_FILLS[0] }
       : { ...base, fs: levelSize(textPref.lvl), lvl: textPref.lvl, color: INK[0] };
     if (text) {
       exec(addOps([item]));
@@ -3576,7 +3593,7 @@
 
   function makeToolGhost(name) {
     const size = {
-      note: [NOTE_W, NOTE_W * 0.45],
+      note: [NOTE_W * noteScale(), NOTE_W * noteScale() * 0.45],
       text: [levelSize(textPref.lvl) * 4.5, levelSize(textPref.lvl) * 1.35],
       block: [BLOCK_W, BLOCK_H],
       frame: [FRAME_W, FRAME_H],
@@ -3599,7 +3616,7 @@
 
   function dropTool(name, p) {
     setTool('select');
-    if (name === 'note') createTextItem('note', { x: p.x - NOTE_W / 2, y: p.y - 28 });
+    if (name === 'note') createTextItem('note', { x: p.x - (NOTE_W * noteScale()) / 2, y: p.y - 28 * noteScale() });
     else if (name === 'text') createTextItem('text', { x: p.x - 40, y: p.y - 28 });
     else if (name === 'block') makeFrameLike('block', { x: p.x - BLOCK_W / 2, y: p.y - BLOCK_H / 2, w: BLOCK_W, h: BLOCK_H });
     else makeFrameLike('frame', { x: p.x - FRAME_W / 2, y: p.y - FRAME_H / 2, w: FRAME_W, h: FRAME_H });
@@ -3932,7 +3949,7 @@
   function keyChips(parts) {
     return parts.map((part) => (part.startsWith('~')
       ? el('span', { class: 'kb-say', text: part.slice(1) })
-      : el('kbd', { text: part })));
+      : WB.keys(part)));
   }
 
   function paintHelp() {
@@ -4898,7 +4915,7 @@
       el('button', { class: 'iconbtn', html: ICON.close, title: 'Close (Esc)', onclick: () => toggleCatalogue(false) })),
     el('label', { class: 'cat-search' }, el('span', { html: ICON.search }), catSearch),
     // The other way round: pieces on the board filed into the catalogue.
-    !viewOnly && el('p', { class: 'cat-tip' }, el('span', { html: ICON.file }), 'To file images or videos on the board as versions, select them and press ', el('kbd', { text: 'Shift+V' }), '.'),
+    !viewOnly && el('p', { class: 'cat-tip' }, el('span', { html: ICON.file }), 'To file images or videos on the board as versions, select them and press ', WB.keys('Shift+V'), '.'),
     catBody);
 
   const thumbOf = (src) => (src ? el('img', { src, alt: '', loading: 'lazy', draggable: 'false' }) : el('span', { class: 'cat-nothumb', html: ICON.stack }));

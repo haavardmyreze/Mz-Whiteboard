@@ -195,7 +195,7 @@ const WB = (() => {
       if (!document.contains(t)) return;
       const text = t.dataset.tip;
       const m = /^(.*?)\s*\(([^()]{1,24})\)\.?$/.exec(text);
-      tip.replaceChildren(el('span', { text: m ? m[1] : text }), ...(m ? m[2].split(/\s+or\s+/).map((k) => el('kbd', { text: k.trim() })) : []));
+      tip.replaceChildren(el('span', { text: m ? m[1] : text }), ...(m ? m[2].split(/\s+or\s+/).map((k) => keys(k.trim())) : []));
       const r = t.getBoundingClientRect();
       const w = tip.offsetWidth;
       const h = tip.offsetHeight;
@@ -241,6 +241,12 @@ const WB = (() => {
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.content = t === 'light' ? '#f0f0f0' : '#090909'; // style.css --bg
     window.dispatchEvent(new Event('wb:theme'));
+  }
+
+  // A shortcut as the keys pressed, each in its own cap, side by side: Ctrl+Shift+Z is three keys.
+  function keys(combo) {
+    const parts = String(combo).split(/\+(?=.)/);
+    return parts.length === 1 ? el('kbd', { text: parts[0] }) : el('span', { class: 'kbd-combo' }, parts.map((k) => el('kbd', { text: k })));
   }
 
   function themeButton() {
@@ -664,7 +670,7 @@ const WB = (() => {
   }
 
   return {
-    el, store, remember, combo, rank, user, dialog, askName, info, shareBases, offline, waiting, playable, usesPhoneCopies, watchServer, initials, ago, api, theme, setTheme, themeButton, layout, setLayout, layoutSwitch,
+    el, store, remember, combo, rank, user, dialog, askName, info, shareBases, offline, waiting, playable, usesPhoneCopies, watchServer, initials, ago, api, theme, setTheme, themeButton, keys, layout, setLayout, layoutSwitch,
     media: null, colors: USER_COLORS, saveUser, signOut, clamp, uid, hexOk, isTyping, bytes, plural, avatar, menu, closeMenus, toast, href, KEYS,
   };
 })();

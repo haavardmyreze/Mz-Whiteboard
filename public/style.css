@@ -14,6 +14,8 @@
              red is the brand, kept for going live and for deleting; blue says "this one", whatever is
              selected or focused, the playhead, and what is new.
    Space     Everything sits on a 4px grid. Controls are 32px tall, 28px when small.
+   Widths    Four steps: up to 560px is a phone; under 700px is narrow (where board.js and viewer.js
+             count a window as narrow too); up to 900px the sidebar is a drawer; up to 1100px is snug.
    Corners   Square for artwork, wherever it is shown. 3px for a small mark, 5px for a control, 8px for
              the panel around it, 12px for a dialog, so a control's corner is concentric with the panel
              it sits in; a pill is fully round.
@@ -429,7 +431,7 @@ body.home { height: auto; min-height: 100%; overflow-y: auto; }
 .appbar .brand { flex: none; gap: 9px; height: var(--h); margin-left: -4px; padding: 0 8px 0 4px; border-radius: var(--r-2); font-size: var(--fs-ui); transition: background 0.12s var(--ease); }
 .appbar a.brand[href]:hover { background: var(--hover); }
 /* The mark sits on a tile of ink: the one solid thing at this end of the bar, as the main action is at the other. */
-.appbar .logomark { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; background: var(--ink-bg); color: var(--ink-fg); transition: background 0.3s var(--ease); }
+.appbar .logomark { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: var(--r-3); background: var(--ink-bg); color: var(--ink-fg); transition: background 0.3s var(--ease); }
 .appbar .logomark > svg { width: 18px; height: 18px; }
 body.welcoming .appbar .logomark { background: transparent; }
 /* Along the path the place you are in is in full ink, and what leads to it is quieter. */
@@ -440,7 +442,7 @@ body.home:not(.admin) .appbar .wordmark { color: var(--text); }
 .bar-crumb { flex: 0 1 auto; min-width: 0; max-width: 26ch; height: var(--h); padding: 0 8px; overflow: hidden; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text-2); font: inherit; font-size: var(--fs-ui); font-weight: 600; letter-spacing: -0.01em; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; transition: background 0.12s var(--ease), color 0.12s var(--ease); }
 .bar-crumb:hover { background: var(--hover); color: var(--text); }
 /* Controls that belong together share a tray. */
-.bar-group, .stepper { flex: none; display: inline-flex; align-items: center; padding: 2px; border-radius: 7px; background: var(--hover); }
+.bar-group, .stepper { flex: none; display: inline-flex; align-items: center; padding: 2px; border-radius: calc(var(--r-2) + 2px); background: var(--hover); }
 .bar-group .btn, .bar-group .iconbtn, .stepper .iconbtn { height: var(--h-sm); border-radius: var(--r-2); }
 .bar-group .iconbtn, .stepper .iconbtn { width: var(--h-sm); }
 .bar-group .btn { padding: 0 10px; }
@@ -664,7 +666,7 @@ body.home:not(.admin) .appbar .wordmark { color: var(--text); }
 .notice-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .notice-what { color: var(--text-2); line-height: 1.35; }
 .notice-what strong { color: var(--text); font-weight: 600; }
-.notice-guest { margin-left: 6px; padding: 1px 5px; border-radius: 4px; background: var(--surface-3); color: var(--muted); font-size: var(--fs-micro); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; vertical-align: 1px; }
+.notice-guest { margin-left: 6px; padding: 1px 5px; border-radius: var(--r-1); background: var(--surface-3); color: var(--muted); font-size: var(--fs-micro); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; vertical-align: 1px; }
 .notice-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--text); line-height: 1.4; overflow-wrap: anywhere; }
 .notice-where { color: var(--muted); font-size: var(--fs-sm); }
 .notice.unread .notice-what { color: var(--text); }
@@ -672,7 +674,7 @@ body.home:not(.admin) .appbar .wordmark { color: var(--text); }
 
 /* Search: a box in the bar, and on a narrow screen a button that opens the box over the bar. */
 .search-toggle { display: none; }
-@media (max-width: 760px) {
+@media (max-width: 699px) {
   .search { display: none; }
   .search-toggle { display: inline-grid; }
   body.search-open .search { position: absolute; left: 8px; right: 8px; top: 6px; z-index: 5; display: flex; max-width: none; }
@@ -772,10 +774,10 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport, body[data-
 
 /* The scrub bar: a hairline that fills as the clip plays, with a small round playhead. */
 .vbar input[type="range"] { -webkit-appearance: none; appearance: none; flex: 1; min-width: 30px; height: 16px; margin: 0; background: transparent; cursor: pointer; --p: 0%; }
-.vbar input[type="range"]::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: linear-gradient(to right, #fff var(--p), rgba(255, 255, 255, 0.28) var(--p)); }
+.vbar input[type="range"]::-webkit-slider-runnable-track { height: 3px; border-radius: var(--r-pill); background: linear-gradient(to right, #fff var(--p), rgba(255, 255, 255, 0.28) var(--p)); }
 .vbar input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 11px; height: 11px; margin-top: -4px; border: 0; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
-.vbar input[type="range"]::-moz-range-track { height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.28); }
-.vbar input[type="range"]::-moz-range-progress { height: 3px; border-radius: 2px; background: #fff; }
+.vbar input[type="range"]::-moz-range-track { height: 3px; border-radius: var(--r-pill); background: rgba(255, 255, 255, 0.28); }
+.vbar input[type="range"]::-moz-range-progress { height: 3px; border-radius: var(--r-pill); background: #fff; }
 .vbar input[type="range"]::-moz-range-thumb { width: 11px; height: 11px; border: 0; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
 
 /* The play button is smoked glass, not a white disc: several videos on a board should not outshine the stills. */
@@ -1075,7 +1077,7 @@ body.focus .board-only { display: none !important; }
 .kp-name { overflow: hidden; color: var(--text-2); text-overflow: ellipsis; white-space: nowrap; }
 .kp-pct { color: var(--muted); font-variant-numeric: tabular-nums; }
 .kp-item .kp-bar { grid-column: 1 / -1; }
-.kp-bar { display: block; height: 4px; overflow: hidden; border-radius: 2px; background: var(--surface-3); }
+.kp-bar { display: block; height: 4px; overflow: hidden; border-radius: var(--r-pill); background: var(--surface-3); }
 .kp-bar > i { display: block; height: 100%; border-radius: inherit; background: var(--text); transition: width 0.3s var(--ease); }
 .kp-line { display: flex; align-items: center; gap: 7px; color: var(--text-2); }
 .kp-ic { display: grid; place-items: center; color: var(--muted); }
@@ -1091,7 +1093,7 @@ body.focus .board-only { display: none !important; }
   #topbar .wordmark, #topbar .bar-slash { display: none !important; }
   #topbar .brand { padding-right: 4px; }
 }
-@media (max-width: 640px) {
+@media (max-width: 699px) {
   #topbar { gap: 4px; padding: 0 8px; }
   #topbar .bar-group.board-only, #help, .kept-ring { display: none !important; }
   #peers .avatar:not(.me) { display: none; }
@@ -1101,7 +1103,7 @@ body.focus .board-only { display: none !important; }
   #share { margin-left: 0; }
 }
 
-.count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--surface-3); color: var(--text); font-size: var(--fs-cap); font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0; }
+.count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--r-pill); background: var(--surface-3); color: var(--text); font-size: var(--fs-cap); font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0; }
 
 /* The tool strip: icons with small labels down the left edge. The tool in hand is the one solid thing in it. */
 #toolbar { left: 12px; top: calc(50% + var(--bar) / 2); transform: translateY(-50%); display: flex; flex-direction: column; gap: 2px; padding: 4px; }
@@ -1163,7 +1165,7 @@ body.dragging-tool, body.dragging-tool * { cursor: grabbing !important; }
 .stepper { margin: 0 4px; }
 /* Only where the strip down the left has no room: with the strip in sight it says which piece is open
    and is the way to the others, and the bar need not say it twice. */
-@media (min-width: 961px) { .stepper { display: none; } }
+@media (min-width: 901px) { .stepper { display: none; } }
 .v-pos { padding: 0 2px; color: var(--text-2); font-size: var(--fs-sm); font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; text-align: center; }
 .live { flex: none; width: 8px; height: 8px; border-radius: 50%; }
 .v-name { flex: 0 1 auto; min-width: 0; max-width: 36ch; padding: 0 4px; overflow: hidden; font-size: var(--fs-ui); font-weight: 600; letter-spacing: -0.01em; text-overflow: ellipsis; white-space: nowrap; }
@@ -1184,6 +1186,8 @@ body.dragging-tool, body.dragging-tool * { cursor: grabbing !important; }
 .keys dd { justify-content: flex-end; gap: 4px; margin: 0; }
 /* A key, wherever one is named: in the shortcuts, the tips, the search box. (One rule: there were two.) */
 kbd { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 7px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: var(--fs-sm); font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; text-align: center; vertical-align: 1px; white-space: nowrap; }
+.kbd-combo { display: inline-flex; gap: 3px; white-space: nowrap; }
+#tip .kbd-combo { gap: 2px; }
 .kb-say { color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
 .guide { display: flex; flex-direction: column; gap: 14px; padding: 4px 0 6px; }
 .guide section { display: grid; grid-template-columns: 32px 1fr; gap: 12px; }
@@ -1235,7 +1239,7 @@ body.focus .item:is(.image, .video).peersel { outline: none; }
 .fs-item.current .fs-num { color: var(--text); font-weight: 600; }
 .fs-badge { position: absolute; left: 3px; bottom: 3px; display: grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; background: rgba(0, 0, 0, 0.62); color: #fff; }
 .fs-badge svg { width: 7px; height: 7px; margin-left: 1px; }
-.fs-count { position: absolute; right: 3px; top: 3px; min-width: 14px; height: 14px; padding: 0 4px; border-radius: 7px; background: var(--ink-bg); color: var(--ink-fg); font-size: var(--fs-micro); font-weight: 600; line-height: 14px; letter-spacing: 0; text-align: center; }
+.fs-count { position: absolute; right: 3px; top: 3px; min-width: 14px; height: 14px; padding: 0 4px; border-radius: var(--r-pill); background: var(--ink-bg); color: var(--ink-fg); font-size: var(--fs-micro); font-weight: 600; line-height: 14px; letter-spacing: 0; text-align: center; }
 /* Put away and brought back by a tab on its edge, and made wider by that edge. */
 .v-fstab { position: fixed; z-index: 31; left: var(--film); top: calc(50% + var(--bar) / 2); transform: translateY(-50%); display: none; place-items: center; width: 30px; height: 68px; padding: 0; border: 1px solid var(--line); border-left: 0; border-radius: 0 var(--r-3) var(--r-3) 0; background: var(--surface-1); color: var(--muted); cursor: pointer; transition: background 0.12s var(--ease), color 0.12s var(--ease); }
 body.focus .v-fstab { display: grid; }
@@ -1273,7 +1277,7 @@ body.focus:not(.film-off) .fs-grip { display: block; }
 .tl-track { position: relative; flex: 1; align-self: stretch; min-width: 60px; margin: 0 10px 0 6px; cursor: pointer; touch-action: none; --p: 0%; }
 /* Three tones along the rail: what has been played, what the browser has of the rest, and what it has
    still to fetch. */
-.tl-rail { position: absolute; left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px; overflow: hidden; border-radius: 2px; background: var(--line); }
+.tl-rail { position: absolute; left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px; overflow: hidden; border-radius: var(--r-pill); background: var(--line); }
 .tl-loaded i { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--text) 32%, transparent); }
 .tl-loaded i.coming { background: color-mix(in srgb, var(--text) 16%, transparent); }
 .tl-played { position: absolute; left: 0; top: 0; bottom: 0; width: var(--p); background: var(--text); }
@@ -1287,7 +1291,7 @@ body.focus:not(.film-off) .fs-grip { display: block; }
 .tl-mark.comment.done { opacity: 0.4; }
 /* How many comments share the mark, when it is more than one. The mark is turned on its point, so the
    number is turned back to stand upright, up and to the right of it. */
-.tl-n { position: absolute; left: calc(100% - 2px); top: 50%; min-width: 13px; height: 13px; padding: 0 3px; border-radius: 7px; background: var(--text); box-shadow: 0 0 0 1.5px var(--surface-1); color: var(--surface-1); font: 600 var(--fs-micro)/13px var(--sans); font-variant-numeric: tabular-nums; text-align: center; transform: translateY(-50%) rotate(45deg); pointer-events: none; }
+.tl-n { position: absolute; left: calc(100% - 2px); top: 50%; min-width: 13px; height: 13px; padding: 0 3px; border-radius: var(--r-pill); background: var(--text); box-shadow: 0 0 0 1.5px var(--surface-1); color: var(--surface-1); font: 600 var(--fs-micro)/13px var(--sans); font-variant-numeric: tabular-nums; text-align: center; transform: translateY(-50%) rotate(45deg); pointer-events: none; }
 .tl-tip { position: absolute; bottom: calc(100% + 6px); transform: translateX(-50%); padding: 2px 6px; border-radius: var(--r-1); background: var(--tip-bg); box-shadow: var(--shadow-1); color: var(--tip-fg); font-size: var(--fs-cap); font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; white-space: nowrap; pointer-events: none; }
 .tl-tip[hidden] { display: none; }
 
@@ -1341,7 +1345,7 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
 .dlg .file-fill input + input { width: 100px; }
 .file-row .file-fields { min-width: 0; }
 .file-labels-row { position: sticky; top: 0; z-index: 1; margin-bottom: -4px; background: var(--surface-1); }
-@media (max-width: 600px) {
+@media (max-width: 560px) {
   .file-row { grid-template-columns: 48px minmax(0, 1fr); row-gap: 6px; }
   .file-row .file-fields { grid-column: 1 / -1; }
   .file-labels-row { display: none; }
@@ -1405,7 +1409,7 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
 .file-labels { height: auto; border-color: transparent; background: transparent; color: var(--muted); font-size: var(--fs-cap); line-height: 16px; }
 .file-labels:focus-within { box-shadow: none; }
 .file-labels > * { overflow: hidden; padding: 0 8px; border-left-color: transparent; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 600px) {
+@media (max-width: 560px) {
   /* On a phone, two rows: what it is and its name, then the rest; the lines between are the gaps. */
   .file-line:not(.file-labels) { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 1px; height: auto; background: var(--line); }
   .file-line:not(.file-labels) > * { height: 32px; border-left: 0; background: var(--surface-2); }
@@ -1434,7 +1438,7 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
 .file-note { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .file-note.warn { color: var(--warn-fg); }
 .file-note.ok { color: var(--ok); }
-.file-fix { padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface-2); color: var(--text); font: inherit; font-size: var(--fs-cap); line-height: 18px; cursor: pointer; }
+.file-fix { padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--r-pill); background: var(--surface-2); color: var(--text); font: inherit; font-size: var(--fs-cap); line-height: 18px; cursor: pointer; }
 .file-fix:hover { background: var(--hover); }
 .file-fix:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
 
@@ -1498,7 +1502,8 @@ body.focus .v-panel { right: 0; bottom: 0; top: var(--bar); width: var(--side); 
    where a reply is written. */
 .cp-card { flex: none; padding: 0 10px; border: 1px solid transparent; border-radius: var(--r-3); cursor: pointer; transition: background 0.12s, border-color 0.12s; }
 .cp-card:hover { background: var(--hover); }
-.cp-card.active { border-color: var(--line-strong); background: var(--surface-2); }
+/* The thread picked is "this one": a blue edge, not a box. */
+.cp-card.active { border-color: transparent; border-radius: 0 var(--r-3) var(--r-3) 0; background: var(--hover); box-shadow: inset 2px 0 0 var(--accent); }
 .cp-card.done .msg { opacity: 0.55; }
 /* A comment is kept small: who, the moment and when on one line, what they said under it, so a
    panel's worth of them can be read without scrolling. */
@@ -1524,7 +1529,7 @@ body.focus .v-panel { right: 0; bottom: 0; top: var(--bar); width: var(--side); 
 .iconbtn.mini svg { width: 14px; height: 14px; }
 .msg-acts .iconbtn.active { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
 .msg-where { display: flex; align-items: center; gap: 6px; min-width: 0; margin: 0 0 1px; color: var(--muted); font-size: var(--fs-cap); line-height: 1.4; }
-.msg-drawn { flex: none; display: inline-flex; align-items: center; gap: 3px; width: fit-content; height: 18px; margin-top: 4px; padding: 0 6px 0 4px; border-radius: 9px; background: var(--surface-3); color: var(--text-2); font-size: var(--fs-cap); font-weight: 500; }
+.msg-drawn { flex: none; display: inline-flex; align-items: center; gap: 3px; width: fit-content; height: 18px; margin-top: 4px; padding: 0 6px 0 4px; border-radius: var(--r-pill); background: var(--surface-3); color: var(--text-2); font-size: var(--fs-cap); font-weight: 500; }
 .msg-drawn span { display: grid; }
 .msg-drawn svg { width: 12px; height: 12px; }
 .msg-edited { flex: none; color: var(--muted); font-size: var(--fs-cap); }
@@ -1619,7 +1624,7 @@ body.welcoming [data-logo-slot] > svg { visibility: hidden; }
 #splash.idle path { stroke-dasharray: 0.22 0.78; animation: logo-trace 2.6s linear infinite, logo-breathe 2.6s ease-in-out infinite; }
 /* In the bar: the name, and who it is by, quieter. */
 .wm-by { color: var(--muted); font-weight: 400; }
-@media (max-width: 700px) { .wm-by { display: none; } }
+@media (max-width: 699px) { .wm-by { display: none; } }
 
 /* The launch type: Rift, kept to the letters the welcome uses. */
 @font-face { font-family: "Rift"; font-style: normal; font-weight: 300; font-display: block; src: url("/fonts/rift-light.woff2") format("woff2"); }
@@ -1663,7 +1668,7 @@ body.welcoming [data-logo-slot] > svg { visibility: hidden; }
 .set-row:hover:not(:disabled) { background: var(--hover); box-shadow: none; }
 .set-row:hover + .set-row { box-shadow: none; }
 .set-row:disabled { cursor: default; opacity: 0.5; }
-.set-ic { display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 7px; background: var(--surface-1); box-shadow: 0 0 0 1px var(--line); color: var(--text-2); }
+.set-ic { display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: var(--r-2); background: var(--surface-1); box-shadow: 0 0 0 1px var(--line); color: var(--text-2); }
 .set-ic svg { width: 16px; height: 16px; }
 .set-label { flex: 1; min-width: 0; font-weight: 500; }
 .set-value { color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1712,13 +1717,13 @@ body.welcoming [data-logo-slot] > svg { visibility: hidden; }
 .share-link input { flex: 1; min-width: 0; margin: 0; }
 .share-dlg .dlg-actions .share-reset { margin-right: auto; }
 /* A switch: a checkbox drawn as a track and knob. */
-input[role="switch"] { -webkit-appearance: none; appearance: none; position: relative; width: 34px; height: 20px; margin: 0; border-radius: 10px; background: var(--line-strong); cursor: pointer; transition: background 0.15s; }
+input[role="switch"] { -webkit-appearance: none; appearance: none; position: relative; width: 34px; height: 20px; margin: 0; border-radius: var(--r-pill); background: var(--line-strong); cursor: pointer; transition: background 0.15s; }
 input[role="switch"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: var(--shadow-1); transition: transform 0.15s var(--ease); }
 input[role="switch"]:checked { background: var(--ink-bg); }
 input[role="switch"]:checked::after { background: var(--ink-fg); }
 input[role="switch"]:checked::after { transform: translateX(14px); }
 input[role="switch"]:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
-@media (max-width: 520px) {
+@media (max-width: 560px) {
   .share-row { grid-template-columns: 1fr auto; }
   .share-label { grid-column: 1 / -1; }
   .share-row select { grid-column: 1 / -1; }
@@ -1730,8 +1735,11 @@ input[role="switch"]:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--
 
 body.login { display: grid; place-items: center; min-height: 100%; padding: 24px; }
 .login-card { display: grid; justify-items: center; gap: 16px; width: min(360px, 100%); text-align: center; }
-.login-logo { width: 96px; height: auto; fill: currentColor; animation: rise 0.5s var(--ease); }
-.login-card .brand { margin: 0; font-size: var(--fs-xl); }
+.login-logo { width: 72px; height: auto; fill: currentColor; animation: rise 0.5s var(--ease); }
+/* The welcome's lockup, held still: the same Rift name, smaller, with who it is by tracked out beneath. */
+.login-word { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 4px 0 20px; font-family: "Rift", var(--sans); font-weight: 600; text-transform: uppercase; }
+.login-word .sw-name { font-size: 64px; opacity: 1; animation: none; }
+.login-word .sw-by { font-size: var(--fs-lg); opacity: 1; animation: none; }
 .login-card p { margin: 0; color: var(--text-2); line-height: 1.5; text-wrap: balance; }
 .login-card p.login-error { color: var(--danger); }
 .login-card .btn { width: 100%; height: 40px; }
@@ -1750,7 +1758,7 @@ body.login { display: grid; place-items: center; min-height: 100%; padding: 24px
 .login-form .btn { margin-top: 8px; }
 
 /* A small window: the strip goes first and the panel slims down, so the piece keeps most of the room. */
-@media (max-width: 960px) {
+@media (max-width: 900px) {
   body.focus { --film: 0px; }
   body.focus.cp-open { --side: min(var(--cpw, 280px), 50vw); }
   .v-film, .v-fstab, .fs-grip { display: none !important; }
@@ -1761,7 +1769,7 @@ body.login { display: grid; place-items: center; min-height: 100%; padding: 24px
    viewer's bar spans the top. One finger moves the board and two zoom, so there is no hand tool on the
    board; in the viewer, where one finger on the piece would draw, the strip holds the hand, the brush,
    the eraser and the laser, so looking around and marking up are never the same touch. */
-@media (max-width: 700px) {
+@media (max-width: 699px) {
   body.board { --tbh: 60px; }
   #toolbar { left: 50%; top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); transform: translateX(-50%); flex-direction: row; width: max-content; max-width: calc(100vw - 16px); height: var(--tbh); }
   #toolbar .sep { display: none; }
@@ -1890,7 +1898,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .admin-tab:hover { color: var(--text); }
 .admin-tab.current { color: var(--text); }
 .admin-tab.current::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px; border-radius: 1px; background: var(--text); }
-.admin-tab .tally { min-width: 20px; height: 18px; padding: 0 6px; border-radius: 9px; background: var(--surface-2); color: var(--text-2); font-size: var(--fs-cap); font-variant-numeric: tabular-nums; line-height: 18px; text-align: center; }
+.admin-tab .tally { min-width: 20px; height: 18px; padding: 0 6px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--text-2); font-size: var(--fs-cap); font-variant-numeric: tabular-nums; line-height: 18px; text-align: center; }
 
 .admin-panel { overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); }
 .admin-panel ul { margin: 0; padding: 0; list-style: none; }
@@ -1909,7 +1917,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .admin-who-text > span { color: var(--muted); font-size: var(--fs-sm); }
 
 .admin-tags { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
-.admin-tag { flex: none; height: 22px; padding: 0 8px; border-radius: 11px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); color: var(--text-2); font-size: var(--fs-sm); font-weight: 500; line-height: 22px; white-space: nowrap; }
+.admin-tag { flex: none; height: 22px; padding: 0 8px; border-radius: var(--r-pill); background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); color: var(--text-2); font-size: var(--fs-sm); font-weight: 500; line-height: 22px; white-space: nowrap; }
 .admin-tag.you { height: 18px; padding: 0 6px; background: var(--surface-3); box-shadow: none; color: var(--text-2); font-size: var(--fs-cap); font-weight: 600; line-height: 18px; }
 
 /* People: find someone, then a row each. */
@@ -2006,7 +2014,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .admin-dlg .admin-dlg-error { margin: 14px 0 0; color: var(--danger); }
 
 /* A phone: a person is a block of lines instead of a row, and what was side by side is stacked. */
-@media (max-width: 760px) {
+@media (max-width: 699px) {
   .home.admin main { padding: 32px 16px 72px; }
   .admin-back { display: none; }
   .admin-tabs { gap: 0; }
@@ -2106,7 +2114,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 [data-layout="rows"] .card.new .new-thumb { flex: none; align-self: stretch; width: 84px; aspect-ratio: auto; border-bottom: 0; border-right: 1px dashed var(--line-strong); }
 [data-layout="rows"] .card.new .plus { width: 28px; height: 28px; }
 [data-layout="rows"] .card.new { flex-direction: row; }
-.ver-board { padding: 2px 8px; border-radius: 10px; background: var(--surface-2); color: var(--text-2); font-size: var(--fs-cap); text-decoration: none; }
+.ver-board { padding: 2px 8px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--text-2); font-size: var(--fs-cap); text-decoration: none; }
 .ver-board:hover { background: var(--hover); color: var(--text); }
 .cat-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: 420px; }
 .cat-empty p { margin: 0 0 8px; }
@@ -2163,7 +2171,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .imp-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .imp-file { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .imp-name { overflow: hidden; font-size: var(--fs-ui); text-overflow: ellipsis; white-space: nowrap; }
-.imp-bar { display: block; height: 3px; overflow: hidden; border-radius: 2px; background: var(--surface-3); }
+.imp-bar { display: block; height: 3px; overflow: hidden; border-radius: var(--r-pill); background: var(--surface-3); }
 .imp-bar > i { display: block; height: 100%; background: var(--text); transition: width 0.2s linear; }
 /* Done with, the bar keeps its place, so the line under it stays put. */
 .imp-file .imp-bar[hidden] { display: block; visibility: hidden; }
@@ -2187,7 +2195,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 /* Another view of the version of the row above: the two read as one. */
 .imp-row.with-above { padding-top: 2px; }
 .imp-row.with-above .imp-thumb { box-shadow: -4px 0 0 -1px var(--accent); }
-@media (max-width: 760px) {
+@media (max-width: 699px) {
   .imp-row { grid-template-columns: 56px minmax(0, 1fr); row-gap: 6px; }
   .imp-fields, .imp-filed, .imp-end { grid-column: 2; }
   .imp-labels { display: none; }
@@ -2216,7 +2224,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 #helppanel { z-index: 46; }
 /* A phone's tools for the viewer, along the bottom: the hand, the brush, the eraser, the laser, undo and redo. */
 .v-tools { display: none; }
-@media (max-width: 700px) {
+@media (max-width: 699px) {
   .viewer { --tbh: 60px; }
   .v-tools { left: 50%; bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 2; transform: translateX(-50%); display: flex; gap: 2px; max-width: calc(100vw - 16px); height: var(--tbh); padding: 4px; }
   .v-tools .iconbtn { flex: 0 1 46px; width: 46px; min-width: 34px; height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
@@ -2279,7 +2287,7 @@ button.imp-row:hover { background: var(--hover); }
 .pf:hover { border-bottom-color: var(--line-strong); }
 .pf:focus-within { border-bottom-color: var(--text-2); }
 .pf-chips { display: contents; }
-.pf-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 2px 0 3px; border-radius: 13px; background: var(--surface-2); font-size: var(--fs-sm); }
+.pf-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 2px 0 3px; border-radius: var(--r-pill); background: var(--surface-2); font-size: var(--fs-sm); }
 .pf-chip .avatar.sm { width: 20px; height: 20px; font-size: 9px; background: var(--surface-3); color: var(--text-2); }
 .pf-x { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
 .pf-x:hover { background: var(--hover); color: var(--text); }
@@ -2308,11 +2316,11 @@ button.imp-row:hover { background: var(--hover); }
 .scrub-video.on { opacity: 1; }
 .scrub-head { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); pointer-events: none; }
 .card.ent .card-thumbs { position: relative; cursor: pointer; }
-.play-latest { position: absolute; left: 8px; bottom: 8px; z-index: 1; display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 6px; border-radius: 11px; background: rgba(0, 0, 0, 0.62); color: #fff; font-size: var(--fs-cap); font-weight: 600; opacity: 0; transition: opacity 0.12s; pointer-events: none; }
+.play-latest { position: absolute; left: 8px; bottom: 8px; z-index: 1; display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 6px; border-radius: var(--r-pill); background: rgba(0, 0, 0, 0.62); color: #fff; font-size: var(--fs-cap); font-weight: 600; opacity: 0; transition: opacity 0.12s; pointer-events: none; }
 .card.ent:hover .play-latest { opacity: 1; }
 .ent-top { display: grid; grid-template-columns: minmax(0, 560px) auto; justify-content: space-between; align-items: start; gap: 16px 32px; margin: 16px 0 0; }
 .ent-top > .btn { order: 2; }
-@media (max-width: 760px) { .ent-top { grid-template-columns: minmax(0, 1fr); } .ent-top > .btn { order: 0; justify-self: start; } }
+@media (max-width: 699px) { .ent-top { grid-template-columns: minmax(0, 1fr); } .ent-top > .btn { order: 0; justify-self: start; } }
 
 
 /* A run in the player: the shots of a project played through. No side strip; the bar under the picture
@@ -2320,7 +2328,7 @@ button.imp-row:hover { background: var(--hover); }
 .viewer.run .v-film, .viewer.run .v-fstab, .viewer.run .fs-grip { display: none !important; }
 .viewer.run .v-timeline { left: 12px; height: 70px; }
 .tl-run { display: none; }
-.viewer.run .tl-run { display: block; position: absolute; left: 0; right: 0; top: 4px; bottom: 4px; overflow: hidden; border-radius: 4px; background: #0c0c0c; }
+.viewer.run .tl-run { display: block; position: absolute; left: 0; right: 0; top: 4px; bottom: 4px; overflow: hidden; border-radius: var(--r-1); background: #0c0c0c; }
 .viewer.run .tl-track .tl-rail, .viewer.run .tl-track .tl-wave { display: none !important; }
 /* The whole run: the sequences along the top as bands, each shaded from the next and named where there
    is room; under them the shots, as their stills, a dark line at every cut. With hundreds of shots it
@@ -2446,7 +2454,7 @@ body.picking main { padding-bottom: 120px; }
 .ph-seq-head a:hover { text-decoration: underline; }
 .ph-seq-head span { color: var(--muted); font-size: var(--fs-cap); font-variant-numeric: tabular-nums; }
 .ph-strip { display: flex; gap: 2px; height: 6px; }
-.ph-shot { flex: 1 1 0; min-width: 3px; border-radius: 2px; background: var(--surface-3); }
+.ph-shot { flex: 1 1 0; min-width: 3px; border-radius: var(--r-pill); background: var(--surface-3); }
 .ph-shot.filed { background: var(--muted); opacity: 0.6; }
 .ph-shot.fresh { background: var(--text-2); }
 a.ph-shot:hover { outline: 2px solid var(--text); outline-offset: 1px; }
@@ -2484,7 +2492,7 @@ a.ph-shot:hover { outline: 2px solid var(--text); outline-offset: 1px; }
 .vl-pop-filter .vl-sec { border-bottom: 1px solid var(--line); }
 .vl-sec + .vl-sec { border-top: 1px solid var(--line); }
 .vl-sec > b { padding: 4px 8px 2px; color: var(--muted); font-size: var(--fs-cap); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-.vl-chip { display: inline-flex; align-items: center; gap: 2px; max-width: 280px; height: 26px; padding: 0 3px 0 10px; border-radius: 999px; background: var(--surface-2); color: var(--text-2); font-size: var(--fs-sm); }
+.vl-chip { display: inline-flex; align-items: center; gap: 2px; max-width: 280px; height: 26px; padding: 0 3px 0 10px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--text-2); font-size: var(--fs-sm); }
 .vl-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vl-chip-x { display: grid; place-items: center; flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
 .vl-chip-x:hover { background: var(--hover); color: var(--text); }
@@ -2516,7 +2524,7 @@ body.vpicking main { padding-bottom: 120px; }
 .ent-thread-open:hover { color: var(--text); text-decoration: underline; }
 
 /* The box drawn by dragging on empty space in the catalogue or a project's Versions. */
-.marquee { position: fixed; z-index: var(--z-menu); border: 1px solid var(--accent); border-radius: 2px; background: color-mix(in srgb, var(--accent) 14%, transparent); pointer-events: none; }
+.marquee { position: fixed; z-index: var(--z-menu); border: 1px solid var(--accent); border-radius: var(--r-1); background: color-mix(in srgb, var(--accent) 14%, transparent); pointer-events: none; }
 body.marqueeing, body.marqueeing * { user-select: none !important; -webkit-user-select: none !important; cursor: crosshair; }
 
 /* Boards, folders and versions picked by a box. */
@@ -2618,7 +2626,6 @@ body:not(.vpicking) .vt-head:hover .vl-box { display: block; }
 .seg.seg-icons { display: inline-grid; margin: 0; padding: 2px; }
 .seg-icons .seg-btn { width: 30px; height: 26px; padding: 0; }
 .seg-icons .seg-ic svg { display: block; }
-@media (max-width: 560px) { .home-bar .layout-seg { display: none; } }
 
 /* The player docked in the page (the timeline): the page's bar and sidebar stay, seen and usable. */
 .viewer.docked { --dock-l: 252px; --dock-t: 48px; clip-path: inset(var(--dock-t) 0 0 var(--dock-l)); }
@@ -2629,10 +2636,11 @@ body:not(.vpicking) .vt-head:hover .vl-box { display: block; }
 .viewer.docked .v-film { left: var(--dock-l); top: calc(var(--bar) + var(--dock-t)); }
 .viewer.docked .v-fstab { left: calc(var(--dock-l) + var(--film)); top: calc(50% + (var(--bar) + var(--dock-t)) / 2); }
 .viewer.docked .fs-grip { left: calc(var(--dock-l) + var(--film) - 4px); top: calc(var(--bar) + var(--dock-t)); }
-@media (min-width: 701px) { .viewer.docked:not(.run) .v-timeline { left: calc(var(--dock-l) + var(--film) + 12px); } }
+@media (min-width: 700px) { .viewer.docked:not(.run) .v-timeline { left: calc(var(--dock-l) + var(--film) + 12px); } }
 .viewer.docked .v-panel { top: calc(var(--bar) + var(--dock-t)); }
 .viewer.docked .v-cptab { top: calc(50% + (var(--bar) + var(--dock-t)) / 2); }
-.viewer.docked .v-runcap { top: calc(var(--bar) + var(--dock-t) + 14px); left: calc(var(--dock-l) + 24px); }
+/* Docked, the bar above already names the shot playing: nothing more lies over the picture. */
+.viewer.docked .v-runcap { display: none !important; }
 @media (max-width: 900px) {
   .viewer.docked { --dock-l: 0px; }
 }
@@ -2646,16 +2654,14 @@ body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
 /* The sidebar's Pinned heading is not a place of its own. */
 .side-head.plain:hover { background: none; color: var(--muted); }
 .side-head.plain { margin-top: 12px; }
-/* A project's home: its parts along the top, then activity beside what was filed and worked on last. */
+/* A project's home: what was filed last and its activity, beside its sequences and boards. */
 .home-side .section-label + .home-quiet + .section-label, .home-side .home-work + .section-label { margin-top: 28px; }
-.folder-grid.ph-parts { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 24px 0 24px; }
-@media (max-width: 1100px) { .folder-grid.ph-parts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 /* The kinds of thing cached ahead, under the switch for all of it. */
 .acct-row.sub { min-height: 30px; margin-top: 2px; padding-left: 14px; }
 .acct-row.sub.off { opacity: 0.5; cursor: default; }
 /* The ring in Home's bar: what the page or the timeline shows, cached. */
 .home-head .kept-ring { margin-right: 2px; }
-@media (max-width: 700px) { .home-head .kept-ring .kept-label { display: none; } }
+@media (max-width: 699px) { .home-head .kept-ring .kept-label { display: none; } }
 /* A card's cache badge, in its top right corner: there when you look for it, not before. A small
    tick once the video is on this computer, a thin ring filling while it comes; the cloud (plays from
    the server) only while the pointer is over the card. */
@@ -2680,7 +2686,7 @@ body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
 .toast-act:hover { background: var(--hover); }
 /* A board's folders in its bar, before its name. */
 .bar-crumb.board-folder { display: inline-flex; align-items: center; text-decoration: none; }
-@media (max-width: 760px) { .bar-crumb.board-folder, .bar-crumb.board-folder + .bar-slash { display: none; } }
+@media (max-width: 699px) { .bar-crumb.board-folder, .bar-crumb.board-folder + .bar-slash { display: none; } }
 .cat-tip { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 12px 8px; color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; }
 .cat-tip svg { width: 14px; height: 14px; }
 /* Artists and CC: a field that looks like one, quietly, until it is used. */
@@ -2688,7 +2694,7 @@ body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
 #hint .hint-guest, body.viewonly #hint .hint-edit { display: none; }
 body.viewonly #hint .hint-guest { display: inline; }
 /* A phone's board bar: Activity and Share live in Board settings, beside the guide. */
-@media (max-width: 640px) {
+@media (max-width: 699px) {
   #activity, #share, #topbar .present-btn:not(.on-air) { display: none !important; }
 }
 
@@ -2734,13 +2740,13 @@ body.viewonly #hint .hint-guest { display: inline; }
 .cut { display: none; }
 .viewer.run .v-timeline { flex-wrap: wrap; height: auto; padding-bottom: 8px; row-gap: 0; }
 .viewer.run .v-timeline > .tl-track { align-self: center; height: 62px; }
-.viewer.run .cut { position: relative; display: block; flex: 1 0 100%; height: 84px; overflow: hidden; border-radius: 4px; background: #0c0c0c; cursor: grab; touch-action: none; }
+.viewer.run .cut { position: relative; display: block; flex: 1 0 100%; height: 84px; overflow: hidden; border-radius: var(--r-1); background: #0c0c0c; cursor: grab; touch-action: none; }
 .viewer.run .cut.held { cursor: grabbing; }
 .cut-canvas { display: block; width: 100%; height: 100%; }
 /* How far it is drawn out, in its corner over the frames: there when looked for, quiet otherwise. */
-.cut-zoom { position: absolute; right: 6px; bottom: 6px; display: flex; align-items: center; gap: 1px; padding: 2px; border-radius: 6px; background: rgba(0, 0, 0, 0.7); color: #e8e8e8; font-size: var(--fs-cap); opacity: 0.55; transition: opacity 0.12s var(--ease); cursor: default; }
+.cut-zoom { position: absolute; right: 6px; bottom: 6px; display: flex; align-items: center; gap: 1px; padding: 2px; border-radius: var(--r-2); background: rgba(0, 0, 0, 0.7); color: #e8e8e8; font-size: var(--fs-cap); opacity: 0.55; transition: opacity 0.12s var(--ease); cursor: default; }
 .cut:hover .cut-zoom, .cut-zoom:focus-within { opacity: 1; }
-.cut-zbtn { display: grid; place-items: center; width: 22px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
+.cut-zbtn { display: grid; place-items: center; width: 22px; height: 20px; padding: 0; border: 0; border-radius: var(--r-1); background: transparent; color: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
 .cut-zbtn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
 .cut-zbtn:disabled { opacity: 0.35; cursor: default; }
 .cut-zlabel { min-width: 26px; color: #bdbdbd; font-variant-numeric: tabular-nums; text-align: center; }
@@ -2788,7 +2794,7 @@ body.viewonly #hint .hint-guest { display: inline; }
 .ps-row.sub .ps-label { padding-left: 12px; border-left: 2px solid var(--line-strong); }
 .ps-control { display: flex; justify-content: flex-end; }
 /* On or off: a switch. */
-input.switch { position: relative; flex: none; width: 34px; height: 20px; margin: 0; border-radius: 999px; background: var(--surface-3); cursor: pointer; appearance: none; transition: background 0.15s; }
+input.switch { position: relative; flex: none; width: 34px; height: 20px; margin: 0; border-radius: var(--r-pill); background: var(--surface-3); cursor: pointer; appearance: none; transition: background 0.15s; }
 input.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--text-2); transition: transform 0.15s, background 0.15s; }
 input.switch:checked { background: var(--ink-bg); }
 input.switch:checked::after { background: var(--ink-fg); transform: translateX(14px); }
@@ -2796,7 +2802,7 @@ input.switch:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-s
 @media (prefers-reduced-motion: reduce) { input.switch, input.switch::after { transition: none; } }
 /* What it has learned of file names: chips, each forgotten with its ×. */
 .ps-chips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
-.ps-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 9px; border-radius: 999px; background: var(--surface-2); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.ps-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 9px; border-radius: var(--r-pill); background: var(--surface-2); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
 .ps-chip-x { display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
 .ps-chip-x:hover { background: var(--hover); color: var(--text); }
 .ps-control input[type="text"], .ps-control select { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; }
@@ -2843,7 +2849,7 @@ body.focus .present-pill { left: calc((100vw + var(--film, 0px) - var(--side, 0p
 @media (max-width: 699px) { .present-pill { bottom: calc(84px + env(safe-area-inset-bottom)); } }
 .present-watching { color: var(--text); }
 /* Somebody else on the team presenting the project you are in, at the end of where you are. */
-.crumb-live { display: inline-flex; align-items: center; gap: 7px; height: 24px; margin: -2px 0 -2px 8px; padding: 0 10px; border: 1px solid var(--line); border-radius: 12px; color: var(--text-2); font-size: var(--fs-sm); text-decoration: none; white-space: nowrap; }
+.crumb-live { display: inline-flex; align-items: center; gap: 7px; height: 24px; margin: -2px 0 -2px 8px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-pill); color: var(--text-2); font-size: var(--fs-sm); text-decoration: none; white-space: nowrap; }
 .crumb-live:hover { background: var(--hover); color: var(--text); }
 .crumb-live b { color: var(--brand); font-weight: 600; }
 
@@ -2862,7 +2868,7 @@ body.watch { overflow: hidden; background: var(--viewer-bg, var(--bg)); }
 .watch-card { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px 16px; background: var(--bg); }
 .watch-card[hidden] { display: none; }
 .watch-card-in { display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 420px; text-align: center; }
-.watch-card-in .logomark { display: inline-grid; place-items: center; width: 48px; height: 48px; border-radius: 12px; background: var(--ink-bg); color: var(--ink-fg); }
+.watch-card-in .logomark { display: inline-grid; place-items: center; width: 48px; height: 48px; border-radius: var(--r-4); background: var(--ink-bg); color: var(--ink-fg); }
 .watch-card-in .logomark svg { width: 32px; height: 32px; }
 .watch-card h1 { margin: 0; font-size: var(--fs-xl); font-weight: 600; line-height: 1.2; letter-spacing: -0.02em; }
 .watch-card p { margin: 0; color: var(--text-2); line-height: 1.5; text-wrap: pretty; }
@@ -2894,7 +2900,7 @@ body.spectating #topbar .brand { pointer-events: none; }
 /* The player's choices (which view; on the timeline, which sequence, task and shots), in one menu. */
 .v-opts { position: relative; }
 .v-opts[hidden] { display: none; }
-.v-opts-n { position: absolute; right: 1px; top: 1px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; background: var(--ink-bg); color: var(--ink-fg); font-size: var(--fs-micro); font-weight: 600; line-height: 14px; text-align: center; }
+.v-opts-n { position: absolute; right: 1px; top: 1px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: var(--r-pill); background: var(--ink-bg); color: var(--ink-fg); font-size: var(--fs-micro); font-weight: 600; line-height: 14px; text-align: center; }
 .v-opts-n[hidden] { display: none; }
 .v-opts-menu { min-width: 220px; }
 .menu-head { padding: 8px 8px 4px; color: var(--muted); font-size: var(--fs-cap); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }

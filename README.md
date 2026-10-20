@@ -33,9 +33,12 @@ private networks, otherwise only the host machine can connect.
   that goes there), then each workspace with its folders and projects as a tree. A project opens to its
   Boards, Catalogue, Versions and Timeline, and the catalogue to its assets, sets and shots, the shots by
   sequence, each with a count. Only what you are in is open: the way to the page you are on is opened
-  for you, and the rest close as you go elsewhere (an arrow opens a row for a look in the meantime). Above the page one slim line says where you are (Myreze / Kilo / Catalogue / Shots /
-  kilo / kilo-0010), each part a link; the star at its end pins exactly what is there to Home: a board's folder, a project, a sequence, a tier of the catalogue, the catalogue, Versions, the Timeline, or an asset, set or shot.
-  On a narrow window the sidebar is a drawer, opened with the button at the left of the bar.
+  for you, and the rest close as you go elsewhere (an arrow opens a row for a look in the meantime). Rows
+  with nothing in them show no count. Every page opens with its title, set large: the place you are in
+  (kilo-0010). Above it, one small line says how you got there (Myreze / Kilo / Catalogue / Shots / kilo),
+  each part a link. The star beside the title pins exactly what is there to Home: a board's folder, a
+  project, a sequence, a tier of the catalogue, the catalogue, Versions, the Timeline, or an asset, set or
+  shot. On a narrow window the sidebar is a drawer, opened with the button at the left of the bar.
 - **Home.** Three things, and nothing else. What you pinned (boards, folders, projects, shots) along
   the top. Updates: in the last two weeks, comments on your work (yours too, as "You", never marked
   new), new versions of it by others, and new versions of what you are cc'd on, newest first; what came since you last marked them read is
@@ -46,14 +49,18 @@ private networks, otherwise only the host machine can connect.
 - **Everything is an object, shown one way.** A board, a folder, an asset, set or shot, a version and a
   place pinned to Home are all listed the way a file manager lists files, and every list (Home, a folder,
   the catalogue, Versions, an asset, set or shot's versions) can be shown three ways, chosen with the three
-  buttons beside the theme in the top bar (or in Your account) and remembered per browser: as cards, as
-  compact rows (a small still beside each name, many to a screen), or as a table. A table has a row for
+  buttons at the end of the page's title (or in Your account) and remembered per browser: as cards, as
+  rows (a small still beside each name, many to a screen), or as a table. As cards, each is a print with
+  its label: the picture square-cornered, as the work is judged, and its name and what is known of it
+  beneath, with no box around it. A card says a version is a video, or a shot, only where the list
+  holds other kinds too. A table has a row for
   each, one line high, like a compact row drawn out across the page: its still (or a folder's icon) at
   its left edge, scrubbing and playing as on a card, then its name, and in columns what its card says:
   a board's items and when it was edited; a folder's kind, boards and folders; an asset, set or shot's
   versions, artists and when the last was filed; a version's as below; and for what is pinned to Home,
-  what each is, where, and when it changed. It is set as the catalogue is, under the same headings ("Shots
-  25", then each sequence), with its headings staying in sight as the page scrolls; a narrower window
+  what each is, where, and when it changed. It is a plain table, its rows between hairlines, set as the
+  catalogue is, under the same headings ("Shots 25", then each sequence, named as it is written), with
+  its column headings staying in sight as the page scrolls; a narrower window
   leaves out what matters least first, and a phone keeps the still, the name and the menu. Each row is
   selected as its card is, and where things can be selected (boards and folders, the catalogue,
   versions) its box, there under the pointer, selects it. The code is one component (objectNode and
@@ -61,11 +68,15 @@ private networks, otherwise only the host machine can connect.
 - **One bar across the top, the same on every page.** The mark in the corner goes to all boards, and
   beside it is where you are, as a path: the board, and with an image or video open, the board and
   then the piece. On the right is what can be done there, ending in the one thing set in ink (New
-  board, Share, Done). What is under the bar slides beneath it.
-- **Dark by default, light on request.** The sun/moon button in the header switches theme and is
-  remembered per browser. Everything is set in Inter, served from this machine (`public/fonts`), so text
-  measures the same on every screen and nothing is fetched from the internet. The greys carry no hue in
-  either theme, so the interface never tints how the artwork reads.
+  board, Share, Done). New board has a folder beside it, under its arrow. What is under the bar slides
+  beneath it.
+- **Dark by default, light on request.** Your account, and the sun/moon button on a board or in the
+  player, switch theme, remembered per browser. Everything is set in Inter, served from this machine
+  (`public/fonts`), so text measures the same on every screen and nothing is fetched from the internet,
+  on one scale of sizes (the `--fs` tokens in `public/style.css`). The launch and the sign-in page set
+  the name in Rift. The greys carry no hue in either theme, so the interface never tints how the artwork
+  reads. What is chosen or on (the tool in hand, a switch) is set in ink. Blue is kept for what is
+  selected or focused, the playhead and what is new, and red for going live and for deleting.
 - **Infinite canvas.** Wheel to zoom, Space-drag or middle-drag to pan. Let go of a pan while it is still
   moving and the board runs on a little before it settles. Undo and redo ease pieces back to where they
   were instead of jumping. Both are skipped when the system asks for reduced motion.
@@ -191,9 +202,12 @@ private networks, otherwise only the host machine can connect.
   the video is loaded, and all the way along once it is held whole. Videos over 400 MB stay on the
   server, and the ones opened longest ago go back to it once a gigabyte is held.
 - **Uniform sizes.** New images come in at the same width, a new frame starts at the width it
-  needs to hold one such image and a new colour block at the same width as a frame, so it sits flush above one as its header, notes and headings at fixed sizes
+  needs to hold one such image and a new colour block at the same width as a frame, so it sits flush above one as its header, headings at fixed sizes
   and the brush at a fixed width (small while an image is open, so annotating stays fine), whatever the zoom was when you made them. Text is sized
-  by its level (H1, H2, H3, Text), not by dragging.
+  by its level (H1, H2, H3, Text), not by dragging. A note is made to be read where it is made: on a
+  board zoomed out, a new note comes in larger, in a few steps, so its writing is near its usual size on
+  screen; zoomed in, it is the usual note. A board opens where this browser left it, unless that was in a
+  window of a very different width, when it opens on everything.
 - **Headings and notes.** Pick H1, H2, H3 or plain text before placing, or change the
   level of selected text from the floating toolbar.
 - **Brush.** The pen is pressure sensitive on a tablet and speed sensitive with a mouse:
@@ -203,7 +217,9 @@ private networks, otherwise only the host machine can connect.
   follow it when it moves, scales, is duplicated or deleted.
 - **Headers and colour blocks.** Every frame has a header with its title and an item count; colour a
   frame and its header band takes the colour while the card stays neutral. Colour blocks (B) are
-  free-standing banners for headings, resizable and left- or centre-aligned.
+  free-standing banners for headings, resizable and left- or centre-aligned. Their colours are a painter's
+  box, each named for its pigment (graphite, cadmium red, yellow ochre, burnt sienna, viridian,
+  ultramarine, quinacridone violet, Payne's grey, ivory black), and a new block starts in graphite.
 - **Frames that fit their contents.** Drag an item onto a frame and the frame wraps it;
   an item joins once more than half of it is over the frame, and the frame grows to wrap it.
   Once in, it stays in until it has been pulled completely out of the frame, and the frame closes up again. Drawing a frame around
@@ -438,15 +454,16 @@ filed in it.
   already made on it along. People holding a link to a board see only the notes made on that board;
   the team sees them all.
 - **A project's home.** Clicking a project opens its home page, not its boards: how it is doing and what
-  needs a look. Its parts (Catalogue, with how many assets, sets and shots; Boards; Versions; Timeline)
-  along the top. Then this week at a glance: versions filed and comments written (each beside the week
-  before), how many assets, sets and shots moved on, and who filed, with how many. Its Activity of the
-  last two weeks, by day: each person's filing that day is one row ("Anna filed 23 versions", with their
-  first stills and names), and what one person said about one version is one row, each opened for
-  every line of it with a click. Beside it, each sequence as a strip of its shots in order, coloured by
-  whether each was filed this week, before, or not yet (a shot opens with a click), with how many are
-  filed; what is waiting (set up with nothing filed, or quiet for two weeks or more); what was filed
-  last; and the boards last worked on. Its boards are at `#/f/<project>/boards`.
+  needs a look. Under its title, this week as one line of figures: versions filed and comments written
+  (each beside the week before), how many assets, sets and shots moved on, and who filed. Under that,
+  quieter, what it holds (how many shots, boards, and the timeline), each a way there; its parts are in
+  the sidebar too. Then the work leads: what was filed last, large, and its Activity of the last two
+  weeks, by day: each person's filing that day is one row ("Anna filed 23 versions", with their first
+  stills and names), and what one person said about one version is one row, each opened for every line
+  of it with a click. Beside it, each sequence as a strip of its shots in order, toned by whether each was
+  filed this week, before, or not yet (a shot opens with a click), with how many are filed; what is
+  waiting (set up with nothing filed, or quiet for two weeks or more); and the boards last worked on. Its
+  boards are at `#/f/<project>/boards`.
 - **The catalogue page.** A project has its Boards and its Catalogue, both in the sidebar. The catalogue
   is laid out like the project on disk: assets, sets, and shots by sequence, each with its newest
   still. An asset, set or shot opens on every version of it (where each is on a board, who filed it,

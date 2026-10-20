@@ -718,7 +718,6 @@
   const ICON_CAT = icon('catalogue', 16);
   const ICON_LIST = icon('list', 16);
   const ICON_FILM = icon('film', 16);
-  const ICON_DOT = icon('dot', 16);
   const ICON_CHEVRON = icon('chevron', 14);
   const ICON_STAR = icon('star', 16);
   const FOLDER_SM = icon('folder', 16);
@@ -782,9 +781,10 @@
         })
         : el('span', { class: 'side-twist none' }),
       el('a', { class: 'side-link', href, 'aria-current': key === hereK ? 'page' : null, onclick: () => { if (kids && !isOpen) setOpen(key, true); closeDrawer(); } },
-        el('span', { class: 'side-icon', html: icon }),
+        icon && el('span', { class: 'side-icon', html: icon }),
         el('span', { class: 'side-name', text: label }),
-        count != null && el('span', { class: 'side-count', text: String(count) })));
+        // Nothing in it says nothing: only a count of something is shown.
+        count > 0 && el('span', { class: 'side-count', text: String(count) })));
     if (drop) drop(row);
     const out = [row];
     if (isOpen) out.push(...kids());
@@ -813,8 +813,8 @@
         const of = cat.entities.filter((e) => e.tier === t.id);
         const seqs = t.id === 'shot' ? [...new Set(of.map((e) => N.seqOf(e.name)).filter(Boolean))].sort() : [];
         return sideRow({
-          key: `t:${f.id}:${t.id}`, depth: depth + 2, icon: ICON_DOT, label: t.label, href: WB.href.catalogue(f.id, { tier: t.id }), count: of.length, hereK,
-          kids: seqs.length ? () => seqs.flatMap((q) => sideRow({ key: `s:${f.id}:${q}`, depth: depth + 3, icon: ICON_DOT, label: q, href: WB.href.catalogue(f.id, { seq: q }), count: of.filter((e) => N.seqOf(e.name) === q).length, hereK })) : null,
+          key: `t:${f.id}:${t.id}`, depth: depth + 2, icon: null, label: t.label, href: WB.href.catalogue(f.id, { tier: t.id }), count: of.length, hereK,
+          kids: seqs.length ? () => seqs.flatMap((q) => sideRow({ key: `s:${f.id}:${q}`, depth: depth + 3, icon: null, label: q, href: WB.href.catalogue(f.id, { seq: q }), count: of.filter((e) => N.seqOf(e.name) === q).length, hereK })) : null,
         });
       });
     };
@@ -863,7 +863,7 @@
       }
       const project = folderById(p.projectId);
       if (!project) return null;
-      if (p.kind === 'entity') return { key: `pin:e:${p.id}`, icon: ICON_DOT, label: p.name, href: WB.href.catalogue(project.id, { entity: p.id }), title: project.name };
+      if (p.kind === 'entity') return { key: `pin:e:${p.id}`, icon: ICON_CAT, label: p.name, href: WB.href.catalogue(project.id, { entity: p.id }), title: project.name };
       if (p.kind === 'place') {
         const icon = { sequence: ICON_FILM, timeline: ICON_FILM, versions: ICON_LIST }[p.what] || ICON_CAT;
         const label = p.what === 'sequence' || p.what === 'tier' ? p.name : `${project.name} ${p.name.toLowerCase()}`;
@@ -874,7 +874,7 @@
     if (!rows.length) return [];
     const here = location.hash || '#/';
     return [
-      el('div', { class: 'side-head plain' }, el('span', { text: 'Pinned' }), el('span', { class: 'side-count', text: String(rows.length) })),
+      el('div', { class: 'side-head plain' }, el('span', { text: 'Pinned' })),
       ...rows.map((x) => el('div', { class: `side-row${x.href === here ? ' here' : ''}` },
         el('span', { class: 'side-twist none' }),
         el('a', { class: 'side-link', href: x.href, title: x.title ? `${x.label} · ${x.title}` : x.label, onclick: closeDrawer },
@@ -892,7 +892,7 @@
       ...wsList.flatMap((ws) => {
         const head = el('a', { class: `side-head${hereK === `w:${ws}` ? ' here' : ''}`, href: spaceHref(ws), onclick: closeDrawer },
           el('span', { text: spaceName(ws) }),
-          el('span', { class: 'side-count', text: String(everything.boards.filter((b) => b.workspace === ws).length) }));
+          el('span', { class: 'side-count', text: String(everything.boards.filter((b) => b.workspace === ws).length || '') }));
         dropTarget(head, null, ws);
         return [head, ...childrenOf(null, ws).flatMap((f) => folderRows(f, 0, ws, hereK))];
       }));

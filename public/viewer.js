@@ -2355,7 +2355,7 @@ const WBViewer = (() => {
       },
       messageNode(c, c, mentions),
       repliesOf(c.id).map((r) => messageNode(r, c, mentions)),
-      active && can.write() && el('div', { class: 'cp-reply' }, replyBox, el('button', { class: 'btn small', text: 'Reply', onclick: submitReply })));
+      active && can.write() && el('div', { class: 'cp-reply' }, replyBox, el('button', { class: 'btn small ghost', text: 'Reply', title: 'Send (Enter)', onclick: submitReply })));
     }
 
     function renderPanel() {

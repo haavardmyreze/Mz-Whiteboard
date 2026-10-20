@@ -1028,6 +1028,36 @@ function boardVersions(board) {
   return [...ids].map((id) => boardVersion(id, model)).filter(Boolean);
 }
 
+// The versions a board shows, in the order it reads (as board.js reads it, mediaOrder): rows first, then
+// left to right, a frame counting as one piece among the loose ones, what it holds read in the same way.
+// Each once, where it first comes.
+function boardReadingVersions(board) {
+  openItems(board);
+  const inOrder = (list) => {
+    const rows = [];
+    for (const it of list.slice().sort((a, b) => a.y - b.y)) {
+      const row = rows[rows.length - 1];
+      if (row && it.y < row.y + row.h * 0.5) row.list.push(it);
+      else rows.push({ y: it.y, h: it.h || 0, list: [it] });
+    }
+    return rows.flatMap((row) => row.list.sort((a, b) => a.x - b.x));
+  };
+  const held = new Map();
+  const pieces = [];
+  for (const it of board.items.values()) {
+    if ((it.type !== 'image' && it.type !== 'video') || it.pid || !Number.isFinite(it.x) || !Number.isFinite(it.y)) continue;
+    const frame = it.fid && board.items.get(it.fid);
+    if (!frame || frame.type !== 'frame') pieces.push(it);
+    else if (held.has(frame.id)) held.get(frame.id).push(it);
+    else {
+      held.set(frame.id, [it]);
+      pieces.push(frame);
+    }
+  }
+  const order = inOrder(pieces).flatMap((p) => (p.type === 'frame' ? inOrder(held.get(p.id)) : [p]));
+  return [...new Set(order.map((it) => it.ver).filter((id) => typeof id === 'string'))];
+}
+
 // The model of its venue the project a board is in has, if it has one (see cleanProjectSettings).
 function board3d(board) {
   const p = boardProject(board);
@@ -1333,13 +1363,22 @@ async function handleCatalogue(req, res, parts) {
     }
     // GET /api/projects/:id/playlists          its playlists, the one changed last first
     // POST /api/projects/:id/playlists { name, versions }   a new one, with these versions on it to begin with
+    // POST /api/projects/:id/playlists { name, board }      a new one of the versions a board of the project
+    //                                                        shows, in the order the board reads
     if (parts.length === 4 && parts[3] === 'playlists') {
       if (req.method === 'GET') return sendJson(res, 200, { playlists: store.playlists(project.id).map(playlistCard) });
       if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
       const body = await readJson(req, 256 * 1024);
       const name = cleanName(body.name, null);
       if (!name) return sendJson(res, 400, { error: 'A playlist needs a name' });
-      const p = store.addPlaylist({ id: newId(), projectId: project.id, name, versions: versionsFor(project, body.versions), by: actor(req, body) });
+      let ids = body.versions;
+      if (body.board !== undefined) {
+        const board = boards.get(body.board);
+        if (!visible(req.user, board) || boardProject(board) !== project) return sendJson(res, 404, { error: 'Board not found' });
+        ids = boardReadingVersions(board);
+        if (!ids.length) return sendJson(res, 400, { error: 'Nothing on that board is filed as a version' });
+      }
+      const p = store.addPlaylist({ id: newId(), projectId: project.id, name, versions: versionsFor(project, ids), by: actor(req, body) });
       return sendJson(res, 200, playlistCard(p));
     }
     // POST /api/projects/:id/likely { looks: [{ key, type, dur, fps, nw, nh, wf }] }: for each video about

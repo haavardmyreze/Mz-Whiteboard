@@ -3035,6 +3035,23 @@ test('a playlist holds some of a project\'s versions in an order, which can be c
   await call('DELETE', `/api/versions/${c.id}`);
   assert.deepEqual(await order(), ['kilo-0020 comp v1']);
 
+  // made from a board of the project: the versions it shows, in the order it reads (rows, then left to right)
+  const board = (await call('POST', '/api/boards', { name: 'Standup', folderId: project.id })).body;
+  const anna = await joiner(4899)(`board=${board.id}`, 'Anna');
+  t.after(() => anna.ws.close());
+  anna.ws.send(JSON.stringify({ t: 'op', ops: [
+    { t: 'add', item: { id: 'piece0001', type: 'image', x: 600, y: 0, w: 400, h: 200, src: a.look.src, ver: a.id } },
+    { t: 'add', item: { id: 'piece0002', type: 'image', x: 0, y: 20, w: 400, h: 200, src: b.look.src, ver: b.id } },
+    { t: 'add', item: { id: 'piece0003', type: 'image', x: 0, y: 500, w: 400, h: 200, src: a.look.src, ver: a.id } },
+    { t: 'add', item: { id: 'piece0004', type: 'image', x: 0, y: 900, w: 400, h: 200, src: a.look.src } },
+  ] }));
+  await pause(300);
+  const fromBoard = await call('POST', `/api/projects/${project.id}/playlists`, { name: 'From the standup', board: board.id });
+  assert.equal(fromBoard.status, 200);
+  assert.deepEqual((await call('GET', `/api/playlists/${fromBoard.body.id}`)).body.versions.map((v) => v.label), ['kilo-0020 comp v1', 'kilo-0010 comp v1']);
+  const empty = (await call('POST', '/api/boards', { name: 'Empty', folderId: project.id })).body;
+  assert.equal((await call('POST', `/api/projects/${project.id}/playlists`, { name: 'Nothing', board: empty.id })).status, 400);
+
   // deleted, and its versions are still there
   assert.equal((await call('DELETE', `/api/playlists/${id}`)).status, 200);
   assert.equal((await call('GET', `/api/playlists/${id}`)).status, 404);

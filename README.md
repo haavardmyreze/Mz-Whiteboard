@@ -635,8 +635,10 @@ filed in it.
     beside it, taken off with its ×.
   - The search box at the top searches every version, not only those shown: the name, the task, the
     artist, who filed it, the file's own name, or "v12".
-  How each project's list is asked for is kept by the browser. It comes a page at a time, "Show more"
-  for the rest, and the bar says how many there are in all.
+  How each project's list is asked for is kept by the browser. However many there are, it shows a hundred
+  at a time, with the way to the others under them (the one before and after, the first, the last and
+  those around), and the bar says which of how many are shown ("101–200 of 1,234 versions"). Any change
+  to the filters, the sort or the search starts again from the first page.
   Click a card to pick it (its box shows on a hover), Shift and a click for a run, or drag a box; once
   something is picked, a group's box picks all of it, and Esc lets go (as it does wherever things are
   picked). Then "Edit…" changes them all at once: moved to another asset, set or shot (one to make, by

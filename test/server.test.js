@@ -2991,6 +2991,11 @@ test('a playlist holds some of a project\'s versions in an order, which can be c
   const c = await file(project, 'kilo-0030_comp_v001.png');
   const theirs = await file(other, 'lima-0010_comp_v001.png');
 
+  // the Versions page asks for a page of them at a time, and is told how many there are and what to filter by
+  const page2 = (await call('GET', `/api/projects/${project.id}/versions?find=1&sort=name&limit=2&offset=2`)).body;
+  assert.deepEqual([page2.versions.map((v) => v.label), page2.total, page2.more], [['kilo-0030 comp v1'], 3, false]);
+  assert.ok(page2.facets);
+
   // made with some versions; one of another project, and one given twice, are left out
   assert.equal((await call('POST', `/api/projects/${project.id}/playlists`, { name: '  ' })).status, 400);
   const made = await call('POST', `/api/projects/${project.id}/playlists`, { name: 'Dailies', versions: [b.id, a.id, b.id, theirs.id], by: 'Anna' });

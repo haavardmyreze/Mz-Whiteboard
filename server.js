@@ -1353,7 +1353,7 @@ async function handleCatalogue(req, res, parts) {
     // GET /api/projects/:id/versions?find=1&...  the same, as the Versions page asks for it: filtered by any
     // of `task`, `seq`, `tier`, `by` (who filed), `artist` (each comma separated; an empty task is none),
     // `since` (a time), words `q`, only the `newest` of each entity and task, `archived` ones too; in a
-    // `sort` (new, old, name, number); a page at a time from `offset`. With the first page, `total` and
+    // `sort` (new, old, name, number); a page at a time from `offset`, `limit` long (at most 300). With every page, `total` and
     // `facets`: what there is to filter by (its tasks, sequences, tiers, filers, artists).
     if (parts.length === 4 && parts[3] === 'versions' && req.method === 'GET') {
       const sp = new URL(req.url, 'http://x').searchParams;
@@ -1365,18 +1365,16 @@ async function handleCatalogue(req, res, parts) {
         const found = store.findVersions(project.id, {
           tasks: listOf('task'), seqs: listOf('seq'), tiers: listOf('tier'), by: listOf('by'), artists: listOf('artist'),
           since: Number(sp.get('since')) || 0, q: (sp.get('q') || '').slice(0, 200), newest: sp.get('newest') === '1', archived: sp.get('archived') === '1',
-          sort: sp.get('sort') || 'new', offset, limit: VERSIONS_PAGE,
+          sort: sp.get('sort') || 'new', offset, limit: Math.max(1, Math.min(VERSIONS_PAGE, Number(sp.get('limit')) || VERSIONS_PAGE)),
         });
         const out = { versions: shape(found.list), total: found.total, more: offset + found.list.length < found.total, offset: offset + found.list.length };
-        if (!offset) {
-          const ents = store.entities(project.id);
-          out.facets = {
-            tasks: store.projectTasks(project.id), filers: store.projectFilers(project.id), artists: store.projectArtists(project.id),
-            seqs: [...new Set(ents.filter((e) => e.tier === 'shot' && naming.seqOf(e.name)).map((e) => naming.seqOf(e.name)))].sort(),
-            tiers: naming.TIER_LIST.filter((t) => ents.some((e) => e.tier === t.id)).map((t) => ({ id: t.id, label: t.label })),
-            untasked: ents.some((e) => e.tops && e.tops['']),
-          };
-        }
+        const ents = store.entities(project.id);
+        out.facets = {
+          tasks: store.projectTasks(project.id), filers: store.projectFilers(project.id), artists: store.projectArtists(project.id),
+          seqs: [...new Set(ents.filter((e) => e.tier === 'shot' && naming.seqOf(e.name)).map((e) => naming.seqOf(e.name)))].sort(),
+          tiers: naming.TIER_LIST.filter((t) => ents.some((e) => e.tier === t.id)).map((t) => ({ id: t.id, label: t.label })),
+          untasked: ents.some((e) => e.tops && e.tops['']),
+        };
         return sendJson(res, 200, out);
       }
       const after = pageAfter(sp.get('before'));

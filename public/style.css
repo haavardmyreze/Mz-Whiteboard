@@ -2500,6 +2500,14 @@ a.ph-shot:hover { outline: 2px solid var(--text); outline-offset: 1px; }
 .vl-chip-x { display: grid; place-items: center; flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
 .vl-chip-x:hover { background: var(--hover); color: var(--text); }
 .vl-total { color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+/* The pages of a long list of versions, under it: the page open in ink, the rest quiet. */
+.vl-pager { display: flex; align-items: center; justify-content: center; gap: 2px; margin: 40px 0 0; font-variant-numeric: tabular-nums; }
+.vl-num { min-width: var(--h-sm); height: var(--h-sm); padding: 0 6px; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text-2); font: inherit; font-size: var(--fs-sm); font-weight: 500; cursor: pointer; transition: background 0.12s var(--ease), color 0.12s var(--ease); }
+.vl-num:hover { background: var(--hover); color: var(--text); }
+.vl-num.on { background: var(--ink-bg); color: var(--ink-fg); font-weight: 600; cursor: default; }
+.vl-gap { min-width: 20px; color: var(--muted); text-align: center; }
+.vl-pager .btn:first-child { margin-right: 6px; }
+.vl-pager .btn:last-child { margin-left: 6px; }
 .vl-pop { position: fixed; z-index: var(--z-popover); display: flex; flex-direction: column; min-width: 200px; max-height: min(480px, 70vh); overflow: auto; padding: 4px; border: 1px solid var(--line-strong); border-radius: var(--r-3); background: var(--surface-1); box-shadow: var(--shadow-pop); }
 .vl-tick { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-2); font-size: var(--fs-ui); cursor: pointer; }
 .vl-tick:hover { background: var(--hover); }

@@ -1243,10 +1243,19 @@
   }
   const vlSave = (project, state) => store(`wb:vl:${project.id}`, state);
   const vlFiltered = (st) => VL_FILTERS.some(([k]) => st[k].length) || st.when || st.newest || st.archived;
-  // What the server is asked: the page's state and the search, from `offset`.
+  // The Versions page shows a page of them at a time, however many a project has, and a way to the others.
+  // Which page is open is kept while the list is asked for the same way; any change to its filters, sort
+  // or search starts again from the first.
+  const VL_PAGE = 100;
+  const vlPages = new Map(); // project id -> { base: the list as asked for, page }
+  function vlPageOf(project, st) {
+    const at = vlPages.get(project.id);
+    return at && at.base === vlQuery(st) ? at.page : 0;
+  }
+  // What the server is asked: the page's state and the search, a page from `offset`.
   function vlQuery(st, offset = 0) {
     const since = { day: dayOf(Date.now()), week: Date.now() - 7 * 864e5, month: Date.now() - 30 * 864e5 }[st.when] || 0;
-    const p = new URLSearchParams({ find: '1', sort: st.sort, offset: String(offset) });
+    const p = new URLSearchParams({ find: '1', sort: st.sort, offset: String(offset), limit: String(VL_PAGE) });
     for (const [k] of VL_FILTERS) if (st[k].length) p.set(k, st[k].join(','));
     if (since) p.set('since', String(since));
     if (st.newest) p.set('newest', '1');
@@ -1258,7 +1267,7 @@
 
   async function versionsPage(project, fresh, sig) {
     const st = vlState(project);
-    const key = vlQuery(st);
+    const key = vlQuery(st, vlPageOf(project, st) * VL_PAGE);
     const show = (data) => {
       if (shownProject !== sig) return;
       $('content').replaceChildren(...versionsView(project, data, st));
@@ -1268,12 +1277,9 @@
     if (had && had.key === key) show(had.data);
     else if (fresh || !had) $('content').replaceChildren(...versionsTools(project, st, null), el('p', { class: 'home-empty', text: 'Loading…' }));
     try {
-      const data = await api('GET', `/api/projects/${project.id}/versions?${key}`);
-      // Pages further down already shown stay shown when the first is fetched again.
-      const keep = had && had.key === key && had.data.versions.length > data.versions.length ? had.data : null;
-      const fresh1 = new Set(data.versions.map((v) => v.id));
-      const now = keep ? { ...data, versions: [...data.versions, ...keep.versions.slice(data.versions.length).filter((v) => !fresh1.has(v.id))], more: keep.more } : data;
-      if (vlQuery(vlState(project)) !== key) return;
+      const now = await api('GET', `/api/projects/${project.id}/versions?${key}`);
+      const st2 = vlState(project);
+      if (vlQuery(st2, vlPageOf(project, st2) * VL_PAGE) !== key) return;
       versionLists.set(project.id, { key, data: now });
       if (!had || had.key !== key || JSON.stringify(had.data) !== JSON.stringify(now)) show(now);
     } catch (err) {
@@ -1362,9 +1368,12 @@
       st.archived && chip('Archived too', () => set({ archived: false })),
     ].filter(Boolean);
     const total = data ? data.total : null;
+    // On a page of many, which of them it shows: 101–200 of 1,234 versions.
+    const from = vlPageOf(project, st) * VL_PAGE;
+    const said = total == null ? null : total > VL_PAGE ? `${(from + 1).toLocaleString()}–${Math.min(total, from + VL_PAGE).toLocaleString()} of ${plural(total, 'version')}` : plural(total, 'version');
     return [el('div', { class: 'vl-tools' }, view, filter, ...chips,
       el('span', { class: 'imp-gap' }),
-      total != null && el('span', { class: 'vl-total', text: plural(total, 'version') }))];
+      said && el('span', { class: 'vl-total', text: said }))];
   }
 
   // The groups the list is shown in, each { key, title, list }. The groups come in their own order
@@ -1476,26 +1485,33 @@
     if (!list.length) {
       out.push(el('p', { class: 'home-empty', text: q ? `No version matches "${q}"${vlFiltered(st) ? ' with these filters' : ''}.` : vlFiltered(st) ? 'No version is like that.' : 'Nothing is filed in this project yet.' }));
     }
-    // A page at a time: more are fetched when asked for, after the ones shown.
-    if (data.more) {
-      out.push(el('button', {
-        type: 'button', class: 'feed-more', text: `Show more (${(data.total - list.length).toLocaleString()} to go)`,
-        onclick: async (e) => {
-          e.currentTarget.disabled = true;
-          try {
-            const key = vlQuery(st);
-            const next = await api('GET', `/api/projects/${project.id}/versions?${vlQuery(st, list.length)}`);
-            const merged = { ...data, versions: [...list, ...next.versions], more: next.more };
-            versionLists.set(project.id, { key, data: merged });
-            $('content').replaceChildren(...versionsView(project, merged, st));
-            paintVersionPick(project);
-          } catch (err) {
-            fail(err);
-          }
-        },
-      }));
-    }
+    out.push(vlPager(project, st, data.total));
     return out;
+  }
+
+  // The way to the other pages: the one before and after, the first and last, and those around this one.
+  // Going to another page lets go of what is picked, as going to another list does.
+  function vlPager(project, st, total) {
+    const pages = Math.ceil(total / VL_PAGE);
+    if (pages < 2) return null;
+    const page = vlPageOf(project, st);
+    const go = (n) => {
+      vlPages.set(project.id, { base: vlQuery(st), page: n });
+      dropVersionPick();
+      shownProject = '';
+      render();
+      window.scrollTo({ top: 0 });
+    };
+    const shown = [...new Set([0, page - 1, page, page + 1, pages - 1])].filter((n) => n >= 0 && n < pages).sort((a, b) => a - b);
+    const nums = [];
+    shown.forEach((n, k) => {
+      if (k && n - shown[k - 1] > 1) nums.push(el('span', { class: 'vl-gap', text: '…' }));
+      nums.push(el('button', { type: 'button', class: `vl-num${n === page ? ' on' : ''}`, text: String(n + 1), 'aria-current': n === page ? 'page' : null, onclick: () => go(n) }));
+    });
+    return el('nav', { class: 'vl-pager', 'aria-label': 'Pages of versions' },
+      el('button', { type: 'button', class: 'btn small ghost', html: `${icon('prev', 14)}<span>Previous</span>`, disabled: page === 0, onclick: () => go(page - 1) }),
+      ...nums,
+      el('button', { type: 'button', class: 'btn small ghost', html: `<span>Next</span>${icon('next', 14)}`, disabled: page >= pages - 1, onclick: () => go(page + 1) }));
   }
 
   function paintVersionPick(project) {

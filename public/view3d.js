@@ -868,15 +868,14 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   // ---- drawing, while it is shown
 
   const k = (code) => (held.has(code) ? 1 : 0);
-  // TEMPORARY, for debugging: frames a second, drawn over the top left of the viewport. Remove with its
-  // three uses below (the `fps` counter, in frame, start and stop).
+  // TEMPORARY, for debugging: frames a second, drawn over the top left of the page, above the player's bars.
+  // Remove with its other uses below (countFrame in frame, and the node removed in stop).
   const fps = { node: null, since: 0, frames: 0 };
   function countFrame(now) {
     if (!fps.node) {
-      if (!canvas.parentElement) return;
       fps.node = document.createElement('div');
-      fps.node.style.cssText = 'position:absolute;top:8px;left:8px;padding:2px 6px;border-radius:var(--r-1);background:rgba(0,0,0,0.6);color:#fff;font:var(--fs-sm) monospace;pointer-events:none;z-index:5';
-      canvas.parentElement.append(fps.node);
+      fps.node.style.cssText = 'position:fixed;top:8px;left:8px;padding:2px 6px;border-radius:var(--r-1);background:rgba(0,0,0,0.7);color:#fff;font:var(--fs-sm) monospace;pointer-events:none;z-index:2147483647';
+      document.body.append(fps.node);
       fps.since = now;
       fps.frames = 0;
     }

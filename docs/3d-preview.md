@@ -45,7 +45,9 @@ How it fits together:
   and Blender's viewports do them: the room is drawn a second time with only its normals and depth (the
   screens marked to be left alone), occlusion is worked out from that at half size and smoothed, cavity
   from how the normals bend from pixel to pixel, and both are multiplied into what was drawn. Off, neither
-  costs anything.
+  costs anything. Lower quality (`low` in the look, also kept in `wb:3dlook`, but not part of what Reset
+  restores) takes 8 occlusion samples instead of 16, at a quarter of the size instead of half, and cuts the
+  screens into at most 8 patches instead of 32 (LOW in view3d.js); the canvas keeps its resolution.
 - **Screen light.** Lumen traces the scene, which a browser cannot afford every frame; but a venue's light
   comes almost all from its screens, whose shape is known. So each screen is cut by its UVs into at most
   32 patches (8 by 4 cells of the picture, fewer when there are several screens), each a small lamp at

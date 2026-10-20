@@ -867,11 +867,12 @@ const WBViewer = (() => {
 
     // How the venue is drawn, under the button beside the 3D switch: how much the room is lit, the shade in
     // its corners and creases (ambient occlusion, and cavity), and the light the screens throw on it, all
-    // under one switch: off, the venue is drawn plainly (PLAIN), and the settings wait as they were.
-    // Kept by this browser.
+    // under one switch: off, the venue is drawn plainly (PLAIN), and the settings wait as they were. Lower
+    // quality is for a slower computer and so is not part of the look: it works with Effects on or off, and
+    // Reset leaves it. Kept by this browser.
     const LOOK = { on: true, light: 0.05, ao: 0.59, aoRadius: 0.55, cavity: 0.4, glow: true, glowAmount: 0.95 };
     const PLAIN = { light: 1, ao: 0, cavity: 0, glow: false };
-    let look3d = { ...LOOK, ...(store('wb:3dlook') || {}) };
+    let look3d = { ...LOOK, low: false, ...(store('wb:3dlook') || {}) };
     const lookShown = () => (look3d.on ? look3d : { ...look3d, ...PLAIN });
     function setLook3d(change) {
       look3d = { ...look3d, ...change };
@@ -928,10 +929,14 @@ const WBViewer = (() => {
         paintOn();
       });
       paintOn();
+      const low = el('input', { type: 'checkbox', class: 'switch', checked: look3d.low, 'aria-label': 'Lower quality' });
+      low.addEventListener('change', () => setLook3d({ low: low.checked }));
       const node = WB.menu(lookBtn, [
         el('label', { class: 'v-look-row v-look-switch', title: 'Off, the venue is drawn plainly: lit as it was, with no shade and no light from the screens' }, el('span', { text: 'Effects' }), on),
         el('div', { class: 'menu-sep' }),
         body,
+        el('div', { class: 'menu-sep' }),
+        el('label', { class: 'v-look-row v-look-switch', title: 'For a slower computer: its shade and the light from the screens are worked out more roughly; the picture keeps its size' }, el('span', { text: 'Lower quality' }), low),
         el('div', { class: 'menu-sep' }),
         el('button', {
           type: 'button', class: 'menu-item', text: 'Reset',

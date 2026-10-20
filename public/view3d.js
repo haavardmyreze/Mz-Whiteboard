@@ -208,11 +208,19 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   // `look` is the player's 3D settings (setLook): the room's light from 0 (dark) to 2, with 1 as it is lit
   // otherwise; ambient occlusion (`ao`, 0 to 1, reaching `aoRadius` metres) and cavity (0 to 1), both
   // shading the room and never the screens; and the light the screens throw on the room (`glow`, on or
-  // off, at `glowAmount`, 1 being as bright as the picture is).
-  const look = { light: 1, ao: 0, aoRadius: 0.5, cavity: 0, glow: false, glowAmount: 1 };
+  // off, at `glowAmount`, 1 being as bright as the picture is). `low` is for slower graphics cards: the occlusion
+  // is worked from half the samples at a quarter of the size, and the screens' light from fewer lamps (LOW).
+  // The picture drawn keeps its resolution.
+  const look = { light: 1, ao: 0, aoRadius: 0.5, cavity: 0, glow: false, glowAmount: 1, low: false };
+  const LOW = { aoSize: 4, aoStride: 2, patches: 8 };
+  const FULL_QUALITY = { aoSize: 2, aoStride: 1, patches: 32 };
+  const quality = () => (look.low ? LOW : FULL_QUALITY);
   function setLook(o) {
+    const was = look.low;
     for (const key of Object.keys(look)) if (o && typeof o[key] === typeof look[key] && (typeof o[key] !== 'number' || Number.isFinite(o[key]))) look[key] = o[key];
     for (const [light, key, full] of lights) light[key] = full * look.light;
+    // The lamps are chosen for how many there may be.
+    if (room && was !== look.low) findPatches();
   }
   setLook();
 
@@ -230,14 +238,14 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
 
   // The screens' light. Lumen traces the scene; a browser has to be cheaper than that, and a venue's
   // light comes almost all from its screens, which are known. So each screen is cut into patches by
-  // its UVs (at most PATCHES of them all told, as many as fit in a grid over the picture: 8 by 4, then
-  // fewer), each a small lamp at its place, facing as the screen does there, as large as its part of the
+  // its UVs (at most PATCHES of them all told, 8 when quality is lower, as many as fit in a grid over the
+  // picture: 8 by 4, then fewer), each a small lamp at its place, facing as the screen does there, as large as its part of the
   // screen, with the colour of its part of the picture now. Every frame the picture is brought down to
   // GLOW (and its mipmaps), and each patch takes its colour from there, all on the graphics card; the
   // room's materials add what each patch gives a point (as a disc of light would: no shadows, which is
   // what keeps it cheap) to the light that comes from all round, so the room's own textures and baked
   // occlusion tint it as they do the rest.
-  const PATCHES = 32;
+  const PATCHES = FULL_QUALITY.patches;
   const GLOW = [256, 128];
   const patchAt = Array.from({ length: PATCHES }, () => new THREE.Vector4()); // world place, and area
   const patchFacing = Array.from({ length: PATCHES }, () => new THREE.Vector4()); // its normal
@@ -303,6 +311,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   let patches = 0;
   function findPatches() {
     patches = 0;
+    const limit = quality().patches;
     const tris = [];
     let total = 0;
     let mesh = 0;
@@ -367,9 +376,9 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
         cell.w += x.w * x.area;
         cell.area += x.area;
       }
-      if (cells.size > PATCHES && gx > 1) continue;
+      if (cells.size > limit && gx > 1) continue;
       const lod = Math.log2(Math.max(GLOW[0] / gx, GLOW[1] / gy));
-      [...cells.values()].sort((a, b) => b.area - a.area).slice(0, PATCHES).forEach((cell, i) => {
+      [...cells.values()].sort((a, b) => b.area - a.area).slice(0, limit).forEach((cell, i) => {
         patchAt[i].set(cell.p.x / cell.area, cell.p.y / cell.area, cell.p.z / cell.area, cell.area);
         if (cell.normal.lengthSq() < 1e-12) cell.normal.set(0, 1, 0);
         cell.normal.normalize();
@@ -396,7 +405,8 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   // surface faces and how far it is (`facing`), the screens left out, then
   // - ambient occlusion: from each point, 16 samples in the half of a ball of `aoRadius` over its
   //   surface, turned a little from pixel to pixel in a 4 by 4 pattern, each one behind what is drawn there
-  //   a little shade; at half size, then smoothed over the 4 by 4 (not across an edge in depth);
+  //   a little shade; at half size, then smoothed over the 4 by 4 (not across an edge in depth); with
+  //   lower quality, 8 samples at a quarter of the size;
   // - cavity: where the surface's facing changes from pixel to pixel as it does into a crease, a little
   //   dark, as Blender's cavity does its valleys;
   // and what is drawn is multiplied by both. Nothing of it is done while both are off.
@@ -433,7 +443,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     float zAt(vec2 uv) { return perspectiveDepthToViewZ(texture2D(tDepth, uv).x, near, far); }`;
   const depthUniforms = () => ({ tDepth: { value: facing.depthTexture }, tFacing: { value: facing.texture }, near: { value: 0.05 }, far: { value: 5000 } });
   const occlusion = shader(`${DEPTH}
-    uniform mat4 proj; uniform mat4 projInv; uniform vec3 kernel[16]; uniform float radius; varying vec2 vUv;
+    uniform mat4 proj; uniform mat4 projInv; uniform vec3 kernel[16]; uniform int stride; uniform float radius; varying vec2 vUv;
     vec3 placeAt(vec2 uv, float d) { vec4 p = projInv * vec4(vec3(uv, d) * 2.0 - 1.0, 1.0); return p.xyz / p.w; }
     void main() {
       float d = texture2D(tDepth, vUv).x;
@@ -449,16 +459,18 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       T = normalize(T);
       mat3 tbn = mat3(T, cross(N, T), N);
       float shade = 0.0;
+      int taps = 16 / stride;
       for (int i = 0; i < 16; i++) {
-        vec3 s = P + tbn * kernel[i] * radius;
+        if (i >= taps) break;
+        vec3 s = P + tbn * kernel[i * stride] * radius;
         vec4 o = proj * vec4(s, 1.0);
         vec2 uv = o.xy / o.w * 0.5 + 0.5;
         if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) continue;
         float z = zAt(uv);
         shade += step(s.z + 0.02 * radius, z) * smoothstep(0.0, 1.0, radius / abs(P.z - z));
       }
-      gl_FragColor = vec4(vec3(1.0 - shade / 16.0), 1.0);
-    }`, { ...depthUniforms(), proj: { value: null }, projInv: { value: null }, kernel: { value: KERNEL }, radius: { value: 0.5 } });
+      gl_FragColor = vec4(vec3(1.0 - shade / float(taps)), 1.0);
+    }`, { ...depthUniforms(), proj: { value: null }, projInv: { value: null }, kernel: { value: KERNEL }, stride: { value: 1 }, radius: { value: 0.5 } });
   const smoothing = shader(`${DEPTH}
     uniform sampler2D tAo; uniform vec2 texel; varying vec2 vUv;
     void main() {
@@ -503,10 +515,13 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   // After the room is drawn into the part of the canvas `w` by `h` pixels that the viewport is set to.
   function shade(w, h) {
     if (!room || !(look.ao > 0 || look.cavity > 0)) return;
-    if (facing.width !== w || facing.height !== h) {
-      facing.setSize(w, h);
-      aoRT.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
-      aoSmooth.setSize(Math.ceil(w / 2), Math.ceil(h / 2));
+    const q = quality();
+    const aw = Math.ceil(w / q.aoSize);
+    const ah = Math.ceil(h / q.aoSize);
+    if (facing.width !== w || facing.height !== h) facing.setSize(w, h);
+    if (aoRT.width !== aw || aoRT.height !== ah) {
+      aoRT.setSize(aw, ah);
+      aoSmooth.setSize(aw, ah);
     }
     const ground = scene.background;
     scene.background = null;
@@ -527,6 +542,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       occlusion.uniforms.proj.value = view.projectionMatrix;
       occlusion.uniforms.projInv.value = view.projectionMatrixInverse;
       occlusion.uniforms.radius.value = look.aoRadius;
+      occlusion.uniforms.stride.value = q.aoStride;
       pass(occlusion, aoRT);
       smoothing.uniforms.texel.value.set(1 / aoRT.width, 1 / aoRT.height);
       pass(smoothing, aoSmooth);

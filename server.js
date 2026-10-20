@@ -1358,7 +1358,7 @@ async function handleCatalogue(req, res, parts) {
         // How its versions are shown: its views, the main one first, or null for one way.
         viewList: viewsOf(project),
         boards: [...boards.values()].filter((b) => visible(req.user, b) && boardProject(b) === project).map((b) => ({ id: b.id, name: b.name })),
-        playlists: store.playlists(project.id).map((p) => ({ id: p.id, name: p.name, count: playlistVersions(p).length, updatedAt: p.updatedAt })),
+        playlists: store.playlists(project.id).map(playlistCard),
       });
     }
     // GET /api/projects/:id/playlists          its playlists, the one changed last first

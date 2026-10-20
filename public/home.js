@@ -50,6 +50,8 @@
   // ------------------------------------------------------------- library helpers
 
   const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+  // Whether a page lists boards: a plain folder's, or a project's reviews (its boards and playlists).
+  const listsBoards = (v) => v.page === 'boards' || (v.page === 'reviews' && !v.playlist);
   // A project's sequences, and its shots by them, in the order its settings give (see seqOrder in naming.js).
   const seqSort = (project) => WBNaming.seqOrder(project && project.settings && project.settings.seqs);
   const shotSort = (project) => WBNaming.shotOrder(project && project.settings && project.settings.seqs);
@@ -73,14 +75,14 @@
     return m && folderById(m[1]) ? m[1] : null;
   }
 
-  // In a project folder: which of its pages is open, its home, its boards (#/f/<id>/boards) or catalogue, and in the catalogue the tier
+  // In a project folder: which of its pages is open, its home, its reviews (#/f/<id>/reviews: its boards and
+  // playlists, and a playlist among them, …/reviews/<playlist id>) or catalogue, and in the catalogue the tier
   // (#/f/<id>/catalogue/t/shot), the sequence (…/s/kilo) or the entity (…/<entity id>) being looked at.
   function currentView() {
     if (/^#\/f\/[\w-]+\/timeline/.test(location.hash)) return { page: 'timeline', entity: null };
-    const pl = /^#\/f\/[\w-]+\/playlists(?:\/([\w-]+))?/.exec(location.hash);
-    if (pl) return { page: 'playlists', playlist: pl[1] || null, entity: null };
+    const rv = /^#\/f\/[\w-]+\/reviews(?:\/([\w-]+))?/.exec(location.hash);
+    if (rv) return { page: 'reviews', playlist: rv[1] || null, entity: null };
     if (/^#\/f\/[\w-]+\/versions/.test(location.hash)) return { page: 'versions', entity: null };
-    if (/^#\/f\/[\w-]+\/boards/.test(location.hash)) return { page: 'boards', entity: null };
     const m = /^#\/f\/[\w-]+\/(catalogue)(?:\/(?:(t|s)\/([\w-]+)|([\w-]+)))?/.exec(location.hash);
     // A project's own root is its home page.
     if (!m) return { page: 'home', entity: null };
@@ -133,7 +135,7 @@
     if (rt.kind === 'space') return true;
     if (rt.kind !== 'folder') return false;
     const f = folderById(rt.id);
-    return !f || !f.project || ['boards', 'home'].includes(currentView().page);
+    return !f || !f.project || ['reviews', 'home'].includes(currentView().page);
   };
   async function refresh(quiet = false) {
     try {
@@ -260,7 +262,7 @@
   //                          who is on it now), and its columns by key: text, [text, its tooltip], or a node
   //   menu, setup(node)      what its … menu has, and what more is done to what is made (dragging)
   // }
-  const OBJ_CARD = { board: '', folder: 'folder', place: 'folder place', entity: 'ent', version: 'ver', playlist: '' };
+  const OBJ_CARD = { board: '', folder: 'folder', place: 'folder place', entity: 'ent', version: 'ver', playlist: 'playlist' };
   // A table's columns: [key, heading, { w: its width in the grid (phone: on a phone), end: set against its end (numbers),
   // drop: how soon a narrower table leaves it out (1 first; 4 only on a phone), sort: what a click on its
   // heading sorts by, where the list can be sorted }]. The box, the picture, the name and the menu are
@@ -275,7 +277,8 @@
     version: cols([col('task', 'Task', { w: 'minmax(64px, 1fr)', drop: 3 }), col('ver', 'Version', { w: '64px', end: true, drop: 4, sort: 'number' }),
       col('artist', 'Artist', { w: 'minmax(72px, 1fr)', drop: 2 }),
       col('by', 'Filed by', { w: 'minmax(104px, 1.2fr)', drop: 3 }), col('changed', 'Filed', { w: '128px', drop: 4, sort: 'new' })], { sort: 'name' }),
-    playlist: cols([col('versions', 'Versions', { w: '72px', end: true, drop: 2 }), col('by', 'Made by', { w: 'minmax(96px, 1fr)', drop: 1 }), col('changed', 'Changed', { w: '120px', drop: 3 })]),
+    // A project's reviews, boards and playlists together: what each is, how much is on it, when it changed.
+    review: cols([col('kind', 'Kind', { w: '88px', drop: 2 }), col('items', 'Items', { w: '64px', end: true, drop: 1 }), col('changed', 'Changed', { w: '120px', drop: 3 })]),
     // Different kinds together (what is pinned to Home): what each is, where, and when it last changed.
     mixed: cols([col('kind', 'Kind', { w: '120px', drop: 2 }), col('where', 'Where', { w: 'minmax(96px, 1fr)', drop: 1 }), col('changed', 'Changed', { w: '120px', drop: 3 })]),
   };
@@ -731,9 +734,11 @@
   const folderPlace = (folderId, ws) => (folderId && folderById(folderId)?.name) || SPACES[ws] || '';
 
   // A board as an object: up to four of its pictures, how much is on it, when it was last changed, who is
-  // on it now, and its menu.
-  function boardObj(board, { pickable = false } = {}) {
+  // on it now, and its menu. Listed with playlists (`kinds`), it says it is a board. A board in a project can
+  // be made into a playlist of its versions, in the order it reads.
+  function boardObj(board, { pickable = false, kinds = false } = {}) {
     const k = `board:${board.id}`;
+    const proj = board.folderId && trailTo(board.folderId).reverse().find((f) => f.project);
     const live = board.online > 0 && el('span', { class: 'card-live', text: `${board.online} here now` });
     return {
       kind: 'board', tag: 'a', attrs: { href: WB.href.board(board.id), 'data-pick': k }, picked: bpick.has(k),
@@ -741,13 +746,14 @@
       still: el('div', { class: `card-thumbs n${Math.min(board.thumbs.length, 4)}` },
         board.thumbs.map((src) => el('img', { src, alt: '', loading: 'lazy', draggable: 'false' }))),
       name: board.name,
-      lines: [el('div', { class: 'card-meta' }, `${plural(board.count, 'item')} · edited ${ago(board.updatedAt)}`, live)],
+      lines: [el('div', { class: 'card-meta' }, `${kinds ? 'Board · ' : ''}${plural(board.count, 'item')} · edited ${ago(board.updatedAt)}`, live)],
       aside: board.online > 0 && el('span', { class: 'card-live', text: `${board.online} here now` }),
       cells: { kind: 'Board', items: board.count, where: folderPlace(board.folderId, board.workspace), changed: [ago(board.updatedAt), new Date(board.updatedAt).toLocaleString()] },
       menu: [
         ['Rename', () => rename('board', board)],
         ['Move to…', () => moveDialog('board', board)],
         [isPinned('board', board.id) ? 'Unpin from Home' : 'Pin to Home', () => togglePin({ kind: 'board', id: board.id })],
+        proj && ['Make a playlist of it…', () => playlistOfBoard(proj, board)],
         hasPersonal && [`Move to ${SPACES[otherSpace(board.workspace)]} workspace`, () => moveSpace('board', board)],
         ['Delete board', () => removeBoard(board), true],
       ].filter(Boolean),
@@ -757,7 +763,23 @@
 
   // The dashed first of a folder's boards, as on Milanote: a board is always one click away. It is built
   // like a board card (picture area, then a name and a line) so it is exactly the same size in any folder.
+  // Among a project's reviews it makes either kind: a board, or a playlist.
   const NEW_BOARD = { name: 'New board', meta: 'Start from a blank canvas', onclick: () => newBoard() };
+  const newReview = (project) => ({
+    name: 'New', meta: 'A board, or a playlist', title: 'A board, to lay pieces out freely, or a playlist, versions in order',
+    onclick: (e) => openMenu(e.currentTarget, [['New board', newBoard], ['New playlist', () => newPlaylist(project)]]),
+  });
+  // A project's reviews, its boards and its playlists together, the one changed last first: [{ at, kind, item }].
+  function reviewsOf(project, boards = boardsIn(project.id)) {
+    const cat = catalogues.get(project.id);
+    return [...boards.map((x) => ({ at: x.updatedAt, kind: 'board', item: x })), ...((cat && cat.playlists) || []).map((x) => ({ at: x.updatedAt, kind: 'playlist', item: x }))]
+      .sort((a, b) => b.at - a.at);
+  }
+  // Them as objects; each says what it is only where both kinds are there.
+  function reviewObjs(project, list, opts = {}) {
+    const kinds = new Set(list.map((x) => x.kind)).size > 1;
+    return list.map((x) => (x.kind === 'board' ? boardObj(x.item, { ...opts, kinds }) : playlistObj(project, x.item, { kinds })));
+  }
 
   // ------------------------------------------------------------- pinned and recent
   //
@@ -825,9 +847,9 @@
     const f = folderById(rt.id);
     const v = f && f.project ? currentView() : { page: 'boards' };
     if (v.page === 'timeline') return `tl:${rt.id}`;
-    if (v.page === 'playlists') return v.playlist ? `pl:${rt.id}:${v.playlist}` : `pls:${rt.id}`;
+    if (v.page === 'reviews') return v.playlist ? `pl:${rt.id}:${v.playlist}` : `rv:${rt.id}`;
     if (v.page === 'versions') return `vl:${rt.id}`;
-    if (v.page === 'boards') return f && f.project ? `p:${rt.id}` : `f:${rt.id}`;
+    if (v.page === 'boards') return `f:${rt.id}`;
     if (v.page !== 'catalogue') return `f:${rt.id}`;
     if (v.seq) return `s:${rt.id}:${v.seq}`;
     if (v.tier) return `t:${rt.id}:${v.tier}`;
@@ -853,7 +875,7 @@
       opened.add(`f:${f.id}`);
       const v = currentView();
       if (v.page === 'catalogue') opened.add(`c:${f.id}`);
-      if (v.page === 'playlists') opened.add(`pls:${f.id}`);
+      if (v.page === 'reviews') opened.add(`rv:${f.id}`);
       const key = hereKey(rt);
       if (key.startsWith('s:')) opened.add(`t:${f.id}:shot`);
     }
@@ -910,13 +932,15 @@
     const kids = () => {
       if (!cat) loadCatalogue(f.id);
       return [
-        ...sideRow({ key: `p:${f.id}`, depth: depth + 1, icon: ICON_BOARDS, label: 'Boards', href: WB.href.boards(f.id), count: boardsIn(f.id).length, drop, hereK }),
+        // Its reviews, boards and playlists together, each under it (a board opens on its own page).
+        ...sideRow({
+          key: `rv:${f.id}`, depth: depth + 1, icon: ICON_BOARDS, label: 'Reviews', href: WB.href.reviews(f.id), count: reviewsOf(f).length, drop, hereK,
+          kids: reviewsOf(f).length ? () => reviewsOf(f).flatMap((x) => sideRow(x.kind === 'board'
+            ? { key: `b:${x.item.id}`, depth: depth + 2, icon: ICON_BOARDS, label: x.item.name, href: WB.href.board(x.item.id), hereK }
+            : { key: `pl:${f.id}:${x.item.id}`, depth: depth + 2, icon: ICON_PLAYLIST, label: x.item.name, href: WB.href.reviews(f.id, x.item.id), hereK })) : null,
+        }),
         ...sideRow({ key: `c:${f.id}`, depth: depth + 1, icon: ICON_CAT, label: 'Catalogue', href: WB.href.catalogue(f.id), kids: tierRows, hereK }),
         ...sideRow({ key: `vl:${f.id}`, depth: depth + 1, icon: ICON_LIST, label: 'Versions', href: WB.href.versions(f.id), hereK }),
-        ...sideRow({
-          key: `pls:${f.id}`, depth: depth + 1, icon: ICON_PLAYLIST, label: 'Playlists', href: WB.href.playlists(f.id), count: cat ? (cat.playlists || []).length : null, hereK,
-          kids: cat && (cat.playlists || []).length ? () => cat.playlists.flatMap((p) => sideRow({ key: `pl:${f.id}:${p.id}`, depth: depth + 2, icon: null, label: p.name, href: WB.href.playlists(f.id, p.id), hereK })) : null,
-        }),
         ...sideRow({ key: `tl:${f.id}`, depth: depth + 1, icon: ICON_FILM, label: 'Timeline', href: WB.href.timeline(f.id), hereK }),
         ...subs(),
       ];
@@ -943,7 +967,10 @@
     keepAhead();
     renderSide(route());
     renderCrumbs(route());
-    if (route().kind === 'home' && !$('q').value.trim()) render();
+    const rt = route();
+    if (rt.kind === 'home' && !$('q').value.trim()) render();
+    // A project's reviews list its playlists, which come with its catalogue.
+    else if (rt.kind === 'folder' && rt.id === id && currentView().page === 'reviews' && !currentView().playlist && !typingInPage()) render();
   }
 
   // What you pinned, each as a row that goes there.
@@ -1054,19 +1081,18 @@
             pin = e || (shownEntity && shownEntity.id === v.entity) ? { kind: 'entity', id: v.entity, name, projectId: f.id, tier: (e || shownEntity).tier, thumb: (e && e.thumb) || null } : null;
           }
         } else if (v.page === 'timeline') parts.push(['Timeline', WB.href.timeline(f.id)]);
-        else if (v.page === 'playlists') {
-          parts.push(['Playlists', WB.href.playlists(f.id)]);
+        else if (v.page === 'reviews') {
+          parts.push(['Reviews', WB.href.reviews(f.id)]);
           if (v.playlist) {
             const p = playlistData.get(v.playlist);
-            parts.push([p ? p.playlist.name : '…', WB.href.playlists(f.id, v.playlist)]);
+            parts.push([p ? p.playlist.name : '…', WB.href.reviews(f.id, v.playlist)]);
             playlistHere = p ? { project: f, playlist: p.playlist } : null;
           }
         }
         else if (v.page === 'versions') parts.push(['Versions', WB.href.versions(f.id)]);
-        else if (v.page === 'boards') parts.push(['Boards', WB.href.boards(f.id)]);
         // The star pins what is here, not the project around it: a sequence, a tier, the catalogue,
         // the timeline or the versions are pinned as that place (an asset, set or shot as itself).
-        if (v.page !== 'boards' && v.page !== 'home' && !v.entity) {
+        if (v.page !== 'home' && !listsBoards(v) && !v.entity) {
           const [name, href] = parts[parts.length - 1];
           const what = v.seq ? 'sequence' : v.tier ? 'tier' : v.playlist ? 'playlist' : v.page;
           pin = { kind: 'place', id: href, href, name, what, projectId: f.id };
@@ -1898,7 +1924,7 @@
     const f = rt.kind === 'folder' && folderById(rt.id);
     if (!f) return null;
     const v = f.project ? currentView() : { page: 'boards' };
-    if (v.page === 'boards') return { project: f, sel: '.obj[data-pick]', kind: 'items' };
+    if (listsBoards(v)) return { project: f, sel: '.obj[data-pick]', kind: 'items' };
     if (v.page === 'catalogue' && v.entity) return { project: f, sel: VER_NODES, kind: 'vers' };
     if (v.page === 'catalogue') return { project: f, sel: '.obj-entity[data-id]', kind: 'ents' };
     if (v.page === 'versions') return { project: f, sel: VER_NODES, kind: 'vers' };
@@ -2096,20 +2122,21 @@
       catalogue: view.entity ? 'Search the catalogue' : 'Search the catalogue',
       versions: 'Search versions, or who filed them',
       timeline: 'Search is not used on the timeline',
-      home: inProjectHere ? "Search this project's boards" : 'Search boards and folders',
-      boards: inProjectHere ? "Search this project's boards" : 'Search boards and folders',
+      home: "Search this project's boards and playlists",
+      reviews: "Search this project's boards and playlists",
+      boards: 'Search boards and folders',
     }[view.page] || 'Search boards and folders';
     $('q').disabled = view.page === 'timeline';
-    const makesBoards = rt.kind !== 'folder' || !inProjectHere || view.page === 'boards' || view.page === 'home';
+    const makesBoards = rt.kind !== 'folder' || !inProjectHere || view.page === 'reviews' || view.page === 'home';
     // Present, in a project (and wherever you are while presenting, to get to the link and to stop).
     if (presentBtn) presentBtn.hidden = !(projectHere() || WBPresent.token());
     $('newsplit').hidden = !makesBoards;
-    // Searching from a project's home looks through its boards.
-    if (view.page === 'home' && $('q').value.trim()) view.page = 'boards';
+    // Searching from a project's home looks through its boards and playlists.
+    if (view.page === 'home' && $('q').value.trim()) Object.assign(view, { page: 'reviews', playlist: null });
     $('empty').hidden = true;
     if (rt.kind === 'home') return $('content').replaceChildren(...homeView());
-    // A project has its boards and its catalogue.
-    if (view.page !== 'boards') return renderProject(here, view);
+    // A project has its reviews and its catalogue.
+    if (!listsBoards(view)) return renderProject(here, view);
     // A search looks through every folder of the workspace (of the project, inside one); without one you
     // see the folder you are in.
     const q = $('q').value.trim().toLowerCase();
@@ -2117,13 +2144,18 @@
     const within = (fid) => !inProjectHere || fid === cur || (fid && isWithin(fid, cur));
     const subs = q ? lib.folders.filter((f) => matches(f.name) && f.id !== cur && within(f.id)).sort(byName) : childrenOf(cur);
     const boards = q ? lib.boards.filter((b) => matches(b.name) && within(b.folderId)) : boardsIn(cur);
+    // In a project, its playlists go with its boards, as its reviews.
+    if (inProjectHere && !catalogues.has(cur)) loadCatalogue(cur);
+    const reviews = inProjectHere ? reviewsOf(here, boards).filter((x) => x.kind === 'board' || !q || matches(x.item.name)) : null;
+    const found = reviews ? reviews.length : boards.length;
     $('content').replaceChildren(...[
-      !q && (subs.length > 0 || boards.length > 0) && boardTools(),
+      !q && (subs.length > 0 || found > 0) && boardTools(),
       subs.length > 0 && label('Folders', subs.length),
       subs.length > 0 && objectList('folder', subs.map((f) => folderObj(f, { pickable: true })), { grid: 'folder-grid' }),
-      (subs.length > 0 || q) && label('Boards', boards.length),
-      objectList('board', boards.map((b) => boardObj(b, { pickable: true })), { lead: !q && NEW_BOARD }),
-      q && !subs.length && !boards.length && el('p', { class: 'home-empty', text: `Nothing matches "${$('q').value.trim()}".` }),
+      (subs.length > 0 || q) && label(reviews ? 'Reviews' : 'Boards', found),
+      reviews ? objectList('review', reviewObjs(here, reviews, { pickable: true }), { lead: !q && newReview(here) })
+        : objectList('board', boards.map((b) => boardObj(b, { pickable: true })), { lead: !q && NEW_BOARD }),
+      q && !subs.length && !found && el('p', { class: 'home-empty', text: `Nothing matches "${$('q').value.trim()}".` }),
     ].filter(Boolean));
   }
 
@@ -2159,7 +2191,7 @@
     const fresh = shownProject !== sig;
     shownProject = sig;
     if (view.page === 'versions') return versionsPage(project, fresh, sig);
-    if (view.page === 'playlists') return view.playlist ? playlistPage(project, view.playlist, fresh, sig) : playlistsPage(project, fresh, sig);
+    if (view.page === 'reviews') return playlistPage(project, view.playlist, fresh, sig);
     if (view.page === 'home') return projectHome(project, fresh, sig);
     if (view.page === 'timeline') {
       // The player plays it; the page behind says so. The background refresh of the library leaves it be,
@@ -2231,7 +2263,8 @@
   // happened, by day, each person's filing in one row ("Anna filed 23 versions", opened for the rest) and
   // what was said about a version in one. Beside it, each sequence as a strip of its shots (filed this
   // week, before, or not yet), what is waiting (set up with nothing filed, or quiet for two weeks), and the
-  // boards last worked on. Its parts (catalogue, boards, versions, timeline) are in the sidebar.
+  // reviews (boards and playlists) last worked on. Its parts (reviews, catalogue, versions, timeline) are in
+  // the sidebar.
   const homeOpen = new Set(); // groups of the activity opened, by key
   const WEEK = 7 * 864e5;
   function projectHomeView(project) {
@@ -2253,9 +2286,9 @@
     const side = el('aside', { class: 'home-side' },
       cat && homeSequences(project, cat),
       cat && homeWaiting(project, cat),
-      label('Recent boards', null, el('span', { class: 'label-gap' }), el('a', { class: 'btn small ghost', href: WB.href.boards(project.id), text: 'All boards' })),
-      boards.length ? objectList('board', boards.slice(0, 4).map((b) => boardObj(b)), { grid: 'board-grid home-work' })
-        : el('p', { class: 'home-quiet', text: 'No boards yet.' }));
+      label('Recent reviews', null, el('span', { class: 'label-gap' }), el('a', { class: 'btn small ghost', href: WB.href.reviews(project.id), text: 'All reviews' })),
+      reviewsOf(project, boards).length ? objectList('review', reviewObjs(project, reviewsOf(project, boards).slice(0, 4)), { grid: 'board-grid home-work' })
+        : el('p', { class: 'home-quiet', text: 'No boards or playlists yet.' }));
     return [homePulse(project, cat, items, boards), el('div', { class: 'home-cols' }, main, side)];
   }
 
@@ -2266,8 +2299,8 @@
     const counts = cat ? cat.tiers.map((t) => [cat.entities.filter((e) => e.tier === t.id).length, t]).filter(([k]) => k) : [];
     const holds = el('div', { class: 'ph-holds' },
       counts.map(([k, t]) => el('a', { href: WB.href.catalogue(project.id, { tier: t.id }), text: plural(k, t.one) })),
-      el('a', { href: WB.href.boards(project.id), text: plural(boards.length, 'board') }),
-      cat && (cat.playlists || []).length > 0 && el('a', { href: WB.href.playlists(project.id), text: plural(cat.playlists.length, 'playlist') }),
+      el('a', { href: WB.href.reviews(project.id), text: plural(boards.length, 'board') }),
+      cat && (cat.playlists || []).length > 0 && el('a', { href: WB.href.reviews(project.id), text: plural(cat.playlists.length, 'playlist') }),
       el('a', { href: WB.href.timeline(project.id), text: 'Timeline' }));
     if (!items || !items.length) return el('div', { class: 'ph-pulse' }, holds);
     const now = Date.now();
@@ -3155,14 +3188,15 @@
 
   const playlistData = new Map(); // playlist id -> { playlist, versions } as last fetched
 
-  // A playlist as an object: its first stills, how many versions, who made it and when it changed.
-  function playlistObj(project, p) {
+  // A playlist as an object: its first stills side by side as a strip of film (a board's are a grid), how
+  // many versions, when it changed. Listed with boards (`kinds`), it says it is a playlist.
+  function playlistObj(project, p, { kinds = false } = {}) {
     return {
-      kind: 'playlist', tag: 'a', attrs: { href: WB.href.playlists(project.id, p.id) },
-      still: el('div', { class: `card-thumbs n${Math.min(p.thumbs.length, 4)}` }, p.thumbs.map((src) => el('img', { src, alt: '', loading: 'lazy', draggable: 'false' }))),
+      kind: 'playlist', tag: 'a', attrs: { href: WB.href.reviews(project.id, p.id) },
+      still: el('div', { class: `card-thumbs strip n${Math.min(p.thumbs.length, 4)}` }, p.thumbs.map((src) => el('img', { src, alt: '', loading: 'lazy', draggable: 'false' }))),
       name: p.name,
-      lines: [`${plural(p.count, 'version')} · changed ${ago(p.updatedAt)}`],
-      cells: { versions: p.count, by: p.createdBy || '', changed: [ago(p.updatedAt), new Date(p.updatedAt).toLocaleString()] },
+      lines: [`${kinds ? 'Playlist · ' : ''}${plural(p.count, 'version')} · changed ${ago(p.updatedAt)}`],
+      cells: { kind: 'Playlist', items: p.count, changed: [ago(p.updatedAt), new Date(p.updatedAt).toLocaleString()] },
       menu: playlistMenu(project, p),
     };
   }
@@ -3170,7 +3204,8 @@
   function playlistMenu(project, p) {
     return [
       ['Rename…', () => renamePlaylist(project, p)],
-      [isPinned('place', WB.href.playlists(project.id, p.id)) ? 'Unpin from Home' : 'Pin to Home', () => togglePin({ kind: 'place', id: WB.href.playlists(project.id, p.id), href: WB.href.playlists(project.id, p.id), name: p.name, what: 'playlist', projectId: project.id })],
+      ['Lay out on a board…', () => boardOfPlaylist(project, p)],
+      [isPinned('place', WB.href.reviews(project.id, p.id)) ? 'Unpin from Home' : 'Pin to Home', () => togglePin({ kind: 'place', id: WB.href.reviews(project.id, p.id), href: WB.href.reviews(project.id, p.id), name: p.name, what: 'playlist', projectId: project.id })],
       ['Delete playlist…', () => deletePlaylist(project, p), true],
     ];
   }
@@ -3192,10 +3227,39 @@
     try {
       const p = await api('POST', `/api/projects/${project.id}/playlists`, { name, versions, by: me.name });
       playlistsChanged(project);
+      // One made empty opens, to fill.
+      if (!versions.length) location.hash = WB.href.reviews(project.id, p.id);
       return p;
     } catch (err) {
       fail(err);
       return null;
+    }
+  }
+
+  // A board's versions as a playlist, in the order the board reads; it opens when made.
+  async function playlistOfBoard(project, board) {
+    const name = await WB.dialog({ title: 'Make a playlist of it', text: `The versions on ${board.name}, in the order it reads: rows first, then left to right.`, value: board.name, placeholder: 'Playlist name', ok: 'Make playlist' });
+    if (!name) return;
+    try {
+      const p = await api('POST', `/api/projects/${project.id}/playlists`, { name, board: board.id, by: me.name });
+      playlistsChanged(project);
+      location.hash = WB.href.reviews(project.id, p.id);
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  // A playlist laid out on a new board of the project, in rows in its order; the board opens when made.
+  async function boardOfPlaylist(project, p) {
+    const name = await WB.dialog({ title: 'Lay out on a board', text: `A new board with the ${plural(p.count, 'version')} of ${p.name} on it, in rows in its order.`, value: p.name, placeholder: 'Board name', ok: 'Make board' });
+    if (!name) return;
+    try {
+      const { versions } = await api('GET', `/api/playlists/${p.id}`);
+      const board = await api('POST', '/api/boards', { name, folderId: project.id, workspace: project.workspace, by: me.name });
+      if (versions.length) await api('POST', `/api/projects/${project.id}/place`, { board: board.id, versions: versions.map((v) => v.id), by: me.name });
+      location.href = WB.href.board(board.id);
+    } catch (err) {
+      fail(err);
     }
   }
 
@@ -3215,7 +3279,7 @@
     if (!ok) return;
     try {
       await api('DELETE', `/api/playlists/${p.id}`);
-      if (currentView().playlist === p.id) location.hash = WB.href.playlists(project.id);
+      if (currentView().playlist === p.id) location.hash = WB.href.reviews(project.id);
       playlistsChanged(project, p.id);
     } catch (err) {
       fail(err);
@@ -3234,7 +3298,7 @@
         vpick.ids.clear();
         paintVersionPick(project);
         playlistsChanged(project, p.id);
-        undoable(`${plural(ids.length, 'version')} added to ${p.name}`, null, { label: 'Open playlist', href: WB.href.playlists(project.id, p.id) });
+        undoable(`${plural(ids.length, 'version')} added to ${p.name}`, null, { label: 'Open playlist', href: WB.href.reviews(project.id, p.id) });
       } catch (err) {
         fail(err);
       }
@@ -3244,7 +3308,7 @@
       if (!p) return;
       vpick.ids.clear();
       paintVersionPick(project);
-      undoable(`${p.name} made, with ${plural(p.count, 'version')}`, null, { label: 'Open playlist', href: WB.href.playlists(project.id, p.id) });
+      undoable(`${p.name} made, with ${plural(p.count, 'version')}`, null, { label: 'Open playlist', href: WB.href.reviews(project.id, p.id) });
     };
     if (!lists.length) return void made();
     if (anchor) return void openMenu(anchor, [...lists.slice(0, 12).map((p) => [p.name, () => add(p)]), ['New playlist…', made]]);
@@ -3299,28 +3363,6 @@
       playlistsChanged(project, id);
     } catch (err) {
       fail(err);
-    }
-  }
-
-  // A project's playlists: a new one first, then each, the one changed last first.
-  async function playlistsPage(project, fresh, sig) {
-    const show = (list) => {
-      if (shownProject !== sig) return;
-      $('content').replaceChildren(...[
-        label('Playlists', list ? list.length : null),
-        !list ? el('p', { class: 'home-quiet', text: 'Loading…' })
-          : objectList('playlist', list.map((p) => playlistObj(project, p)), {
-            lead: { name: 'New playlist', meta: 'Versions to review, in order', title: 'A new playlist. Add versions to it from the Versions page, the catalogue or a shot', onclick: () => newPlaylist(project) },
-          }),
-        list && !list.length && el('p', { class: 'home-quiet', text: 'A playlist is some of the project\'s versions in the order a review goes through them. Pick versions on the Versions page and press Add to playlist, or start one here.' }),
-      ].filter(Boolean));
-    };
-    if (fresh) show(null);
-    try {
-      const { playlists } = await api('GET', `/api/projects/${project.id}/playlists`);
-      show(playlists);
-    } catch (err) {
-      pageFailed(sig, err);
     }
   }
 
@@ -4031,7 +4073,10 @@
       fail(err);
     }
   }
-  $('newmore').addEventListener('click', (e) => openMenu(e.currentTarget, [['New board', newBoard], ['New folder', newFolder]]));
+  $('newmore').addEventListener('click', (e) => {
+    const project = projectHere();
+    openMenu(e.currentTarget, [['New board', newBoard], project && ['New playlist', () => newPlaylist(project)], ['New folder', newFolder]].filter(Boolean));
+  });
 
   // ------------------------------------------------------------- notifications (notices.js)
 

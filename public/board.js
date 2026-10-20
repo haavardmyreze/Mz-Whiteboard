@@ -4546,7 +4546,7 @@
     $('back').removeAttribute('title');
   }
   else {
-    $('back').href = meta.folderId ? WB.href.abs(WB.href.boards(meta.folderId)) : '/';
+    $('back').href = meta.folderId ? WB.href.abs(WB.href.folder(meta.folderId)) : '/';
     // Where the board is, between the logo and its name: the folders (or the project) it is in, each a
     // way back to it.
     if (meta.folderId) {
@@ -4554,8 +4554,10 @@
         const byId = new Map(lib.folders.map((f) => [f.id, f]));
         const trail = [];
         for (let f = byId.get(meta.folderId); f && trail.length < 8; f = byId.get(f.parentId)) trail.unshift(f);
+        // Back from a board of a project is to the project's reviews, where the board is listed.
+        if (byId.get(meta.folderId)?.project) $('back').href = WB.href.abs(WB.href.reviews(meta.folderId));
         $('boardname').before(...trail.flatMap((f) => [
-          el('a', { class: 'bar-crumb board-folder', draggable: 'false', href: WB.href.abs(f.project ? WB.href.folder(f.id) : WB.href.boards(f.id)), text: f.name, title: f.project ? `The ${f.name} project` : `The ${f.name} folder` }),
+          el('a', { class: 'bar-crumb board-folder', draggable: 'false', href: WB.href.abs(WB.href.folder(f.id)), text: f.name, title: f.project ? `The ${f.name} project` : `The ${f.name} folder` }),
           el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' }),
         ]));
       }).catch(() => { /* the logo still goes back */ });

@@ -868,9 +868,28 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   // ---- drawing, while it is shown
 
   const k = (code) => (held.has(code) ? 1 : 0);
+  // TEMPORARY, for debugging: frames a second, drawn over the top left of the viewport. Remove with its
+  // three uses below (the `fps` counter, in frame, start and stop).
+  const fps = { node: null, since: 0, frames: 0 };
+  function countFrame(now) {
+    if (!fps.node) {
+      if (!canvas.parentElement) return;
+      fps.node = document.createElement('div');
+      fps.node.style.cssText = 'position:absolute;top:8px;left:8px;padding:2px 6px;border-radius:var(--r-1);background:rgba(0,0,0,0.6);color:#fff;font:var(--fs-sm) monospace;pointer-events:none;z-index:5';
+      canvas.parentElement.append(fps.node);
+      fps.since = now;
+      fps.frames = 0;
+    }
+    fps.frames++;
+    if (now - fps.since < 500) return;
+    fps.node.textContent = `${Math.round((fps.frames * 1000) / (now - fps.since))} fps`;
+    fps.since = now;
+    fps.frames = 0;
+  }
   let last = 0;
   function frame(now) {
     raf = requestAnimationFrame(frame);
+    countFrame(now);
     const dt = Math.min(0.1, (now - (last || now)) / 1000);
     last = now;
     // While the view is being steered (a drag that looks, a move key held), the pointer is out of the way.
@@ -1007,6 +1026,8 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     if (!running) return;
     running = false;
     cancelAnimationFrame(raf);
+    if (fps.node) fps.node.remove();
+    fps.node = null;
     window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('blur', onBlur);
     onBlur();

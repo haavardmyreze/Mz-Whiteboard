@@ -60,6 +60,7 @@
     people: '<circle cx="9" cy="8" r="3.2"/><path d="M3 19c0-3 2.7-5 6-5s6 2 6 5"/><path d="M16 5.2a3.2 3.2 0 0 1 0 5.6M17.5 14.3c2.1.6 3.5 2.3 3.5 4.7"/>',
     person: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/>',
     play: '<path d="M7 4l13 8-13 8z" fill="currentColor"/>',
+    playlist: '<path d="M4 6h14M4 11h14M4 16h7"/><path d="M15 14.5l5.5 3.5-5.5 3.5z" fill="currentColor"/>',
     playSolid: '<path d="M8 5.5v13l11-6.5z" fill="currentColor" stroke="none"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     prev: '<path d="M15 5l-7 7 7 7"/>',

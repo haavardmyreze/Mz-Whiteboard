@@ -74,6 +74,8 @@
   // (#/f/<id>/catalogue/t/shot), the sequence (…/s/kilo) or the entity (…/<entity id>) being looked at.
   function currentView() {
     if (/^#\/f\/[\w-]+\/timeline/.test(location.hash)) return { page: 'timeline', entity: null };
+    const pl = /^#\/f\/[\w-]+\/playlists(?:\/([\w-]+))?/.exec(location.hash);
+    if (pl) return { page: 'playlists', playlist: pl[1] || null, entity: null };
     if (/^#\/f\/[\w-]+\/versions/.test(location.hash)) return { page: 'versions', entity: null };
     if (/^#\/f\/[\w-]+\/boards/.test(location.hash)) return { page: 'boards', entity: null };
     const m = /^#\/f\/[\w-]+\/(catalogue)(?:\/(?:(t|s)\/([\w-]+)|([\w-]+)))?/.exec(location.hash);
@@ -255,7 +257,7 @@
   //                          who is on it now), and its columns by key: text, [text, its tooltip], or a node
   //   menu, setup(node)      what its … menu has, and what more is done to what is made (dragging)
   // }
-  const OBJ_CARD = { board: '', folder: 'folder', place: 'folder place', entity: 'ent', version: 'ver' };
+  const OBJ_CARD = { board: '', folder: 'folder', place: 'folder place', entity: 'ent', version: 'ver', playlist: '' };
   // A table's columns: [key, heading, { w: its width in the grid (phone: on a phone), end: set against its end (numbers),
   // drop: how soon a narrower table leaves it out (1 first; 4 only on a phone), sort: what a click on its
   // heading sorts by, where the list can be sorted }]. The box, the picture, the name and the menu are
@@ -270,6 +272,7 @@
     version: cols([col('task', 'Task', { w: 'minmax(64px, 1fr)', drop: 3 }), col('ver', 'Version', { w: '64px', end: true, drop: 4, sort: 'number' }),
       col('artist', 'Artist', { w: 'minmax(72px, 1fr)', drop: 2 }),
       col('by', 'Filed by', { w: 'minmax(104px, 1.2fr)', drop: 3 }), col('changed', 'Filed', { w: '128px', drop: 4, sort: 'new' })], { sort: 'name' }),
+    playlist: cols([col('versions', 'Versions', { w: '72px', end: true, drop: 2 }), col('by', 'Made by', { w: 'minmax(96px, 1fr)', drop: 1 }), col('changed', 'Changed', { w: '120px', drop: 3 })]),
     // Different kinds together (what is pinned to Home): what each is, where, and when it last changed.
     mixed: cols([col('kind', 'Kind', { w: '120px', drop: 2 }), col('where', 'Where', { w: 'minmax(96px, 1fr)', drop: 1 }), col('changed', 'Changed', { w: '120px', drop: 3 })]),
   };
@@ -718,6 +721,7 @@
   const ICON_CAT = icon('catalogue', 16);
   const ICON_LIST = icon('list', 16);
   const ICON_FILM = icon('film', 16);
+  const ICON_PLAYLIST = icon('playlist', 16);
   const ICON_CHEVRON = icon('chevron', 14);
   const ICON_STAR = icon('star', 16);
   const FOLDER_SM = icon('folder', 16);
@@ -739,6 +743,7 @@
     const f = folderById(rt.id);
     const v = f && f.project ? currentView() : { page: 'boards' };
     if (v.page === 'timeline') return `tl:${rt.id}`;
+    if (v.page === 'playlists') return v.playlist ? `pl:${rt.id}:${v.playlist}` : `pls:${rt.id}`;
     if (v.page === 'versions') return `vl:${rt.id}`;
     if (v.page === 'boards') return f && f.project ? `p:${rt.id}` : `f:${rt.id}`;
     if (v.page !== 'catalogue') return `f:${rt.id}`;
@@ -766,6 +771,7 @@
       opened.add(`f:${f.id}`);
       const v = currentView();
       if (v.page === 'catalogue') opened.add(`c:${f.id}`);
+      if (v.page === 'playlists') opened.add(`pls:${f.id}`);
       const key = hereKey(rt);
       if (key.startsWith('s:')) opened.add(`t:${f.id}:shot`);
     }
@@ -822,6 +828,10 @@
       ...sideRow({ key: `p:${f.id}`, depth: depth + 1, icon: ICON_BOARDS, label: 'Boards', href: WB.href.boards(f.id), count: boardsIn(f.id).length, drop, hereK }),
       ...sideRow({ key: `c:${f.id}`, depth: depth + 1, icon: ICON_CAT, label: 'Catalogue', href: WB.href.catalogue(f.id), kids: tierRows, hereK }),
       ...sideRow({ key: `vl:${f.id}`, depth: depth + 1, icon: ICON_LIST, label: 'Versions', href: WB.href.versions(f.id), hereK }),
+      ...sideRow({
+        key: `pls:${f.id}`, depth: depth + 1, icon: ICON_PLAYLIST, label: 'Playlists', href: WB.href.playlists(f.id), count: cat ? (cat.playlists || []).length : null, hereK,
+        kids: cat && (cat.playlists || []).length ? () => cat.playlists.flatMap((p) => sideRow({ key: `pl:${f.id}:${p.id}`, depth: depth + 2, icon: null, label: p.name, href: WB.href.playlists(f.id, p.id), hereK })) : null,
+      }),
       ...sideRow({ key: `tl:${f.id}`, depth: depth + 1, icon: ICON_FILM, label: 'Timeline', href: WB.href.timeline(f.id), hereK }),
       ...subs(),
     ];
@@ -865,8 +875,8 @@
       if (!project) return null;
       if (p.kind === 'entity') return { key: `pin:e:${p.id}`, icon: ICON_CAT, label: p.name, href: WB.href.catalogue(project.id, { entity: p.id }), title: project.name };
       if (p.kind === 'place') {
-        const icon = { sequence: ICON_FILM, timeline: ICON_FILM, versions: ICON_LIST }[p.what] || ICON_CAT;
-        const label = p.what === 'sequence' || p.what === 'tier' ? p.name : `${project.name} ${p.name.toLowerCase()}`;
+        const icon = { sequence: ICON_FILM, timeline: ICON_FILM, versions: ICON_LIST, playlists: ICON_PLAYLIST, playlist: ICON_PLAYLIST }[p.what] || ICON_CAT;
+        const label = p.what === 'sequence' || p.what === 'tier' || p.what === 'playlist' ? p.name : `${project.name} ${p.name.toLowerCase()}`;
         return { key: `pin:p:${p.id}`, icon, label, href: p.href, title: project.name };
       }
       return null;
@@ -930,6 +940,7 @@
     const parts = []; // [label, href, folderId for drops (undefined: none), ws]
     let pin = null;
     let settingsOf = null; // a project's home has the way to its settings
+    let playlistHere = null; // a playlist's page has its menu beside its title
     if (rt.kind === 'home') parts.push(['Home', '#/']);
     else if (rt.kind === 'space') parts.push([spaceName(rt.space), spaceHref(rt.space), null, rt.space]);
     else {
@@ -957,13 +968,21 @@
             pin = e || (shownEntity && shownEntity.id === v.entity) ? { kind: 'entity', id: v.entity, name, projectId: f.id, tier: (e || shownEntity).tier, thumb: (e && e.thumb) || null } : null;
           }
         } else if (v.page === 'timeline') parts.push(['Timeline', WB.href.timeline(f.id)]);
+        else if (v.page === 'playlists') {
+          parts.push(['Playlists', WB.href.playlists(f.id)]);
+          if (v.playlist) {
+            const p = playlistData.get(v.playlist);
+            parts.push([p ? p.playlist.name : '…', WB.href.playlists(f.id, v.playlist)]);
+            playlistHere = p ? { project: f, playlist: p.playlist } : null;
+          }
+        }
         else if (v.page === 'versions') parts.push(['Versions', WB.href.versions(f.id)]);
         else if (v.page === 'boards') parts.push(['Boards', WB.href.boards(f.id)]);
         // The star pins what is here, not the project around it: a sequence, a tier, the catalogue,
         // the timeline or the versions are pinned as that place (an asset, set or shot as itself).
         if (v.page !== 'boards' && v.page !== 'home' && !v.entity) {
           const [name, href] = parts[parts.length - 1];
-          const what = v.seq ? 'sequence' : v.tier ? 'tier' : v.page;
+          const what = v.seq ? 'sequence' : v.tier ? 'tier' : v.playlist ? 'playlist' : v.page;
           pin = { kind: 'place', id: href, href, name, what, projectId: f.id };
         }
       }
@@ -989,6 +1008,7 @@
         onclick: () => togglePin(pin),
       }),
       settingsOf && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('settings', 16), title: 'Project settings', 'aria-label': 'Project settings', onclick: () => projectSettings(settingsOf) }),
+      playlistHere && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('more', 16), title: 'Rename or delete the playlist', 'aria-label': 'Playlist menu', 'aria-haspopup': 'menu', onclick: (e) => openMenu(e.currentTarget, playlistMenu(playlistHere.project, playlistHere.playlist)) }),
       ...presentingHere(rt),
       ].filter(Boolean));
     document.title = `${parts[parts.length - 1][0]} · Boards`;
@@ -1112,11 +1132,11 @@
   function placeObj(p) {
     const project = folderById(p.projectId);
     if (!project) return null;
-    const what = { sequence: 'Sequence', tier: 'In the catalogue', catalogue: 'Catalogue', timeline: 'Timeline', versions: 'Versions' }[p.what] || '';
+    const what = { sequence: 'Sequence', tier: 'In the catalogue', catalogue: 'Catalogue', timeline: 'Timeline', versions: 'Versions', playlists: 'Playlists', playlist: 'Playlist' }[p.what] || '';
     return {
       kind: 'place', tag: 'a', attrs: { href: p.href },
-      icon: { sequence: ICON_FILM, tier: ICON_CAT, catalogue: ICON_CAT, timeline: ICON_FILM, versions: ICON_LIST }[p.what] || ICON_CAT,
-      name: p.what === 'sequence' || p.what === 'tier' ? p.name : `${project.name} ${p.name.toLowerCase()}`,
+      icon: { sequence: ICON_FILM, tier: ICON_CAT, catalogue: ICON_CAT, timeline: ICON_FILM, versions: ICON_LIST, playlists: ICON_PLAYLIST, playlist: ICON_PLAYLIST }[p.what] || ICON_CAT,
+      name: p.what === 'sequence' || p.what === 'tier' || p.what === 'playlist' ? p.name : `${project.name} ${p.name.toLowerCase()}`,
       lines: [`${what} · ${project.name}`],
       cells: { kind: what, where: project.name },
       menu: [['Unpin from Home', () => togglePin({ kind: 'place', id: p.id })]],
@@ -1489,10 +1509,13 @@
     const n = vpick.ids.size;
     document.body.classList.toggle('vpicking', n > 0);
     if (!n) return void $('vpickbar')?.remove();
+    const onPlaylist = currentView().playlist;
     const bar = pickBar('vpickbar', 'Selected versions', {
       clear: () => { vpick.ids.clear(); paintVersionPick(project); },
       actions: [
-        el('button', { type: 'button', class: 'btn small', text: 'Edit…', title: 'Move them, give them a task or an artist, or archive them, all at once', onclick: () => editVersions(project) }),
+        onPlaylist && el('button', { type: 'button', class: 'btn small', text: 'Take off', title: 'Take them off this playlist (the versions stay as they are)', onclick: () => takeOffPlaylist(project, onPlaylist, vpick.order.filter((id) => vpick.ids.has(id))) }),
+        !onPlaylist && el('button', { type: 'button', class: 'btn small', text: 'Edit…', title: 'Move them, give them a task or an artist, or archive them, all at once', onclick: () => editVersions(project) }),
+        el('button', { type: 'button', class: 'btn small', text: 'Add to playlist', 'aria-haspopup': 'menu', onclick: (e) => { e.stopPropagation(); addToPlaylistMenu(project, e.currentTarget, vpick.order.filter((id) => vpick.ids.has(id))); } }),
         el('button', { type: 'button', class: 'btn small', text: 'Add to board', 'aria-haspopup': 'menu', onclick: (e) => { e.stopPropagation(); addToBoardMenu(project, e.currentTarget); } }),
         el('button', { type: 'button', class: 'btn small primary', text: 'New board', title: 'A new board in this project, with these on it', onclick: () => newBoardWith(project) }),
       ],
@@ -1943,7 +1966,7 @@
       runOf = null;
       thePlayer().close();
     }
-    if (vpick.project && (rt.kind !== 'folder' || rt.id !== vpick.project || !(currentView().page === 'versions' || currentView().entity))) dropVersionPick();
+    if (vpick.project && (rt.kind !== 'folder' || rt.id !== vpick.project || !(currentView().page === 'versions' || currentView().entity || currentView().playlist))) dropVersionPick();
     if (picking.on && (rt.kind !== 'folder' || rt.id !== picking.project || currentView().page !== 'catalogue' || currentView().entity)) {
       const f = folderById(picking.project);
       if (f) setPicking(f, false);
@@ -2028,10 +2051,11 @@
     // there at once in the catalogue's player and on the timeline.
     const model = project.settings && project.settings.preview3d;
     if (model && model.model) thePlayer().prepare3d({ ...model, key: project.id });
-    const sig = `${project.id}|${view.page}|${view.entity}`;
+    const sig = `${project.id}|${view.page}|${view.entity}|${view.playlist || ''}`;
     const fresh = shownProject !== sig;
     shownProject = sig;
     if (view.page === 'versions') return versionsPage(project, fresh, sig);
+    if (view.page === 'playlists') return view.playlist ? playlistPage(project, view.playlist, fresh, sig) : playlistsPage(project, fresh, sig);
     if (view.page === 'home') return projectHome(project, fresh, sig);
     if (view.page === 'timeline') {
       // The player plays it; the page behind says so. The background refresh of the library leaves it be,
@@ -2139,6 +2163,7 @@
     const holds = el('div', { class: 'ph-holds' },
       counts.map(([k, t]) => el('a', { href: WB.href.catalogue(project.id, { tier: t.id }), text: plural(k, t.one) })),
       el('a', { href: WB.href.boards(project.id), text: plural(boards.length, 'board') }),
+      cat && (cat.playlists || []).length > 0 && el('a', { href: WB.href.playlists(project.id), text: plural(cat.playlists.length, 'playlist') }),
       el('a', { href: WB.href.timeline(project.id), text: 'Timeline' }));
     if (!items || !items.length) return el('div', { class: 'ph-pulse' }, holds);
     const now = Date.now();
@@ -2775,6 +2800,7 @@
   function versionActions(project, entity, v) {
     return [
       ['Open', () => lookAt(entity.id, v.id)],
+      ['Add to playlist…', () => addToPlaylistMenu(project, null, [v.id])],
       ['Edit…', () => editVersion(project, entity, v)],
       [v.hidden ? 'Bring back from the archive' : 'Archive', () => archiveVersion(v, !v.hidden)],
       v.look && ['Download', () => { location.href = v.look.orig || v.look.src; }],
@@ -2892,10 +2918,10 @@
   // shot's own page), Shift and a click for every one between, as files are in a file manager.
   const VER_NODES = '.obj-version[data-id]';
   // What picks it: a click, Space or Enter (with Shift, every one between), as on a card in a file manager.
-  const verPicks = (project, entity, v) => ({
+  const verPicks = (project, entity, v, open = () => lookAt(entity.id, v.id)) => ({
     'data-id': v.id, tabindex: '0', 'aria-label': `${v.label}: press Space to select`,
     // A double-click opens it in the player, as a click on its picture does.
-    ondblclick: (e) => { if (!e.target.closest('a, button')) lookAt(entity.id, v.id); },
+    ondblclick: (e) => { if (!e.target.closest('a, button')) open(); },
     onkeydown: (e) => {
       if (e.target !== e.currentTarget || (e.key !== ' ' && e.key !== 'Enter')) return;
       e.preventDefault();
@@ -2910,9 +2936,9 @@
     type: 'button', class: `vl-box${vpick.ids.has(v.id) ? ' on' : ''}`, 'data-ids': v.id, title: `Select ${v.label}`, 'aria-label': `Select ${v.label}`,
     onclick: (e) => { e.stopPropagation(); pickVersion(project, v.id, e.shiftKey); },
   });
-  const verStill = (entity, v, badge = true) => scrubber(el('button', {
+  const verStill = (entity, v, badge = true, open = () => lookAt(entity.id, v.id)) => scrubber(el('button', {
     type: 'button', class: `card-thumbs n${v.thumb ? 1 : 0}`, title: 'Open it, to look, comment and draw',
-    onclick: (e) => { e.stopPropagation(); lookAt(entity.id, v.id); },
+    onclick: (e) => { e.stopPropagation(); open(); },
   },
   v.thumb && el('img', { src: v.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
   badge && v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })), v.look, v.label);
@@ -2936,7 +2962,8 @@
   // the page groups by who filed it (and the day too, in a table not grouped by day: `day`); on the
   // asset, set or shot's own page, who filed it and when. Whether it is an image or a video (`kinds`), and
   // an asset, set or shot (`tiers`), is said only where the list has more than one.
-  function versionObj(project, entity, v, { list = false, tierName = (t) => t, day = false, kinds = false, tiers = false } = {}) {
+  // Listed on a playlist, `open` is how it opens (the playlist playing from it) and `menu` comes first in its menu.
+  function versionObj(project, entity, v, { list = false, tierName = (t) => t, day = false, kinds = false, tiers = false, open, menu = [] } = {}) {
     const views = verViews(v);
     const about = [
       list && clock(v.createdAt),
@@ -2945,10 +2972,10 @@
       v.descriptor,
     ].filter(Boolean).join(' · ') || (!list && v.originalName) || '';
     return {
-      kind: 'version', state: v.hidden && 'hidden-ver', picked: vpick.ids.has(v.id), attrs: verPicks(project, entity, v),
+      kind: 'version', state: v.hidden && 'hidden-ver', picked: vpick.ids.has(v.id), attrs: verPicks(project, entity, v, open),
       pick: (range) => pickVersion(project, v.id, range),
       box: verBox(project, v),
-      still: verStill(entity, v, kinds && WB.layout() !== 'table'),
+      still: verStill(entity, v, kinds && WB.layout() !== 'table', open),
       name: verName(project, entity, v, list), title: v.label,
       lines: [
         about,
@@ -2967,7 +2994,7 @@
         by: v.createdBy && el('span', { class: 'vt-who' }, WB.avatar(v.createdBy), el('span', { class: 'vt-main', text: v.createdBy })),
         changed: [!list ? ago(v.createdAt) : day ? `${dayName(dayOf(v.createdAt))} ${clock(v.createdAt)}` : clock(v.createdAt), new Date(v.createdAt).toLocaleString()],
       },
-      menu: versionActions(project, entity, v),
+      menu: [...menu, ...versionActions(project, entity, v)],
     };
   }
   const versionsOf = (project, entity, vs, opts = { kinds: new Set(vs.map((v) => v.kind)).size > 1 }) => vs.map((v) => versionObj(project, entity || { id: v.entityId, name: v.entity, tier: v.tier }, v, opts));
@@ -3012,6 +3039,291 @@
       }),
       label('Notes', roots.length),
       roots.length ? el('div', { class: 'ent-threads' }, threads) : el('p', { class: 'home-empty', text: 'Nothing said about it yet. Notes made on any board it is on show here.' }));
+  }
+
+  // ------------------------------------------------------------- a project's playlists
+  //
+  // Some of a project's versions in the order a review goes through them, as in ShotGrid: made from what is
+  // picked anywhere versions are listed (Add to playlist), put in order by dragging, and played through
+  // one after another in the player, each with its own comments, as the timeline plays its shots.
+
+  const playlistData = new Map(); // playlist id -> { playlist, versions } as last fetched
+
+  // A playlist as an object: its first stills, how many versions, who made it and when it changed.
+  function playlistObj(project, p) {
+    return {
+      kind: 'playlist', tag: 'a', attrs: { href: WB.href.playlists(project.id, p.id) },
+      still: el('div', { class: `card-thumbs n${Math.min(p.thumbs.length, 4)}` }, p.thumbs.map((src) => el('img', { src, alt: '', loading: 'lazy', draggable: 'false' }))),
+      name: p.name,
+      lines: [`${plural(p.count, 'version')} · changed ${ago(p.updatedAt)}`],
+      cells: { versions: p.count, by: p.createdBy || '', changed: [ago(p.updatedAt), new Date(p.updatedAt).toLocaleString()] },
+      menu: playlistMenu(project, p),
+    };
+  }
+
+  function playlistMenu(project, p) {
+    return [
+      ['Rename…', () => renamePlaylist(project, p)],
+      [isPinned('place', WB.href.playlists(project.id, p.id)) ? 'Unpin from Home' : 'Pin to Home', () => togglePin({ kind: 'place', id: WB.href.playlists(project.id, p.id), href: WB.href.playlists(project.id, p.id), name: p.name, what: 'playlist', projectId: project.id })],
+      ['Delete playlist…', () => deletePlaylist(project, p), true],
+    ];
+  }
+
+  // What changed in a playlist shows in the sidebar and the lists at once.
+  function playlistsChanged(project, id) {
+    if (id) playlistData.delete(id);
+    loadCatalogue(project.id, true);
+    shownProject = '';
+    render();
+  }
+
+  async function newPlaylist(project, versions = []) {
+    const name = await WB.dialog({
+      title: 'New playlist', text: versions.length ? `With the ${plural(versions.length, 'version')} you picked on it, in that order.` : 'Add versions to it from anywhere they are listed.',
+      value: `Dailies ${new Date().toLocaleDateString()}`, placeholder: 'Playlist name', ok: 'Create playlist',
+    });
+    if (!name) return null;
+    try {
+      const p = await api('POST', `/api/projects/${project.id}/playlists`, { name, versions, by: me.name });
+      playlistsChanged(project);
+      return p;
+    } catch (err) {
+      fail(err);
+      return null;
+    }
+  }
+
+  async function renamePlaylist(project, p) {
+    const name = await WB.dialog({ title: 'Rename playlist', value: p.name, placeholder: 'Playlist name', ok: 'Rename' });
+    if (!name || name === p.name) return;
+    try {
+      await api('PATCH', `/api/playlists/${p.id}`, { name });
+      playlistsChanged(project, p.id);
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  async function deletePlaylist(project, p) {
+    const ok = await WB.dialog({ title: `Delete ${p.name}?`, text: 'The playlist goes. The versions on it stay where they are, in the catalogue and on any board.', ok: 'Delete playlist', danger: true });
+    if (!ok) return;
+    try {
+      await api('DELETE', `/api/playlists/${p.id}`);
+      if (currentView().playlist === p.id) location.hash = WB.href.playlists(project.id);
+      playlistsChanged(project, p.id);
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  // Versions put at the end of a playlist: one of the project's, or a new one. From a menu under `anchor`
+  // (or, from a version's own menu, a dialog listing them).
+  async function addToPlaylistMenu(project, anchor, ids) {
+    if (!ids.length) return;
+    const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`).catch(() => null);
+    const lists = (cat && cat.playlists) || [];
+    const add = async (p) => {
+      try {
+        await api('PATCH', `/api/playlists/${p.id}`, { add: ids });
+        vpick.ids.clear();
+        paintVersionPick(project);
+        playlistsChanged(project, p.id);
+        undoable(`${plural(ids.length, 'version')} added to ${p.name}`, null, { label: 'Open playlist', href: WB.href.playlists(project.id, p.id) });
+      } catch (err) {
+        fail(err);
+      }
+    };
+    const made = async () => {
+      const p = await newPlaylist(project, ids);
+      if (!p) return;
+      vpick.ids.clear();
+      paintVersionPick(project);
+      undoable(`${p.name} made, with ${plural(p.count, 'version')}`, null, { label: 'Open playlist', href: WB.href.playlists(project.id, p.id) });
+    };
+    if (!lists.length) return void made();
+    if (anchor) return void openMenu(anchor, [...lists.slice(0, 12).map((p) => [p.name, () => add(p)]), ['New playlist…', made]]);
+    const chosen = await pickFromList('Add to playlist', lists.map((p) => [p.id, p.name, plural(p.count, 'version')]), 'New playlist…');
+    if (chosen === 'new') made();
+    else if (chosen) add(lists.find((p) => p.id === chosen));
+  }
+
+  // A short list to choose one from, in a dialog: [id, name, what it is]; `more` is a last choice ('new').
+  function pickFromList(title, rows, more) {
+    return new Promise((resolve) => {
+      const dlg = el('dialog', { class: 'dlg' },
+        el('h2', { text: title }),
+        el('div', { class: 'picker' },
+          rows.map(([id, name, meta]) => el('button', { type: 'button', class: 'pick', onclick: () => { resolve(id); dlg.close(); } }, el('span', { html: ICON_PLAYLIST }), el('span', { text: name }), el('span', { class: 'pick-meta', text: meta }))),
+          more && el('button', { type: 'button', class: 'pick', onclick: () => { resolve('new'); dlg.close(); } }, el('span', { html: icon('plus', 16) }), el('span', { text: more }))),
+        el('div', { class: 'dlg-actions' }, el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() })));
+      dlg.addEventListener('close', () => { dlg.remove(); resolve(null); });
+      document.body.append(dlg);
+      dlg.showModal();
+    });
+  }
+
+  async function takeOffPlaylist(project, id, ids) {
+    const data = playlistData.get(id);
+    if (!data || !ids.length) return;
+    const before = data.versions.map((v) => v.id);
+    try {
+      await api('PATCH', `/api/playlists/${id}`, { versions: before.filter((x) => !ids.includes(x)) });
+      vpick.ids.clear();
+      paintVersionPick(project);
+      playlistsChanged(project, id);
+      undoable(`${plural(ids.length, 'version')} taken off ${data.playlist.name}`, async () => {
+        await api('PATCH', `/api/playlists/${id}`, { versions: before });
+        playlistsChanged(project, id);
+      });
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  // Its versions given anew in this order, as a drag left them.
+  async function reorderPlaylist(project, id, order) {
+    const data = playlistData.get(id);
+    if (!data) return;
+    const byId = new Map(data.versions.map((v) => [v.id, v]));
+    playlistData.set(id, { ...data, versions: order.map((x) => byId.get(x)).filter(Boolean) });
+    shownProject = '';
+    render();
+    try {
+      await api('PATCH', `/api/playlists/${id}`, { versions: order });
+      playlistsChanged(project, id);
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  // A project's playlists: a new one first, then each, the one changed last first.
+  async function playlistsPage(project, fresh, sig) {
+    const show = (list) => {
+      if (shownProject !== sig) return;
+      $('content').replaceChildren(
+        label('Playlists', list ? list.length : null),
+        !list ? el('p', { class: 'home-quiet', text: 'Loading…' })
+          : objectList('playlist', list.map((p) => playlistObj(project, p)), {
+            lead: { name: 'New playlist', meta: 'Versions to review, in order', title: 'A new playlist. Add versions to it from the Versions page, the catalogue or a shot', onclick: () => newPlaylist(project) },
+          }),
+        list && !list.length && el('p', { class: 'home-quiet', text: 'A playlist is some of the project\'s versions in the order a review goes through them. Pick versions on the Versions page and press Add to playlist, or start one here.' }));
+    };
+    if (fresh) show(null);
+    try {
+      const { playlists } = await api('GET', `/api/projects/${project.id}/playlists`);
+      show(playlists);
+    } catch (err) {
+      pageFailed(sig, err);
+    }
+  }
+
+  // A playlist's page: Play, and its versions in order, to drag into another order, open, or take off.
+  async function playlistPage(project, id, fresh, sig) {
+    const show = (data) => {
+      if (shownProject !== sig) return;
+      $('content').replaceChildren(...playlistView(project, data));
+      paintVersionPick(project);
+    };
+    const had = playlistData.get(id);
+    if (had) show(had);
+    else if (fresh) $('content').replaceChildren(el('p', { class: 'home-empty', text: 'Loading…' }));
+    try {
+      const data = await api('GET', `/api/playlists/${id}`);
+      playlistData.set(id, data);
+      renderCrumbs(route());
+      if (!had || JSON.stringify(had) !== JSON.stringify(data)) show(data);
+    } catch (err) {
+      pageFailed(sig, err);
+    }
+  }
+
+  function playlistView(project, data) {
+    const { playlist, versions } = data;
+    if (vpick.project !== project.id) {
+      dropVersionPick();
+      vpick.project = project.id;
+    }
+    vpick.order = versions.map((v) => v.id);
+    const kinds = new Set(versions.map((v) => v.kind)).size > 1;
+    const specs = versions.map((v, n) => versionObj(project, { id: v.entityId, name: v.entity, tier: v.tier }, v, {
+      kinds,
+      open: () => playPlaylist(project, data, v.id),
+      menu: [['Play from here', () => playPlaylist(project, data, v.id)], ['Take off the playlist', () => takeOffPlaylist(project, playlist.id, [v.id])]],
+    }));
+    const list = objectList('version', specs, { grid: 'board-grid ent-grid pl-grid' });
+    dragToOrder(list, (order) => reorderPlaylist(project, playlist.id, order));
+    return [
+      el('div', { class: 'cat-tools' },
+        el('button', { type: 'button', class: 'btn primary', html: `${ICON_PLAY}<span>Play</span>`, title: 'Play them one after another, from the first', disabled: !versions.length, onclick: () => playPlaylist(project, data, versions[0].id) }),
+        el('a', { class: 'btn ghost', href: WB.href.versions(project.id), html: `${ICON_PLUS}<span>Add versions</span>`, title: 'Pick versions on the Versions page, then Add to playlist' })),
+      label('Versions', versions.length, versions.length > 1 && el('span', { class: 'label-note', text: 'Drag to put them in order' })),
+      versions.length ? list : el('p', { class: 'home-quiet', text: 'Nothing on it yet. Pick versions on the Versions page, the catalogue or a shot\'s page, and press Add to playlist.' }),
+    ];
+  }
+
+  // Versions in a list put in another order by dragging one to where it should go: before the one it is
+  // dropped on, or after it when dropped on its second half. `done` is given the new order of ids.
+  function dragToOrder(list, done) {
+    const nodes = () => [...list.querySelectorAll(VER_NODES)];
+    let held = null;
+    const clear = () => { for (const n of list.querySelectorAll('.drop-before, .drop-after')) n.classList.remove('drop-before', 'drop-after'); };
+    const after = (node, e) => {
+      const r = node.getBoundingClientRect();
+      // Cards side by side go before or after by their halves across; rows of a table, down.
+      return WB.layout() === 'table' ? e.clientY > r.top + r.height / 2 : e.clientX > r.left + r.width / 2;
+    };
+    for (const node of nodes()) {
+      node.draggable = true;
+      node.addEventListener('dragstart', (e) => {
+        held = node.dataset.id;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', held); // Firefox will not start a drag without data
+        requestAnimationFrame(() => node.classList.add('lifted'));
+      });
+      node.addEventListener('dragend', () => {
+        held = null;
+        node.classList.remove('lifted');
+        clear();
+      });
+      node.addEventListener('dragover', (e) => {
+        if (!held || held === node.dataset.id) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        clear();
+        node.classList.add(after(node, e) ? 'drop-after' : 'drop-before');
+      });
+      node.addEventListener('drop', (e) => {
+        if (!held || held === node.dataset.id) return;
+        e.preventDefault();
+        const order = nodes().map((n) => n.dataset.id).filter((x) => x !== held);
+        const at = order.indexOf(node.dataset.id) + (after(node, e) ? 1 : 0);
+        order.splice(at, 0, held);
+        clear();
+        done(order);
+      });
+    }
+  }
+
+  // The playlist played through in the player, docked as the timeline is, from `startId`: each version as
+  // filed, one after another, with the comments on each. Going elsewhere closes it.
+  async function playPlaylist(project, data, startId) {
+    const pieces = data.versions.map((v) => {
+      const shown = WBViewer.inView(v.look, '');
+      return { ...shown, src: WB.playable(shown), full: shown.src, id: v.id, type: shown.type, label: v.label, name: v.entity, seq: N.seqOf(v.entity) || '', entityId: v.entityId };
+    });
+    if (!pieces.length) return;
+    thePlayer();
+    try {
+      await WBViewer.openRun(player, {
+        load: async () => pieces, me, dock: true,
+        title: () => `${project.name} · ${data.playlist.name}`,
+        onClose: () => { lookingAt = null; },
+      });
+      lookingAt = `playlist:${data.playlist.id}`;
+      if (startId && startId !== pieces[0].id) player.open(startId);
+    } catch (err) {
+      fail(err);
+    }
   }
 
   // ---- importing: many files at once, straight into the catalogue

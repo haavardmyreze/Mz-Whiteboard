@@ -642,6 +642,7 @@ const WB = (() => {
     boards: (id) => `#/f/${id}/boards`,
     catalogue: (id, { tier, seq, entity } = {}) => `#/f/${id}/catalogue${entity ? `/${entity}` : seq ? `/s/${encodeURIComponent(seq)}` : tier ? `/t/${tier}` : ''}`,
     versions: (id) => `#/f/${id}/versions`,
+    playlists: (id, playlist) => `#/f/${id}/playlists${playlist ? `/${playlist}` : ''}`,
     timeline: (id) => `#/f/${id}/timeline`,
     board: (id) => `/b/${id}`,
     abs: (h) => (h.startsWith('#') ? `/${h}` : h),

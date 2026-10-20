@@ -647,6 +647,18 @@ filed in it.
   boards, in rows below what is there, or "New board" makes one in the project with them on it, laid
   out as the edit is: a column for each sequence, left to right, its shots going down from first to
   last (assets and sets in columns after them). Either way they are those versions, with their notes.
+  "Add to playlist" puts them at the end of one of the project's playlists, or makes a new one with them.
+- **Playlists.** A board is laid out to present; a playlist is simply some of a project's versions in
+  the order a review goes through them, as in ShotGrid. A project's Playlists (in the sidebar, each one
+  under it) lists them, each with its first stills, how many versions it has and when it changed, with
+  a new one first. Versions go on from anywhere they are listed: pick them on the Versions page, the
+  catalogue or a shot's page and press Add to playlist, or use Add to playlist… in a version's menu. A
+  playlist's page has Play and its versions in order: drag one to where it should go, take some off
+  (Take off, with the selection; or from a version's menu, and Undo puts them back), or open one, which
+  plays the playlist from it. Play runs through them one after another in the player, docked as the
+  timeline is, on the same track, each version with its own comments. A playlist can be renamed,
+  deleted (its versions stay) and pinned to Home, from the menu beside its title. A version deleted
+  since is left off it.
 - **Changing many at once.** Select, above the catalogue, picks assets, sets and shots with a click
   (Shift and a click for every one between), or drag on empty space to draw a box over them, as in a
   file manager (with Shift, Ctrl or Cmd it adds to what is picked; the Versions list and an asset's

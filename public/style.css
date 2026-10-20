@@ -2959,3 +2959,19 @@ body.spectating #topbar .brand { pointer-events: none; }
 .rule-more li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 4px 8px; border-radius: var(--r-1); background: var(--surface-2); }
 .rule-more li b { color: var(--text); font-weight: 600; }
 .rule-more li.rule-rest { display: block; background: none; }
+
+/* ---------------------------------------------------------------- playlists */
+
+/* Where a version dragged along a playlist will go: a line in blue (it is "this one" being placed), on the
+   side of the version it goes before or after. */
+[data-layout="cards"] .obj-version:is(.drop-before, .drop-after)::after { content: ""; position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); pointer-events: none; }
+[data-layout="cards"] .obj-version.drop-before::after { left: -11px; }
+[data-layout="cards"] .obj-version.drop-after::after { right: -11px; }
+[data-layout="rows"] .obj-version.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+[data-layout="rows"] .obj-version.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
+.vt-row.obj-version.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.vt-row.obj-version.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+.obj-version[draggable="true"] { cursor: grab; }
+/* A quiet word beside a section's name: how to use what is under it. */
+.label-note { color: var(--muted); font-size: var(--fs-sm); font-weight: 400; letter-spacing: 0; }
+.pick-meta { margin-left: auto; color: var(--muted); font-size: var(--fs-sm); }

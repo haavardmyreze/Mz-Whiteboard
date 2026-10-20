@@ -2249,7 +2249,10 @@ button.imp-row:hover { background: var(--hover); }
 /* The way into a project's catalogue: a quiet line above it, and anywhere on it a drop. */
 /* The catalogue's actions under its title: the one way in, set in ink, then what sets up and what selects,
    quieter. Dropping files anywhere on the page says so when they are over it. */
-.cat-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 -8px; }
+.cat-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 0; }
+/* Whatever comes under the actions keeps clear of them: a section with its heading, or a list that has none. */
+.cat-tools + .section-label { margin-top: 32px; }
+.cat-tools + :is(.board-grid, .folder-grid) { margin-top: 24px; }
 .cat-tools .btn.ghost { padding: 0 10px; }
 @media (max-width: 560px) { .cat-tools { gap: 4px; margin-top: 8px; } .cat-tools .btn .cat-long { display: none; } }
 .cat-tools .btn svg { width: 16px; height: 16px; }
@@ -2378,7 +2381,7 @@ button.imp-row:hover { background: var(--hover); }
 .v-extras { display: inline-flex; align-items: center; gap: 6px; }
 
 /* Picking assets, sets and shots to change together, and the bar that says how many. */
-.pick-toggle.on { border-color: transparent; background: var(--ink-bg); color: var(--ink-fg); }
+.pick-toggle.on, .bpick-toggle.on { border-color: transparent; background: var(--ink-bg); color: var(--ink-fg); }
 .pick-box { display: none; }
 body.picking .card.ent .pick-box { position: absolute; z-index: 2; top: 8px; left: 8px; display: grid; place-items: center; width: 20px; height: 20px; border: 1.5px solid rgba(255, 255, 255, 0.85); border-radius: var(--r-2); background: rgba(0, 0, 0, 0.45); }
 body.picking .card.ent { cursor: pointer; }

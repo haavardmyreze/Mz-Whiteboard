@@ -1672,7 +1672,7 @@
   }
   function boardTools() {
     return el('div', { class: 'cat-tools board-tools' },
-      el('button', { type: 'button', class: `btn bpick-toggle${bselecting ? ' on' : ''}`, html: `${ICON_CHECKS}<span>Select</span>`, title: 'Select boards and folders, to move or delete them together', onclick: () => setBoardSelecting(!bselecting) }));
+      el('button', { type: 'button', class: `btn ghost bpick-toggle${bselecting ? ' on' : ''}`, html: `${ICON_CHECKS}<span>Select</span>`, title: 'Select boards and folders, to move or delete them together', onclick: () => setBoardSelecting(!bselecting) }));
   }
   // A click on a board or folder while selecting selects it rather than opening it.
   document.addEventListener('click', (e) => {

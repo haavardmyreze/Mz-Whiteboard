@@ -2968,6 +2968,16 @@ body.spectating #topbar .brand { pointer-events: none; }
 .rule-more li b { color: var(--text); font-weight: 600; }
 .rule-more li.rule-rest { display: block; background: none; }
 
+/* The order of a project's sequences, in its settings: numbered, each with arrows to move it. */
+.ps-row:has(.ps-seq-box) { align-items: start; }
+.ps-seq-box { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; width: 100%; }
+.ps-seqs { width: 100%; max-height: 240px; margin: 0; padding: 0; overflow-y: auto; list-style: none; border-top: 1px solid var(--line); }
+.ps-seq { display: flex; align-items: center; gap: 8px; min-height: 32px; border-bottom: 1px solid var(--line); }
+.ps-seq-n { width: 20px; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; text-align: right; }
+.ps-seq-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ps-seq .up svg { transform: rotate(-90deg); }
+.ps-seq .down svg { transform: rotate(90deg); }
+
 /* ---------------------------------------------------------------- playlists */
 
 /* Where a version dragged along a playlist will go: a line in blue (it is "this one" being placed), on the

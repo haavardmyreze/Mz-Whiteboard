@@ -50,6 +50,9 @@
   // ------------------------------------------------------------- library helpers
 
   const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+  // A project's sequences, and its shots by them, in the order its settings give (see seqOrder in naming.js).
+  const seqSort = (project) => WBNaming.seqOrder(project && project.settings && project.settings.seqs);
+  const shotSort = (project) => WBNaming.shotOrder(project && project.settings && project.settings.seqs);
   // A folder is found whatever workspace it is in; only the top level, `null`, is the workspace's own.
   const folderById = (id) => everything.folders.find((f) => f.id === id) || null;
   // The project the page is in, if it is in one.
@@ -511,6 +514,27 @@
     let rulesRow = null;
     let model = was ? { url: was.model, name: was.name || 'Model' } : null;
     const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`).catch(() => null);
+    // The order of its sequences, first to last: as set, then any it has that the order does not name yet,
+    // by name. Moved with the arrows beside each; By name puts them back in the order their names sort.
+    const seqNames = [...new Set(((cat && cat.entities) || []).filter((e) => e.tier === 'shot' && N.seqOf(e.name)).map((e) => N.seqOf(e.name)))];
+    let seqs = seqNames.slice().sort(seqSort(project));
+    const seqList = el('ol', { class: 'ps-seqs' });
+    const paintSeqs = () => seqList.replaceChildren(...seqs.map((q, i) => {
+      const move = (by) => {
+        const next = seqs.slice();
+        next.splice(i + by, 0, ...next.splice(i, 1));
+        seqs = next;
+        paintSeqs();
+        seqList.querySelectorAll('.ps-seq')[i + by]?.querySelector(by < 0 ? '.up' : '.down')?.focus();
+      };
+      return el('li', { class: 'ps-seq' },
+        el('span', { class: 'ps-seq-n', text: String(i + 1) }),
+        el('span', { class: 'ps-seq-name', text: q }),
+        el('button', { type: 'button', class: 'iconbtn mini up', html: icon('chevron', 14), title: `Move ${q} up`, 'aria-label': `Move ${q} up`, disabled: i === 0, onclick: () => move(-1) }),
+        el('button', { type: 'button', class: 'iconbtn mini down', html: icon('chevron', 14), title: `Move ${q} down`, 'aria-label': `Move ${q} down`, disabled: i === seqs.length - 1, onclick: () => move(1) }));
+    }));
+    const seqReset = el('button', { type: 'button', class: 'btn small ghost', text: 'By name', title: 'Put them in the order their names sort', onclick: () => { seqs = seqNames.slice().sort(N.seqOrder()); paintSeqs(); } });
+    paintSeqs();
     // Its views, as set.
     const list = (cat && cat.viewList) || null;
     const byView = el('input', { type: 'checkbox', class: 'switch', ...(list && { checked: true }), 'aria-label': 'Several views of each version' });
@@ -586,7 +610,7 @@
           }
           save.disabled = true;
           try {
-            await api('PATCH', `/api/folders/${project.id}`, { settings: { tasks: byTask.checked, views: byView.checked ? named() : false, rules, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value } : null } });
+            await api('PATCH', `/api/folders/${project.id}`, { settings: { tasks: byTask.checked, views: byView.checked ? named() : false, rules, seqs, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value } : null } });
             catalogues.delete(project.id);
             await refresh();
             dlg.close();
@@ -603,6 +627,8 @@
       row('Several views of each version', 'Each version as more than one file: cmp and bty, say', byView),
       viewsRow,
       rulesRow,
+      seqNames.length > 1 && el('h3', { class: 'ps-sec', text: 'Sequences' }),
+      seqNames.length > 1 && row('Order', 'First to last, as the timeline plays them and every list shows them', el('div', { class: 'ps-seq-box' }, seqList, seqReset)),
       el('h3', { class: 'ps-sec', text: '3D' }),
       row('Venue model', 'A .glb with a camera named “main”: the player gets a 2D / 3D switch', el('div', { class: 'ps-model' }, file, choose, remove), picker),
       surfaceRow,
@@ -817,7 +843,7 @@
       }
       return cat.tiers.flatMap((t) => {
         const of = cat.entities.filter((e) => e.tier === t.id);
-        const seqs = t.id === 'shot' ? [...new Set(of.map((e) => N.seqOf(e.name)).filter(Boolean))].sort() : [];
+        const seqs = t.id === 'shot' ? [...new Set(of.map((e) => N.seqOf(e.name)).filter(Boolean))].sort(seqSort(f)) : [];
         return sideRow({
           key: `t:${f.id}:${t.id}`, depth: depth + 2, icon: null, label: t.label, href: WB.href.catalogue(f.id, { tier: t.id }), count: of.length, hereK,
           kids: seqs.length ? () => seqs.flatMap((q) => sideRow({ key: `s:${f.id}:${q}`, depth: depth + 3, icon: null, label: q, href: WB.href.catalogue(f.id, { seq: q }), count: of.filter((e) => N.seqOf(e.name) === q).length, hereK })) : null,
@@ -1416,7 +1442,9 @@
       if (!groups.has(k)) groups.set(k, { key: `g${k}`, title: k, rank, list: [] });
       groups.get(k).list.push(v);
     }
-    return [...groups.values()].sort((a, b) => a.rank - b.rank || byNatural(a.title, b.title));
+    // Sequences go in the order the project gives them; the rest by name.
+    const bySeq = seqSort(folderById(vpick.project));
+    return [...groups.values()].sort((a, b) => a.rank - b.rank || (st.group === 'seq' && a.rank === 0 ? bySeq(a.title, b.title) : byNatural(a.title, b.title)));
   }
 
   function versionsView(project, data, st = vlState(project)) {
@@ -2260,7 +2288,8 @@
     const shots = cat.entities.filter((e) => e.tier === 'shot' && N.seqOf(e.name));
     if (!shots.length) return null;
     const bySeq = new Map();
-    for (const e of shots.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))) {
+    const inOrder = shotSort(project);
+    for (const e of shots.sort((a, b) => inOrder(a.name, b.name))) {
       const q = N.seqOf(e.name);
       if (!bySeq.has(q)) bySeq.set(q, []);
       bySeq.get(q).push(e);
@@ -2707,7 +2736,8 @@
         const seq = N.seqOf(e.name) || 'other';
         (seqs.get(seq) || seqs.set(seq, []).get(seq)).push(e);
       }
-      for (const [seq, shots] of seqs) out.push(groupHead(seq, { level: 2 }), shown(shots));
+      const bySeq = seqSort(project);
+      for (const [seq, shots] of [...seqs].sort(([a], [b]) => (a === 'other') - (b === 'other') || bySeq(a, b))) out.push(groupHead(seq, { level: 2 }), shown(shots));
     }
     if (!out.length) {
       out.push(el('div', { class: 'home-empty cat-empty' },

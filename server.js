@@ -865,9 +865,15 @@ function cleanProjectSettings(asked, was = {}) {
     // One name is no more than the one way every version is shown.
     out.views = names.length > 1 ? names : false;
   }
+  const seqName = (v) => typeof v === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(v) && v.length <= 80;
+  // The order its sequences go in (in the timeline, the catalogue, wherever they are listed), first to last.
+  if (Array.isArray(asked.seqs)) {
+    const seqs = [...new Set(asked.seqs.filter(seqName))].slice(0, 500);
+    if (seqs.length) out.seqs = seqs;
+    else delete out.seqs;
+  }
   if (Array.isArray(asked.rules)) {
     const rules = new Map();
-    const seqName = (v) => typeof v === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(v) && v.length <= 80;
     for (const r of asked.rules.slice(0, 200)) {
       if (!r || typeof r !== 'object') continue;
       // A whole name's pattern (see patternFrom in naming.js): where its sequence and shot are, at least.
@@ -1371,7 +1377,7 @@ async function handleCatalogue(req, res, parts) {
         const ents = store.entities(project.id);
         out.facets = {
           tasks: store.projectTasks(project.id), filers: store.projectFilers(project.id), artists: store.projectArtists(project.id),
-          seqs: [...new Set(ents.filter((e) => e.tier === 'shot' && naming.seqOf(e.name)).map((e) => naming.seqOf(e.name)))].sort(),
+          seqs: [...new Set(ents.filter((e) => e.tier === 'shot' && naming.seqOf(e.name)).map((e) => naming.seqOf(e.name)))].sort(naming.seqOrder(project.settings && project.settings.seqs)),
           tiers: naming.TIER_LIST.filter((t) => ents.some((e) => e.tier === t.id)).map((t) => ({ id: t.id, label: t.label })),
           untasked: ents.some((e) => e.tops && e.tops['']),
         };
@@ -1456,6 +1462,7 @@ async function handleCatalogue(req, res, parts) {
       const ops = [];
       if (body.layout === 'sequences') {
         const byName = (a, b) => a.localeCompare(b, undefined, { numeric: true });
+        const bySeq = naming.seqOrder(project.settings && project.settings.seqs);
         const cols = new Map();
         for (const v of list) {
           const e = store.entity(v.entityId);
@@ -1463,7 +1470,7 @@ async function handleCatalogue(req, res, parts) {
           (cols.get(key) || cols.set(key, []).get(key)).push({ v, name: e.name });
         }
         let x = 0;
-        for (const key of [...cols.keys()].sort((a, b) => a[0] - b[0] || byName(a, b))) {
+        for (const key of [...cols.keys()].sort((a, b) => a[0] - b[0] || (a[0] === '0' ? bySeq(a.slice(2), b.slice(2)) : byName(a, b)))) {
           const col = cols.get(key).sort((a, b) => byName(a.name, b.name) || byName(a.v.task || '', b.v.task || '') || a.v.number - b.v.number);
           let y = 0;
           let widest = 0;
@@ -1519,8 +1526,8 @@ async function handleCatalogue(req, res, parts) {
     // that task, or of any), what the timeline view lays out and plays through.
     if (parts.length === 4 && parts[3] === 'timeline' && req.method === 'GET') {
       const task = new URL(req.url, 'http://x').searchParams.get('task');
-      const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
-      const shots = store.entities(project.id).filter((e) => e.tier === 'shot').sort(byName);
+      const inOrder = naming.shotOrder(project.settings && project.settings.seqs);
+      const shots = store.entities(project.id).filter((e) => e.tier === 'shot').sort((a, b) => inOrder(a.name, b.name));
       return sendJson(res, 200, {
         tasks: store.projectTasks(project.id),
         views: store.projectViews(project.id),
@@ -3569,8 +3576,9 @@ function retellPresentations(versionIds) {
 
 // The newest version of each of the project's shots, as the timeline plays them (of `task`, or of any).
 function timelineShots(projectId, task) {
-  const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
-  return store.entities(projectId).filter((e) => e.tier === 'shot').sort(byName).map((e) => {
+  const p = folders.get(projectId);
+  const inOrder = naming.shotOrder(p && p.settings && p.settings.seqs);
+  return store.entities(projectId).filter((e) => e.tier === 'shot').sort((a, b) => inOrder(a.name, b.name)).map((e) => {
     const v = task ? store.newestOfTask(e.id, naming.tokenize(task) || null) : e.newest;
     return { e, v };
   });

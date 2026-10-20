@@ -700,7 +700,13 @@ Every project is made of the same things, written one way, so there is nothing t
   otherwise.
 - **Sequences and their shots**: a shot is `<sequence>-<four digits>` (`kilo-0010`, `chap01-0020`), its
   sequence everything before the number. Everything that counts shots goes by this: `20`, `+`, the next
-  shot, Shift+Enter, the timeline.
+  shot, Shift+Enter, the timeline. Sequences go in the order their names sort (chap2 before chap10), unless
+  the project gives them another: Order, under Sequences in its settings (the sliders beside the
+  project's title), lists them first to last, each moved up or down with its arrows, or put back By name.
+  Sequences named for what they are (kine, haus, elec) are put in story order there. The timeline plays
+  them in that order, and the catalogue, the sidebar, the project's home, the Versions page grouped by
+  sequence, its filters, and a new board laid out as the edit all list them so; a sequence the order
+  does not name yet comes after those it does.
 
 A file's name is read as the app writes names: `<name>[_<task>][_<descriptor>][_<artist>]_v###[_<view>]`
 (`kilo-0010_anim_erik_v012_bty.mov`). Its name counts when it is a shot, one the project has, or one

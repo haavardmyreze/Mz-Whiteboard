@@ -3030,3 +3030,29 @@ test('a playlist holds some of a project\'s versions in an order, which can be c
   assert.equal((await call('GET', `/api/playlists/${id}`)).status, 404);
   assert.equal((await call('GET', `/api/versions/${b.id}`)).status, 200);
 });
+
+test('a project puts its sequences in the order it is given, and those it does not name after them by name', async (t) => {
+  const s = start(4900);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Haus' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  await call('POST', `/api/projects/${project.id}/entities`, { names: ['elec-0010', 'haus-0020', 'kine-0010', 'haus-0010', 'zulu-0010', 'char-rock'] });
+  const seqs = async () => [...new Set((await call('GET', `/api/projects/${project.id}/timeline`)).body.shots.map((x) => x.name))];
+  // without an order, by name
+  assert.deepEqual(await seqs(), ['elec-0010', 'haus-0010', 'haus-0020', 'kine-0010', 'zulu-0010']);
+  // in the order given; one it does not name (zulu) after, and a name that is no sequence is left out
+  const set = await call('PATCH', `/api/folders/${project.id}`, { settings: { seqs: ['kine', 'haus', 'elec', 'Not One', 'kine'] } });
+  assert.equal(set.status, 200);
+  assert.deepEqual(set.body.settings.seqs, ['kine', 'haus', 'elec']);
+  assert.deepEqual(await seqs(), ['kine-0010', 'haus-0010', 'haus-0020', 'elec-0010', 'zulu-0010']);
+  assert.deepEqual((await call('GET', `/api/projects/${project.id}/versions?find=1`)).body.facets.seqs, ['kine', 'haus', 'elec', 'zulu']);
+  // an empty order goes back to by name
+  await call('PATCH', `/api/folders/${project.id}`, { settings: { seqs: [] } });
+  assert.deepEqual(await seqs(), ['elec-0010', 'haus-0010', 'haus-0020', 'kine-0010', 'zulu-0010']);
+});

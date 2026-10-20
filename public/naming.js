@@ -58,6 +58,24 @@
   // The sequence a shot is in: everything before its number ("kilo" for kilo-0010, "ch01" for
   // ch01-0010). Asked only of shots, so a shot named by hand with a shorter number (ab-12) still has one.
   const seqOf = (name) => (/^([a-z0-9]+(?:-[a-z0-9]+)*)-\d+$/.exec(name || '') || [])[1] || null;
+  // Sequences in the order a project gives them (its settings' `seqs`: kine, haus, elec), and any it does
+  // not list after them, as their names sort (chap2 before chap10). Without an order, by name.
+  const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+  function seqOrder(order) {
+    const at = new Map((order || []).map((q, i) => [q, i]));
+    const rank = (q) => (at.has(q) ? at.get(q) : Infinity);
+    return (a, b) => rank(a) - rank(b) || natural(a, b);
+  }
+  // Names of shots in the order of their sequences, and within one by number; anything else after them.
+  function shotOrder(order) {
+    const bySeq = seqOrder(order);
+    return (a, b) => {
+      const [sa, sb] = [seqOf(a), seqOf(b)];
+      if (sa && sb && sa !== sb) return bySeq(sa, sb);
+      if (!sa !== !sb) return sa ? -1 : 1;
+      return natural(a, b);
+    };
+  }
   // A shot's number written out (0010), the shot of a sequence by its number (kilo-0010), and a shot's number.
   const pad = (n) => String(Math.min(10 ** DIGITS - 1, Math.max(0, n))).padStart(DIGITS, '0');
   const shotName = (seq, n) => `${seq}-${pad(n)}`;
@@ -398,7 +416,7 @@
     : rule.seq ? `${rule.word}${rule.glued ? '' : ' '}010 → ${shotName(rule.seq, 10)}` : `${rule.word} → ${rule.name}`);
 
   return {
-    TIERS, TIER_LIST, TASKS, TOKEN, VIEWS, DIGITS, tokenize, tierOf, kindOf, seqOf, parse, label,
+    TIERS, TIER_LIST, TASKS, TOKEN, VIEWS, DIGITS, tokenize, tierOf, kindOf, seqOf, seqOrder, shotOrder, parse, label,
     pad, shotName, shotNumber, sequence, nextShot, readLine, corrections, distance, nearMisses, ruleFrom, byRules, ruleText, ruleKey, PATTERN_TOKEN,
   };
 });

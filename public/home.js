@@ -3457,15 +3457,26 @@
   // each as filed with its own comments, to move between with the strip down the left or the arrows. It is
   // not an edit: nothing plays on into the next. Going elsewhere closes it.
   async function playPlaylist(project, data, startId) {
-    const pieces = data.versions.map((v) => {
-      const shown = WBViewer.inView(v.look, '');
+    // On the venue (a project with a model of it, as in the timeline) each is shown in the view the project
+    // puts on its model; otherwise as filed.
+    const preview3d = project.settings && project.settings.preview3d;
+    let in3d = false;
+    let reload = () => {};
+    const load = async () => data.versions.map((v) => {
+      const shown = WBViewer.inView(v.look, in3d ? preview3d.view : '');
       return { ...shown, src: WB.playable(shown), full: shown.src, id: v.id, type: shown.type, label: v.label, name: v.entity, seq: N.seqOf(v.entity) || '', entityId: v.entityId };
     });
-    if (!pieces.length) return;
+    if (!data.versions.length) return;
     thePlayer();
     try {
       await WBViewer.openRun(player, {
-        load: async () => pieces, me, dock: true, run: false, at: startId,
+        load, me, dock: true, run: false, at: startId,
+        ...(preview3d && preview3d.model && {
+          view3d: { ...preview3d, key: project.id },
+          onMode3d: (on) => { in3d = on; reload({ keep: true }); },
+        }),
+        // Nothing of its own to choose in the bar; it only needs to be told to lay the pieces out again.
+        choices: (again) => { reload = again; return []; },
         title: () => `${project.name} · ${data.playlist.name}`,
         onClose: () => { lookingAt = null; },
       });

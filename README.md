@@ -679,8 +679,9 @@ filed in it.
   catalogue or a shot's page and press Add to playlist, or use Add to playlist… in a version's menu. A
   playlist's page has Play and its versions in order: drag one to where it should go, take some off
   (Take off, with the selection; or from a version's menu, and Undo puts them back), or open one, which
-  plays the playlist from it. Play runs through them one after another in the player, docked as the
-  timeline is, on the same track, each version with its own comments. A playlist can be renamed,
+  opens the playlist on it. Play opens them in the player, docked as the timeline is: one version at a
+  time, as an asset's versions are, with the strip down the left to move between them (nothing plays on
+  into the next, and there is no timeline across them), each with its own comments. A playlist can be renamed,
   deleted (its versions stay) and pinned to Home, from the menu beside its title. A version deleted
   since is left off it.
 - **Changing many at once.** Select, above the catalogue, picks assets, sets and shots with a click

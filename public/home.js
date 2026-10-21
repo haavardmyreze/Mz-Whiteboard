@@ -3397,13 +3397,13 @@
     const specs = versions.map((v, n) => versionObj(project, { id: v.entityId, name: v.entity, tier: v.tier }, v, {
       kinds,
       open: () => playPlaylist(project, data, v.id),
-      menu: [['Play from here', () => playPlaylist(project, data, v.id)], ['Take off the playlist', () => takeOffPlaylist(project, playlist.id, [v.id])]],
+      menu: [['Open here', () => playPlaylist(project, data, v.id)], ['Take off the playlist', () => takeOffPlaylist(project, playlist.id, [v.id])]],
     }));
     const list = objectList('version', specs, { grid: 'board-grid ent-grid pl-grid' });
     dragToOrder(list, (order) => reorderPlaylist(project, playlist.id, order));
     return [
       el('div', { class: 'cat-tools' },
-        el('button', { type: 'button', class: 'btn primary', html: `${ICON_PLAY}<span>Play</span>`, title: 'Play them one after another, from the first', disabled: !versions.length, onclick: () => playPlaylist(project, data, versions[0].id) }),
+        el('button', { type: 'button', class: 'btn primary', html: `${ICON_PLAY}<span>Play</span>`, title: 'Open them in the player, from the first', disabled: !versions.length, onclick: () => playPlaylist(project, data, versions[0].id) }),
         el('a', { class: 'btn ghost', href: WB.href.versions(project.id), html: `${ICON_PLUS}<span>Add versions</span>`, title: 'Pick versions on the Versions page, then Add to playlist' })),
       label('Versions', versions.length, versions.length > 1 && el('span', { class: 'label-note', text: 'Drag to put them in order' })),
       versions.length ? list : el('p', { class: 'home-quiet', text: 'Nothing on it yet. Pick versions on the Versions page, the catalogue or a shot\'s page, and press Add to playlist.' }),
@@ -3453,8 +3453,9 @@
     }
   }
 
-  // The playlist played through in the player, docked as the timeline is, from `startId`: each version as
-  // filed, one after another, with the comments on each. Going elsewhere closes it.
+  // The playlist in the player, docked as the timeline is, opened on `startId`: its versions one at a time,
+  // each as filed with its own comments, to move between with the strip down the left or the arrows. It is
+  // not an edit: nothing plays on into the next. Going elsewhere closes it.
   async function playPlaylist(project, data, startId) {
     const pieces = data.versions.map((v) => {
       const shown = WBViewer.inView(v.look, '');
@@ -3464,12 +3465,11 @@
     thePlayer();
     try {
       await WBViewer.openRun(player, {
-        load: async () => pieces, me, dock: true,
+        load: async () => pieces, me, dock: true, run: false, at: startId,
         title: () => `${project.name} · ${data.playlist.name}`,
         onClose: () => { lookingAt = null; },
       });
       lookingAt = `playlist:${data.playlist.id}`;
-      if (startId && startId !== pieces[0].id) player.open(startId);
     } catch (err) {
       fail(err);
     }

@@ -3184,7 +3184,10 @@ const WBViewer = (() => {
   // seen and held like a still, and nothing is written or drawn on it, as it has no version to be on.
   // `scene()` says what the run is (which sequence, task, view), for somebody presenting it. Somebody watching a
   // presentation has it `follow`ed: { room, read } (where the notes come from, and whether they are shown).
-  async function openRun(viewer, { load, me, title, choices, dock = false, view3d = null, onMode3d = null, onClose = () => {}, scene = null, follow = null }) {
+  // With `run: false` the pieces are only taken one at a time, as an entity's versions are: no edit, no
+  // timeline across them, the strip down the left to move between them, each opening at `at` (or the first).
+  // What is said is still about the piece on screen, in the room of the shot it belongs to.
+  async function openRun(viewer, { load, me, title, choices, dock = false, run = true, at = null, view3d = null, onMode3d = null, onClose = () => {}, scene = null, follow = null }) {
     let pieces = await load();
     if (!pieces.length) throw new Error('There are no shots to play yet');
     const onSlate = () => !!(pieces.find((x) => x.id === viewer.current()) || {}).empty;
@@ -3218,7 +3221,7 @@ const WBViewer = (() => {
       return room;
     };
     viewer.use({
-      run: true,
+      run,
       dock,
       locked: !!follow,
       me: () => me,
@@ -3249,7 +3252,7 @@ const WBViewer = (() => {
         else viewer.open(pieces[0].id);
       }));
     }
-    viewer.open(pieces[0].id);
+    viewer.open(pieces.some((p) => p.id === at) ? at : pieces[0].id);
   }
 
   // ---------------------------------------------------------------- a project's timeline, as its pieces

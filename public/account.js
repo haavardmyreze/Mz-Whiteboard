@@ -3,7 +3,7 @@
 // Your account: who you are here (name and colour, unless sign-in says), how the app looks (theme, and
 // lists as cards, compact rows or a table), what this computer caches of the videos, and the way to the
 // admin page or out.
-// Opened from your name in the home page's bar. Loaded after media.js and icons.js.
+// Opened from your name in the bar. Loaded after media.js and icons.js.
 const WBAccount = (() => {
   const { el } = WB;
   const icon = WB.icon;
@@ -102,8 +102,6 @@ const WBAccount = (() => {
           el('i', { class: 'kp-bar' }, el('i', { style: { width: `${Math.min(1, stats.bytes / WB.media.MAX) * 100}%` } })),
           el('label', { class: 'acct-row' }, el('span', { text: 'Cache videos ahead' }), ahead),
           kind('boards', 'Boards I open'),
-          kind('work', 'The newest of my work'),
-          kind('cc', 'The newest of what I am cc\'d on'),
           kind('pinned', 'The newest of what I pinned'),
           el('p', { class: 'acct-note', text: 'Whatever you open is cached. With caching ahead on, so is what the page you are on and the timeline show. What was opened longest ago makes room.' }),
           quota && quota.quota && el('p', { class: 'acct-note', text: `Browser storage · ${size(quota.usage || 0)} used of ${size(quota.quota)}` })),

@@ -502,7 +502,6 @@ body.home:not(.admin) .appbar .wordmark { color: var(--text); }
 .side-row:hover { background: var(--hover); }
 .side-row.here { background: var(--surface-2); }
 .side-row.here .side-link { color: var(--text); font-weight: 600; }
-.side-row.top { margin-bottom: 4px; }
 .side-twist { flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: var(--r-1); background: transparent; color: var(--muted); cursor: pointer; }
 .side-twist:hover { color: var(--text); }
 .side-twist svg { transition: transform 0.12s var(--ease); }
@@ -2305,7 +2304,7 @@ button.imp-row:hover { background: var(--hover); }
 .ent-artists span:last-child { overflow: hidden; text-overflow: ellipsis; }
 .avatar.xs { flex: none; display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: var(--surface-3); color: var(--text-2); font-size: 7.5px; font-weight: 700; }
 
-/* Home's feed: what happened lately to what is yours. */
+/* A project's activity: what happened in it lately. */
 .feed { display: flex; flex-direction: column; max-width: 860px; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); overflow: hidden; }
 .feed-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 14px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .feed-row:last-child { border-bottom: 0; }
@@ -2425,7 +2424,6 @@ body.picking main { padding-bottom: 120px; }
 .home-cols .section-label { margin-top: 32px; }
 .section-label .label-gap { flex: 1; }
 .section-label:has(.label-gap)::after { display: none; }
-.feed-seg { margin: 0; }
 .home-quiet { margin: 0; padding: 20px 0; color: var(--muted); font-size: var(--fs-ui); line-height: 1.5; }
 
 /* A project's home: this week at a glance, what happened grouped, its sequences, what is waiting. */
@@ -2478,15 +2476,10 @@ a.ph-shot:hover { outline: 2px solid var(--text); outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) { .ph-chev { transition: none; } }
 .home-cols .feed { max-width: none; }
 .feed-row { position: relative; width: 100%; }
-.feed-row.unread { background: color-mix(in srgb, var(--accent) 6%, transparent); }
-.feed-dot { position: absolute; top: 14px; right: 14px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
-.feed-more { display: block; width: 100%; padding: 10px; border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--text-2); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
-.feed-more:hover { background: var(--hover); color: var(--text); }
 .home-work { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
 @media (max-width: 1100px) {
   .home-cols { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
-.feed-seg .seg-btn { padding: 0 10px; }
 .home-cols .section-label { align-items: center; min-height: 36px; margin-bottom: 12px; }
 
 /* A project's versions, newest first, by day and by who filed a run of them. */

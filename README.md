@@ -29,26 +29,22 @@ private networks, otherwise only the host machine can connect.
 
 ## What it does
 
-- **Getting around the home page.** A sidebar on the left holds Home, then what you pinned (each a row
-  that goes there), then each workspace with its folders and projects as a tree. A project opens to its
+- **Getting around.** There is no separate home page: the app opens on the workspace you were last in
+  (Myreze to begin with), and the mark in the corner goes back to it. A sidebar on the left holds what
+  you pinned (each a row that goes there), then each workspace with its folders and projects as a tree. A project opens to its
   Reviews (its boards and playlists, each under it), Catalogue, Versions and Timeline, and the catalogue
   to its assets, sets and shots, the shots by
   sequence, each with a count. Only what you are in is open: the way to the page you are on is opened
   for you, and the rest close as you go elsewhere (an arrow opens a row for a look in the meantime). Rows
   with nothing in them show no count. Every page opens with its title, set large: the place you are in
   (kilo-0010). Above it, one small line says how you got there (Myreze / Kilo / Catalogue / Shots / kilo),
-  each part a link. The star beside the title pins exactly what is there to Home: a board's folder, a
+  each part a link. The star beside the title pins exactly what is there to the sidebar: a board's folder, a
   project, a sequence, a tier of the catalogue, the catalogue, Versions, the Timeline, or an asset, set or
   shot. On a narrow window the sidebar is a drawer, opened with the button at the left of the bar.
-- **Home.** Three things, and nothing else. What you pinned (boards, folders, projects, shots) along
-  the top. Updates: in the last two weeks, comments on your work (yours too, as "You", never marked
-  new), new versions of it by others, and new versions of what you are cc'd on, newest first; what came since you last marked them read is
-  marked, and All, Comments and New versions narrow it. Click one to open it in the player. Beside it,
-  My work: the assets, sets and shots you are an artist on or have filed versions of. Every card is the
-  catalogue's own: it scrubs under the pointer and plays the latest. Pin from a card's `...` menu or
-  the star beside where you are; pins and what is read are kept by this browser.
-- **Everything is an object, shown one way.** A board, a folder, an asset, set or shot, a version and a
-  place pinned to Home are all listed the way a file manager lists files, and every list (Home, a folder,
+- **Pinning.** Pin from a card's `...` menu or the star beside where you are; pins are kept by this
+  browser and listed in the sidebar until you unpin them.
+- **Everything is an object, shown one way.** A board, a folder, an asset, set or shot and a version
+  are all listed the way a file manager lists files, and every list (a workspace, a folder,
   the catalogue, Versions, an asset, set or shot's versions) can be shown three ways, chosen with the three
   buttons at the end of the page's title (or in Your account) and remembered per browser: as cards, as
   rows (a small still beside each name, many to a screen), or as a table. As cards, each is a print with
@@ -58,8 +54,7 @@ private networks, otherwise only the host machine can connect.
   each, one line high, like a compact row drawn out across the page: its still (or a folder's icon) at
   its left edge, scrubbing and playing as on a card, then its name, and in columns what its card says:
   a board's items and when it was edited; a folder's kind, boards and folders; an asset, set or shot's
-  versions, artists and when the last was filed; a version's as below; and for what is pinned to Home,
-  what each is, where, and when it changed. It is a plain table, its rows between hairlines, set as the
+  versions, artists and when the last was filed; and a version's as below. It is a plain table, its rows between hairlines, set as the
   catalogue is, under the same headings ("Shots 25", then each sequence, named as it is written), with
   its column headings staying in sight as the page scrolls; a narrower window
   leaves out what matters least first, and a phone keeps the still, the name and the menu. Each row is
@@ -171,12 +166,11 @@ private networks, otherwise only the host machine can connect.
   the videos are cached, with a count beside it ("2/5 cached"), and turns to a tick and "Cached" once
   the whole board is; hover or press it and it says more.
 - **Videos are kept on this computer everywhere, not only on boards.** One cache serves every page
-  (`public/media.js`): whatever video you open, in a board, the catalogue, the timeline or from Home, is
+  (`public/media.js`): whatever video you open, in a board, the catalogue or the timeline, is
   kept, and is there at once the next time. Ahead of you, in this order, it also fetches the timeline's
   next few shots as it plays, the open board's videos, the videos the page you are on shows (the
-  catalogue's cards, say), and the newest version of your work, of what you are cc'd on and of what
-  you pinned (Home's feed is fetched every few minutes for this, wherever you are). Your settings
-  (your name at the top right) turn fetching ahead off, or any of boards, work, cc'd and pinned. Up
+  catalogue's cards, say), and the newest version of what you pinned. Your settings
+  (your name at the top right) turn fetching ahead off, or either of boards and pinned. Up
   to 4 GB is kept; what was wanted longest ago makes room, never what the open board, the page or
   the timeline is showing, and when nothing more can be made room for, fetching ahead stops rather
   than throwing out what is wanted. A small service worker (`public/sw.js`) answers the pages' own
@@ -184,9 +178,9 @@ private networks, otherwise only the host machine can connect.
   timeline's next shot plays from the disk too. What is kept is listed in IndexedDB, a record a video,
   and a lock for each file keeps two tabs from fetching the same one.
 - **Seeing what is cached.** Every video card (in the catalogue, an asset's versions, the Versions
-  list, Home) has a badge in its top right corner: a green tick once it is cached on this computer, a
+  list) has a badge in its top right corner: a green tick once it is cached on this computer, a
   ring filling while it comes, a cloud while it still plays from the server. The ring a board has in
-  its bar is in Home's bar too, for whatever you are looking at: the cards of the page, or with the
+  its bar is in the page's bar too, for whatever you are looking at: the cards of the page, or with the
   timeline open, the whole timeline ("3/12 cached", then "Cached"), which is fetched in full behind the
   next few shots. Pressed, it says how much of it is here, what is on its way, and how full the cache is.
   A video that is more than the browser can process (a very large frame in Safari, say) is not added:
@@ -306,8 +300,8 @@ only they can see.
 
 ### Admin area
 
-With `google` or `iap` sign-in, the people named in `ADMIN_EMAILS` get an **Admin** link on the home
-page. At `/admin` they see everyone who has signed in, add people ahead of time, make other admins, put
+With `google` or `iap` sign-in, the people named in `ADMIN_EMAILS` get an **Admin** link in Your
+account. At `/admin` they see everyone who has signed in, add people ahead of time, make other admins, put
 people in groups, and give people or groups a role (viewer, commenter, editor or manager) on boards and
 folders in the Myreze workspace. It is three tabs: the people, a row each with their groups and when
 they were last seen; the groups, a card each with who is in it and what it opens; and the permissions,
@@ -684,7 +678,7 @@ filed in it.
   into the next, and there is no timeline across them), each with its own comments. In a project with a
   3D model of its venue the player has the 2D / 3D switch here too, each version shown on the model in the
   view the project puts on it. A playlist can be renamed,
-  deleted (its versions stay) and pinned to Home, from the menu beside its title. A version deleted
+  deleted (its versions stay) and pinned to the sidebar, from the menu beside its title. A version deleted
   since is left off it.
 - **Changing many at once.** Select, above the catalogue, picks assets, sets and shots with a click
   (Shift and a click for every one between), or drag on empty space to draw a box over them, as in a
@@ -802,8 +796,8 @@ highest number each task of each entity has reached). `POST /api/projects/<folde
 `{ "names": [...], "tier" }` to set many up at once; `PATCH /api/entities/<id>` takes `name`, `tier`,
 `artists` and `cc`, and `PATCH /api/projects/<folder>/entities` takes `{ "ids": [...], "tier",
 "artists": { "add" | "remove" | "set": [...] }, "cc": { ... } }` to change many at once. `GET /api/people`
-lists the names the app knows, and `GET /api/feed?name=` is Home's Updates and My work (and `cc`, what you are cc'd on, each with
-its newest version, for the cache to fetch ahead).
+lists the names the app knows, and `GET /api/feed?name=` is what happened lately to the work of the person named (and `cc`, what they are cc'd on, each with
+its newest version). No page asks for it now.
 `GET /api/projects/<folder>/activity` what happened in the project in the last two weeks (versions
 filed and comments, newest first), `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest version,
 `GET /api/projects/<folder>/versions?before=` the project's versions newest first, 300 a page, each with
@@ -902,9 +896,9 @@ public/ingest.js   Bringing media in: review copies of video, originals, timelin
 public/filing.js   Filing pieces as versions: the same line of parts, suggestions and notes under each row on a board (Shift+V) and in the catalogue's import
 public/claude.js   Asking Claude: the box, what it said, and the mark on what it filled in
 public/media.js    The video cache on this computer, with sw.js (the service worker that plays from it)
-public/home.js     Board list, and a project's catalogue
+public/home.js     Workspaces and folders of boards, and a project's pages
 public/account.js  Your account dialog: name, colour, theme, layout, the video cache, sign out
-public/notices.js  The bell: notifications on the home page
+public/notices.js  The bell: notifications in the bar
 public/naming.js   How names are written and file names read (shared with the server)
 public/common.js   Shared helpers: elements, menus, toasts, links, dialogs
 public/icons.js    Every icon, drawn once

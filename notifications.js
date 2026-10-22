@@ -1,6 +1,6 @@
 'use strict';
 
-// What someone is told about on the home page, worked out from the notes themselves rather than
+// What someone is told about in the bell, worked out from the notes themselves rather than
 // kept as a separate list. A comment by somebody else is news to you when it
 //   mentions you        "@Anna" or "@Anna Berg" anywhere in it
 //   replies to you      it is in a thread you wrote in

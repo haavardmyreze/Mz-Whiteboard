@@ -1,6 +1,6 @@
 'use strict';
 
-// Shared helpers for every page: the home page (home.js), a board (board.js), the admin page.
+// Shared helpers for every page: the boards page (home.js), a board (board.js), the admin page.
 // Scripts load in this order, each using those before it: common.js (WB), icons.js (WB.icon), media.js
 // (WB.media), naming.js (WBNaming), ingest.js (WBIngest), ink.js (WBInk), viewer.js (WBViewer), then the
 // page's own script.
@@ -634,9 +634,8 @@ const WB = (() => {
   }
 
   // ---- where things are: every address in the app is made here, so they read the same everywhere.
-  // On the home page they are hash routes; from a board, `abs` puts them under / as well.
+  // On the boards page they are hash routes; from a board, `abs` puts them under / as well.
   const href = {
-    home: () => '#/',
     space: (ws) => `#/w/${ws}`,
     folder: (id) => `#/f/${id}`,
     reviews: (id, playlist) => `#/f/${id}/reviews${playlist ? `/${playlist}` : ''}`,
@@ -653,16 +652,14 @@ const WB = (() => {
     theme: 'wb:theme',         // 'dark' | 'light'
     layout: 'wb:layout',       // 'cards' | 'rows' | 'table': how lists are shown
     workspace: 'wb:workspace', // the workspace last shown
-    pins: 'wb:pins',           // what is pinned to Home
+    pins: 'wb:pins',           // what is pinned to the sidebar
     recent: 'wb:recent',       // what was opened lately
-    feedSeen: 'wb:feed:seen',  // when Updates were last marked read
-    feedShow: 'wb:feed:show',  // which of Updates shows
     loop: 'wb:loop',           // the player loops videos
     noAhead: 'wb:noahead',     // videos are not cached ahead
     mediaKinds: 'wb:media:kinds', // which kinds are cached ahead
   };
 
-  // What was opened lately, newest first, for Home: { kind: 'board' | 'entity', id, … }.
+  // What was opened lately, newest first: { kind: 'board' | 'entity', id, … }.
   function remember(entry) {
     const list = (Array.isArray(store('wb:recent')) ? store('wb:recent') : []).filter((x) => !(x.kind === entry.kind && x.id === entry.id));
     list.unshift({ ...entry, at: Date.now() });

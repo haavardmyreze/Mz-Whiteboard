@@ -89,14 +89,14 @@
     return { page: 'catalogue', tier: m[2] === 't' ? m[3] : null, seq: m[2] === 's' ? m[3] : null, entity: m[4] || null };
   }
 
-  // Where the page is: Home (#/), a workspace's top level (#/w/<workspace>), or a folder (#/f/<id>…).
+  // Where the page is: a workspace's top level (#/w/<workspace>), or a folder (#/f/<id>…). With neither
+  // (#/), it is the workspace last shown, the shared one to begin with.
   function route() {
     const f = currentFolder();
     if (f) return { kind: 'folder', id: f };
     const w = /^#\/w\/(myreze|personal)/.exec(location.hash);
     if (w && (w[1] === 'myreze' || hasPersonal)) return { kind: 'space', space: w[1] };
-    if (/^#\/(w|f)\//.test(location.hash)) return { kind: 'space', space };
-    return { kind: 'home' };
+    return { kind: 'space', space };
   }
   const spaceHref = (ws) => `#/w/${ws}`;
   const spaceName = (ws) => (hasPersonal ? SPACES[ws] : 'All boards');
@@ -242,14 +242,14 @@
   // ------------------------------------------------------------- objects
   //
   // Everything the app lists is an object, as a file manager lists files: a board, a folder, an asset,
-  // set or shot, a version, a place pinned to Home. Each kind only says what it is made of (a spec, made
-  // by boardObj, folderObj, placeObj, entityObj and versionObj), and one component shows any of them as
+  // set or shot, a version. Each kind only says what it is made of (a spec, made
+  // by boardObj, folderObj, entityObj and versionObj), and one component shows any of them as
   // the layout in force has it (WB.layout, the switch in the bar): a card, a compact row (a card made
   // small, style.css), or a row of a table. objectList shows a list of them, objectTable puts the lists
   // of a page with groups under one row of headings, and groupHead heads a group as the catalogue does.
   //
   // A spec: {
-  //   kind                   'board' | 'folder' | 'entity' | 'version' | 'place'
+  //   kind                   'board' | 'folder' | 'entity' | 'version'
   //   tag, attrs, state      its element (an a with its href, or a div), its attributes, and classes that
   //                          say what state it is in (archived, a project), on a card and a row alike
   //   picked, pick(range)    whether it is selected, and what selects it (a row's box; none where
@@ -262,7 +262,7 @@
   //                          who is on it now), and its columns by key: text, [text, its tooltip], or a node
   //   menu, setup(node)      what its … menu has, and what more is done to what is made (dragging)
   // }
-  const OBJ_CARD = { board: '', folder: 'folder', place: 'folder place', entity: 'ent', version: 'ver', playlist: 'playlist' };
+  const OBJ_CARD = { board: '', folder: 'folder', entity: 'ent', version: 'ver', playlist: 'playlist' };
   // A table's columns: [key, heading, { w: its width in the grid (phone: on a phone), end: set against its end (numbers),
   // drop: how soon a narrower table leaves it out (1 first; 4 only on a phone), sort: what a click on its
   // heading sorts by, where the list can be sorted }]. The box, the picture, the name and the menu are
@@ -279,8 +279,6 @@
       col('by', 'Filed by', { w: 'minmax(104px, 1.2fr)', drop: 3 }), col('changed', 'Filed', { w: '128px', drop: 4, sort: 'new' })], { sort: 'name' }),
     // A project's reviews, boards and playlists together: what each is, how much is on it, when it changed.
     review: cols([col('kind', 'Kind', { w: '88px', drop: 2 }), col('items', 'Items', { w: '64px', end: true, drop: 1 }), col('changed', 'Changed', { w: '120px', drop: 3 })]),
-    // Different kinds together (what is pinned to Home): what each is, where, and when it last changed.
-    mixed: cols([col('kind', 'Kind', { w: '120px', drop: 2 }), col('where', 'Where', { w: 'minmax(96px, 1fr)', drop: 1 }), col('changed', 'Changed', { w: '120px', drop: 3 })]),
   };
   // A table's grid at each of five steps, each leaving out more (the columns it keeps; at the last, at
   // their `phone` width). The table takes the first step whose columns fit how wide it is, measured as it
@@ -365,7 +363,7 @@
       }, el('span', { text: title }), el('i', { class: 'vt-arrow', 'aria-hidden': 'true' })));
     }));
   }
-  // Some objects of one kind (or 'mixed'), as the layout in force shows them: a grid of cards (`grid`, its
+  // Some objects of one kind, as the layout in force shows them: a grid of cards (`grid`, its
   // classes), or a table with its headings. `lead` goes first ({ name, meta, title, onclick }: New board).
   // `bare` gives the rows alone, for a table that objectTable heads.
   function objectList(kind, specs, { grid = 'board-grid', lead, bare = false, ...head } = {}) {
@@ -716,7 +714,7 @@
       menu: [
         ['Rename', () => rename('folder', folder)],
         ['Move to…', () => moveDialog('folder', folder)],
-        [isPinned('folder', folder.id) ? 'Unpin from Home' : 'Pin to Home', () => togglePin({ kind: 'folder', id: folder.id })],
+        [isPinned('folder', folder.id) ? 'Unpin from sidebar' : 'Pin to sidebar', () => togglePin({ kind: 'folder', id: folder.id })],
         hasPersonal && [`Move to ${SPACES[otherSpace(folder.workspace)]} workspace`, () => moveSpace('folder', folder)],
         !folder.project && !inProject(folder.id) && !holdsProject(folder.id) && ['Make it a project', () => setProject(folder, true)],
         folder.project && ['Open the catalogue', () => { location.hash = WB.href.catalogue(folder.id); }],
@@ -752,7 +750,7 @@
       menu: [
         ['Rename', () => rename('board', board)],
         ['Move to…', () => moveDialog('board', board)],
-        [isPinned('board', board.id) ? 'Unpin from Home' : 'Pin to Home', () => togglePin({ kind: 'board', id: board.id })],
+        [isPinned('board', board.id) ? 'Unpin from sidebar' : 'Pin to sidebar', () => togglePin({ kind: 'board', id: board.id })],
         proj && ['Make a playlist of it…', () => playlistOfBoard(proj, board)],
         hasPersonal && [`Move to ${SPACES[otherSpace(board.workspace)]} workspace`, () => moveSpace('board', board)],
         ['Delete board', () => removeBoard(board), true],
@@ -784,7 +782,7 @@
   // ------------------------------------------------------------- pinned and recent
   //
   // Both are kept by this browser. What you opened (boards, from board.js, and assets, sets and shots)
-  // is remembered as you go; what you pin stays on Home until you unpin it.
+  // is remembered as you go; what you pin stays in the sidebar until you unpin it.
 
   const pins = () => (Array.isArray(store(WB.KEYS.pins)) ? store(WB.KEYS.pins) : []);
   // Pins to what has since been deleted go, once the library (and for an asset, set or shot, its
@@ -816,11 +814,10 @@
 
   // ------------------------------------------------------------- the sidebar
   //
-  // Always there on a wide window, and a drawer on a narrow one: Home, then each workspace with its
-  // folders as a tree, with what you pinned between. A project opens to its boards and its catalogue, and
+  // Always there on a wide window, and a drawer on a narrow one: what you pinned, then each workspace with
+  // its folders as a tree. A project opens to its boards and its catalogue, and
   // the catalogue to its assets, sets and shots, the shots by sequence. Only what you are in is open.
 
-  const ICON_HOME = icon('home', 16);
   const ICON_BOARDS = icon('boards', 16);
   const ICON_CAT = icon('catalogue', 16);
   const ICON_LIST = icon('list', 16);
@@ -842,7 +839,6 @@
 
   // The key of the place the page is on, as the tree names its rows.
   function hereKey(rt) {
-    if (rt.kind === 'home') return 'home';
     if (rt.kind === 'space') return `w:${rt.space}`;
     const f = folderById(rt.id);
     const v = f && f.project ? currentView() : { page: 'boards' };
@@ -948,7 +944,7 @@
     return sideRow({ key: `f:${f.id}`, depth, icon: PROJECT_SM, label: f.name, href: WB.href.folder(f.id), kids, drop, hereK, cls: 'project' });
   }
 
-  // A catalogue that would not load is not asked for again on every render (the sidebar, Home's pins and
+  // A catalogue that would not load is not asked for again on every render (the sidebar's pins and
   // the cache would ask in a loop): it says so where it would show, with a way to try again.
   const loading = new Set();
   const catFailed = new Map(); // project id -> when it failed
@@ -968,9 +964,8 @@
     renderSide(route());
     renderCrumbs(route());
     const rt = route();
-    if (rt.kind === 'home' && !$('q').value.trim()) render();
     // A project's reviews list its playlists, which come with its catalogue.
-    else if (rt.kind === 'folder' && rt.id === id && currentView().page === 'reviews' && !currentView().playlist && !typingInPage()) render();
+    if (rt.kind === 'folder' && rt.id === id && currentView().page === 'reviews' && !currentView().playlist && !typingInPage()) render();
   }
 
   // What you pinned, each as a row that goes there.
@@ -1010,7 +1005,6 @@
     const hereK = hereKey(rt);
     const wsList = hasPersonal ? ['myreze', 'personal'] : ['myreze'];
     $('side').replaceChildren(
-      ...sideRow({ key: 'home', depth: 0, icon: ICON_HOME, label: 'Home', href: '#/', hereK, cls: 'top' }),
       ...pinnedRows(hereK),
       ...wsList.flatMap((ws) => {
         const head = el('a', { class: `side-head${hereK === `w:${ws}` ? ' here' : ''}`, href: spaceHref(ws), onclick: closeDrawer },
@@ -1054,8 +1048,7 @@
     let pin = null;
     let settingsOf = null; // a project's home has the way to its settings
     let playlistHere = null; // a playlist's page has its menu beside its title
-    if (rt.kind === 'home') parts.push(['Home', '#/']);
-    else if (rt.kind === 'space') parts.push([spaceName(rt.space), spaceHref(rt.space), null, rt.space]);
+    if (rt.kind === 'space') parts.push([spaceName(rt.space), spaceHref(rt.space), null, rt.space]);
     else {
       const trail = trailTo(rt.id);
       const ws = trail.length ? trail[0].workspace : space;
@@ -1116,7 +1109,7 @@
     $('pagetools').replaceChildren(
       ...[pin && el('button', {
         type: 'button', class: `iconbtn crumb-pin${pinned ? ' on' : ''}`, html: ICON_STAR,
-        title: pinned ? 'Pinned to Home. Click to unpin' : 'Pin to Home', 'aria-pressed': String(!!pinned),
+        title: pinned ? 'Pinned to the sidebar. Click to unpin' : 'Pin to sidebar', 'aria-pressed': String(!!pinned),
         onclick: () => togglePin(pin),
       }),
       settingsOf && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('settings', 16), title: 'Project settings', 'aria-label': 'Project settings', onclick: () => projectSettings(settingsOf) }),
@@ -1126,37 +1119,13 @@
     document.title = `${parts[parts.length - 1][0]} · Boards`;
   }
 
-  // ------------------------------------------------------------- Home
-  //
-  // What you pinned, along the top; then Updates, what happened to your work and to what you are cc'd on,
-  // and beside it My work, what you make. Nothing else, so what matters is easy to see.
-
-  // The feed (GET /api/feed): fetched when Home shows, at most every half minute.
-  let feed = null;
-  let feedAt = 0;
-  async function loadFeed() {
-    feedAt = Date.now();
-    try {
-      feed = await api('GET', `/api/feed${WB.info().user ? '' : `?name=${encodeURIComponent(me.name)}`}`);
-    } catch {
-      return;
-    }
-    keepAhead();
-    if (route().kind === 'home' && !$('q').value.trim()) render();
-  }
-
   // ------------------------------------------------------------- kept on this computer ahead
   //
-  // The newest version of your work, of what you are cc'd on, and of what you pinned, is fetched ahead
-  // and kept on this computer (media.js), so it opens and scrubs at once when you get to it. So is what
-  // the page you are on shows. Each can be turned off in your settings.
+  // The newest version of what you pinned is fetched ahead and kept on this computer (media.js), so it
+  // opens and scrubs at once when you get to it. So is what the page you are on shows. Each can be turned
+  // off in your settings.
   const videoOf = (n) => (n && n.look && n.look.type === 'video' ? WB.playable(n.look) : null);
   function keepAhead() {
-    const R = WB.media.RANK;
-    if (feed) {
-      WB.media.want('work', feed.work.map((e) => videoOf(e.newest)), { rank: R.work, kind: 'work' });
-      WB.media.want('cc', (feed.cc || []).map((e) => videoOf(e.newest)), { rank: R.cc, kind: 'cc' });
-    }
     const pinned = [];
     for (const p of pins()) {
       if (p.kind !== 'entity' && !(p.kind === 'place' && (p.what === 'sequence' || p.what === 'tier'))) continue;
@@ -1172,7 +1141,7 @@
           : cat.entities.filter((e) => e.tier === tier);
       pinned.push(...of.slice().sort((a, b) => (b.latestAt || 0) - (a.latestAt || 0)).slice(0, 40).map((e) => videoOf(e.newest)));
     }
-    WB.media.want('pinned', pinned, { rank: R.pinned, kind: 'pinned' });
+    WB.media.want('pinned', pinned, { rank: WB.media.RANK.pinned, kind: 'pinned' });
   }
   // What the page shows: every video card that can be scrubbed, in the order they are made. The cards of
   // one go (one render) make the list; the next go makes it afresh.
@@ -1199,23 +1168,16 @@
     document.querySelector('.home-head .bellwrap').before(button);
     return WB.media.ring(button, () => (runOf && tlScope) || pageScope);
   })();
-  // The feed is fetched now and then wherever you are, so what is new is kept before you look.
-  setInterval(() => { if (!document.hidden) loadFeed(); }, 5 * 60 * 1000);
-  // What came since you last marked Updates read, kept by this browser.
-  const feedSeen = () => Number(store('wb:feed:seen')) || 0;
-  let feedShow = store('wb:feed:show') || 'all'; // all | notes | versions
-  let feedMore = false;
-
-  function feedRow(item, seen) {
+  // One line of a project's activity: a version filed, or a note written.
+  function feedRow(item) {
     const thing = el('strong', { text: item.version.label || item.entity.name });
     const what = item.kind === 'version'
       ? [el('strong', { text: item.by || 'Somebody' }), ' filed ', thing]
       : [el('strong', { text: item.mine ? 'You' : item.by || 'Somebody' }), item.note.reply ? ' replied on ' : ' commented on ', thing];
     const why = item.entity.role === 'cc' ? 'you are cc\'d' : item.entity.role ? 'your work' : null;
     const where = [item.entity.role !== undefined && item.entity.project, why, ago(item.at)].filter(Boolean).join(' · ');
-    const fresh = item.at > seen && !item.mine;
     return el('button', {
-      type: 'button', class: `feed-row ${item.kind}${fresh ? ' unread' : ''}${item.mine ? ' mine' : ''}`, title: 'Open it, to look, comment and draw',
+      type: 'button', class: `feed-row ${item.kind}${item.mine ? ' mine' : ''}`, title: 'Open it, to look, comment and draw',
       onclick: () => lookAt(item.entity.id, item.version.id),
     },
     item.kind === 'version'
@@ -1224,89 +1186,7 @@
     el('span', { class: 'feed-body' },
       el('span', { class: 'feed-what' }, ...what),
       item.note && el('span', { class: 'feed-text', text: item.note.text }),
-      el('span', { class: 'feed-where', text: where })),
-    fresh && el('span', { class: 'feed-dot', role: 'img', 'aria-label': 'New' }));
-  }
-
-  // An asset, set or shot pinned to Home, as its project's catalogue has it, so it scrubs and plays like
-  // any other.
-  function pinnedEntityObj(p) {
-    const project = folderById(p.projectId);
-    if (!project) return null;
-    const cat = catalogues.get(project.id);
-    const full = cat && cat.entities.find((e) => e.id === p.id);
-    if (!cat) loadCatalogue(project.id);
-    return entityObj(project, full || { id: p.id, name: p.name, thumb: p.thumb, tier: p.tier, versions: null });
-  }
-
-  // A place within a project pinned to Home (a sequence, the catalogue, Versions): what it is, in which
-  // project, and a way back to it.
-  function placeObj(p) {
-    const project = folderById(p.projectId);
-    if (!project) return null;
-    const what = { sequence: 'Sequence', tier: 'In the catalogue', catalogue: 'Catalogue', timeline: 'Timeline', versions: 'Versions', playlists: 'Playlists', playlist: 'Playlist' }[p.what] || '';
-    return {
-      kind: 'place', tag: 'a', attrs: { href: p.href },
-      icon: { sequence: ICON_FILM, tier: ICON_CAT, catalogue: ICON_CAT, timeline: ICON_FILM, versions: ICON_LIST, playlists: ICON_PLAYLIST, playlist: ICON_PLAYLIST }[p.what] || ICON_CAT,
-      name: p.what === 'sequence' || p.what === 'tier' || p.what === 'playlist' ? p.name : `${project.name} ${p.name.toLowerCase()}`,
-      lines: [`${what} · ${project.name}`],
-      cells: { kind: what, where: project.name },
-      menu: [['Unpin from Home', () => togglePin({ kind: 'place', id: p.id })]],
-    };
-  }
-
-  function homeView() {
-    const q = $('q').value.trim().toLowerCase();
-    if (q) {
-      const subs = everything.folders.filter((f) => f.name.toLowerCase().includes(q)).sort(byName);
-      const boards = everything.boards.filter((b) => b.name.toLowerCase().includes(q));
-      return [
-        subs.length > 0 && label('Folders', subs.length), subs.length > 0 && objectList('folder', subs.map((f) => folderObj(f)), { grid: 'folder-grid' }),
-        label('Boards', boards.length), objectList('board', boards.map((b) => boardObj(b))),
-        !subs.length && !boards.length && el('p', { class: 'home-empty', text: `Nothing matches "${$('q').value.trim()}".` }),
-      ].filter(Boolean);
-    }
-    if (!feed || Date.now() - feedAt > 30000) loadFeed();
-
-    // Pinned: the same objects as everywhere, and a place within a project (a sequence, say) as itself.
-    const pinned = pins().map((p) => {
-      if (p.kind === 'place') return placeObj(p);
-      if (p.kind === 'board') { const b = everything.boards.find((x) => x.id === p.id); return b && boardObj(b); }
-      if (p.kind === 'folder') { const f = folderById(p.id); return f && folderObj(f); }
-      if (p.kind === 'entity') return pinnedEntityObj(p);
-      return null;
-    }).filter(Boolean);
-
-    // Updates: what happened to your work, and new versions of what you are cc'd on.
-    const seen = feedSeen();
-    const all = feed ? feed.items : [];
-    const fresh = all.filter((x) => x.at > seen && !x.mine).length;
-    const shown = all.filter((x) => feedShow === 'all' || (feedShow === 'notes' ? x.kind === 'note' : x.kind === 'version'));
-    const seg = el('div', { class: 'seg feed-seg', role: 'tablist' }, [['all', 'All'], ['notes', 'Comments'], ['versions', 'New versions']].map(([k, text]) => el('button', {
-      type: 'button', class: `seg-btn${feedShow === k ? ' on' : ''}`, role: 'tab', 'aria-selected': String(feedShow === k), text,
-      onclick: () => { feedShow = k; store('wb:feed:show', k); feedMore = false; render(); },
-    })));
-    const markRead = fresh > 0 && el('button', { type: 'button', class: 'btn small ghost', text: 'Mark all read', onclick: () => { store('wb:feed:seen', Date.now()); render(); } });
-    const updates = el('section', { class: 'home-main' },
-      label('Updates', fresh || null, el('span', { class: 'label-gap' }), seg, markRead),
-      !feed ? el('p', { class: 'home-quiet', text: 'Loading…' })
-        : shown.length ? el('div', { class: 'feed' }, shown.slice(0, feedMore ? 80 : 15).map((x) => feedRow(x, seen)),
-          shown.length > 15 && !feedMore && el('button', { type: 'button', class: 'feed-more', text: `Show ${shown.length - 15} more`, onclick: () => { feedMore = true; render(); } }))
-          : el('p', { class: 'home-quiet', text: all.length ? 'Nothing of that kind in the last two weeks.' : 'Nothing in the last two weeks. Comments on your work, and new versions of what you are cc\'d on, come here.' }));
-
-    // My work: what you are an artist on, or have filed.
-    const work = (feed ? feed.work : []).map((e) => folderById(e.projectId) && entityObj(folderById(e.projectId), e)).filter(Boolean);
-    const side = el('aside', { class: 'home-side' },
-      label('My work', work.length || null),
-      !feed ? el('p', { class: 'home-quiet', text: 'Loading…' })
-        : work.length ? objectList('entity', work, { grid: 'board-grid ent-grid home-work' })
-          : el('p', { class: 'home-quiet', text: 'What you are named an artist on, on its page in the catalogue, and what you file, is listed here.' }));
-
-    return [
-      pinned.length > 0 && label('Pinned', pinned.length),
-      pinned.length > 0 && objectList('mixed', pinned),
-      el('div', { class: 'home-cols' }, updates, side),
-    ].filter(Boolean);
+      el('span', { class: 'feed-where', text: where })));
   }
 
   // ------------------------------------------------------------- a project's versions, newest first
@@ -2103,7 +1983,7 @@
     }
     if (rt.kind === 'folder') space = folderById(rt.id).workspace || space;
     else if (rt.kind === 'space') space = rt.space;
-    if (rt.kind !== 'home') store('wb:workspace', space);
+    store('wb:workspace', space);
     lib = {
       folders: everything.folders.filter((f) => f.workspace === space),
       boards: everything.boards.filter((b) => b.workspace === space),
@@ -2134,7 +2014,6 @@
     // Searching from a project's home looks through its boards and playlists.
     if (view.page === 'home' && $('q').value.trim()) Object.assign(view, { page: 'reviews', playlist: null });
     $('empty').hidden = true;
-    if (rt.kind === 'home') return $('content').replaceChildren(...homeView());
     // A project has its reviews and its catalogue.
     if (!listsBoards(view)) return renderProject(here, view);
     // A search looks through every folder of the workspace (of the project, inside one); without one you
@@ -2340,7 +2219,7 @@
       const rows = [];
       for (const g of d.groups.values()) {
         if (g.list.length === 1) {
-          rows.push(feedRow(g.list[0], Infinity));
+          rows.push(feedRow(g.list[0]));
           continue;
         }
         const open = homeOpen.has(g.key);
@@ -2368,7 +2247,7 @@
           el('span', { class: 'feed-where', text: span })),
         el('span', { class: 'ph-chev', html: icon('chevron', 14) }));
         rows.push(head);
-        if (open) rows.push(el('div', { class: 'ph-more' }, g.list.map((x) => feedRow(x, Infinity))));
+        if (open) rows.push(el('div', { class: 'ph-more' }, g.list.map((x) => feedRow(x))));
       }
       out.push(el('div', { class: 'feed' }, rows));
     }
@@ -2797,12 +2676,11 @@
         artists: artists && artists(),
         changed: e.latestAt ? [ago(e.latestAt), new Date(e.latestAt).toLocaleString()] : e.versions === 0 ? 'Nothing filed' : '',
       },
-      // The same menu as every other object: what can be done with it, Pin among it (so a pin on Home
-      // can be taken off from Home).
+      // The same menu as every other object: what can be done with it, Pin among it.
       menu: [
         newest && ['Play the latest', () => lookAt(e.id, newest.id)],
         ['Open its page', () => { location.hash = WB.href.catalogue(project.id, { entity: e.id }); }],
-        [isPinned('entity', e.id) ? 'Unpin from Home' : 'Pin to Home', () => togglePin({ kind: 'entity', id: e.id, name: e.name, projectId: project.id, tier: e.tier, thumb: e.thumb || null })],
+        [isPinned('entity', e.id) ? 'Unpin from sidebar' : 'Pin to sidebar', () => togglePin({ kind: 'entity', id: e.id, name: e.name, projectId: project.id, tier: e.tier, thumb: e.thumb || null })],
       ].filter(Boolean),
     };
   }
@@ -3023,7 +2901,7 @@
     return wrap;
   }
 
-  // Who makes it, and who else follows it: both see what happens to it in their feed on Home.
+  // Who makes it, and who else follows it: both see what happens to it in the project's activity.
   function entityPeople(entity) {
     const save = (key) => async (list) => {
       try {
@@ -3205,7 +3083,7 @@
     return [
       ['Rename…', () => renamePlaylist(project, p)],
       ['Lay out on a board…', () => boardOfPlaylist(project, p)],
-      [isPinned('place', WB.href.reviews(project.id, p.id)) ? 'Unpin from Home' : 'Pin to Home', () => togglePin({ kind: 'place', id: WB.href.reviews(project.id, p.id), href: WB.href.reviews(project.id, p.id), name: p.name, what: 'playlist', projectId: project.id })],
+      [isPinned('place', WB.href.reviews(project.id, p.id)) ? 'Unpin from sidebar' : 'Pin to sidebar', () => togglePin({ kind: 'place', id: WB.href.reviews(project.id, p.id), href: WB.href.reviews(project.id, p.id), name: p.name, what: 'playlist', projectId: project.id })],
       ['Delete playlist…', () => deletePlaylist(project, p), true],
     ];
   }
@@ -4148,6 +4026,6 @@
     WBPresent.onChange(() => render());
   }
   await refresh();
-  if (!feed) loadFeed();
+  keepAhead();
   setInterval(() => { if (!document.hidden && !dragging && !document.querySelector('dialog[open], .menu:not([hidden])')) refresh(true); }, 15000);
 })();

@@ -1,6 +1,6 @@
 'use strict';
 
-// Videos kept on this computer, for every page: a board, the catalogue, the timeline and Home.
+// Videos kept on this computer, for every page: a board, the catalogue, the timeline and the sidebar's pins.
 //
 // Over the internet the wait is for a video to arrive, and it is longest just when it is opened. So what
 // is likely to be opened next is fetched ahead, quietly, one at a time, and kept on this machine's disk
@@ -13,7 +13,7 @@
 //                         fetched twice.
 //   want(key, srcs, opt)  what a page would like kept, in order; each page (key) says it again as it
 //                         changes. opt.rank orders the lists (lower first), opt.kind is what the
-//                         settings call it (boards, work, cc, pinned), and opt.hold keeps them from
+//                         settings call it (boards, pinned), and opt.hold keeps them from
 //                         being made room for while they are wanted, in this tab or any other.
 //   whole(src)            a video held whole in memory, as an object URL, for scrubbing without waiting.
 //                         Up to WHOLE_HELD is held; the longest unused are let go (onEvict says which).
@@ -31,7 +31,7 @@
   const MAX = 4 * 1024 * 1024 * 1024;  // kept across everything
   const ITEM_MAX = 400 * 1024 * 1024;   // larger than this stays on the server
   const WHOLE_HELD = 1024 * 1024 * 1024; // held in memory across videos
-  const KINDS = ['boards', 'work', 'cc', 'pinned'];
+  const KINDS = ['boards', 'pinned'];
   const usable = 'caches' in window && 'indexedDB' in window && window.isSecureContext !== false;
   const keepable = (src) => typeof src === 'string' && /^\/uploads\//.test(src);
   const { store, KEYS } = WB;
@@ -132,7 +132,7 @@
 
   // ---- settings, this browser's
   const ahead = () => store(KEYS.noAhead) !== true;
-  const kinds = () => ({ boards: true, work: true, cc: true, pinned: true, ...(store(KEYS.mediaKinds) || {}) });
+  const kinds = () => ({ boards: true, pinned: true, ...(store(KEYS.mediaKinds) || {}) });
   const saveData = () => !!(navigator.connection && navigator.connection.saveData);
 
   // ---- how much may be kept: MAX, or less where the browser gives this site less room
@@ -396,7 +396,7 @@
   }
 
   // ---- fetching ahead
-  const RANK = { run: 1, timeline: 1.5, board: 2, page: 3, work: 4, cc: 5, pinned: 6 };
+  const RANK = { run: 1, timeline: 1.5, board: 2, page: 3, pinned: 4 };
   let clearedQuiet = false; // just cleared: nothing is fetched again until a page says what it wants
   function want(key, srcs, { rank = 5, kind = null, hold = false } = {}) {
     const list = [...new Set((srcs || []).filter(keepable))];

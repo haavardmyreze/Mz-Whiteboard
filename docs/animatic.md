@@ -162,6 +162,11 @@ the tracks drawn on one canvas on the dark bed the Timeline's close-up has, in b
 - **Room.** On an animatic's page the app's sidebar is a drawer (opened from the bar), the library and the
   comments are dragged wider or narrower at their inner edges and hidden from the bar (Shift+L, Shift+C), and
   the line above the timeline drags; all of it kept by the browser. The middle button, held, pans the timeline.
+- **A strip, to watch.** The strip button (or T) folds the timeline into a strip 44 px high of the whole edit
+  fitted to the width, drawn on its own canvas: the video tracks' clips as they are seen, the higher over the
+  lower, each with a frame of its own from its middle (taken as the timeline takes them, else its still or its
+  colour), named where there is room; a line where there is sound; the playhead. A click or a drag on it moves
+  the playhead, and playing goes on from there once it is let go. The picture takes the room.
 - **Clips.** Each shows its shot's name and version in a band along its top and its frames under it (its colour
   strip until they come), a slate's stripes, or a sound's waveform. Loops are marked where they start over, a
   short clip's lost part is an outline, fades are slopes, dissolves a cross over the cut. Only what is picked

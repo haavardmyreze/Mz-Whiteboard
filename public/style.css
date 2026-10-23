@@ -3176,6 +3176,10 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 .an-head.muted.audio .an-head-name, .an-head.hidden-track .an-head-name { color: var(--muted); }
 .an-head-gap { border-bottom: 1px solid var(--line-strong); }
 .an-head-add { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 6px 4px 12px; }
+.an-strip { display: none; flex: 1; min-width: 0; height: 100%; cursor: pointer; touch-action: none; }
+.an-tl.mini { height: 44px !important; min-height: 0; }
+.an-tl.mini .an-heads, .an-tl.mini .an-scroll { display: none; }
+.an-tl.mini .an-strip { display: block; }
 .an-scroll { position: relative; flex: 1; min-width: 0; overflow: auto; outline: none; overscroll-behavior: contain; }
 .an-space { position: relative; }
 .an-canvas { position: sticky; top: 0; left: 0; display: block; touch-action: none; }
@@ -3194,6 +3198,11 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
   .an-heads { width: 112px; }
   .an-now, .an-bar .an-wide { display: none; }
   .an-tl { height: 200px; }
+}
+/* On a phone the bar keeps what watching needs: stepping a frame is for a desk. */
+@media (max-width: 560px) {
+  .an-bar .an-step { display: none; }
+  .an-time { min-width: 88px; }
 }
 /* A choice in a dialog, said and then switched. */
 .dlg-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; font-size: var(--fs-ui); cursor: pointer; }

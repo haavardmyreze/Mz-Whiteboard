@@ -139,6 +139,7 @@ const WBAnimatic = (() => {
     const snapBtn = el('button', { type: 'button', class: `iconbtn an-wide${snapping ? ' active' : ''}`, html: ICON.snap, title: 'Line edges up with cuts and the playhead (hold Ctrl to skip)', 'aria-pressed': String(snapping), onclick: () => setSnap(!snapping) });
     const soundBtn = el('button', { type: 'button', class: 'iconbtn', title: 'Sound (M)', onclick: () => setSound(!soundOn) });
     const fitBtn = el('button', { type: 'button', class: 'iconbtn an-wide', html: ICON.fit, title: 'Show the whole edit (Shift+Z)', 'aria-label': 'Show the whole edit', onclick: () => fitAll() });
+    const miniBtn = el('button', { type: 'button', class: 'iconbtn', html: ICON.strip, title: 'The timeline as a thin strip, to watch the edit with the most room (T)', 'aria-label': 'Timeline as a strip', 'aria-pressed': 'false', onclick: () => setMini(!mini) });
     const notesBtn = el('button', { type: 'button', class: `iconbtn an-wide${notes.hidden ? '' : ' active'}`, html: ICON.comment, title: 'Comments on the shot on screen (Shift+C)', 'aria-pressed': String(!notes.hidden), onclick: () => toggleNotes() });
     // The edit on the venue, as the player shows a piece on it (venue in viewer.js): its switch, how the venue is
     // drawn and the model's cameras, the same controls and keys, and the page's one 3D view.
@@ -158,10 +159,10 @@ const WBAnimatic = (() => {
     const optionsSlot = el('span', { class: 'an-opts' });
     const bar = el('div', { class: 'an-bar' },
       binBtn, playBtn,
-      el('button', { type: 'button', class: 'iconbtn', html: ICON.frameBack, title: 'A frame back (,)', 'aria-label': 'A frame back', onclick: () => step(-1) }),
-      el('button', { type: 'button', class: 'iconbtn', html: ICON.frameFwd, title: 'A frame on (.)', 'aria-label': 'A frame on', onclick: () => step(1) }),
+      el('button', { type: 'button', class: 'iconbtn an-step', html: ICON.frameBack, title: 'A frame back (,)', 'aria-label': 'A frame back', onclick: () => step(-1) }),
+      el('button', { type: 'button', class: 'iconbtn an-step', html: ICON.frameFwd, title: 'A frame on (.)', 'aria-label': 'A frame on', onclick: () => step(1) }),
       timeBtn, loopBtn, onNow, el('span', { class: 'spacer' }),
-      el('span', { class: 'an-dims' }, venue3d.dims, venue3d.cams), splitBtn, snapBtn, optionsSlot, soundBtn, fitBtn, notesBtn);
+      el('span', { class: 'an-dims' }, venue3d.dims, venue3d.cams), splitBtn, snapBtn, optionsSlot, soundBtn, fitBtn, miniBtn, notesBtn);
 
     const cv = el('canvas', { class: 'an-canvas' });
     const space = el('div', { class: 'an-space' }, cv);
@@ -169,7 +170,10 @@ const WBAnimatic = (() => {
     const headsIn = el('div', { class: 'an-heads-in' });
     const heads = el('div', { class: 'an-heads' }, headsIn);
     const grip = el('div', { class: 'an-grip', role: 'separator', 'aria-orientation': 'horizontal', title: 'Drag to give the timeline more room or less' });
-    const tl = el('div', { class: 'an-tl' }, heads, scroller);
+    // Watching, the timeline can be a thin strip of the whole edit instead (`mini`): each shot in its place, the
+    // sound under them, and the playhead, to click or drag along.
+    const strip = el('canvas', { class: 'an-strip', role: 'slider', 'aria-label': 'The whole edit: click or drag to move through it' });
+    const tl = el('div', { class: 'an-tl' }, heads, scroller, strip);
     const top = el('div', { class: 'an-top' }, bin, stage, notes);
     const page = el('div', { class: 'an' }, top, bar, grip, tl);
     host.replaceChildren(page);
@@ -1013,6 +1017,8 @@ const WBAnimatic = (() => {
     const watch = new ResizeObserver(resize);
     watch.observe(scroller);
     watch.observe(stage);
+    const watchStrip = new ResizeObserver(() => sizeStrip());
+    watchStrip.observe(strip);
     scroller.addEventListener('scroll', () => {
       headsIn.style.transform = `translateY(${-scroller.scrollTop}px)`;
       draw();
@@ -1050,6 +1056,7 @@ const WBAnimatic = (() => {
     }
 
     function draw() {
+      if (mini) return drawStrip();
       if (!doc || !W || !H) return;
       const ctx = cv.getContext('2d');
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2016,6 +2023,7 @@ const WBAnimatic = (() => {
       } else if ((k === 'm' || k === 'M') && !mod) setSound(!soundOn);
       else if ((k === 'C') && e.shiftKey && !mod) toggleNotes();
       else if ((k === 'L') && e.shiftKey && !mod) toggleBin();
+      else if ((k === 't' || k === 'T') && !mod && !e.shiftKey) setMini(!mini);
       else if ((k === 'c' || k === 'C') && !mod && !e.shiftKey) {
         if (notes.hidden) toggleNotes();
         if (nowVersion) noteBox.focus();
@@ -2051,6 +2059,140 @@ const WBAnimatic = (() => {
       grip.addEventListener('pointerup', up, { once: true });
       grip.addEventListener('pointercancel', up, { once: true });
     });
+
+    // ---- the timeline as a strip
+
+    let mini = false;
+    let SW = 0;
+    let SH = 0;
+    function setMini(on) {
+      mini = on;
+      store('wb:an:mini', on);
+      tl.classList.toggle('mini', on);
+      grip.hidden = on;
+      miniBtn.setAttribute('aria-pressed', String(on));
+      miniBtn.classList.toggle('active', on);
+      miniBtn.title = on ? 'The whole timeline again, to edit (T)' : 'The timeline as a thin strip, to watch the edit with the most room (T)';
+      // The picture takes the room either way round.
+      requestAnimationFrame(() => {
+        fitFrame();
+        if (on) sizeStrip();
+        else resize();
+      });
+    }
+    function sizeStrip() {
+      const r = strip.getBoundingClientRect();
+      SW = Math.round(r.width);
+      SH = Math.round(r.height);
+      if (!SW || !SH) return;
+      strip.width = Math.round(SW * dpr);
+      strip.height = Math.round(SH * dpr);
+      drawStrip();
+    }
+    // The whole edit across the width: the clips of the video tracks, the higher over the lower as they are seen
+    // (each its still, or its colour), named where there is room; under them, where there is sound; the playhead.
+    function drawStrip() {
+      if (!doc || !SW || !SH) return;
+      const ctx = strip.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = BED;
+      ctx.fillRect(0, 0, SW, SH);
+      const end = Math.max(1, endFrame());
+      const x = (f) => (f / end) * SW;
+      const top = 4;
+      const h = SH - 14;
+      const want = [];
+      for (const t of C.videoTracks(doc)) {
+        if (t.hide) continue;
+        for (const c of C.onTrack(doc, t.id)) {
+          const x0 = x(c.start);
+          const x1 = x(c.start + C.filled(c, lengthOf(c)));
+          if (x1 - x0 < 0.5) continue;
+          const look = lookOf(c);
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x0, top, Math.max(1, x1 - x0 - 1), h);
+          ctx.clip();
+          ctx.fillStyle = CLIP_BG;
+          ctx.fillRect(x0, top, x1 - x0, h);
+          // A frame of its own from the middle of what it plays (as the full timeline takes them), else its
+          // still, else its colour there.
+          let img = null;
+          if (look && look.type === 'video') {
+            const length = lengthOf(c);
+            const at = Math.round((C.sourceFrame(c, Math.floor(c.start + C.filled(c, length) / 2), length) / doc.fps) * 24) / 24;
+            const key = FR.key(srcOf(look), at);
+            img = FR.take(key);
+            if (!img) want.push({ key, src: srcOf(look), at, d: Math.abs(c.start - ph) });
+          }
+          const pic = look && (look.th || look.poster || (look.type === 'image' && (look.prev || look.src)));
+          if (!img && pic) img = FR.imageOf(pic);
+          const rgb = !img && look && look.dur ? FR.colourAt(look, 0.5) : null;
+          if (img) FR.drawCover(ctx, img, x0, top, Math.max(h * 1.6, x1 - x0), h);
+          else if (rgb) {
+            ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+            ctx.fillRect(x0, top, x1 - x0, h / 2);
+            ctx.fillStyle = `rgb(${rgb[3]},${rgb[4]},${rgb[5]})`;
+            ctx.fillRect(x0, top + h / 2, x1 - x0, h - h / 2);
+          } else if (!look) {
+            ctx.strokeStyle = '#242424';
+            ctx.lineWidth = 4;
+            for (let sx = x0 - h; sx < x1; sx += 10) {
+              ctx.beginPath();
+              ctx.moveTo(sx, top + h);
+              ctx.lineTo(sx + h, top);
+              ctx.stroke();
+            }
+          }
+          const name = c.shot && shots[c.shot] ? shots[c.shot].name : '';
+          ctx.font = FONT(600, 10);
+          if (name && ctx.measureText(name).width + 10 < x1 - x0) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+            ctx.fillRect(x0, top, ctx.measureText(name).width + 10, 15);
+            ctx.fillStyle = TEXT;
+            ctx.fillText(name, x0 + 5, top + 11);
+          }
+          ctx.restore();
+        }
+      }
+      // Where there is sound, on any track that is heard.
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+      for (const c of doc.clips) {
+        const t = C.trackOf(doc, c);
+        if (!c.media || !t || t.mute) continue;
+        const x0 = x(c.start);
+        const x1 = x(c.start + C.filled(c, lengthOf(c)));
+        ctx.fillRect(x0, SH - 7, Math.max(1, x1 - x0 - 1), 3);
+      }
+      const px = Math.round(x(ph));
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.fillRect(px - 1.5, 0, 3, SH);
+      ctx.fillStyle = accentNow;
+      ctx.fillRect(px - 0.5, 0, 1.5, SH);
+      want.sort((a, b) => a.d - b.d);
+      FR.ask(want);
+    }
+    // Clicked or dragged along, the edit goes there; playing, it plays on from there once let go.
+    strip.addEventListener('pointerdown', (e) => {
+      if (!doc || e.button !== 0) return;
+      e.preventDefault();
+      strip.setPointerCapture(e.pointerId);
+      const wasPlaying = playing;
+      if (playing) stop();
+      const to = (ev) => {
+        const r = strip.getBoundingClientRect();
+        seek(clamp((ev.clientX - r.left) / r.width, 0, 1) * endFrame());
+      };
+      to(e);
+      const up = () => {
+        strip.removeEventListener('pointermove', to);
+        if (wasPlaying) play();
+      };
+      strip.addEventListener('pointermove', to);
+      strip.addEventListener('pointerup', up, { once: true });
+      strip.addEventListener('pointercancel', up, { once: true });
+    });
+    if (store('wb:an:mini') === true) setMini(true);
 
     // ---- on the venue, in 3D
 
@@ -2264,6 +2406,7 @@ const WBAnimatic = (() => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('wb:timemode', onTimeMode);
       watch.disconnect();
+      watchStrip.disconnect();
       stopFrames();
       FR.ask([]);
       WB.media.want('animatic', []);

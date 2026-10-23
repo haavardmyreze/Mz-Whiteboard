@@ -779,7 +779,10 @@ filed in it.
     deletes, Ctrl+Z and Ctrl+Shift+Z undo and redo (each person their own), M is the sound, C writes a
     comment, Shift+C folds the comments away, and Ctrl and the wheel (or + and -, or Shift+Z for all of
     it) draw the timeline in and out. Click or drag on the ruler to move the playhead. The middle button,
-    held, is a hand: the timeline goes with it, along and down. Every change is saved a moment after it is
+    held, is a hand: the timeline goes with it, along and down. To watch the edit with the most room, the
+    strip button in the bar (or T) folds the timeline into a thin strip of the whole edit across the width:
+    each shot in its place with a frame of its own, where there is sound, and the playhead, to click or drag
+    along; T again brings the timeline back. Which it was is kept by this browser. Every change is saved a moment after it is
     made; one made on an older save than somebody else's is not saved, theirs is shown, and Undo brings
     back yours.
   - *Comments* are about the clip on top under the playhead, on the version it plays, as on the Timeline:

@@ -82,6 +82,8 @@
     sparkle: '<path d="M10 3.5l1.6 4.4a3 3 0 0 0 1.8 1.8l4.4 1.6-4.4 1.6a3 3 0 0 0-1.8 1.8L10 19.1l-1.6-4.4a3 3 0 0 0-1.8-1.8L2.2 11.3l4.4-1.6a3 3 0 0 0 1.8-1.8z"/><path d="M18 3v4M16 5h4M19 16v3M17.5 17.5h3"/>',
     sound: '<path d="M4 9v6h4l5 4V5L8 9zM17 8a5 5 0 0 1 0 8"/>',
     stack: '<path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5"/>',
+    // A picture over a thin strip: the animatic's timeline as a strip, for watching.
+    strip: '<rect x="3" y="4" width="18" height="11" rx="1.5"/><path d="M3 19.5h18" stroke-width="2.4"/>',
     star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9z"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6L7 7M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"/>',
     table: '<rect x="3.5" y="4.5" width="17" height="15" rx="1.5"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5v10"/>',

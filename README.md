@@ -557,9 +557,11 @@ filed in it.
   another lighting, or another cut. These are a version's extras: any number of files, images or videos,
   each under a label of its own (`light-a`, `still-1043`, `warm`), none twice. They are not views: a
   view is one of the ways the project shows every version, an extra belongs to this version alone, and
-  makes no version of its own. A word after the version in a file's name that is no view of the
-  project's makes the file an extra under that label (`kilo-0010_comp_erik_v012_light-b.jpg`); typed on
-  a row's line it is the same (`kilo-0010 comp v12 light-b`). The row says so behind its mark (as a stack
+  makes no version of its own. Every row where files are filed has an Extra box after the version: a
+  label typed there makes the file an extra under it, and left empty the file is a version of its own.
+  A word after the version in a file's name that is no view of the project's fills it in
+  (`kilo-0010_comp_erik_v012_light-b.jpg`), as does one typed after the version on the row's line
+  (`kilo-0010 v12 light-b`; one of the project's tasks there is still the task). The row says so behind its mark (as a stack
   of layers), with what it goes with ("Adds it to kilo-0010 comp v12 as an extra, “light-b”") and the way
   back to a version of its own. An extra goes with the version its number says, else with the version the
   nearest row above it makes, else with the newest of its asset, set or shot and task; with none there,

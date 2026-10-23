@@ -7,8 +7,8 @@
 //
 // Each row is one line of parts, labelled once above the rows (lineHead): what it is (an icon, with a
 // dot when it is new, or a question when nothing says), its name, the task, the version it follows (its
-// still, which shows the two side by side), the version it is to be, the view, and what there is to say
-// about it. What the page filled in itself, and nobody said (the next number, the main view), is faint,
+// still, which shows the two side by side), the version it is to be, the view, the extra it is of that
+// version (a label, empty for a version of its own), and what there is to say about it. What the page filled in itself, and nobody said (the next number, the main view), is faint,
 // so that it reads as the guess it is. The name takes a whole line, read by WBNaming.readLine:
 // "kilo-0010 anim v12 bty", a file name pasted in, or a short way to say a shot (20, +, .); a space after
 // a name the project has, or a shot, moves on to the task, and a line that reads one way only goes into
@@ -251,12 +251,13 @@ const WBFiling = (() => {
   }
 
   // The parts of a row's line, as columns, the same on every row and in the labels over them.
-  const lineColumns = ({ useTasks, views }) => ['34px', 'minmax(120px, 1fr)', useTasks && 'minmax(64px, 110px)', '72px', '62px', views && 'minmax(56px, 84px)', '30px'].filter(Boolean).join(' ');
+  const lineColumns = ({ useTasks, views }) => ['34px', 'minmax(120px, 1fr)', useTasks && 'minmax(64px, 110px)', '72px', '62px', views && 'minmax(56px, 84px)', 'minmax(64px, 96px)', '30px'].filter(Boolean).join(' ');
   // The labels over the rows' lines, once: what each part of them is.
   function lineHead({ useTasks = true, views = null } = {}) {
     const node = el('span', { class: 'file-line file-labels', 'aria-hidden': 'true' },
       el('span'), el('span', { text: 'Asset, set or shot' }), useTasks && el('span', { text: 'Task' }),
-      el('span', { text: 'Follows' }), el('span', { text: 'Version' }), views && el('span', { text: 'View', title: `${views[0]} is the main one: a version of its own` }), el('span'));
+      el('span', { text: 'Follows' }), el('span', { text: 'Version' }), views && el('span', { text: 'View', title: `${views[0]} is the main one: a version of its own` }),
+      el('span', { text: 'Extra', title: 'A label here adds the file to that version as an extra, rather than making a version of its own' }), el('span'));
     node.style.gridTemplateColumns = lineColumns({ useTasks, views });
     return node;
   }
@@ -322,6 +323,9 @@ const WBFiling = (() => {
     // to go with a version. A name that says a view the project does not have is asked about, not guessed.
     const viewSel = views && el('select', { class: 'file-view', 'aria-label': 'View', title: `Which way of its version it shows. ${views[0]}, the main one, is a version of its own; the others go with one` },
       el('option', { value: '', text: views[0] }), views.slice(1).map((v) => el('option', { value: v, text: v })));
+    // Which extra of its version it is: a label, or nothing for a version (or view) of its own. Filled
+    // in from its name, or typed.
+    const extraIn = el('input', { type: 'text', class: 'file-extra', placeholder: '', spellcheck: 'false', 'aria-label': 'Extra', title: 'A label (light-a, still-1043) adds it to the version as an extra. Empty: a version of its own' });
     // What there is to say about it, behind a mark at the end of the line (see paintReadout).
     const info = el('button', { type: 'button', class: 'file-info', 'aria-expanded': 'false', tabindex: '-1' });
     info.addEventListener('pointerdown', (e) => e.preventDefault());
@@ -329,15 +333,18 @@ const WBFiling = (() => {
       if (popped && popped.button === info) return shutPop();
       if (readout.childNodes.length) popOver(info, () => readout);
     });
-    const line_ = el('span', { class: 'file-line' }, el('span', { class: 'file-is' }, kind, tier), ent, useTasks ? taskIn : null, prevSlot, verSeg, viewSel || null, el('span', { class: 'file-info-cell' }, info));
+    const line_ = el('span', { class: 'file-line' }, el('span', { class: 'file-is' }, kind, tier), ent, useTasks ? taskIn : null, prevSlot, verSeg, viewSel || null, extraIn, el('span', { class: 'file-info-cell' }, info));
     line_.style.gridTemplateColumns = lineColumns({ useTasks, views });
     // Which extra of its version it is, if it is one (see readout: it says so, with the way back).
     let extra = null;
-    const setExtra = (x) => { extra = N.tokenize(x || '') || null; };
+    const setExtra = (x) => {
+      extra = N.tokenize(x || '') || null;
+      extraIn.value = extra || '';
+    };
     function setView(v) {
       if (!v) return;
       if (!views || !views.includes(v)) return setExtra(v);
-      extra = null;
+      setExtra(null);
       viewSel.value = v === views[0] ? '' : v;
     }
     setView(namedView);
@@ -518,7 +525,7 @@ const WBFiling = (() => {
     let likelyAt = 0;
     function checks() {
       const { list, at } = around();
-      const key = [edits, list.length, at, entities().length, likelyAt, ent.value, taskIn.value, tier.value, own.number, viewName(), extra, (piece() || {}).dur];
+      const key = [edits, list.length, at, entities().length, likelyAt, ent.value, taskIn.value, tier.value, own.number, numberOf && numberOf(), viewName(), extra, (piece() || {}).dur];
       if (!judged || !same(judged.key, key)) judged = { key, out: judge() };
       return judged.out;
     }
@@ -541,7 +548,7 @@ const WBFiling = (() => {
         const head = headOf();
         const ahead = around().list.slice(0, Math.max(0, around().at)).some((p) => p.name() === n && p.taskName() === taskName() && !p.extraName());
         const fixes = [...(views || []).filter((x) => x !== views[0]).map((x) => ({ label: `the ${x} view`, run: () => { changed(); setView(x); sync(); } })),
-          { label: 'A version of its own', run: () => { changed(); extra = null; sync(); } }];
+          { label: 'A version of its own', run: () => { changed(); setExtra(null); sync(); } }];
         if (!at || (!ahead && !(e && at <= ((e.tops || {})[taskName() || ''] || 0)))) out.push({ text: `An extra, “${extra}”, but there is no ${at ? N.label(n, taskName(), at) : `version of ${N.label(n, taskName(), '').replace(/ v$/, '')}`} to add it to`, fixes, warn: true, rank: 0 });
         else if (head && head.number === at && (head.look.extraNames || []).includes(extra)) out.push({ text: `${N.label(n, taskName(), at)} has an extra called “${extra}” already`, fixes, warn: true, rank: 0 });
         else out.push({ text: `Adds it to ${N.label(n, taskName(), at)} as an extra, “${extra}”`, fixes, extra: true });
@@ -768,7 +775,7 @@ const WBFiling = (() => {
     // ---- typing through the line, as a date's parts are typed through
 
     // The parts typed in, in order, and the one after or before one.
-    const parts = () => [ent, useTasks && taskIn, verIn, viewSel].filter(Boolean);
+    const parts = () => [ent, useTasks && taskIn, verIn, viewSel, extraIn].filter(Boolean);
     const step = (from, by) => parts()[parts().indexOf(from) + by] || null;
     const toEnd = (input) => {
       input.focus();
@@ -825,12 +832,12 @@ const WBFiling = (() => {
     });
     taskIn.addEventListener('blur', settleTask);
     taskIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') settleTask(); }, true);
-    // The version: a number, typed over what the page put in; a space goes on to the view.
+    // The version: a number, typed over what the page put in; a space goes on to the view (or the extra).
     verIn.addEventListener('focus', () => { if (verSeg.classList.contains('auto') && verIn.select) verIn.select(); });
     verIn.addEventListener('keydown', (e) => {
       if (e.key === ' ') {
         e.preventDefault();
-        if (viewSel) viewSel.focus();
+        (viewSel || extraIn).focus();
       }
     });
     if (!numberOf) {
@@ -854,7 +861,16 @@ const WBFiling = (() => {
       });
     }
 
-    if (viewSel) viewSel.addEventListener('change', () => { changed(); extra = null; sync(); onChange(); });
+    if (viewSel) viewSel.addEventListener('change', () => { changed(); setExtra(null); sync(); onChange(); });
+    // Typed as it is, read as a label: the box keeps what was typed until it is left.
+    extraIn.addEventListener('input', () => {
+      changed();
+      extra = N.tokenize(extraIn.value) || null;
+      if (extra && viewSel) viewSel.value = '';
+      sync();
+      onChange();
+    });
+    extraIn.addEventListener('blur', () => { extraIn.value = extra || ''; });
     sync();
     return Object.assign(self, {
       ent, task: taskIn, tier, readout, sync, line: line_, version: verIn, name, have, taskName, settle, setLine, checks, ready, number,

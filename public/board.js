@@ -3937,6 +3937,8 @@
       ['Mention', '@'],
       ['Laser, then brush', 'L'],
       ['Erase a drawing', 'E'],
+      ['Picture, or the venue in 3D', '2', '3'],
+      ['Next camera in 3D', 'V'],
     ] },
     { id: 'video', label: 'Video', icon: ICON.play, rows: [
       ['Play / pause', 'Space', '~or', 'K'],

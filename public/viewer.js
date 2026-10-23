@@ -347,11 +347,11 @@ const WBViewer = (() => {
     // the model's cameras to look through: its main one, and the others under the arrow beside it.
     // One switch: pressed, the picture is on the venue; and while the venue is still on its way, how much has come.
     const d3Pct = el('span', { class: 'v-3dpct' });
-    const D3_TITLE = 'See it on the venue, in 3D';
+    const D3_TITLE = 'See it on the venue, in 3D. Key 3';
     const d3Btn = el('button', { class: 'iconbtn v-3d-btn', html: ICON.cube, title: D3_TITLE, 'aria-label': '3D', 'aria-pressed': 'false', onclick: () => set3d(!in3d) }, d3Pct);
     const lookBtn = el('button', { class: 'iconbtn v-look-btn', html: ICON.settings, title: 'How the venue is drawn', 'aria-label': '3D view settings', 'aria-haspopup': 'menu', 'aria-expanded': 'false', hidden: true, onclick: () => lookMenu() });
     const dims = el('span', { class: 'bar-group v-dims', hidden: true }, d3Btn, lookBtn);
-    const camBtn = el('button', { class: 'iconbtn v-cam', html: ICON.focus, title: 'Look through the main camera (V)', 'aria-label': 'Main camera', 'aria-pressed': 'false', onclick: () => toCamera('main') });
+    const camBtn = el('button', { class: 'iconbtn v-cam', html: ICON.focus, title: 'Look through the main camera. V goes on to the next camera', 'aria-label': 'Main camera', 'aria-pressed': 'false', onclick: () => toCamera('main') });
     const camMore = el('button', { class: 'iconbtn v-cam-more', html: ICON.chevron, title: "The model's other cameras", 'aria-haspopup': 'menu', onclick: () => cameraMenu() });
     const camGroup = el('span', { class: 'bar-group v-cams', hidden: true }, camBtn, camMore);
     const brand = el('a', { class: 'brand', href: '/', title: 'All boards' }, el('span', { class: 'logomark', html: (document.querySelector('[data-logo-slot] svg') || {}).outerHTML || '' }), el('span', { class: 'wordmark', text: 'Boards' }));
@@ -903,6 +903,14 @@ const WBViewer = (() => {
       paintInk();
     }
     const toCamera = (n) => look(n);
+    // V: on a camera of the model's, the next one (the last comes round to the first); anywhere else (flying,
+    // or on a comment's frame), the main camera.
+    function nextCamera() {
+      if (!in3d || !three) return;
+      const on = three.camera();
+      const n = three.cameras().length;
+      toCamera(on < 0 || three.isFree() ? 'main' : (on + 1) % n);
+    }
     function cameraMenu() {
       if (!in3d || !three) return;
       const names = three.cameras();
@@ -1058,7 +1066,7 @@ const WBViewer = (() => {
       dims.hidden = !has3d();
       lookBtn.hidden = !(in3d && three);
       d3Btn.setAttribute('aria-pressed', String(in3d));
-      d3Btn.title = in3d ? 'Back to the picture as it is (2D)' : D3_TITLE;
+      d3Btn.title = in3d ? 'Back to the picture as it is, in 2D. Key 2' : D3_TITLE;
       camGroup.hidden = !(in3d && three);
       if (camGroup.hidden) return;
       camBtn.setAttribute('aria-pressed', String(three.camera() === three.mainCamera() && !three.isFree()));
@@ -2787,7 +2795,7 @@ const WBViewer = (() => {
         e.stopImmediatePropagation();
         return;
       }
-      // In 3D, W A S D Q E fly (unless a pen is in hand) and V goes to the main camera.
+      // In 3D, W A S D Q E fly (unless a pen is in hand) and V goes on to the next camera.
       if (in3d && three && tool !== 'pen' && tool !== 'eraser' && three.key(e, true)) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -2798,7 +2806,13 @@ const WBViewer = (() => {
       if (in3d && three && k === 'v' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        return void toCamera('main');
+        return void nextCamera();
+      }
+      // 2 and 3 switch between the picture and the venue, where the project has a model of it.
+      if ((e.code === 'Digit2' || e.code === 'Digit3') && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && has3d()) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return void set3d(e.code === 'Digit3');
       }
       // Enter works a button that has the keyboard; Space always plays and pauses, even when a button
       // clicked a moment ago still has it.

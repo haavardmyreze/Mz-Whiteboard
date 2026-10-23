@@ -512,8 +512,10 @@ filed in it.
   move of the view leaves the main camera: a drag (with both buttons held, it slides the camera along the
   view's plane: sideways, up and down), the wheel, W A S D (along the view, wherever it points) or Q and E
   (down, up), easing in and out as in Unreal's viewport, with the view filling the whole picture
-  area and the room kept at the size it was (the lens never wider than 122.5° across). "Main camera" or V
+  area and the room kept at the size it was (the lens never wider than 122.5° across). "Main camera"
   goes back to the main camera, and the arrow beside it lists the model's other cameras to look through.
+  The keys 2 and 3 switch between the picture and the venue; in 3D, V goes to the next camera (the last
+  comes round to the first), or to the main camera from a free view or a comment's frame.
   Each is a short glide: the letterbox opens out, or the camera moves to the frame as it closes in (none,
   if the system asks for reduced motion). A pen, eraser or laser in hand works on the frame without
   leaving it. A comment can be made from anywhere: the moment one is begun (the pen taken up, the comment

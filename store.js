@@ -255,6 +255,9 @@ CREATE TABLE IF NOT EXISTS grants (
 -- A playlist: some of a project's versions, in the order they are to be looked at, as a review is run
 -- through them one after another (as in ShotGrid). versions is their ids, as JSON, in that order; a
 -- version deleted since is left out when the list is read.
+-- One outside any project (project_id is '') is kept in a workspace and folder like a board, and its
+-- versions are the files uploaded to it, filed under an entity of its own (entity_id), whose project_id
+-- is the playlist's id, so that comments, numbers and the player work as they do for a project's.
 CREATE TABLE IF NOT EXISTS playlists (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
@@ -262,7 +265,10 @@ CREATE TABLE IF NOT EXISTS playlists (
   versions TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   created_by TEXT,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  workspace TEXT,
+  folder_id TEXT,
+  entity_id TEXT
 );
 CREATE INDEX IF NOT EXISTS playlists_by_project ON playlists (project_id);
 
@@ -317,6 +323,10 @@ function openStore(dataDir) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
+  // Playlists made before there were any outside a project lack the columns that place them.
+  for (const column of ['workspace', 'folder_id', 'entity_id']) {
+    if (!db.prepare('PRAGMA table_info(playlists)').all().some((c) => c.name === column)) db.exec(`ALTER TABLE playlists ADD COLUMN ${column} TEXT`);
+  }
 
   // One write, all or nothing. Called again from inside one (filing several versions at once, say), it
   // is part of the outer one: whatever goes wrong anywhere undoes all of it.
@@ -481,25 +491,39 @@ function openStore(dataDir) {
 
   // ---- playlists
 
-  const playlistOf = (r) => ({ id: r.id, projectId: r.project_id, name: r.name, versions: JSON.parse(r.versions), createdAt: r.created_at, createdBy: r.created_by, updatedAt: r.updated_at });
+  // projectId is '' for a playlist outside any project, which has a workspace, a folder (or none: the top
+  // level) and the entity its versions are filed under instead.
+  const playlistOf = (r) => ({
+    id: r.id, projectId: r.project_id, name: r.name, versions: JSON.parse(r.versions), createdAt: r.created_at, createdBy: r.created_by, updatedAt: r.updated_at,
+    workspace: r.workspace, folderId: r.folder_id, entityId: r.entity_id,
+  });
   const readPlaylists = db.prepare('SELECT * FROM playlists WHERE project_id = ? ORDER BY updated_at DESC');
   const playlists = (projectId) => readPlaylists.all(projectId).map(playlistOf);
+  const loosePlaylists = () => playlists('');
   const readPlaylist = db.prepare('SELECT * FROM playlists WHERE id = ?');
   const playlist = (id) => {
     const r = readPlaylist.get(id);
     return r ? playlistOf(r) : null;
   };
-  const putPlaylist = db.prepare('INSERT INTO playlists (id, project_id, name, versions, created_at, created_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
-  function addPlaylist({ id, projectId, name, versions = [], by = null, at = Date.now() }) {
-    putPlaylist.run(id, projectId, name, JSON.stringify(versions), at, by, at);
-    return playlist(id);
+  const putPlaylist = db.prepare('INSERT INTO playlists (id, project_id, name, versions, created_at, created_by, updated_at, workspace, folder_id, entity_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  function addPlaylist({ id, projectId = '', name, versions = [], workspace = null, folderId = null, by = null, at = Date.now() }) {
+    return transaction(() => {
+      // One outside a project files its versions under an entity of its own, named as it is.
+      const entity = projectId ? null : addEntity({ id: `${id}e`, projectId: id, tier: 'asset', name, by });
+      putPlaylist.run(id, projectId, name, JSON.stringify(versions), at, by, at, workspace, folderId, entity ? entity.id : null);
+      return playlist(id);
+    });
   }
-  const updatePlaylist = db.prepare('UPDATE playlists SET name = ?, versions = ?, updated_at = ? WHERE id = ?');
-  // Renamed, or its versions given anew (in their new order); what is left out stays as it was.
-  function setPlaylist(id, { name, versions } = {}, at = Date.now()) {
+  const updatePlaylist = db.prepare('UPDATE playlists SET name = ?, versions = ?, workspace = ?, folder_id = ?, updated_at = ? WHERE id = ?');
+  // Renamed, moved (one outside a project), or its versions given anew (in their new order); what is left
+  // out stays as it was. A moved one's `folderId` may be null: the top of its workspace.
+  function setPlaylist(id, { name, versions, workspace, folderId } = {}, at = Date.now()) {
     const p = playlist(id);
     if (!p) return null;
-    updatePlaylist.run(name ?? p.name, JSON.stringify(versions ?? p.versions), at, id);
+    transaction(() => {
+      updatePlaylist.run(name ?? p.name, JSON.stringify(versions ?? p.versions), workspace ?? p.workspace, folderId !== undefined ? folderId : p.folderId, at, id);
+      if (name && name !== p.name && p.entityId) setEntity(p.entityId, { name });
+    });
     return playlist(id);
   }
   const dropPlaylist = db.prepare('DELETE FROM playlists WHERE id = ?');
@@ -1088,16 +1112,18 @@ function openStore(dataDir) {
     return db.prepare(`
       SELECT n.data, n.id, n.re, n.created_at, n.board_id, b.name AS board_name, b.created_by AS board_by,
         coalesce(h.created_by, CASE WHEN n.board_id = '' THEN v.created_by END) AS host_by, h.type AS host_type, h.label AS host_label,
-        v.id AS version_id, v.task AS version_task, v.number AS version_number, e.id AS entity_id, e.name AS entity_name, e.project_id
+        v.id AS version_id, v.task AS version_task, v.number AS version_number, e.id AS entity_id, e.name AS entity_name, e.project_id,
+        pl.id AS playlist_id
       FROM notes n
       LEFT JOIN boards b ON b.id = n.board_id
       LEFT JOIN items h ON h.board_id = n.board_id AND h.id = n.item_id
       LEFT JOIN versions v ON v.id = n.version_id
       LEFT JOIN entities e ON e.id = v.entity_id
       LEFT JOIN folders f ON f.id = e.project_id
+      LEFT JOIN playlists pl ON pl.id = e.project_id
       WHERE n.deleted_at IS NULL
         AND ((b.id IS NOT NULL AND b.deleted_at IS NULL AND b.workspace IN (${list}))
-          OR (n.board_id = '' AND v.deleted_at IS NULL AND f.workspace IN (${list})))
+          OR (n.board_id = '' AND v.deleted_at IS NULL AND coalesce(f.workspace, pl.workspace) IN (${list})))
         AND coalesce(n.re, n.id) IN (SELECT coalesce(re, id) FROM notes WHERE deleted_at IS NULL AND created_at > ?)`).all(...spaces, ...spaces, since)
       .map((r) => ({ ...r, version_task: r.version_task || null, comment: { ...JSON.parse(r.data), id: r.id, ...(r.re && { re: r.re }) } }));
   }
@@ -1139,7 +1165,7 @@ function openStore(dataDir) {
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,
     grants, setGrant, removeGrant, removeGrantsOn,
     presentations, savePresentation, deletePresentation, setMediaPhone, itemsWithMedia, setLook, versionsWithFile,
-    playlists, playlist, addPlaylist, setPlaylist, deletePlaylist,
+    playlists, loosePlaylists, playlist, addPlaylist, setPlaylist, deletePlaylist,
   };
 }
 

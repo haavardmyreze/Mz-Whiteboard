@@ -947,13 +947,15 @@ function moveFolderToSpace(folder, key) {
     scheduleSave(board, false);
     dropStrangers(board);
   }
+  for (const p of store.loosePlaylists()) if (p.folderId && moved.has(p.folderId)) store.setPlaylist(p.id, { workspace: key });
   dropRoomStrangers();
 }
 
-// Whether a folder or anything below it holds something: a board or another folder.
+// Whether a folder or anything below it holds something: a board, a playlist or another folder.
 function holdsAnything(folder) {
   for (const f of folders.values()) if (f.id !== folder.id && isWithin(f.id, folder.id)) return true;
   for (const b of boards.values()) if (b.folderId && isWithin(b.folderId, folder.id)) return true;
+  for (const p of store.loosePlaylists()) if (p.folderId && isWithin(p.folderId, folder.id)) return true;
   return false;
 }
 
@@ -1382,6 +1384,23 @@ function pageAfter(before) {
   return undefined;
 }
 
+// What a playlist's versions belong to: its project, or, outside any, the playlist itself.
+const playlistScope = (p) => p.projectId || p.id;
+// A playlist's versions, in its order: those still there, each with its entity.
+const playlistVersions = (p) => p.versions.map((id) => liveVersion(id)).filter(Boolean).map((v) => {
+  const e = store.entity(v.entityId);
+  return e && e.projectId === playlistScope(p) ? { ...v, entityName: e.name, entityTier: e.tier } : null;
+}).filter(Boolean);
+// A playlist as a list of them shows it: its name, how many versions, the first stills, when it changed.
+// One outside a project also says where it is kept.
+const playlistCard = (p) => {
+  const list = playlistVersions(p);
+  return {
+    id: p.id, name: p.name, count: list.length, thumbs: list.map((v) => v.thumb).filter(Boolean).slice(0, 4), createdBy: p.createdBy, createdAt: p.createdAt, updatedAt: p.updatedAt,
+    ...(!p.projectId && { loose: true, workspace: spaceName(p.workspace), folderId: p.folderId, entityId: p.entityId }),
+  };
+};
+
 async function handleCatalogue(req, res, parts) {
   const projectFor = (id) => (visibleFolder(req.user, id) && folders.get(id).project ? folders.get(id) : null);
   const boardsSeen = (list) => list.filter((b) => canSee(req.user, b.workspace)).map((b) => ({ id: b.id, name: b.name }));
@@ -1400,19 +1419,10 @@ async function handleCatalogue(req, res, parts) {
       };
     });
   };
-  // A playlist's versions, in its order: those still there, each with its entity.
-  const playlistVersions = (p) => p.versions.map((id) => liveVersion(id)).filter(Boolean).map((v) => {
-    const e = store.entity(v.entityId);
-    return e && e.projectId === p.projectId ? { ...v, entityName: e.name, entityTier: e.tier } : null;
-  }).filter(Boolean);
-  // A playlist as a list of them shows it: its name, how many versions, the first stills, when it changed.
-  const playlistCard = (p) => {
-    const list = playlistVersions(p);
-    return { id: p.id, name: p.name, count: list.length, thumbs: list.map((v) => v.thumb).filter(Boolean).slice(0, 4), createdBy: p.createdBy, createdAt: p.createdAt, updatedAt: p.updatedAt };
-  };
-  // Versions asked to go on a playlist of `project`: each once, only its own and still there.
-  const versionsFor = (project, ids) => [...new Set(Array.isArray(ids) ? ids : [])].slice(0, 1000)
-    .filter((id) => typeof id === 'string' && liveVersion(id) && store.entity(liveVersion(id).entityId)?.projectId === project.id);
+  // Versions asked to go on a playlist of `project` (or, for one outside a project, the playlist's own id):
+  // each once, only its own and still there.
+  const versionsFor = (scope, ids) => [...new Set(Array.isArray(ids) ? ids : [])].slice(0, 1000)
+    .filter((id) => typeof id === 'string' && liveVersion(id) && store.entity(liveVersion(id).entityId)?.projectId === scope);
   // GET /api/projects/:id                  the project and its entities
   // POST /api/projects/:id/entities        { name, tier }
   // POST /api/projects/:id/versions        { files, entity, task, descriptor, artist }
@@ -1450,7 +1460,7 @@ async function handleCatalogue(req, res, parts) {
         ids = boardReadingVersions(board);
         if (!ids.length) return sendJson(res, 400, { error: 'Nothing on that board is filed as a version' });
       }
-      const p = store.addPlaylist({ id: newId(), projectId: project.id, name, versions: versionsFor(project, ids), by: actor(req, body) });
+      const p = store.addPlaylist({ id: newId(), projectId: project.id, name, versions: versionsFor(project.id, ids), by: actor(req, body) });
       return sendJson(res, 200, playlistCard(p));
     }
     // POST /api/projects/:id/likely { looks: [{ key, type, dur, fps, nw, nh, wf }] }: for each video about
@@ -1810,15 +1820,51 @@ async function handleCatalogue(req, res, parts) {
   if (parts[1] === 'people' && parts.length === 2 && req.method === 'GET') {
     return sendJson(res, 200, { people: store.people() });
   }
+  // POST /api/playlists { name, folderId, workspace }   a new playlist outside any project, in a folder
+  //                                                       (not one in a project: those make theirs there)
+  //                                                       or at the top of a workspace; empty, to upload versions to
+  if (parts[1] === 'playlists' && parts.length === 2 && req.method === 'POST') {
+    const body = await readJson(req);
+    const name = cleanName(body.name, null);
+    if (!name) return sendJson(res, 400, { error: 'A playlist needs a name' });
+    const folderId = body.folderId || null;
+    if (folderId && !visibleFolder(req.user, folderId)) return sendJson(res, 404, { error: 'Folder not found' });
+    if (folderId && projectOf(folderId)) return sendJson(res, 400, { error: 'A playlist in a project is made from its Reviews' });
+    const workspace = folderId ? folders.get(folderId).workspace : spaceKey(body.workspace, req.user);
+    const p = store.addPlaylist({ id: newId(), name, workspace, folderId, by: actor(req, body) });
+    return sendJson(res, 201, playlistCard(p));
+  }
   // GET /api/playlists/:id      the playlist, and its versions in order, each whole, to list and to play
   // PATCH { name }              renamed
   // PATCH { versions }          its versions given anew, in their new order (moved, taken off)
   // PATCH { add }               these put at its end (any it has already stay where they are)
+  // PATCH { folderId }          one outside a project moved to a folder (null: the top of its workspace);
+  //                             { workspace } to the other workspace, landing at its top
   // DELETE                      gone; its versions are not touched
-  if (parts[1] === 'playlists' && parts.length === 3) {
+  // POST .../versions { files: [{ look }] }   one outside a project: files uploaded to it, each the next version
+  if (parts[1] === 'playlists' && (parts.length === 3 || (parts.length === 4 && parts[3] === 'versions'))) {
     const p = store.playlist(parts[2]);
-    const project = p && projectFor(p.projectId);
-    if (!project) return sendJson(res, 404, { error: 'Playlist not found' });
+    const project = p && p.projectId ? projectFor(p.projectId) : null;
+    const mine = p && !p.projectId && canSee(req.user, p.workspace);
+    if (!project && !mine) return sendJson(res, 404, { error: 'Playlist not found' });
+    const scope = playlistScope(p);
+    if (parts.length === 4) {
+      if (req.method !== 'POST' || !mine) return sendJson(res, 405, { error: 'Method not allowed' });
+      const body = await readJson(req, 4 * 1024 * 1024);
+      const by = actor(req, body);
+      const looks = (Array.isArray(body.files) ? body.files.slice(0, 50) : []).map((f) => cleanLook(f && f.look));
+      if (!looks.length || looks.some((look) => !look)) return sendJson(res, 400, { error: 'That file is not on the server' });
+      // Each is the next number of the playlist's one entity, in the order they were sent; a view or an
+      // extra has no meaning here, so only the file itself is kept.
+      const made = store.transaction(() => looks.map((look) => store.addVersion({
+        id: newId(), entityId: p.entityId, media: uploadName(look.src), thumb: look.th || (look.type === 'image' ? look.prev || look.src : look.poster) || null,
+        kind: look.type, originalName: look.name || null, look: { ...look, views: undefined, extras: undefined }, by,
+      })));
+      store.setPlaylist(p.id, { versions: [...p.versions, ...made.map((v) => v.id)].slice(0, 1000) });
+      flushAll();
+      const done = store.playlist(p.id);
+      return sendJson(res, 200, { playlist: playlistCard(done), versions: shape(playlistVersions(done), { full: true }) });
+    }
     if (req.method === 'GET') {
       flushAll();
       return sendJson(res, 200, { playlist: playlistCard(p), versions: shape(playlistVersions(p), { full: true }) });
@@ -1834,13 +1880,24 @@ async function handleCatalogue(req, res, parts) {
       patch.name = cleanName(body.name, null);
       if (!patch.name) return sendJson(res, 400, { error: 'A playlist needs a name' });
     }
-    if (body.versions !== undefined) patch.versions = versionsFor(project, body.versions);
+    if (body.versions !== undefined) patch.versions = versionsFor(scope, body.versions);
     if (body.add !== undefined) {
       const have = patch.versions || p.versions;
-      patch.versions = [...have, ...versionsFor(project, body.add).filter((id) => !have.includes(id))].slice(0, 1000);
+      patch.versions = [...have, ...versionsFor(scope, body.add).filter((id) => !have.includes(id))].slice(0, 1000);
+    }
+    if (mine && ('folderId' in body || 'workspace' in body)) {
+      const key = 'workspace' in body ? spaceKey(body.workspace, req.user) : p.workspace;
+      if ('workspace' in body && body.workspace === 'personal' && !req.user) return sendJson(res, 400, { error: 'Personal workspaces need sign-in' });
+      const folderId = key !== p.workspace ? null : body.folderId || null;
+      if (folderId && !visibleFolder(req.user, folderId)) return sendJson(res, 404, { error: 'Folder not found' });
+      if (folderId && folders.get(folderId).workspace !== key) return sendJson(res, 400, { error: 'Move it to the other workspace first' });
+      if (folderId && projectOf(folderId)) return sendJson(res, 400, { error: 'A playlist cannot be moved into a project' });
+      patch.workspace = key;
+      patch.folderId = folderId;
     }
     if (!Object.keys(patch).length) return sendJson(res, 400, { error: 'Nothing to change' });
     const done = store.setPlaylist(p.id, patch);
+    if (patch.workspace && patch.workspace !== p.workspace) dropRoomStrangers();
     return sendJson(res, 200, playlistCard(done));
   }
   // GET /api/versions/:id
@@ -2326,6 +2383,14 @@ function cleanStaleUploads() {
 
 const visibleFolder = (user, id) => folders.has(id) && canSee(user, folders.get(id).workspace);
 
+// Whom an entity's versions belong to is either a project (a folder), or a playlist outside any project
+// (its entity's projectId is the playlist's id). Either way they are seen by whoever sees its workspace.
+const scopeWorkspace = (id) => (folders.has(id) ? folders.get(id).workspace : store.playlist(id)?.workspace || null);
+const visibleScope = (user, id) => {
+  const workspace = scopeWorkspace(id);
+  return workspace !== null && canSee(user, workspace);
+};
+
 // What people holding a board's link may do: look ('view'), also read the team's comments
 // ('comments'), or also comment themselves ('comment').
 const SHARE_ACCESS = ['view', 'comments', 'comment'];
@@ -2374,7 +2439,7 @@ function dropStrangers(board) {
 function dropRoomStrangers() {
   for (const [entityId, peers] of rooms) {
     const e = store.entity(entityId);
-    for (const peer of [...peers]) if (!e || !visibleFolder(peer.user, e.projectId)) peer.ws.close(4003, 'Project moved');
+    for (const peer of [...peers]) if (!e || !visibleScope(peer.user, e.projectId)) peer.ws.close(4003, 'Project moved');
   }
 }
 
@@ -2500,6 +2565,8 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, {
       folders: [...folders.values()].filter((f) => canSee(req.user, f.workspace)).map(publicFolder),
       boards: [...boards.values()].filter((b) => visible(req.user, b)).map(boardMeta).sort((a, b) => b.updatedAt - a.updatedAt),
+      // The playlists that are in no project (a project's come with its catalogue), listed with the boards.
+      playlists: store.loosePlaylists().filter((p) => canSee(req.user, p.workspace)).map(playlistCard),
       // Who of the team is presenting a project, and the link to watch them by.
       presenting: [...presentations.values()].filter((p) => p.live && presentationFor(p.token) && visibleFolder(req.user, p.projectId))
         .map((p) => ({ projectId: p.projectId, name: p.ownerName, color: p.color, token: p.token })),
@@ -2568,8 +2635,9 @@ async function handleApi(req, res, url) {
         // A project is where its catalogue lives: its versions and what was said about them. It is not
         // dissolved into the folder above like a plain folder.
         if (folder.project) return sendJson(res, 409, { error: 'A project cannot be deleted' });
-        // Nothing inside is deleted: boards and subfolders move up one level.
+        // Nothing inside is deleted: boards, playlists and subfolders move up one level.
         for (const f of folders.values()) if (f.parentId === folder.id) f.parentId = folder.parentId;
+        for (const p of store.loosePlaylists()) if (p.folderId === folder.id) store.setPlaylist(p.id, { folderId: folder.parentId });
         for (const board of boards.values()) {
           if (board.folderId !== folder.id) continue;
           board.folderId = folder.parentId;
@@ -2990,7 +3058,7 @@ server.on('upgrade', async (req, socket, head) => {
       const entity = store.entity(entityId);
       if (!entity || !fromOurPages(req)) return socket.destroy();
       const who = await auth.authenticate(req);
-      if (who.status || !visibleFolder(who.user, entity.projectId)) return socket.destroy();
+      if (who.status || !visibleScope(who.user, entity.projectId)) return socket.destroy();
       return wss.handleUpgrade(req, socket, head, (ws) => joinRoom(ws, entity, who.user));
     }
     const board = boards.get(url.searchParams.get('board'));
@@ -3309,7 +3377,7 @@ function joinRoom(ws, entity, user) {
       if (peer.joined) return;
       // Between connecting and saying hello the project may have moved out of reach.
       const now = store.entity(entity.id);
-      if (!now || !visibleFolder(user, now.projectId)) return ws.close(4003, 'Project moved');
+      if (!now || !visibleScope(user, now.projectId)) return ws.close(4003, 'Project moved');
       peer.joined = true;
       if (!user) {
         peer.name = String(msg.name || 'Guest').slice(0, 32);

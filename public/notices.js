@@ -46,7 +46,7 @@ const WBNotices = (() => {
       // set or shot it is about.
       const row = (n) => el('a', {
         class: `notice${n.read ? '' : ' unread'}`,
-        href: n.board ? `${WB.href.board(n.board.id)}#c=${n.id}` : n.projectId && n.entityId ? WB.href.abs(WB.href.catalogue(n.projectId, { entity: n.entityId })) : '/',
+        href: n.board ? `${WB.href.board(n.board.id)}#c=${n.id}` : n.playlistId ? WB.href.abs(WB.href.playlist(n.playlistId)) : n.projectId && n.entityId ? WB.href.abs(WB.href.catalogue(n.projectId, { entity: n.entityId })) : '/',
         onclick: () => { if (!n.read) mark({ ids: [n.id] }); },
       },
       WB.avatar(n.author, n.color),

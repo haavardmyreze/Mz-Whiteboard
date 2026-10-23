@@ -3103,3 +3103,77 @@ test('a project puts its sequences in the order it is given, and those it does n
   await call('PATCH', `/api/folders/${project.id}`, { settings: { seqs: [] } });
   assert.deepEqual(await seqs(), ['elec-0010', 'haus-0010', 'haus-0020', 'kine-0010', 'zulu-0010']);
 });
+
+test('a playlist outside a project takes files as its versions, in order, and is kept like a board', async (t) => {
+  const s = start(4902);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const up = async (name) => (await (await fetch(`${s.base}/api/upload?name=${name}`, { method: 'POST', body: crypto.randomBytes(400) })).json()).url;
+  const add = async (id, name) => (await call('POST', `/api/playlists/${id}/versions`, { files: [{ look: { type: 'image', src: await up('a.png'), name } }], by: 'Anna' }));
+
+  // made at the top of a workspace; it needs a name
+  assert.equal((await call('POST', '/api/playlists', { name: '  ' })).status, 400);
+  const made = await call('POST', '/api/playlists', { name: 'Title sequence', by: 'Anna' });
+  assert.equal(made.status, 201);
+  const id = made.body.id;
+  assert.deepEqual([made.body.count, made.body.loose, made.body.workspace, made.body.folderId], [0, true, 'myreze', null]);
+  // the library lists it with the boards, and the project's own do not come with it
+  assert.deepEqual((await call('GET', '/api/library')).body.playlists.map((p) => p.name), ['Title sequence']);
+
+  // each file is the next version, numbered in the order they came
+  const first = await add(id, 'cut_a.png');
+  assert.equal(first.status, 200);
+  await add(id, 'cut_b.png');
+  const both = (await add(id, 'cut_c.png')).body;
+  assert.deepEqual(both.versions.map((v) => [v.label, v.originalName, v.createdBy]), [
+    ['Title sequence v1', 'cut_a.png', 'Anna'], ['Title sequence v2', 'cut_b.png', 'Anna'], ['Title sequence v3', 'cut_c.png', 'Anna']]);
+  assert.equal((await call('POST', `/api/playlists/${id}/versions`, { files: [{ look: { type: 'image', src: '/uploads/nothere.png' } }] })).status, 400);
+
+  // put in another order and taken off; only its own versions count
+  const [v1, v2, v3] = both.versions.map((v) => v.id);
+  await call('PATCH', `/api/playlists/${id}`, { versions: [v3, v1, v2, 'nope'] });
+  const order = async () => (await call('GET', `/api/playlists/${id}`)).body.versions.map((v) => v.number);
+  assert.deepEqual(await order(), [3, 1, 2]);
+  await call('PATCH', `/api/playlists/${id}`, { versions: [v1] });
+  assert.deepEqual(await order(), [1]);
+  // a version taken off keeps its number: the next one is v4
+  assert.equal((await add(id, 'cut_d.png')).body.versions.at(-1).label, 'Title sequence v4');
+
+  // what is said about a version is said in the playlist's room, and stays with the version
+  const room = await joiner(4902)(`entity=${made.body.entityId}`, 'Ben');
+  t.after(() => room.ws.close());
+  room.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'plnote001', type: 'comment', on: v1, text: 'Cut this earlier?' } }] }));
+  await pause(200);
+  const again = await joiner(4902)(`entity=${made.body.entityId}`, 'Cleo');
+  t.after(() => again.ws.close());
+  await pause(200);
+  assert.deepEqual(again.seen.find((m) => m.t === 'init').notes.map((n) => [n.id, n.on, n.text]), [['plnote001', v1, 'Cut this earlier?']]);
+
+  // renamed, its versions are called by the new name; moved into a folder, and not into a project
+  await call('PATCH', `/api/playlists/${id}`, { name: 'Titles' });
+  assert.equal((await call('GET', `/api/playlists/${id}`)).body.versions[0].label, 'Titles v1');
+  const folder = (await call('POST', '/api/folders', { name: 'Edits' })).body;
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  assert.equal((await call('PATCH', `/api/playlists/${id}`, { folderId: project.id })).status, 400);
+  assert.equal((await call('POST', '/api/playlists', { name: 'In a project', folderId: project.id })).status, 400);
+  await call('PATCH', `/api/playlists/${id}`, { folderId: folder.id });
+  assert.equal((await call('GET', '/api/library')).body.playlists[0].folderId, folder.id);
+  // a folder with a playlist in it is not empty of things; deleting it moves the playlist up
+  await call('DELETE', `/api/folders/${folder.id}`);
+  assert.equal((await call('GET', '/api/library')).body.playlists[0].folderId, null);
+
+  // it is not a project's: no project lists it, and its versions are no project's to file or read
+  assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.playlists, []);
+  assert.equal((await call('GET', `/api/entities/${made.body.entityId}`)).status, 404);
+
+  // deleted
+  assert.equal((await call('DELETE', `/api/playlists/${id}`)).status, 200);
+  assert.equal((await call('GET', `/api/playlists/${id}`)).status, 404);
+  assert.deepEqual((await call('GET', '/api/library')).body.playlists, []);
+});

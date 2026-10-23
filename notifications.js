@@ -62,7 +62,8 @@ function noticesFor(store, who, spaces, now = Date.now()) {
     if (!kind) continue;
     // A note about a version says which, and its entity and project, so it can be opened in the
     // catalogue (#/f/<projectId>/catalogue/<entityId>). One written in the catalogue was made on no board.
-    const version = r.version_id ? { versionId: r.version_id, entityId: r.entity_id, projectId: r.project_id } : {};
+    // One on a playlist outside any project opens that playlist (#/pl/<id>) instead.
+    const version = r.version_id ? { versionId: r.version_id, entityId: r.entity_id, projectId: r.project_id, ...(r.playlist_id && { playlistId: r.playlist_id }) } : {};
     const named = r.version_id ? naming.label(r.entity_name, r.version_task, r.version_number) : 'a version';
     items.push({
       id: c.id,

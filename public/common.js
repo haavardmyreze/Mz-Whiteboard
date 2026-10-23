@@ -639,6 +639,7 @@ const WB = (() => {
   const href = {
     space: (ws) => `#/w/${ws}`,
     folder: (id) => `#/f/${id}`,
+    playlist: (id) => `#/pl/${id}`,
     reviews: (id, playlist) => `#/f/${id}/reviews${playlist ? `/${playlist}` : ''}`,
     catalogue: (id, { tier, seq, entity } = {}) => `#/f/${id}/catalogue${entity ? `/${entity}` : seq ? `/s/${encodeURIComponent(seq)}` : tier ? `/t/${tier}` : ''}`,
     versions: (id) => `#/f/${id}/versions`,

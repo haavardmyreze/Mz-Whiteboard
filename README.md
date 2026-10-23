@@ -714,6 +714,22 @@ filed in it.
   view the project puts on it. A playlist can be renamed,
   deleted (its versions stay) and pinned to the sidebar, from the menu beside its title. A version deleted
   since is left off it.
+- **Playlists outside a project.** A playlist does not need a project: New playlist, in the menu beside
+  New board, makes one in any folder or at the top of a workspace, and it is listed with the boards there
+  (a card says Playlist only where boards are listed beside it). With no catalogue to take versions from,
+  a playlist is filled by adding files to it: Add versions on its page, or drop them anywhere on it. Each
+  is brought in as a file dropped on a board is (a video gets its review copy, strip, stills and frame
+  rate), one at a time in the order chosen, and becomes the playlist's next version: v1, v2, v3, as in a
+  review tool, so a small piece of work such as one edit of a video is kept as one playlist that each new
+  cut is added to. Play opens the newest in the player, docked as a project's playlist is, with the others
+  in the strip beside it; comments, replies, drawings and @mentions are made there as on a project's
+  versions, each belonging to its version and live for everyone who has the playlist open. Versions can be
+  dragged into another order or taken off (Undo puts them back, and a number taken off is not given out
+  again); the playlist can be renamed, moved to another folder or workspace, pinned and deleted from its
+  menu, and a folder that is deleted moves its playlists up with its boards. Whoever can see the
+  workspace can see the playlist. Behind it each keeps its versions under one entity of its own, named as
+  the playlist is, which no project lists. There is no sharing link, presenting or filing it into a
+  project yet.
 - **Changing many at once.** Select, above the catalogue, picks assets, sets and shots with a click
   (Shift and a click for every one between), or drag on empty space to draw a box over them, as in a
   file manager (with Shift, Ctrl or Cmd it adds to what is picked; the Versions list and an asset's

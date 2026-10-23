@@ -69,6 +69,16 @@
   const phoneCopies = WBIngest.phoneCopies(() => (WBPresent.token() || (player && player.isOpen()) ? [] : [...needsPhoneCopy]));
   const childrenOf = (id, ws = space) => (id ? everything.folders : everything.folders.filter((f) => f.workspace === ws)).filter((f) => (f.parentId || null) === id).sort(byName);
   const boardsIn = (id, ws = space) => (id ? everything.boards : everything.boards.filter((b) => b.workspace === ws)).filter((b) => (b.folderId || null) === id);
+  // The playlists that are in no project (a project's come with its catalogue), kept in a folder or at the
+  // top of a workspace as boards are.
+  const loosePlaylists = () => everything.playlists || [];
+  const loose = (id) => loosePlaylists().find((p) => p.id === id) || null;
+  const playlistsIn = (id, ws = space) => (id ? loosePlaylists() : loosePlaylists().filter((p) => p.workspace === ws)).filter((p) => (p.folderId || null) === id);
+  // The playlist outside a project that the page is on (#/pl/<id>), once the library has it.
+  function currentLoose() {
+    const m = /^#\/pl\/([\w-]+)/.exec(location.hash);
+    return m ? loose(m[1]) : null;
+  }
 
   function currentFolder() {
     const m = /^#\/f\/([\w-]+)/.exec(location.hash);
@@ -91,8 +101,11 @@
   }
 
   // Where the page is: a workspace's top level (#/w/<workspace>), or a folder (#/f/<id>…). With neither
-  // (#/), it is the workspace last shown, the shared one to begin with.
+  // (#/), it is the workspace last shown, the shared one to begin with. A playlist outside a project
+  // (#/pl/<id>) is in the folder, or at the top of the workspace, that keeps it.
   function route() {
+    const pl = currentLoose();
+    if (pl) return pl.folderId && folderById(pl.folderId) ? { kind: 'folder', id: pl.folderId } : { kind: 'space', space: pl.workspace };
     const f = currentFolder();
     if (f) return { kind: 'folder', id: f };
     const w = /^#\/w\/(myreze|personal)/.exec(location.hash);
@@ -162,19 +175,20 @@
   const otherSpace = (ws = space) => (ws === 'myreze' ? 'personal' : 'myreze');
 
   async function moveSpace(kind, thing) {
-    await api('PATCH', kind === 'board' ? `/api/boards/${thing.id}` : `/api/folders/${thing.id}`, { workspace: otherSpace(thing.workspace) });
+    await api('PATCH', `/api/${{ board: 'boards', playlist: 'playlists' }[kind] || 'folders'}/${thing.id}`, { workspace: otherSpace(thing.workspace) });
     await refresh();
   }
 
   async function moveTo(kind, id, folderId) {
     if (kind === 'board') await api('PATCH', `/api/boards/${id}`, { folderId });
+    else if (kind === 'playlist') await api('PATCH', `/api/playlists/${id}`, { folderId });
     else await api('PATCH', `/api/folders/${id}`, { parentId: folderId });
     await refresh();
   }
 
   // ------------------------------------------------------------- drag and drop
 
-  const dragged = () => dragging && (dragging.kind === 'folder' ? folderById(dragging.id) : everything.boards.find((x) => x.id === dragging.id));
+  const dragged = () => dragging && (dragging.kind === 'folder' ? folderById(dragging.id) : dragging.kind === 'playlist' ? loose(dragging.id) : everything.boards.find((x) => x.id === dragging.id));
 
   // `ws` is the workspace of the place dropped on. Into another workspace goes to its top level.
   function canDrop(folderId, ws = space) {
@@ -278,6 +292,8 @@
     version: cols([col('task', 'Task', { w: 'minmax(64px, 1fr)', drop: 3 }), col('ver', 'Version', { w: '64px', end: true, drop: 4, sort: 'number' }),
       col('artist', 'Artist', { w: 'minmax(72px, 1fr)', drop: 2 }),
       col('by', 'Filed by', { w: 'minmax(104px, 1.2fr)', drop: 3 }), col('changed', 'Filed', { w: '128px', drop: 4, sort: 'new' })], { sort: 'name' }),
+    // The versions of a playlist outside a project: no task or artist, only who added each and when.
+    clip: cols([col('by', 'Added by', { w: 'minmax(104px, 1.2fr)', drop: 2 }), col('changed', 'Added', { w: '128px', drop: 3 })]),
     // A project's reviews, boards and playlists together: what each is, how much is on it, when it changed.
     review: cols([col('kind', 'Kind', { w: '88px', drop: 2 }), col('items', 'Items', { w: '64px', end: true, drop: 1 }), col('changed', 'Changed', { w: '120px', drop: 3 })]),
   };
@@ -435,9 +451,10 @@
   }
 
   async function rename(kind, thing) {
-    const name = await WB.dialog({ title: kind === 'folder' ? 'Rename folder' : 'Rename board', value: thing.name, placeholder: 'Name', ok: 'Rename' });
+    const name = await WB.dialog({ title: `Rename ${kind}`, value: thing.name, placeholder: 'Name', ok: 'Rename' });
     if (!name || name === thing.name) return;
-    await api('PATCH', kind === 'folder' ? `/api/folders/${thing.id}` : `/api/boards/${thing.id}`, { name });
+    await api('PATCH', `/api/${{ board: 'boards', playlist: 'playlists' }[kind] || 'folders'}/${thing.id}`, { name });
+    if (kind === 'playlist') playlistData.delete(thing.id);
     refresh();
   }
 
@@ -850,6 +867,7 @@
     const keep = pins().filter((p) => {
       if (p.kind === 'board') return everything.boards.some((b) => b.id === p.id);
       if (p.kind === 'folder') return !!folderById(p.id);
+      if (p.kind === 'playlist') return !!loose(p.id);
       if (!folderById(p.projectId)) return false;
       if (p.kind === 'entity') {
         const cat = catalogues.get(p.projectId);
@@ -1037,6 +1055,10 @@
         const f = folderById(p.id);
         return f && { key: `f:${f.id}`, icon: f.project ? PROJECT_SM : FOLDER_SM, label: f.name, href: WB.href.folder(f.id) };
       }
+      if (p.kind === 'playlist') {
+        const l = loose(p.id);
+        return l && { key: `pin:l:${l.id}`, icon: ICON_PLAYLIST, label: l.name, href: WB.href.playlist(l.id) };
+      }
       const project = folderById(p.projectId);
       if (!project) return null;
       if (p.kind === 'entity') return { key: `pin:e:${p.id}`, icon: ICON_CAT, label: p.name, href: WB.href.catalogue(project.id, { entity: p.id }), title: project.name };
@@ -1106,6 +1128,7 @@
     let pin = null;
     let settingsOf = null; // a project's home has the way to its settings
     let playlistHere = null; // a playlist's page has its menu beside its title
+    const onLoose = currentLoose();
     if (rt.kind === 'space') parts.push([spaceName(rt.space), spaceHref(rt.space), null, rt.space]);
     else {
       const trail = trailTo(rt.id);
@@ -1150,6 +1173,12 @@
         }
       }
     }
+    // A playlist outside a project: the place that keeps it, then its own name as the title.
+    if (onLoose) {
+      parts.push([onLoose.name, WB.href.playlist(onLoose.id)]);
+      pin = { kind: 'playlist', id: onLoose.id };
+      playlistHere = { loose: onLoose };
+    }
     const nodes = parts.slice(0, -1).map(([label, href, folderId, ws]) => {
       const node = el('a', { class: 'crumb', href, text: label });
       if (folderId !== undefined) dropTarget(node, folderId, ws);
@@ -1172,7 +1201,7 @@
         onclick: () => togglePin(pin),
       }),
       settingsOf && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('settings', 16), title: 'Project settings', 'aria-label': 'Project settings', onclick: () => projectSettings(settingsOf) }),
-      playlistHere && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('more', 16), title: 'Rename or delete the playlist', 'aria-label': 'Playlist menu', 'aria-haspopup': 'menu', onclick: (e) => openMenu(e.currentTarget, playlistMenu(playlistHere.project, playlistHere.playlist)) }),
+      playlistHere && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('more', 16), title: 'Rename or delete the playlist', 'aria-label': 'Playlist menu', 'aria-haspopup': 'menu', onclick: (e) => openMenu(e.currentTarget, playlistHere.loose ? loosePlaylistMenu(playlistHere.loose) : playlistMenu(playlistHere.project, playlistHere.playlist)) }),
       ...presentingHere(rt),
       ].filter(Boolean));
     document.title = `${parts[parts.length - 1][0]} · Boards`;
@@ -1993,6 +2022,8 @@
       // somewhere else.
       const asked = /^#\/f\/([\w-]+)/.exec(location.hash);
       if (asked && libraryLoaded && !folderById(asked[1])) WB.toast('That folder or project is not there any more, or is not shared with you.', { ms: 6000 });
+      const askedPlaylist = /^#\/pl\/([\w-]+)/.exec(location.hash);
+      if (askedPlaylist && libraryLoaded && !loose(askedPlaylist[1])) WB.toast('That playlist is not there any more, or is not shared with you.', { ms: 6000 });
       // Somewhere new: a search typed for the last page does not carry over to this one.
       if (renderedFor !== null && !searching) $('q').value = '';
       renderedFor = location.hash;
@@ -2030,6 +2061,17 @@
     renderSide(rt);
     renderCrumbs(rt);
 
+    // A playlist outside a project has a page of its own; nothing is made or searched in the bar there.
+    const onLoose = currentLoose();
+    if (onLoose) {
+      $('q').placeholder = 'Search is not used on a playlist';
+      $('q').disabled = true;
+      $('newsplit').hidden = true;
+      if (presentBtn) presentBtn.hidden = !WBPresent.token();
+      $('empty').hidden = true;
+      return loosePlaylistPage(onLoose);
+    }
+
     const cur = rt.kind === 'folder' ? rt.id : null;
     const here = cur && folderById(cur);
     const view = here && here.project ? currentView() : { page: 'boards' };
@@ -2064,14 +2106,23 @@
     // In a project, its playlists go with its boards, as its reviews.
     if (inProjectHere && !catalogues.has(cur)) loadCatalogue(cur);
     const reviews = inProjectHere ? reviewsOf(here, boards).filter((x) => x.kind === 'board' || !q || matches(x.item.name)) : null;
-    const found = reviews ? reviews.length : boards.length;
+    // Elsewhere, playlists that are in no project are listed with the boards, the one changed last first.
+    const lists = inProjectHere ? [] : q ? loosePlaylists().filter((p) => p.workspace === space && matches(p.name)) : playlistsIn(cur);
+    const found = reviews ? reviews.length : boards.length + lists.length;
+    // Each says what it is only where both kinds are listed.
+    const kinds = boards.length > 0 && lists.length > 0;
+    const together = lists.length
+      ? [...boards.map((b) => ({ at: b.updatedAt, item: boardObj(b, { pickable: true, kinds }) })), ...lists.map((p) => ({ at: p.updatedAt, item: loosePlaylistObj(p, { kinds }) }))]
+        .sort((a, b) => b.at - a.at).map((x) => x.item)
+      : null;
     $('content').replaceChildren(...[
       !q && (subs.length > 0 || found > 0) && boardTools(),
       subs.length > 0 && label('Folders', subs.length),
       subs.length > 0 && objectList('folder', subs.map((f) => folderObj(f, { pickable: true })), { grid: 'folder-grid' }),
-      (subs.length > 0 || q) && label(reviews ? 'Reviews' : 'Boards', found),
+      (subs.length > 0 || q) && label(reviews ? 'Reviews' : together ? 'Boards and playlists' : 'Boards', found),
       reviews ? objectList('review', reviewObjs(here, reviews, { pickable: true }), { lead: !q && newReview(here) })
-        : objectList('board', boards.map((b) => boardObj(b, { pickable: true })), { lead: !q && NEW_BOARD }),
+        : together ? objectList('review', together, { lead: !q && NEW_BOARD })
+          : objectList('board', boards.map((b) => boardObj(b, { pickable: true })), { lead: !q && NEW_BOARD }),
       q && !subs.length && !found && el('p', { class: 'home-empty', text: `Nothing matches "${$('q').value.trim()}".` }),
     ].filter(Boolean));
   }
@@ -3372,13 +3423,214 @@
         }),
         // Nothing of its own to choose in the bar; it only needs to be told to lay the pieces out again.
         choices: (again) => { reload = again; return []; },
-        title: () => `${project.name} · ${data.playlist.name}`,
+        title: () => [project.name, data.playlist.name].filter(Boolean).join(' · '),
         onClose: () => { lookingAt = null; },
       });
       lookingAt = `playlist:${data.playlist.id}`;
     } catch (err) {
       fail(err);
     }
+  }
+
+  // ------------------------------------------------------------- a playlist outside a project
+  //
+  // A playlist that belongs to no project: made in any folder, next to the boards, and filled by adding
+  // files to it. Each file is the next version of the playlist (v1, v2, …, in the order they came), looked
+  // at and commented on in the player as a project's versions are. They can be put in another order and
+  // taken off. For a small piece of work, such as one edit of a video that is added to as it is revised.
+
+  const NO_PROJECT = { name: '', settings: null }; // what the player is told for a project it does not have
+  const uploading = new Map(); // playlist id -> the files on their way in: [{ file, ctl, progress, phase, error }]
+
+  function loosePlaylistObj(p, { kinds = false } = {}) {
+    return {
+      kind: 'playlist', tag: 'a', attrs: { href: WB.href.playlist(p.id) },
+      still: el('div', { class: `card-thumbs strip n${Math.min(p.thumbs.length, 4)}` }, p.thumbs.map((src) => el('img', { src, alt: '', loading: 'lazy', draggable: 'false' }))),
+      name: p.name,
+      lines: [`${kinds ? 'Playlist · ' : ''}${plural(p.count, 'version')} · changed ${ago(p.updatedAt)}`],
+      cells: { kind: 'Playlist', items: p.count, changed: [ago(p.updatedAt), new Date(p.updatedAt).toLocaleString()] },
+      menu: loosePlaylistMenu(p),
+      setup: (node) => draggable(node, 'playlist', p.id),
+    };
+  }
+
+  function loosePlaylistMenu(p) {
+    return [
+      ['Rename…', () => rename('playlist', p)],
+      ['Move to…', () => moveDialog('playlist', p)],
+      [isPinned('playlist', p.id) ? 'Unpin from sidebar' : 'Pin to sidebar', () => togglePin({ kind: 'playlist', id: p.id })],
+      hasPersonal && [`Move to ${SPACES[otherSpace(p.workspace)]} workspace`, () => moveSpace('playlist', p)],
+      ['Delete playlist…', () => deleteLoosePlaylist(p), true],
+    ].filter(Boolean);
+  }
+
+  async function newLoosePlaylist() {
+    const name = await WB.dialog({
+      title: 'New playlist', text: 'Add files to it as they are made: each is the next version, with its own comments.',
+      value: '', placeholder: 'Playlist name', ok: 'Create playlist',
+    });
+    if (!name) return;
+    try {
+      const p = await api('POST', '/api/playlists', { name, folderId: currentFolder(), workspace: space, by: me.name });
+      await refresh();
+      location.hash = WB.href.playlist(p.id);
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  async function deleteLoosePlaylist(p) {
+    const ok = await WB.dialog({ title: `Delete ${p.name}?`, text: 'The playlist goes, with its versions and what was said about them.', ok: 'Delete playlist', danger: true });
+    if (!ok) return;
+    await api('DELETE', `/api/playlists/${p.id}`);
+    playlistData.delete(p.id);
+    if (currentLoose()?.id === p.id) location.hash = p.folderId && folderById(p.folderId) ? WB.href.folder(p.folderId) : spaceHref(p.workspace);
+    refresh();
+  }
+
+  // What changed in it shows in the page and the lists at once.
+  function looseChanged(id) {
+    playlistData.delete(id);
+    shownProject = '';
+    return refresh();
+  }
+
+  // Its page: Play, and its versions in order, to drag into another order, open, or take off.
+  async function loosePlaylistPage(p) {
+    const sig = `pl|${p.id}`;
+    const fresh = shownProject !== sig;
+    shownProject = sig;
+    const show = (data) => {
+      if (shownProject === sig) $('content').replaceChildren(...loosePlaylistView(p, data));
+    };
+    const had = playlistData.get(p.id);
+    if (had) show(had);
+    else if (fresh) $('content').replaceChildren(el('p', { class: 'home-empty', text: 'Loading…' }));
+    try {
+      const data = await api('GET', `/api/playlists/${p.id}`);
+      playlistData.set(p.id, data);
+      if (!had || JSON.stringify(had) !== JSON.stringify(data)) show(data);
+    } catch (err) {
+      pageFailed(sig, err);
+    }
+  }
+
+  function loosePlaylistView(p, data) {
+    const { versions } = data;
+    const kinds = new Set(versions.map((v) => v.kind)).size > 1;
+    const specs = versions.map((v) => looseVersionObj(p, data, v, kinds));
+    const list = objectList('clip', specs, {
+      grid: 'board-grid ent-grid pl-grid',
+      lead: { name: 'Add versions', meta: 'Choose files, or drop them here', title: 'Add the next version: choose images or videos, or drop them anywhere here', onclick: () => chooseFiles(p) },
+    });
+    dragToOrder(list, (order) => reorderLoose(p, data, order));
+    const newest = versions[versions.length - 1];
+    const page = [
+      versions.length > 0 && el('div', { class: 'cat-tools' },
+        el('button', { type: 'button', class: 'btn primary', html: `${ICON_PLAY}<span>Play</span>`, title: 'Open the newest version in the player, with the others beside it', onclick: () => playPlaylist(NO_PROJECT, data, newest.id) })),
+      label('Versions', versions.length, versions.length > 1 && el('span', { class: 'label-note', text: 'Drag to put them in order' })),
+      el('div', { class: 'pl-uploads', 'data-pl': p.id }),
+      list,
+    ].filter(Boolean);
+    queueMicrotask(() => paintUploads(p.id));
+    return page;
+  }
+
+  function looseVersionObj(p, data, v, kinds) {
+    const open = () => playPlaylist(NO_PROJECT, data, v.id);
+    return {
+      kind: 'version', attrs: { 'data-id': v.id, tabindex: '0', 'aria-label': v.label, ondblclick: (e) => { if (!e.target.closest('a, button')) open(); } },
+      still: verStill({ id: v.entityId, name: v.entity }, v, kinds && WB.layout() !== 'table', open),
+      name: [el('span', { class: 'ver-ent', text: `v${v.number}` }), v.originalName && el('span', { class: 'ver-rest', text: ` ${v.originalName}` })],
+      title: v.label,
+      lines: [`Added ${ago(v.createdAt)}${v.createdBy ? ` by ${v.createdBy}` : ''}`],
+      cells: {
+        by: v.createdBy && el('span', { class: 'vt-who' }, WB.avatar(v.createdBy), el('span', { class: 'vt-main', text: v.createdBy })),
+        changed: [ago(v.createdAt), new Date(v.createdAt).toLocaleString()],
+      },
+      menu: [['Open', open], ['Download', () => { location.href = v.look.orig || v.look.src; }], ['Take off the playlist', () => takeOffLoose(p, data, [v.id])]],
+    };
+  }
+
+  async function takeOffLoose(p, data, ids) {
+    const before = data.versions.map((v) => v.id);
+    try {
+      await api('PATCH', `/api/playlists/${p.id}`, { versions: before.filter((x) => !ids.includes(x)) });
+      await looseChanged(p.id);
+      undoable(`${plural(ids.length, 'version')} taken off ${p.name}`, async () => {
+        await api('PATCH', `/api/playlists/${p.id}`, { versions: before });
+        await looseChanged(p.id);
+      });
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  async function reorderLoose(p, data, order) {
+    const byId = new Map(data.versions.map((v) => [v.id, v]));
+    playlistData.set(p.id, { ...data, versions: order.map((x) => byId.get(x)).filter(Boolean) });
+    shownProject = '';
+    render();
+    try {
+      await api('PATCH', `/api/playlists/${p.id}`, { versions: order });
+      await looseChanged(p.id);
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  // ---- adding files: each is brought in as a file dropped on a board is (a video gets its review copy and
+  // the rest, see bringIn), then becomes the playlist's next version. One at a time, in the order chosen,
+  // so that they are numbered in that order.
+
+  function chooseFiles(p) {
+    const input = el('input', { type: 'file', multiple: true, accept: 'image/*,video/*,.mov' });
+    input.addEventListener('change', () => addFiles(p, [...input.files]));
+    input.click();
+  }
+
+  async function addFiles(p, files) {
+    const media = files.filter((f) => WBIngest.fileExt(f));
+    if (media.length < files.length) WB.toast(media.length ? 'Only images and videos can be added; the rest were left out.' : 'Only images and videos can be added.', { ms: 6000 });
+    if (!media.length) return;
+    const queue = uploading.get(p.id) || uploading.set(p.id, []).get(p.id);
+    queue.push(...media.map((file) => ({ file, ctl: new AbortController(), progress: 0, phase: '', error: null })));
+    paintUploads(p.id);
+    if (queue.working) return;
+    queue.working = true;
+    try {
+      for (let r; (r = queue.find((x) => !x.error)); ) {
+        try {
+          const look = await bringIn(r, () => paintUploads(p.id));
+          const data = await api('POST', `/api/playlists/${p.id}/versions`, { files: [{ look }], by: me.name });
+          playlistData.set(p.id, data);
+          queue.splice(queue.indexOf(r), 1);
+          shownProject = '';
+          refresh();
+        } catch (err) {
+          r.error = err.message || 'It could not be added';
+        }
+        paintUploads(p.id);
+      }
+    } finally {
+      queue.working = false;
+    }
+  }
+
+  // The files on their way in, above the versions: a line each, with how far, or why it stopped.
+  function paintUploads(id) {
+    const box = document.querySelector(`.pl-uploads[data-pl="${id}"]`);
+    if (!box) return;
+    const queue = uploading.get(id) || [];
+    const words = { enc: 'Preparing', up: 'Uploading', strip: 'Reading', orig: 'Uploading the original' };
+    box.replaceChildren(...queue.map((r) => el('div', { class: 'pl-upload' },
+      el('span', { class: 'pl-upload-name', text: r.file.name }),
+      el('span', { class: 'pl-upload-state', text: r.error || `${words[r.phase] || 'Waiting'}${r.phase ? ` ${Math.round(r.progress * 100)}%` : ''}` }),
+      r.error && el('button', {
+        type: 'button', class: 'btn small ghost', text: 'Try again',
+        onclick: () => { queue.splice(queue.indexOf(r), 1); addFiles(loose(id), [r.file]); },
+      }),
+      r.error && el('button', { type: 'button', class: 'btn small ghost', text: 'Remove', onclick: () => { queue.splice(queue.indexOf(r), 1); paintUploads(id); } }))));
   }
 
   // ---- importing: many files at once, straight into the catalogue
@@ -3935,22 +4187,28 @@
   };
   const carriesFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
   let dragDepth = 0;
+  // Files dropped anywhere on a playlist outside a project become its next versions.
   window.addEventListener('dragenter', (e) => {
-    if (!carriesFiles(e) || !catalogueOpen()) return;
+    if (!carriesFiles(e) || !(catalogueOpen() || currentLoose())) return;
     e.preventDefault();
     if (dragDepth++ === 0) {
       const view = currentView();
       dropTargetEntity = view.entity;
-      $('catdrop').querySelector('span').textContent = view.entity ? 'Drop to add versions of it' : `Drop to add to ${catalogueOpen().name}`;
+      $('catdrop').querySelector('span').textContent = currentLoose() ? `Drop to add versions to ${currentLoose().name}` : view.entity ? 'Drop to add versions of it' : `Drop to add to ${catalogueOpen().name}`;
       $('catdrop').hidden = false;
     }
   });
-  window.addEventListener('dragover', (e) => { if (carriesFiles(e) && catalogueOpen()) e.preventDefault(); });
+  window.addEventListener('dragover', (e) => { if (carriesFiles(e) && (catalogueOpen() || currentLoose())) e.preventDefault(); });
   window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('catdrop').hidden = true; } });
   window.addEventListener('drop', async (e) => {
     const project = carriesFiles(e) && catalogueOpen();
+    const playlist = carriesFiles(e) && currentLoose();
     dragDepth = 0;
     $('catdrop').hidden = true;
+    if (playlist) {
+      e.preventDefault();
+      return void addFiles(playlist, [...e.dataTransfer.files]);
+    }
     if (!project) return;
     e.preventDefault();
     const files = [...e.dataTransfer.files];
@@ -3991,7 +4249,7 @@
   }
   $('newmore').addEventListener('click', (e) => {
     const project = projectHere();
-    openMenu(e.currentTarget, [['New board', newBoard], project && ['New playlist', () => newPlaylist(project)], ['New folder', newFolder]].filter(Boolean));
+    openMenu(e.currentTarget, [['New board', newBoard], ['New playlist', () => (project ? newPlaylist(project) : newLoosePlaylist())], ['New folder', newFolder]]);
   });
 
   // ------------------------------------------------------------- notifications (notices.js)

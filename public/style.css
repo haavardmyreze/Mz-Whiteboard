@@ -2136,6 +2136,11 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .ver-board:hover { background: var(--hover); color: var(--text); }
 .cat-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: 420px; }
 .cat-empty p { margin: 0 0 8px; }
+/* Files on their way into a playlist outside a project: a line each between hairlines, above its versions. */
+.pl-uploads:not(:empty) { margin: 0 0 16px; border-top: 1px solid var(--line); }
+.pl-upload { display: flex; align-items: center; gap: 12px; min-height: 40px; border-bottom: 1px solid var(--line); font-size: var(--fs-ui); }
+.pl-upload-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-upload-state { color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
 .ent-hidden { display: inline-flex; align-items: center; gap: 6px; margin: -6px 0 14px; color: var(--muted); font-size: var(--fs-sm); cursor: pointer; }
 .dlg.ve { width: min(480px, calc(100vw - 32px)); }
 .ve-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

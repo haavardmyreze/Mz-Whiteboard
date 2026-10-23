@@ -621,18 +621,45 @@
       paint();
     });
     // A setting: what it is, and a few words more when it needs them. A switch or a button sits beside
-    // it (`row`); a field or a list goes under it, the width of the dialog (`field`), with anything that
-    // acts on the whole list (`act`) beside its name. Settings go in groups, each under a small heading.
+    // it (`row`); a field or a list goes under it, the width of its pane (`field`), with anything that
+    // acts on the whole list (`act`) beside its name.
     const heading = (label, hint) => el('div', { class: 'ps-label' }, el('b', { text: label }), hint && el('span', { text: hint }));
     const row = (label, hint, ...control) => el('div', { class: 'ps-row' }, heading(label, hint), el('div', { class: 'ps-control' }, ...control));
     const field = (label, hint, control, act = null) => el('div', { class: 'ps-field' }, el('div', { class: 'ps-field-head' }, heading(label, hint), act), control);
-    const group = (title, ...rows) => el('section', { class: 'ps-group' }, el('h3', { class: 'ps-sec', text: title }), ...rows);
     viewsRow = field('Views', 'The main one first: a file of it is a version, the others go with one', viewNames);
     const surfaceRow = field('Screen material', 'What the screens are called in the model', screen);
     cameraRow = field('Main camera', 'Where the work is judged from: the 3D view opens through it', camera);
     pictureRow = field('On the screens', 'Which view of a version is shown', view);
     rulesRow = field('Learned file names', 'Names from elsewhere, read this way when filing. Forget one with its ×', ruleList);
     paintRules();
+    // The settings go in tabs, one to each part of the project they set, listed down the side (across the
+    // top on a phone) so more can come. The dialog opens on the tab last looked at.
+    const tabs = settingTabs([
+      {
+        id: 'versions', label: 'Versions', icon: 'stack', hint: 'How versions are counted, shown and read from file names',
+        rows: [
+          row('Count by task', 'anim v1, lighting v1… rather than one count', byTask),
+          row('Several views of each version', 'Each version as more than one file: cmp and bty, say', byView),
+          viewsRow,
+          rulesRow,
+        ],
+      },
+      {
+        id: 'sequences', label: 'Sequences', icon: 'film', hint: 'How the shots are put together',
+        rows: [seqNames.length > 1
+          ? field('Order', 'First to last, as the timeline plays them and every list shows them', seqList, seqReset)
+          : el('p', { class: 'ps-empty', text: 'Once the project has two sequences or more, their order is set here.' })],
+      },
+      {
+        id: '3d', label: '3D', icon: 'cube', hint: 'The venue the work is shown on',
+        rows: [
+          field('Venue model', 'A .glb with its screens and cameras: the player gets a 2D / 3D switch', el('div', { class: 'ps-model' }, el('span', { class: 'ps-model-icon', html: icon('cube', 16) }), file, choose, remove, picker)),
+          surfaceRow,
+          cameraRow,
+          pictureRow,
+        ],
+      },
+    ]);
     const dlg = el('dialog', { class: 'dlg ps-dlg' },
       el('form', {
         method: 'dialog',
@@ -640,6 +667,7 @@
           e.preventDefault();
           if (byView.checked && named().length < 2) {
             WB.toast('Name at least two views, the main one first: cmp, bty', { ms: 6000 });
+            tabs.show('versions');
             viewNames.focus();
             return;
           }
@@ -657,24 +685,56 @@
         },
       },
       el('div', { class: 'ps-head' }, el('span', { class: 'ps-where', text: project.name }), el('h2', { text: 'Project settings' })),
-      group('Versions',
-        row('Count by task', 'anim v1, lighting v1… rather than one count', byTask),
-        row('Several views of each version', 'Each version as more than one file: cmp and bty, say', byView),
-        viewsRow,
-        rulesRow),
-      seqNames.length > 1 && group('Sequences',
-        field('Order', 'First to last, as the timeline plays them and every list shows them', seqList, seqReset)),
-      group('3D',
-        field('Venue model', 'A .glb with its screens and cameras: the player gets a 2D / 3D switch', el('div', { class: 'ps-model' }, el('span', { class: 'ps-model-icon', html: icon('cube', 16) }), file, choose, remove, picker)),
-        surfaceRow,
-        cameraRow,
-        pictureRow),
+      el('div', { class: 'ps-body' }, tabs.nav, tabs.panes),
       el('div', { class: 'dlg-actions' }, el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }), save)));
     dlg.addEventListener('close', () => dlg.remove());
     paint();
     if (model) readCameras(model.url);
     document.body.append(dlg);
     dlg.showModal();
+  }
+
+  // Tabs for a settings dialog: a list of them, one pane showing at a time. Each tab is { id, label, icon,
+  // hint, rows }: its pane opens with its name and what it sets, then its rows. The arrow keys move along
+  // the list. Which was looked at last is kept while the page is open.
+  let settingsTab = 'versions';
+  function settingTabs(list) {
+    const nav = el('div', { class: 'ps-tabs', role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': 'Settings' });
+    const panes = el('div', { class: 'ps-panes' });
+    const items = list.map((t) => {
+      const uid = WB.uid();
+      const tab = el('button', {
+        type: 'button', class: 'ps-tab', role: 'tab', id: `pt-${uid}`, 'aria-controls': `pp-${uid}`,
+        html: `${icon(t.icon, 16)}<span>${t.label}</span>`, onclick: () => show(t.id),
+      });
+      const pane = el('section', { class: 'ps-pane', role: 'tabpanel', id: `pp-${uid}`, 'aria-labelledby': tab.id },
+        el('div', { class: 'ps-pane-head' }, el('h3', { text: t.label }), el('p', { text: t.hint })),
+        ...t.rows);
+      return { id: t.id, tab, pane };
+    });
+    function show(id) {
+      const on = items.find((x) => x.id === id) || items[0];
+      settingsTab = on.id;
+      for (const x of items) {
+        const here = x === on;
+        x.tab.classList.toggle('on', here);
+        x.tab.setAttribute('aria-selected', String(here));
+        x.tab.tabIndex = here ? 0 : -1;
+        x.pane.hidden = !here;
+      }
+      return on;
+    }
+    nav.addEventListener('keydown', (e) => {
+      const by = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+      if (!by) return;
+      e.preventDefault();
+      const at = items.findIndex((x) => x.id === settingsTab);
+      show(items[(at + by + items.length) % items.length].id).tab.focus();
+    });
+    nav.append(...items.map((x) => x.tab));
+    panes.append(...items.map((x) => x.pane));
+    show(settingsTab);
+    return { nav, panes, show };
   }
 
   // The names of the cameras in a .glb (a File, or the address of one), read from the JSON at its start

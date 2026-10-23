@@ -495,10 +495,12 @@ filed in it.
   the player. What a row is doing (Preparing, Uploading...) is said under its bar, so nothing on the
   row moves while it comes in; a row that did not come in has "Try again".
 - **Project settings.** The settings button beside the star on the project's home, or Project settings
-  in its menu, opens them as one dialog in three groups, each under a small heading: Versions (Count by
-  task, Several views of each version and their names, the file names it has learned), Sequences (their
-  order) and 3D (the venue model and what goes with it). A switch or a button sits beside what it sets;
-  a field or a list goes under its name, the width of the dialog.
+  in its menu, opens them as one dialog in tabs, listed down its side (across the top on a phone) so more
+  can come: Versions (Count by task, Several views of each version and their names, the file names it has
+  learned), Sequences (their order) and 3D (the venue model and what goes with it). Each tab's pane opens
+  with its name and what it sets, and keeps one height, so the dialog does not jump from tab to tab; the
+  arrow keys move along the tabs, and the dialog opens on the one last looked at. A switch or a button
+  sits beside what it sets; a field or a list goes under its name, the width of the pane.
 - **3D: the work on the venue.** A project whose settings have a model of its venue (the settings button
   beside the star on the project's home, or Project settings in its menu: a `.glb`, and once there is
   one, the name of the material its screens have and, with views, which goes on them) has a 2D / 3D switch in the

@@ -2788,16 +2788,31 @@ body.viewonly #hint .hint-guest { display: inline; }
 .v-look input[type="range"]::-moz-range-thumb { width: 11px; height: 11px; border: 0; border-radius: 50%; background: var(--text); box-shadow: var(--shadow-1); }
 .v-look input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-soft); }
 .v-look input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--accent-soft); }
-/* A project's settings. Above the title, the project. Settings in groups, each under a small heading,
-   the groups set apart by space rather than rules. A switch or a button sits beside its setting's name; a
-   field or a list goes under it, the width of the dialog. */
-.ps-dlg { width: min(480px, calc(100vw - 32px)); }
-.ps-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
+/* A project's settings. Above the title, the project; under it, the tabs down the side, one to each
+   part of the project, and beside them the pane of the one chosen: its name and what it sets, then its
+   settings. The pane keeps one height, so the dialog does not jump from tab to tab. A switch or a button
+   sits beside its setting's name; a field or a list goes under it, the width of the pane. */
+.ps-dlg { width: min(720px, calc(100vw - 32px)); padding: 0; }
+.ps-dlg form { display: flex; flex-direction: column; }
+.ps-head { display: flex; flex-direction: column; gap: 2px; padding: 20px 24px 16px; }
 .ps-where { color: var(--muted); font-size: var(--fs-sm); }
 .ps-dlg .ps-head h2 { margin: 0; }
-.ps-group { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
-.ps-sec { margin: 0; color: var(--muted); font-size: var(--fs-sm); font-weight: 500; }
-.ps-group > .ps-sec { margin-bottom: -4px; }
+.ps-body { display: grid; grid-template-columns: 176px minmax(0, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.ps-tabs { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-right: 1px solid var(--line); }
+.ps-tab { display: flex; flex: none; align-items: center; gap: 8px; height: var(--h); padding: 0 10px; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text-2); font: inherit; text-align: left; white-space: nowrap; cursor: pointer; }
+.ps-tab svg { flex: none; color: var(--muted); }
+.ps-tab:hover { background: var(--hover); color: var(--text); }
+.ps-tab.on { background: var(--surface-2); color: var(--text); font-weight: 600; }
+.ps-tab.on svg { color: var(--text); }
+.ps-tab:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent); }
+.ps-panes { height: min(440px, calc(100vh - 220px)); overflow-y: auto; }
+.ps-pane { display: flex; flex-direction: column; gap: 20px; padding: 20px 24px 24px; }
+.ps-pane[hidden] { display: none; }
+.ps-pane-head { display: flex; flex-direction: column; gap: 2px; }
+.ps-pane-head h3 { margin: 0; font-size: var(--fs-lg); font-weight: 600; letter-spacing: -0.01em; }
+.ps-dlg .ps-pane-head p { margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: 1.4; }
+.ps-dlg p.ps-empty { margin: 0; color: var(--muted); font-size: var(--fs-ui); line-height: 1.5; }
+.ps-dlg .dlg-actions { margin: 0; padding: 16px 24px; }
 .ps-row { display: flex; align-items: center; gap: 16px; }
 .ps-row .ps-label { flex: 1; }
 .ps-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -2811,6 +2826,15 @@ body.viewonly #hint .hint-guest { display: inline; }
 .ps-field-head .btn { flex: none; }
 .ps-dlg .ps-field > input[type="text"], .ps-field > select { width: 100%; height: var(--h); margin: 0; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; }
 .ps-field > select:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+/* On a phone the tabs go across the top, and scroll sideways once there are more than fit. */
+@media (max-width: 560px) {
+  .ps-body { grid-template-columns: minmax(0, 1fr); }
+  .ps-tabs { flex-direction: row; padding: 8px 12px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .ps-panes { height: calc(100vh - 260px); }
+  .ps-pane { padding: 16px; }
+  .ps-head { padding: 16px 16px 12px; }
+  .ps-dlg .dlg-actions { padding: 12px 16px; }
+}
 /* On or off: a switch. */
 input.switch { position: relative; flex: none; width: 34px; height: 20px; margin: 0; border-radius: var(--r-pill); background: var(--surface-3); cursor: pointer; appearance: none; transition: background 0.15s; }
 input.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--text-2); transition: transform 0.15s, background 0.15s; }

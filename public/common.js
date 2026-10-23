@@ -173,7 +173,8 @@ const WB = (() => {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       if (res.status === 401 && session.signOut) toSignIn();
-      throw Object.assign(new Error(data.error || `Request failed (${res.status})`), { status: res.status });
+      // What the server said comes with it: a refused save, say, answers with what is saved instead.
+      throw Object.assign(new Error(data.error || `Request failed (${res.status})`), { status: res.status, data });
     }
     return data;
   }
@@ -641,6 +642,7 @@ const WB = (() => {
     folder: (id) => `#/f/${id}`,
     playlist: (id) => `#/pl/${id}`,
     reviews: (id, playlist) => `#/f/${id}/reviews${playlist ? `/${playlist}` : ''}`,
+    animatic: (id, animatic) => `#/f/${id}/animatic/${animatic}`,
     catalogue: (id, { tier, seq, entity } = {}) => `#/f/${id}/catalogue${entity ? `/${entity}` : seq ? `/s/${encodeURIComponent(seq)}` : tier ? `/t/${tier}` : ''}`,
     versions: (id) => `#/f/${id}/versions`,
     timeline: (id, { seq } = {}) => `#/f/${id}/timeline${seq ? `/s/${encodeURIComponent(seq)}` : ''}`,

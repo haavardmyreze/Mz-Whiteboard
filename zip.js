@@ -147,8 +147,9 @@ function ending(plan) {
 
 // Writes the archive to `out`, or the part of it from byte `start` to byte `end`: a download that was
 // cut off can be taken up where it stopped, since every byte's place is known. The plan's entries are
-// { name, file, size, mtime }; `crcOf(entry)` gives a file's checksum, and may take its time over one it
-// has not seen before. Stops quietly if `out` goes away.
+// { name, file, size, mtime }, or { name, data, size, mtime } for one made in memory (`data` a Buffer);
+// `crcOf(entry)` gives a file's checksum, and may take its time over one it has not seen before. Stops
+// quietly if `out` goes away.
 async function writeZip(out, plan, crcOf, start = 0, end = plan.size - 1) {
   let gone = false;
   out.on('close', () => { gone = true; });
@@ -180,7 +181,8 @@ async function writeZip(out, plan, crcOf, start = 0, end = plan.size - 1) {
     await piece(30 + e.nameBytes.length + (e.long ? 20 : 0), async () => fileHeader(e, await crc(i)));
     const a = Math.max(start, pos);
     const b = Math.min(end, pos + e.size - 1);
-    if (a <= b) {
+    if (a <= b && e.data) await put(e.data.subarray(a - pos, b - pos + 1));
+    else if (a <= b) {
       for await (const chunk of fs.createReadStream(e.file, { start: a - pos, end: b - pos })) {
         if (gone) return;
         await put(chunk);

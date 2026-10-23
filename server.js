@@ -17,6 +17,7 @@ const zip = require('./zip');
 const naming = require('./public/naming');
 const { createAi } = require('./ai');
 const likely = require('./likely');
+const cutfiles = require('./cutfiles');
 
 // Settings can live in a .env file next to this one (KEY=value per line); real environment variables win.
 try {
@@ -107,11 +108,21 @@ const MIME = {
   '.webm': 'video/webm',
   '.mov': 'video/quicktime',
   '.glb': 'model/gltf-binary',
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.opus': 'audio/ogg',
+  '.flac': 'audio/flac',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
 };
-// A .glb is a project's 3D model of its venue (see cleanProjectSettings); everything else is media.
-const UPLOAD_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp', '.svg', '.mp4', '.m4v', '.webm', '.mov', '.glb']);
+// A .glb is a project's 3D model of its venue (see cleanProjectSettings), and a sound file is what an animatic
+// is cut to (see cleanAnimatic); everything else is media for boards and versions.
+const UPLOAD_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp', '.svg', '.mp4', '.m4v', '.webm', '.mov', '.glb',
+  '.wav', '.mp3', '.m4a', '.aac', '.ogg', '.oga', '.opus', '.flac']);
 
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 let store;
@@ -1401,6 +1412,146 @@ const playlistCard = (p) => {
   };
 };
 
+// ---------------------------------------------------------------- animatics
+//
+// An animatic is an edit of a project's shots: clips on video tracks, the higher over the lower, and sound
+// files on sound tracks, played through as the cut is. A clip names a shot, never a version, and plays the
+// newest version of it (of the animatic's task, or of any), so filing a version is all it takes for every
+// animatic the shot is in to show it. Every position is in whole frames of the animatic's own rate.
+
+const ANIMATIC_RATES = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60];
+const MAX_TRACKS = 16;
+const MAX_CLIPS = 2000;
+const MAX_FRAMES = 60 * 60 * 60 * 6; // six hours at sixty frames a second
+const STILL_SECONDS = 3; // how long a still, or a shot with nothing filed, is when it is put on
+const wholeIn = (v, lo, hi, fallback) => (Number.isInteger(v) && v >= lo && v <= hi ? v : fallback);
+const gainOf = (v) => (Number.isFinite(v) ? Math.min(2, Math.max(0, Math.round(v * 100) / 100)) : 1);
+const trackId = (v) => typeof v === 'string' && /^[\w-]{1,24}$/.test(v);
+
+// An edit as it may be kept: what it says that makes sense, and nothing else. Its rate is one of the usual
+// ones; it has at least one video track and one sound track; each clip is on a track of its kind, a video
+// clip names a shot of `project`, and a sound clip an uploaded sound file. Fades are no longer than their
+// clip. A dissolve (on the clip after a cut) is no longer than the clip either.
+function cleanAnimatic(asked, project) {
+  const a = asked && typeof asked === 'object' ? asked : {};
+  const tracks = [];
+  for (const t of Array.isArray(a.tracks) ? a.tracks.slice(0, MAX_TRACKS) : []) {
+    if (!t || !trackId(t.id) || tracks.some((x) => x.id === t.id) || (t.kind !== 'video' && t.kind !== 'audio')) continue;
+    const name = String(t.name ?? '').trim().slice(0, 40) || `${t.kind === 'video' ? 'V' : 'A'}${tracks.filter((x) => x.kind === t.kind).length + 1}`;
+    tracks.push(t.kind === 'video' ? { id: t.id, kind: 'video', name, mute: t.mute === true, hide: t.hide === true } : { id: t.id, kind: 'audio', name, mute: t.mute === true, gain: gainOf(t.gain) });
+  }
+  const freeId = (base) => {
+    let id = base;
+    for (let n = 2; tracks.some((x) => x.id === id); n++) id = `${base}-${n}`;
+    return id;
+  };
+  if (!tracks.some((t) => t.kind === 'video')) tracks.unshift({ id: freeId('v1'), kind: 'video', name: 'V1', mute: false, hide: false });
+  if (!tracks.some((t) => t.kind === 'audio')) tracks.push({ id: freeId('a1'), kind: 'audio', name: 'A1', mute: false, gain: 1 });
+  const kindOf = new Map(tracks.map((t) => [t.id, t.kind]));
+  const shotOk = new Map();
+  const isShot = (id) => {
+    if (!shotOk.has(id)) {
+      const e = typeof id === 'string' && store.entity(id);
+      shotOk.set(id, !!e && e.projectId === project.id && e.tier === 'shot');
+    }
+    return shotOk.get(id);
+  };
+  const clips = [];
+  for (const c of Array.isArray(a.clips) ? a.clips.slice(0, MAX_CLIPS) : []) {
+    if (!c || !trackId(c.id) || clips.some((x) => x.id === c.id) || !kindOf.has(c.track)) continue;
+    const start = wholeIn(c.start, 0, MAX_FRAMES, null);
+    const len = wholeIn(c.len, 1, MAX_FRAMES, null);
+    if (start === null || len === null) continue;
+    const fadeIn = wholeIn(c.fadeIn, 0, len, 0);
+    const clip = { id: c.id, track: c.track, start, len, in: wholeIn(c.in, 0, MAX_FRAMES, 0), fadeIn, fadeOut: Math.min(len - fadeIn, wholeIn(c.fadeOut, 0, len, 0)), dissolve: wholeIn(c.dissolve, 0, len, 0), gain: gainOf(c.gain) };
+    if (kindOf.get(c.track) === 'video') {
+      if (!isShot(c.shot)) continue;
+      clips.push({ ...clip, shot: c.shot, loop: c.loop === true });
+    } else {
+      const file = uploadName(c.media);
+      if (!file || store.media(file)?.kind !== 'audio') continue;
+      clips.push({ ...clip, media: `/uploads/${file}`, name: String(c.name ?? '').slice(0, 200), dur: Number.isFinite(c.dur) && c.dur > 0 ? c.dur : null });
+    }
+  }
+  clips.sort((x, y) => x.start - y.start);
+  const task = typeof a.task === 'string' ? naming.tokenize(a.task).slice(0, 40) || null : null;
+  return {
+    fps: ANIMATIC_RATES.includes(a.fps) ? a.fps : 25, w: wholeIn(a.w, 16, 8192, 1920), h: wholeIn(a.h, 16, 8192, 1080),
+    task, view: viewName(a.view) || '', tracks, clips,
+  };
+}
+
+// The newest version of each of some shots, as an animatic of `task` plays them: { shot id: { id, name, seq,
+// version: { id, task, number, label, kind, look } or null } }. The look is the version's whole one, as the
+// player needs it (its phone copy, its colour strip, its views).
+function animaticShots(ids, task) {
+  const list = [...new Set(ids)].map((id) => store.entity(id)).filter(Boolean);
+  const cards = task ? null : store.entityCards(list.map((e) => e.id));
+  const out = {};
+  for (const e of list) {
+    const glance = task ? store.newestOfTask(e.id, task) : cards.get(e.id)?.newest;
+    const v = glance && liveVersion(glance.id);
+    out[e.id] = {
+      id: e.id, name: e.name, seq: naming.seqOf(e.name),
+      version: v ? { id: v.id, task: v.task, number: v.number, label: naming.label(e.name, v.task, v.number), kind: v.kind, look: v.look } : null,
+    };
+  }
+  return out;
+}
+// How long a clip of a version is when it is put on: the version's length, or a still's few seconds.
+const framesOf = (version, fps) => {
+  const look = version && version.look;
+  const dur = look && look.type === 'video' && look.dur > 0 ? look.dur : STILL_SECONDS;
+  return Math.max(1, Math.round(dur * fps));
+};
+// The rate a new animatic of a project starts at: the one most of its shots' newest versions have, near
+// enough, or 25.
+function usualRate(project) {
+  const count = new Map();
+  for (const e of store.entities(project.id)) {
+    const fps = e.tier === 'shot' && e.newest && e.newest.look.fps;
+    if (!(fps > 0)) continue;
+    const rate = ANIMATIC_RATES.reduce((best, r) => (Math.abs(r - fps) < Math.abs(best - fps) ? r : best));
+    if (Math.abs(rate - fps) < 0.05) count.set(rate, (count.get(rate) || 0) + 1);
+  }
+  return [...count].sort((x, y) => y[1] - x[1])[0]?.[0] || 25;
+}
+// A shot named by its own id or by one of its versions' (from a list of versions, say), or null.
+const shotFor = (id) => {
+  if (typeof id !== 'string') return null;
+  const e = store.entity(id) || store.entity(liveVersion(id)?.entityId);
+  return e && e.tier === 'shot' ? e.id : null;
+};
+// Shots put at the end of an animatic's first video track, one after another, each as long as its newest
+// version. `asked` may name each by a version of it. Returns the edit with them on.
+function appendShots(doc, asked) {
+  const v1 = doc.tracks.find((t) => t.kind === 'video');
+  const ids = asked.map(shotFor).filter(Boolean);
+  const shots = animaticShots(ids, doc.task);
+  let at = doc.clips.filter((c) => c.track === v1.id).reduce((end, c) => Math.max(end, c.start + c.len), 0);
+  const added = ids.filter((id) => shots[id]).map((id) => {
+    const len = framesOf(shots[id].version, doc.fps);
+    const clip = { id: newId(6), track: v1.id, start: at, len, in: 0, shot: id };
+    at += len;
+    return clip;
+  });
+  return { ...doc, clips: [...doc.clips, ...added] };
+}
+// An animatic as a list of them shows it: its name, how many shots, the first stills along its first track,
+// how long it runs, when it changed and who changed it.
+function animaticCard(a) {
+  const shown = a.doc.clips.filter((c) => c.shot).sort((x, y) => x.start - y.start);
+  const cards = store.entityCards([...new Set(shown.slice(0, 12).map((c) => c.shot))]);
+  const end = a.doc.clips.reduce((n, c) => Math.max(n, c.start + c.len), 0);
+  return {
+    id: a.id, name: a.name, shots: new Set(shown.map((c) => c.shot)).size, dur: end / a.doc.fps,
+    thumbs: [...new Set(shown.map((c) => cards.get(c.shot)?.thumb).filter(Boolean))].slice(0, 4),
+    createdBy: a.createdBy, createdAt: a.createdAt, updatedAt: a.updatedAt, updatedBy: a.updatedBy,
+  };
+}
+// An animatic whole, as its page needs it: the edit, which save it is, and the newest version of each shot on it.
+const animaticOut = (a) => ({ animatic: animaticCard(a), projectId: a.projectId, doc: a.doc, rev: a.rev, shots: animaticShots(a.doc.clips.filter((c) => c.shot).map((c) => c.shot), a.doc.task) });
+
 async function handleCatalogue(req, res, parts) {
   const projectFor = (id) => (visibleFolder(req.user, id) && folders.get(id).project ? folders.get(id) : null);
   const boardsSeen = (list) => list.filter((b) => canSee(req.user, b.workspace)).map((b) => ({ id: b.id, name: b.name }));
@@ -1441,7 +1592,34 @@ async function handleCatalogue(req, res, parts) {
         viewList: viewsOf(project),
         boards: [...boards.values()].filter((b) => visible(req.user, b) && boardProject(b) === project).map((b) => ({ id: b.id, name: b.name })),
         playlists: store.playlists(project.id).map(playlistCard),
+        animatics: store.animatics(project.id).map(animaticCard),
       });
+    }
+    // GET /api/projects/:id/animatics                  its animatics, the one changed last first
+    // POST /api/projects/:id/animatics { name, doc }    a new one, as given (or empty)
+    //   { name, from: 'timeline', seq }                 the shots of the timeline (of one sequence), each filed one
+    //                                                   after another on V1, as long as its newest version
+    //   { name, shots: [ids] }                          these shots (or the shots of these versions), the same way
+    //   { name, copy: id }                              another of its animatics, as it is
+    if (parts.length === 4 && parts[3] === 'animatics') {
+      if (req.method === 'GET') return sendJson(res, 200, { animatics: store.animatics(project.id).map(animaticCard) });
+      if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+      const body = await readJson(req, 1024 * 1024);
+      const name = cleanName(body.name, null);
+      if (!name) return sendJson(res, 400, { error: 'An animatic needs a name' });
+      let doc = cleanAnimatic(body.doc || { fps: usualRate(project) }, project);
+      if (body.copy !== undefined) {
+        const from = store.animatic(body.copy);
+        if (!from || from.projectId !== project.id) return sendJson(res, 404, { error: 'Animatic not found' });
+        doc = cleanAnimatic(from.doc, project);
+      } else if (body.from === 'timeline' || Array.isArray(body.shots)) {
+        const ids = body.from === 'timeline'
+          ? timelineShots(project.id, doc.task).filter(({ e, v }) => v && (!body.seq || naming.seqOf(e.name) === body.seq)).map(({ e }) => e.id)
+          : body.shots.slice(0, MAX_CLIPS).filter((id) => typeof id === 'string');
+        doc = cleanAnimatic(appendShots(doc, ids), project);
+      }
+      const a = store.addAnimatic({ id: newId(), projectId: project.id, name, doc, by: actor(req, body) });
+      return sendJson(res, 201, animaticOut(a));
     }
     // GET /api/projects/:id/playlists          its playlists, the one changed last first
     // POST /api/projects/:id/playlists { name, versions }   a new one, with these versions on it to begin with
@@ -1899,6 +2077,51 @@ async function handleCatalogue(req, res, parts) {
     const done = store.setPlaylist(p.id, patch);
     if (patch.workspace && patch.workspace !== p.workspace) dropRoomStrangers();
     return sendJson(res, 200, playlistCard(done));
+  }
+  // GET /api/animatics/:id/download   the cut for a playback system, as one zip (see sendAnimaticZip)
+  if (parts[1] === 'animatics' && parts.length === 4 && parts[3] === 'download' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const a = store.animatic(parts[2]);
+    if (!a || !projectFor(a.projectId)) return sendJson(res, 404, { error: 'Animatic not found' });
+    return sendAnimaticZip(req, res, a);
+  }
+  // GET /api/animatics/:id      the edit, which save it is (`rev`), and the newest version of each shot on it
+  // PATCH { name }              renamed
+  // PATCH { doc, rev }          the edit saved, over save `rev`; one made from an older save is refused (409)
+  //                             with the newer one, so the page can take it
+  // PATCH { add: [ids] }        these shots (or the shots of these versions) put at the end of its first video
+  //                             track, from elsewhere in the project
+  // DELETE                      gone
+  if (parts[1] === 'animatics' && parts.length === 3) {
+    const a = store.animatic(parts[2]);
+    const project = a && projectFor(a.projectId);
+    if (!project) return sendJson(res, 404, { error: 'Animatic not found' });
+    if (req.method === 'GET') return sendJson(res, 200, animaticOut(a));
+    if (req.method === 'DELETE') {
+      store.deleteAnimatic(a.id);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (req.method !== 'PATCH') return sendJson(res, 405, { error: 'Method not allowed' });
+    const body = await readJson(req, 2 * 1024 * 1024);
+    const by = actor(req, body);
+    const patch = {};
+    if (body.name !== undefined) {
+      patch.name = cleanName(body.name, null);
+      if (!patch.name) return sendJson(res, 400, { error: 'An animatic needs a name' });
+    }
+    if (body.doc !== undefined) {
+      patch.doc = cleanAnimatic(body.doc, project);
+      patch.rev = body.rev;
+    } else if (Array.isArray(body.add)) {
+      patch.doc = cleanAnimatic(appendShots(a.doc, body.add.slice(0, MAX_CLIPS).filter((id) => typeof id === 'string')), project);
+      patch.rev = a.rev;
+    }
+    if (!Object.keys(patch).length) return sendJson(res, 400, { error: 'Nothing to change' });
+    const done = store.setAnimatic(a.id, patch, by);
+    if (!done) {
+      const now = store.animatic(a.id);
+      return sendJson(res, 409, { error: `${now.updatedBy || 'Somebody'} changed this animatic since`, ...animaticOut(now) });
+    }
+    return sendJson(res, 200, animaticOut(done));
   }
   // GET /api/versions/:id
   // PATCH  { entity, task, number, descriptor, artist }   what it is filed as: its name follows
@@ -2511,6 +2734,102 @@ async function sendBoardZip(req, res, board) {
   }
 }
 
+// ---------------------------------------------------------------- an animatic's cut, for a playback system
+//
+// One zip: the cut as OpenTimelineIO and as a CMX 3600 edit decision list for each track (cutfiles.js), a list
+// of the version each file is, and the files: the newest version of each shot it plays (the file it was made
+// from where that was kept, in the view the animatic shows), named by the shot, and its sound files by their
+// names. Named by shot, a newer version can be put over the old file without a new cut.
+async function sendAnimaticZip(req, res, a) {
+  const doc = a.doc;
+  const shots = animaticShots(doc.clips.filter((c) => c.shot).map((c) => c.shot), doc.task);
+  const lookOf = (c) => {
+    const v = c.shot && shots[c.shot] && shots[c.shot].version;
+    if (!v) return null;
+    return (doc.view && doc.view !== v.look.view && (v.look.views || []).find((x) => x.view === doc.view)) || v.look;
+  };
+  const lengthOf = (c) => {
+    if (c.media) return c.dur ? c.dur * doc.fps : Infinity;
+    const look = lookOf(c);
+    return look && look.type === 'video' && look.dur > 0 ? look.dur * doc.fps : Infinity;
+  };
+  // Each file once, under the name of its shot (or its own, for a sound).
+  const files = new Map(); // upload -> { name, ... }
+  const fileOf = new Map(); // clip id -> name in the zip
+  const rows = [];
+  for (const c of doc.clips) {
+    const look = c.media ? null : lookOf(c);
+    const upload = c.media ? uploadName(c.media) : look && uploadName(look.orig || look.src);
+    if (!upload) continue;
+    const file = path.join(UPLOAD_DIR, upload);
+    const st = await fsp.stat(file).catch(() => null);
+    if (!st) continue;
+    if (!files.has(upload)) {
+      const stem = c.media ? String(c.name || 'sound').replace(/\.[^./\\]+$/, '') : shots[c.shot].name;
+      files.set(upload, { upload, file, size: st.size, mtime: st.mtimeMs, name: stem + path.extname(upload), clip: c });
+    }
+    fileOf.set(c.id, files.get(upload));
+  }
+  const entries = [...files.values()];
+  zip.safeNames(entries.map((e) => e.name)).forEach((name, i) => { entries[i].name = name; });
+  for (const e of entries) {
+    if (e.clip.media) continue;
+    const v = shots[e.clip.shot].version;
+    const full = liveVersion(v.id);
+    rows.push({ file: e.name, shot: shots[e.clip.shot].name, label: v.label, task: v.task || '', number: v.number, filed: full ? new Date(full.createdAt).toISOString() : '', by: full ? full.createdBy || '' : '', original: full ? full.originalName || '' : '' });
+  }
+  const title = zip.safeNames([a.name])[0];
+  const info = {
+    lengthOf,
+    fileOf: (c) => fileOf.get(c.id)?.name || null,
+    metaOf: (c) => {
+      if (c.media) return { name: c.name || 'sound', file: fileOf.get(c.id)?.name || null };
+      const s = shots[c.shot];
+      return { name: s.name, shot: s.id, version: s.version ? s.version.label : null, versionId: s.version ? s.version.id : null, file: fileOf.get(c.id)?.name || null };
+    },
+  };
+  const made = (name, text) => {
+    const data = Buffer.from(text, 'utf8');
+    return { name, data, size: data.length, mtime: a.updatedAt };
+  };
+  const cut = [
+    made(`${title}.otio`, `${JSON.stringify(cutfiles.otio(doc, a.name, info), null, 2)}\n`),
+    ...doc.tracks.filter((t) => doc.clips.some((c) => c.track === t.id && info.fileOf(c))).map((t) => made(`${title} ${t.name}.edl`, cutfiles.edl(doc, t, a.name, info))),
+    made(`${title} versions.csv`, cutfiles.versionList(rows)),
+  ];
+  const all = [...cut, ...entries];
+  zip.safeNames(all.map((e) => e.name)).forEach((name, i) => { all[i].name = name; });
+  const plan = zip.layout(all);
+  const etag = `"${crypto.createHash('sha1').update(all.map((e) => (e.data ? crypto.createHash('sha1').update(e.data).digest('hex') : `${e.upload}/${e.size}/${Math.floor(e.mtime / 2000)}`) + `/${e.name}`).join('|')).digest('hex').slice(0, 24)}"`;
+  const head = {
+    'Content-Type': 'application/zip',
+    'Content-Disposition': `attachment; filename="${title.replace(/[^\x20-\x7e]|["\\]/g, '_')}.zip"; filename*=UTF-8''${encodeURIComponent(title)}.zip`,
+    'Cache-Control': 'no-store',
+    'Accept-Ranges': 'bytes',
+    ETag: etag,
+  };
+  const range = byteRange(req, plan.size, !req.headers['if-range'] || req.headers['if-range'] === etag);
+  if (!range) return refuseRange(res, plan.size);
+  const { start, end, status } = range;
+  if (status === 206) head['Content-Range'] = `bytes ${start}-${end}/${plan.size}`;
+  head['Content-Length'] = end - start + 1;
+  res.writeHead(status, head);
+  if (req.method === 'HEAD') return res.end();
+  const crcOf = async (e) => {
+    if (e.data) return zlib.crc32(e.data) >>> 0;
+    const known = store.media(e.upload);
+    if (known && known.crc != null) return known.crc >>> 0;
+    const crc = await zip.crcOfFile(e.file);
+    store.setMediaCrc(e.upload, crc);
+    return crc;
+  };
+  try {
+    await zip.writeZip(res, plan, crcOf, start, end);
+  } catch {
+    res.destroy();
+  }
+}
+
 // The file a video was made from is for the people who work on the board, not for whoever holds a link to it.
 function withoutOriginal(it) {
   if (!it || it.orig === undefined) return it;
@@ -2560,7 +2879,7 @@ async function handleApi(req, res, url) {
     if (!project) return sendJson(res, 404, { error: 'Project not found' });
     return handlePresentApi(req, res, url, project, parts[4] || '');
   }
-  if (['projects', 'entities', 'versions', 'playlists', 'people'].includes(parts[1])) return handleCatalogue(req, res, parts);
+  if (['projects', 'entities', 'versions', 'playlists', 'animatics', 'people'].includes(parts[1])) return handleCatalogue(req, res, parts);
   if (parts[1] === 'library' && req.method === 'GET') {
     return sendJson(res, 200, {
       folders: [...folders.values()].filter((f) => canSee(req.user, f.workspace)).map(publicFolder),

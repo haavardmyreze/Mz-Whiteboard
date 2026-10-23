@@ -12,7 +12,8 @@
 // Frames are taken from the shots themselves, here in the browser, as they come into view: the nearest
 // to the playhead first, one at a time, from a copy of the video kept on this computer when there is one
 // (media.js). Until a frame is in, its place has the colour the shot has there (its timeline strip),
-// or its still. Loaded after common.js; used by viewer.js.
+// or its still. Loaded after common.js; used by viewer.js, and its frames by an animatic's track too
+// (animatic.js, through `frames`).
 const WBCutTrack = (() => {
   const { el, clamp } = WB;
   const PPS = 60; // px a second, close in: some fourteen seconds across a laptop's screen, six across a phone's
@@ -480,5 +481,27 @@ const WBCutTrack = (() => {
   // "anim v3" from a version's label "kilo-0010 anim v3".
   const versionOf = (p) => (p.label && p.name && p.label.startsWith(p.name) ? p.label.slice(p.name.length).trim() : '');
 
-  return { create };
+  // The frames, for an animatic's track: `take(key)` what is in (`key(src, at)` names one), `ask(list)` for
+  // those wanted, nearest first, in place of any asked before ({ key, src, at }), and `listen(fn)` to hear as
+  // more come in (it gives back how to stop listening). A page shows one of the two kinds of track at a time.
+  const shared = {
+    key: frameKey,
+    take,
+    ask(list) {
+      wanted = list;
+      pump();
+    },
+    listen(fn) {
+      listeners.add(fn);
+      return () => {
+        listeners.delete(fn);
+        if (!listeners.size) idle();
+      };
+    },
+    colourAt,
+    imageOf,
+    drawCover,
+  };
+
+  return { create, frames: shared };
 })();

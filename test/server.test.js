@@ -3177,3 +3177,114 @@ test('a playlist outside a project takes files as its versions, in order, and is
   assert.equal((await call('GET', `/api/playlists/${id}`)).status, 404);
   assert.deepEqual((await call('GET', '/api/library')).body.playlists, []);
 });
+
+test('an animatic is an edit of a project\'s shots that always plays their newest versions, saved over the save it was made from', async (t) => {
+  const s = start(4903);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const other = (await call('POST', '/api/folders', { name: 'Lima' })).body;
+  await call('PATCH', `/api/folders/${other.id}`, { project: true });
+  await call('POST', `/api/projects/${project.id}/entities`, { names: ['kilo-0010', 'kilo-0020', 'kilo-0030', 'char-robot'] });
+  await call('POST', `/api/projects/${other.id}/entities`, { names: ['lima-0010'] });
+  const up = async (name) => (await (await fetch(`${s.base}/api/upload?name=${name}`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
+  const file = async (name, task, dur, fps = 25) => (await call('POST', `/api/projects/${project.id}/versions`, { entity: { name }, task, files: [{ look: { type: 'video', src: await up('a.mp4'), name: 'x.mp4', dur, fps } }] })).body.versions[0];
+  await file('kilo-0010', 'anim', 4);
+  await file('kilo-0020', 'anim', 2);
+  const cat = (await call('GET', `/api/projects/${project.id}`)).body;
+  const id = (name) => cat.entities.find((e) => e.name === name).id;
+
+  // made from the timeline: its filed shots in order on V1, each as long as its newest version, at the rate most have
+  assert.equal((await call('POST', `/api/projects/${project.id}/animatics`, { name: ' ' })).status, 400);
+  const made = await call('POST', `/api/projects/${project.id}/animatics`, { name: 'Cut A', from: 'timeline', by: 'Anna' });
+  assert.equal(made.status, 201);
+  const a = made.body;
+  assert.deepEqual([a.doc.fps, a.doc.tracks.map((x) => [x.id, x.kind]), a.rev], [25, [['v1', 'video'], ['a1', 'audio']], 1]);
+  assert.deepEqual(a.doc.clips.map((c) => [c.shot, c.start, c.len, c.track]), [[id('kilo-0010'), 0, 100, 'v1'], [id('kilo-0020'), 100, 50, 'v1']]);
+  assert.equal(a.shots[id('kilo-0010')].version.label, 'kilo-0010 anim v1');
+  assert.equal(a.shots[id('kilo-0010')].version.look.dur, 4);
+  // the project lists it with its reviews
+  assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.animatics.map((x) => [x.name, x.shots, x.dur, x.createdBy]), [['Cut A', 2, 6, 'Anna']]);
+
+  // a new version is played at once; the clip keeps the length it was cut to
+  const v2 = await file('kilo-0010', 'anim', 6);
+  const read = (await call('GET', `/api/animatics/${a.animatic.id}`)).body;
+  assert.equal(read.shots[id('kilo-0010')].version.id, v2.id);
+  assert.equal(read.doc.clips[0].len, 100);
+  // with a task chosen, every clip plays the newest of that task, and a shot with none of it has no version
+  await file('kilo-0020', 'comp', 2);
+  const comp = await call('PATCH', `/api/animatics/${a.animatic.id}`, { doc: { ...read.doc, task: 'comp' }, rev: read.rev });
+  assert.equal(comp.status, 200);
+  assert.equal(comp.body.rev, 2);
+  assert.deepEqual([comp.body.shots[id('kilo-0010')].version, comp.body.shots[id('kilo-0020')].version.label], [null, 'kilo-0020 comp v1']);
+
+  // a save made from an older save is refused, with the newer edit and who made it
+  const late = await call('PATCH', `/api/animatics/${a.animatic.id}`, { doc: read.doc, rev: read.rev, by: 'Ben' });
+  assert.equal(late.status, 409);
+  assert.deepEqual([late.body.rev, late.body.doc.task], [2, 'comp']);
+  assert.match(late.body.error, /changed this animatic/);
+
+  // what is kept is only what makes sense: shots of this project only, tracks of the right kind, fades within their clip
+  const audio = await up('music.wav');
+  const theirShot = (await call('GET', `/api/projects/${other.id}`)).body.entities[0].id;
+  const notAudio = await up('b.png');
+  const saved = await call('PATCH', `/api/animatics/${a.animatic.id}`, { rev: 2, doc: {
+    fps: 24, task: null,
+    tracks: [{ id: 'v1', kind: 'video' }, { id: 'v2', kind: 'video', name: 'Over' }, { id: 'a1', kind: 'audio', gain: 5 }, { id: 'v1', kind: 'video' }, { id: 'x', kind: 'sound' }],
+    clips: [
+      { id: 'c1', track: 'v1', start: 0, len: 48, in: 0, shot: id('kilo-0010'), fadeIn: 30, fadeOut: 30, loop: true },
+      { id: 'c2', track: 'v2', start: 24, len: 24, shot: id('kilo-0020'), dissolve: 12 },
+      { id: 'c3', track: 'v1', start: 48, len: 24, shot: theirShot },
+      { id: 'c4', track: 'v1', start: 72, len: 24, shot: id('char-robot') },
+      { id: 'c5', track: 'a1', start: 0, len: 240, media: audio, name: 'music.wav', dur: 10 },
+      { id: 'c6', track: 'a1', start: 0, len: 240, media: notAudio },
+      { id: 'c7', track: 'v2', start: 0, len: 0, shot: id('kilo-0030') },
+      { id: 'c8', track: 'a1', start: 0, len: 10, shot: id('kilo-0030') },
+    ],
+  } });
+  assert.equal(saved.status, 200);
+  const doc = saved.body.doc;
+  assert.deepEqual(doc.tracks.map((x) => [x.id, x.kind, x.name]), [['v1', 'video', 'V1'], ['v2', 'video', 'Over'], ['a1', 'audio', 'A1']]);
+  assert.equal(doc.tracks[2].gain, 2);
+  assert.deepEqual(doc.clips.map((c) => c.id), ['c1', 'c5', 'c2']);
+  assert.deepEqual([doc.clips[0].fadeIn, doc.clips[0].fadeOut, doc.clips[0].loop], [30, 18, true]);
+  assert.deepEqual([doc.clips[1].media, doc.clips[1].dur], [audio, 10]);
+  assert.equal(doc.clips[2].dissolve, 12);
+
+  // shots added from elsewhere go on the end of V1, and need no save to have been read
+  const added = await call('PATCH', `/api/animatics/${a.animatic.id}`, { add: [id('kilo-0020'), id('kilo-0030')] });
+  assert.equal(added.status, 200);
+  assert.deepEqual(added.body.doc.clips.filter((c) => c.track === 'v1').map((c) => [c.start, c.len]), [[0, 48], [48, 48], [96, 72]]);
+  assert.equal(added.body.shots[id('kilo-0030')].version, null);
+
+  // another project's people cannot reach it through theirs; copied, renamed and deleted
+  assert.equal((await call('POST', `/api/projects/${other.id}/animatics`, { name: 'Theirs', copy: a.animatic.id })).status, 404);
+  const copy = await call('POST', `/api/projects/${project.id}/animatics`, { name: 'Cut B', copy: a.animatic.id });
+  assert.equal(copy.body.doc.clips.length, 5);
+  await call('PATCH', `/api/animatics/${copy.body.animatic.id}`, { name: 'Cut B, shorter' });
+  assert.deepEqual((await call('GET', `/api/projects/${project.id}/animatics`)).body.animatics.map((x) => x.name), ['Cut B, shorter', 'Cut A']);
+  assert.equal((await call('DELETE', `/api/animatics/${copy.body.animatic.id}`)).status, 200);
+  assert.equal((await call('GET', `/api/animatics/${copy.body.animatic.id}`)).status, 404);
+
+  // a sound file is taken, served as sound, and kept as such
+  const res = await fetch(s.base + audio);
+  assert.equal(res.headers.get('content-type'), 'audio/wav');
+
+  // downloaded for a playback system: the cut as OpenTimelineIO and an edit decision list a track, what each
+  // file is, and the files named by shot (a shot with nothing filed has none)
+  const zipped = await fetch(`${s.base}/api/animatics/${a.animatic.id}/download`);
+  assert.equal(zipped.status, 200);
+  assert.equal(zipped.headers.get('content-type'), 'application/zip');
+  const bytes = Buffer.from(await zipped.arrayBuffer());
+  const names = [];
+  for (let i = bytes.indexOf('PK\x01\x02', 0, 'latin1'); i >= 0; i = bytes.indexOf('PK\x01\x02', i + 4, 'latin1')) names.push(bytes.subarray(i + 46, i + 46 + bytes.readUInt16LE(i + 28)).toString('utf8'));
+  assert.deepEqual(names.sort(), ['Cut A A1.edl', 'Cut A Over.edl', 'Cut A V1.edl', 'Cut A versions.csv', 'Cut A.otio', 'kilo-0010.mp4', 'kilo-0020.mp4', 'music.wav']);
+  const otio = JSON.parse(bytes.subarray(bytes.indexOf('{'), bytes.indexOf('\n}\n', bytes.indexOf('{')) + 2).toString('utf8'));
+  assert.deepEqual(otio.tracks.children.map((t) => [t.name, t.kind]), [['V1', 'Video'], ['Over', 'Video'], ['A1', 'Audio']]);
+});

@@ -272,6 +272,22 @@ CREATE TABLE IF NOT EXISTS playlists (
 );
 CREATE INDEX IF NOT EXISTS playlists_by_project ON playlists (project_id);
 
+-- An animatic: an edit of a project's shots on tracks, played through as the cut is. doc is the whole edit as
+-- JSON (its rate and shape, its tracks, its clips; see cleanAnimatic in server.js). Its clips name shots, not
+-- versions, so it always plays their newest. rev counts its saves: a save made from an older one is refused.
+CREATE TABLE IF NOT EXISTS animatics (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  doc TEXT NOT NULL,
+  rev INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  created_by TEXT,
+  updated_at INTEGER NOT NULL,
+  updated_by TEXT
+);
+CREATE INDEX IF NOT EXISTS animatics_by_project ON animatics (project_id);
+
 -- A link to watch somebody present a project: whoever opens it sees what they show, as they show it, and
 -- nothing else. One per person per project, so the same link can be sent ahead of every review. The owner
 -- is who presents: their sign-in's id, or where nobody signs in, the name they go by.
@@ -288,6 +304,7 @@ CREATE TABLE IF NOT EXISTS presentations (
 `;
 
 const VIDEO_EXT = /\.(mp4|m4v|webm|mov)$/i;
+const AUDIO_EXT = /\.(wav|mp3|m4a|aac|ogg|oga|opus|flac)$/i;
 const UPLOAD_NAME = /^\/uploads\/([\w-]+\.[a-z0-9]+)$/i;
 
 const text = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
@@ -529,6 +546,38 @@ function openStore(dataDir) {
   const dropPlaylist = db.prepare('DELETE FROM playlists WHERE id = ?');
   const deletePlaylist = (id) => dropPlaylist.run(id).changes > 0;
 
+  // ---- animatics
+
+  const animaticOf = (r) => ({
+    id: r.id, projectId: r.project_id, name: r.name, doc: JSON.parse(r.doc), rev: r.rev,
+    createdAt: r.created_at, createdBy: r.created_by, updatedAt: r.updated_at, updatedBy: r.updated_by,
+  });
+  const readAnimatics = db.prepare('SELECT * FROM animatics WHERE project_id = ? ORDER BY updated_at DESC');
+  const animatics = (projectId) => readAnimatics.all(projectId).map(animaticOf);
+  const readAnimatic = db.prepare('SELECT * FROM animatics WHERE id = ?');
+  const animatic = (id) => {
+    const r = readAnimatic.get(id);
+    return r ? animaticOf(r) : null;
+  };
+  const putAnimatic = db.prepare('INSERT INTO animatics (id, project_id, name, doc, rev, created_at, created_by, updated_at, updated_by) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)');
+  function addAnimatic({ id, projectId, name, doc, by = null, at = Date.now() }) {
+    putAnimatic.run(id, projectId, name, JSON.stringify(doc), at, by, at, by);
+    return animatic(id);
+  }
+  const updateAnimatic = db.prepare('UPDATE animatics SET name = ?, doc = ?, rev = ?, updated_at = ?, updated_by = ? WHERE id = ? AND rev = ?');
+  // Renamed, or its edit saved. An edit is saved only over the save it was made from (`rev`): one made from
+  // an older save is refused (null), as somebody else has saved since. A rename alone needs no `rev`.
+  function setAnimatic(id, { name, doc, rev } = {}, by = null, at = Date.now()) {
+    const a = animatic(id);
+    if (!a) return null;
+    if (doc !== undefined && rev !== a.rev) return null;
+    const next = doc !== undefined ? a.rev + 1 : a.rev;
+    const done = updateAnimatic.run(name ?? a.name, JSON.stringify(doc ?? a.doc), next, at, doc !== undefined ? by : a.updatedBy, id, a.rev).changes > 0;
+    return done ? animatic(id) : null;
+  }
+  const dropAnimatic = db.prepare('DELETE FROM animatics WHERE id = ?');
+  const deleteAnimatic = (id) => dropAnimatic.run(id).changes > 0;
+
   const readFolders = db.prepare('SELECT * FROM folders');
   const folders = () => readFolders.all().map((r) => ({
     id: r.id, name: r.name, parentId: r.parent_id, workspace: r.workspace, createdAt: r.created_at,
@@ -620,7 +669,7 @@ function openStore(dataDir) {
   });
 
   const putMedia = db.prepare('INSERT OR IGNORE INTO media (name, kind, size, uploaded_by, created_at, crc) VALUES (?, ?, ?, ?, ?, ?)');
-  const addMedia = ({ name, size, by = null, crc = null }) => putMedia.run(name, VIDEO_EXT.test(name) ? 'video' : 'image', size ?? null, by, Date.now(), crc);
+  const addMedia = ({ name, size, by = null, crc = null }) => putMedia.run(name, VIDEO_EXT.test(name) ? 'video' : AUDIO_EXT.test(name) ? 'audio' : 'image', size ?? null, by, Date.now(), crc);
   const putCrc = db.prepare('UPDATE media SET crc = ? WHERE name = ?');
   const setMediaCrc = (name, crc) => putCrc.run(crc, name);
   const readMedia = db.prepare('SELECT * FROM media WHERE name = ?');
@@ -1166,6 +1215,7 @@ function openStore(dataDir) {
     grants, setGrant, removeGrant, removeGrantsOn,
     presentations, savePresentation, deletePresentation, setMediaPhone, itemsWithMedia, setLook, versionsWithFile,
     playlists, loosePlaylists, playlist, addPlaylist, setPlaylist, deletePlaylist,
+    animatics, animatic, addAnimatic, setAnimatic, deleteAnimatic,
   };
 }
 

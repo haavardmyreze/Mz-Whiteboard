@@ -32,7 +32,7 @@ private networks, otherwise only the host machine can connect.
 - **Getting around.** There is no separate home page: the app opens on the workspace you were last in
   (Myreze to begin with), and the mark in the corner goes back to it. A sidebar on the left holds what
   you pinned (each a row that goes there), then each workspace with its folders and projects as a tree. A project opens to its
-  Reviews (its boards and playlists, each under it), Catalogue, Versions and Timeline, and the catalogue
+  Reviews (its boards, playlists and animatics, each under it), Catalogue, Versions and Timeline, and the catalogue
   to its assets, sets and shots, the shots by
   sequence, each with a count. Only what you are in is open: the way to the page you are on is opened
   for you, and the rest close as you go elsewhere (an arrow opens a row for a look in the meantime). Rows
@@ -694,7 +694,8 @@ filed in it.
   boards, in rows below what is there, or "New board" makes one in the project with them on it, laid
   out as the edit is: a column for each sequence, left to right, its shots going down from first to
   last (assets and sets in columns after them). Either way they are those versions, with their notes.
-  "Add to playlist" puts them at the end of one of the project's playlists, or makes a new one with them.
+  "Add to playlist" puts them at the end of one of the project's playlists, or makes a new one with them,
+  and "Add to animatic" puts their shots at the end of an animatic.
 - **Reviews: boards and playlists.** Both are a compilation of the project's work to show, in two ways: a
   board lays pieces out freely, and a playlist is simply some of its versions in the order a review goes
   through them, as in ShotGrid. A project's Reviews (in the sidebar, each board and playlist under it)
@@ -730,6 +731,64 @@ filed in it.
   workspace can see the playlist. Behind it each keeps its versions under one entity of its own, named as
   the playlist is, which no project lists. There is no sharing link, presenting or filing it into a
   project yet.
+- **Animatics: an edit that always plays the newest versions.** The third kind of review in a project
+  (New, in its Reviews, makes one; see also [docs/animatic.md](docs/animatic.md)). An animatic is a cut of
+  the project's shots on a timeline, as in an editor, made to see how a show plays before its shots are done
+  without bringing every newest version into an editor each time. A clip names a shot, never a file, so it
+  always plays the shot's newest version (of any task, unless a task is picked for the whole animatic in
+  the settings button of its bar): file a version and every animatic the shot is in plays it, and an
+  animatic left open takes it in by itself within a few seconds, as it does what somebody else saved. A new
+  animatic can start empty or with every filed shot in order, each as long as its newest version. Its page
+  is the edit playing in the middle, the project's shots down the left (drag one onto a track, double-click
+  to put it at the playhead, or Add all for a sequence), what is said about the shot on screen down the
+  right, and under them its bar and its timeline.
+  - *Nothing moves by itself.* A clip keeps the length it was cut to. A newer version that is longer plays
+    as much of it as the clip is long; one that is shorter leaves the clip short: it ends where the version
+    ends, what is under it shows after that, and the part it lost is drawn as an outline saying how many
+    frames short it came up (a later version long enough fills it again). Nothing is ever pushed along: a
+    clip moved or trimmed onto others writes over what it lands on, as an editor's overwrite does, and
+    deleting leaves a gap.
+  - *Tracks.* Video tracks stack, the higher over the lower; each clip is shown whole, fitted to the
+    animatic's shape on black, so it covers what is under it. Each track can be hidden (the eye) or have
+    its sound turned off, renamed and deleted from its menu, and more are added under the heads (sixteen in
+    all). A clip that loops goes round its version as often as its length needs, with a mark each time it
+    starts over.
+  - *Fades and dissolves.* The small handles under a picked clip's name draw out its fades. A fade shows
+    what is under the clip: on the lowest track that is black, so it is a fade to or from black, and over
+    another clip it is a dissolve into it. At a cut between two clips on one track the handle makes a
+    dissolve centred on the cut. "Fade in and out by a second" and "No fades" are in a clip's menu (a
+    right-click), with Loop, cutting in two at the playhead and opening the shot.
+  - *Sound.* Add sound file… (or a WAV, MP3, M4A, AAC, OGG or FLAC file dropped on the page or onto a sound
+    track) brings in music, a temp track or a voice-over: read here, sent up as it is, and put at the playhead
+    on the first sound track with room (or a new one). The first sound file turns the shots' own sound off,
+    each video track's button turns it back on. It plays through the browser's sound, which is also the
+    clock the pictures keep to, so the edit stays in time with it; it is drawn as its waveform. A sound
+    track's menu sets how loud it is.
+  - *Working on it.* Click picks a clip (Shift adds; a box on empty track picks many), drag moves it (to
+    another track of its kind too; Alt copies), and its edges trim it, never past the end of its version
+    unless it loops. Edges line up with cuts, the playhead and clips on other tracks (the magnet in the bar;
+    Ctrl skips it). Space or K plays, `,` and `.` step a frame (with Shift, a second), the arrows go to the
+    cut before or after, Home and End to the start and end, Ctrl+B cuts in two at the playhead, Delete
+    deletes, Ctrl+Z and Ctrl+Shift+Z undo and redo (each person their own), M is the sound, C writes a
+    comment, Shift+C folds the comments away, and Ctrl and the wheel (or + and -, or Shift+Z for all of
+    it) draw the timeline in and out. Click or drag on the ruler to move the playhead. The line between
+    the picture and the timeline drags to give either more room. Every change is saved a moment after it is
+    made; one made on an older save than somebody else's is not saved, theirs is shown, and Undo brings
+    back yours.
+  - *Comments* are about the clip on top under the playhead, on the version it plays, as on the Timeline:
+    they are that version's, so they are there in the catalogue and on every board it is on. A thread
+    about a moment goes there when clicked.
+  - *Downloading it for a playback system.* "Download for a playback system…", in the menu beside its
+    title, gives one zip: the cut as OpenTimelineIO (every track, the dissolves and fades, the sound and
+    the frame rate), a CMX 3600 edit decision list for each track (which says one track at a time, its
+    dissolves, and fades as dissolves to and from black), a list of which version each file is, and the
+    files themselves: each shot's newest version (the file it was made from, where that was kept), named by
+    the shot, and the sound files by their names. Loops are written out as the shot again each time round.
+    As files are named by shot, a newer version put over its file in the playback system needs no new cut.
+  - Its frame rate and shape are in that menu too ("Frame rate and shape…"): every position is a frame at
+    its rate (it starts at the rate most of the project's shots have), and changing it keeps each cut where
+    it is in time. It can also be renamed, copied (to try another cut), pinned and deleted there. Editing
+    wants a desk: on a narrow window the list of shots, and then the comments, are left out.
 - **Changing many at once.** Select, above the catalogue, picks assets, sets and shots with a click
   (Shift and a click for every one between), or drag on empty space to draw a box over them, as in a
   file manager (with Shift, Ctrl or Cmd it adds to what is picked; the Versions list and an asset's
@@ -858,7 +917,13 @@ comma separated list; an empty task is none), `since`, `q`, `newest=1`, `archive
 page, `facets` (what there is to filter by). `PATCH /api/projects/<folder>/versions` takes
 `{ "edits": [{ "id", "entity", "task", "number", "artist", "hidden" }] }`, all of them or none; and
 `POST /api/projects/<folder>/place` takes `{ "board", "versions": [...], "layout" }` to put versions on
-one of the project's boards (`"layout": "sequences"` for a column per sequence). Filing several files
+one of the project's boards (`"layout": "sequences"` for a column per sequence). An animatic is
+`GET /api/projects/<folder>/animatics` and `POST` with `{ "name", "doc" }`, `{ "name", "from": "timeline", "seq" }`,
+`{ "name", "shots": [...] }` (shots, or versions standing for their shots) or `{ "name", "copy": <id> }`;
+`GET /api/animatics/<id>` gives its `doc` (rate, shape, task, view, tracks and clips, every position in
+frames), its `rev` and the newest version of each of its shots; `PATCH` takes `{ "name" }`, `{ "doc", "rev" }`
+(refused with `409` and the newer one when `rev` is not the last save) or `{ "add": [...] }`, and
+`GET /api/animatics/<id>/download` is its zip for a playback system. Filing several files
 files all of them or, if any one is refused, none; so does a `PATCH` of a version.
 `POST /api/projects/<folder>/likely` takes `{ "looks": [{ "key", "type", "dur", "fps", "nw", "nh", "wf" }] }`
 (`wf` a video's colour strip) and answers, for each key, the shots and tasks whose newest version that
@@ -933,12 +998,15 @@ store.js           The database: boards, items, folders, projects' catalogues an
 notifications.js   What each person is told about, worked out from the notes
 ai.js              Asking Claude for names: the prompt, the Claude API, checking what it answers
 likely.js          Which shot a video is most likely a new version of, by its length and picture
+cutfiles.js        An animatic's cut written out: OpenTimelineIO, CMX 3600 edit decision lists, the list of versions
 auth.js            Who is asking: the four sign-in modes
 public/board.js    The canvas: rendering, input, sync, following
 public/present.js  Presenting a project: the link, the pill, and saying what is shown as you go
 public/watch.js    The page a presentation's link opens: what the presenter shows, followed, and nothing else (watch.html)
 public/snap.js     Smart snapping's geometry: edges, centres, equal gaps (tested on its own)
 public/cuttrack.js A run's close-up track: the playhead held in the middle, frames going by under it
+public/cut.js      An animatic's arithmetic: what shows and is heard at each frame, and its changes (tested on its own)
+public/animatic.js An animatic's page: its player, its timeline, the shots to put on it and their comments
 public/viewer.js   The player: one piece at a time, its strip, timeline, comments and drawings; used by boards and the catalogue
 public/ink.js      Drawing: pen strokes, their outlines and colours; used by boards and the player
 public/ingest.js   Bringing media in: review copies of video, originals, timeline strips, stills; used by boards and the catalogue
@@ -956,5 +1024,5 @@ public/login.html  Sign-in page (password and Google modes)
 public/style.css   All styling
 public/view3d.js   The player's 3D view: a project's model of its venue, with the piece on its screens (docs/3d-preview.md)
 scripts/           restore-board.js: bring back a deleted board
-test/              npm test: sign-in, uploads, live sync, workspaces, links, presenting, the database, catalogue, versions, filing (reading what is typed, learned names, likeness), notes, notifications, snapping and asking Claude (against a stand-in)
+test/              npm test: sign-in, uploads, live sync, workspaces, links, presenting, the database, catalogue, versions, filing (reading what is typed, learned names, likeness), notes, notifications, snapping, animatics (their edit, their arithmetic, their cut written out) and asking Claude (against a stand-in)
 ```

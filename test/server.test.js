@@ -3287,4 +3287,14 @@ test('an animatic is an edit of a project\'s shots that always plays their newes
   assert.deepEqual(names.sort(), ['Cut A A1.edl', 'Cut A Over.edl', 'Cut A V1.edl', 'Cut A versions.csv', 'Cut A.otio', 'kilo-0010.mp4', 'kilo-0020.mp4', 'music.wav']);
   const otio = JSON.parse(bytes.subarray(bytes.indexOf('{'), bytes.indexOf('\n}\n', bytes.indexOf('{')) + 2).toString('utf8'));
   assert.deepEqual(otio.tracks.children.map((t) => [t.name, t.kind]), [['V1', 'Video'], ['Over', 'Video'], ['A1', 'Audio']]);
+
+  // a new animatic starts at the shape most of the project's shots are (the unwrapped picture a venue's
+  // screens show, say), so laid on the venue it fills them
+  const venue = (await call('POST', '/api/folders', { name: 'Venue' })).body;
+  await call('PATCH', `/api/folders/${venue.id}`, { project: true });
+  for (const name of ['dome-0010', 'dome-0020']) {
+    await call('POST', `/api/projects/${venue.id}/versions`, { entity: { name }, files: [{ look: { type: 'video', src: await up('a.mp4'), name: 'x.mp4', dur: 2, fps: 30, nw: 4096, nh: 1024 } }] });
+  }
+  const domed = (await call('POST', `/api/projects/${venue.id}/animatics`, { name: 'Dome cut' })).body.doc;
+  assert.deepEqual([domed.w, domed.h, domed.fps], [4096, 1024, 30]);
 });

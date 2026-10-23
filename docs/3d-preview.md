@@ -61,6 +61,10 @@ How it fits together:
   its cell from there, and the room's materials add what every patch gives a point, as a disc of light
   would, to their light from all round. No shadows (light goes through a wall), and no bounce; about 32
   lamps' worth of work for each pixel of the room, and none while it is off.
+- **In an animatic** (docs/animatic.md), the picture is a canvas the animatic lays its clips on, over one
+  another as its 2D picture blends them; `setSource` takes a `<canvas>` and takes it again each time the
+  animatic sets its `fresh`. How the venue is drawn is the same settings and menu as the player's
+  (`lookShown`, `listenLook`, `lookMenu` in viewer.js), and the animatic borrows one 3D view for the page.
 - **Where it was left.** Closing the player (or leaving the page) keeps, for this tab and by model,
   whether it was in 3D and where the view was (`wb:3dat:<model>` in sessionStorage: a flight's place, a
   camera's number or a comment's frame); the next piece opened in the project opens that way, unless it

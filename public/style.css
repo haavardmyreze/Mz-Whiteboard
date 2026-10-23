@@ -3125,6 +3125,13 @@ body.an-on #content { flex: 1; min-height: 0; }
 .an-now b { font-weight: 600; }
 .an-now span { overflow: hidden; color: var(--muted); text-overflow: ellipsis; }
 .an-opts { display: contents; }
+.an-dims { display: flex; align-items: center; gap: 2px; margin-right: 8px; }
+.an-dims:not(:has(> :not([hidden]))) { display: none; }
+/* On the venue, the 3D view is drawn over the stage, into the frame's place; the picture plays on unseen, laid
+   on the canvas the venue's screens show. */
+.an.in3d .an-frame { opacity: 0; pointer-events: none; }
+.an-stage > .v-3d { z-index: 1; }
+.an.in3d .an-empty { z-index: 2; }
 
 .an-grip { flex: none; height: 5px; margin-top: -3px; cursor: ns-resize; touch-action: none; }
 .an-grip:hover { background: var(--line-strong); }

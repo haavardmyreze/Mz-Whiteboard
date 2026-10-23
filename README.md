@@ -778,6 +778,16 @@ filed in it.
   - *Comments* are about the clip on top under the playhead, on the version it plays, as on the Timeline:
     they are that version's, so they are there in the catalogue and on every board it is on. A thread
     about a moment goes there when clicked.
+  - *On the venue, in 3D.* In a project with a model of its venue, the 3D switch in the bar (or 3, and 2
+    to come back) shows the edit on it, as the player shows a piece: the clips showing are laid over one
+    another, fades and dissolves and all, and the venue's screens show them, each shot in the view the
+    project puts on its model. Everything else goes on as in 2D: playing, scrubbing, the timeline, the
+    sound. The model's cameras are beside the switch (the main one, the others under the arrow, and V goes
+    on to the next), W A S D Q E and a drag fly about, and the settings button beside it is how the venue
+    is drawn, the same settings as the player's. A comment begun on the venue holds the view where it is
+    and keeps it, so it is seen from there, here and in the player. It opens on the venue if it was last
+    seen that way (in this tab, here or in the player). A new animatic starts at the shape most of the
+    project's shots are, so in a project with a venue, at the shape of the picture its screens show.
   - *Downloading it for a playback system.* "Download for a playback system…", in the menu beside its
     title, gives one zip: the cut as OpenTimelineIO (every track, the dissolves and fades, the sound and
     the frame rate), a CMX 3600 edit decision list for each track (which says one track at a time, its
@@ -786,8 +796,8 @@ filed in it.
     the shot, and the sound files by their names. Loops are written out as the shot again each time round.
     As files are named by shot, a newer version put over its file in the playback system needs no new cut.
   - Its frame rate and shape are in that menu too ("Frame rate and shape…"): every position is a frame at
-    its rate (it starts at the rate most of the project's shots have), and changing it keeps each cut where
-    it is in time. It can also be renamed, copied (to try another cut), pinned and deleted there. Editing
+    its rate (it starts at the rate and shape most of the project's shots have), and changing it keeps each
+    cut where it is in time. It can also be renamed, copied (to try another cut), pinned and deleted there. Editing
     wants a desk: on a narrow window the list of shots, and then the comments, are left out.
 - **Changing many at once.** Select, above the catalogue, picks assets, sets and shots with a click
   (Shift and a click for every one between), or drag on empty space to draw a box over them, as in a

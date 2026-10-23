@@ -1,6 +1,8 @@
 // The player's 3D view (viewer.js): a project's model of its venue, with the piece open in the player
 // shown on its projection surface. The picture is the player's own <video> or <img>, so playing, stepping,
-// the timeline and comments go on as they do in 2D; this only draws it another way. Loaded the first time
+// the timeline and comments go on as they do in 2D; this only draws it another way. An animatic's player
+// (animatic.js) gives it a <canvas> instead, on which it lays the clips showing over one another, and sets
+// the canvas's `fresh` each time it has drawn a new picture there. Loaded the first time
 // a project with a model is looked at in 3D (three.js comes from the installed package, see server.js).
 //
 // What it is given is the project's setting (see cleanProjectSettings in server.js): the model, and the
@@ -572,7 +574,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     renderer.autoClear = auto;
   }
 
-  // ---- the picture: the player's own <video> or <img>
+  // ---- the picture: the player's own <video>, <img> or <canvas>
 
   let shownAt = -1; // the moment of the video the screens last took a frame of
   function setSource(el) {
@@ -582,7 +584,10 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     if (texture) texture.dispose();
     texture = null;
     if (el && el.tagName === 'VIDEO') texture = new THREE.VideoTexture(el);
-    else if (el && el.tagName === 'IMG') {
+    else if (el && el.tagName === 'CANVAS') {
+      texture = new THREE.CanvasTexture(el);
+      el.fresh = false;
+    } else if (el && el.tagName === 'IMG') {
       texture = new THREE.Texture(el);
       const ready = () => { if (texture && texture.image === el) texture.needsUpdate = true; };
       if (el.complete && el.naturalWidth) ready();
@@ -926,6 +931,11 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       && (!source.paused || source.currentTime !== shownAt)) {
       texture.needsUpdate = true;
       shownAt = source.currentTime;
+    }
+    // A canvas is taken again only when something new was drawn on it.
+    if (texture && source && source.tagName === 'CANVAS' && source.fresh) {
+      texture.needsUpdate = true;
+      source.fresh = false;
     }
     // What is drawn, and through what: `rect` is the part of the canvas drawn into, `tan` how tall it sees.
     const fr = frameRect(r);

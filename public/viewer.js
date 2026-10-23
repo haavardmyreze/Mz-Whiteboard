@@ -94,6 +94,105 @@ const WBViewer = (() => {
     window.dispatchEvent(new Event('wb:timemode'));
   }
 
+  // How the venue is drawn, under the button beside the 3D switch: how much the room is lit, the shade in
+  // its corners and creases (ambient occlusion, and cavity), and the light the screens throw on it, all
+  // under one switch: off, the venue is drawn plainly (PLAIN), and the settings wait as they were. Lower
+  // quality is for a slower computer and so is not part of the look: it works with Effects on or off, and
+  // Reset leaves it. Kept by this browser, and the same for every 3D view on the page (a player's, an
+  // animatic's): each listens for a change (`listenLook`) and opens the menu under its own button.
+  const LOOK = { on: true, light: 0.05, ao: 0.59, aoRadius: 0.55, cavity: 0.4, glow: true, glowAmount: 0.95 };
+  const PLAIN = { light: 1, ao: 0, cavity: 0, glow: false };
+  let look3d = { ...LOOK, low: false, ...(store('wb:3dlook') || {}) };
+  const lookShown = () => (look3d.on ? look3d : { ...look3d, ...PLAIN });
+  const lookListeners = new Set();
+  function setLook3d(change) {
+    look3d = { ...look3d, ...change };
+    store('wb:3dlook', look3d);
+    for (const fn of lookListeners) fn(lookShown());
+  }
+  // `fn(look)` hears every change; it gives back how to stop.
+  function listenLook(fn) {
+    lookListeners.add(fn);
+    return () => lookListeners.delete(fn);
+  }
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  function lookMenu(lookBtn) {
+    if (document.querySelector('.v-look')) return void WB.closeMenus();
+    const slider = (label, key, min, max, step, says) => {
+      const value = el('span', { class: 'v-look-val' });
+      const input = el('input', { type: 'range', min, max, step, value: look3d[key], 'aria-label': label });
+      const paint = () => {
+        value.textContent = says(look3d[key]);
+        input.style.setProperty('--p', `${((look3d[key] - min) / (max - min)) * 100}%`);
+      };
+      input.addEventListener('input', () => {
+        setLook3d({ [key]: Number(input.value) });
+        paint();
+        reach.hidden = !look3d.ao;
+      });
+      // The arrows move the slider, not the player along its pieces.
+      input.addEventListener('keydown', (e) => { if (/^(Arrow|Page|Home|End)/.test(e.key)) e.stopPropagation(); });
+      paint();
+      return el('label', { class: 'v-look-row' }, el('span', { text: label }), value, input);
+    };
+    // How far the occlusion reaches is only asked while there is some; the screens' strength, while they light.
+    const reach = slider('Reach', 'aoRadius', 0.1, 4, 0.05, (v) => `${v.toFixed(2)} m`);
+    reach.hidden = !look3d.ao;
+    const glowAmount = slider('Strength', 'glowAmount', 0.1, 3, 0.05, pct);
+    glowAmount.hidden = !look3d.glow;
+    const glow = el('input', { type: 'checkbox', class: 'switch', checked: look3d.glow, 'aria-label': 'Screen light' });
+    glow.addEventListener('change', () => {
+      setLook3d({ glow: glow.checked });
+      glowAmount.hidden = !glow.checked;
+    });
+    const body = el('div', { class: 'v-look-body' },
+      slider('Room light', 'light', 0, 2, 0.01, pct),
+      el('div', { class: 'menu-sep' }),
+      slider('Ambient occlusion', 'ao', 0, 1, 0.01, (v) => (v ? pct(v) : 'Off')),
+      reach,
+      slider('Cavity', 'cavity', 0, 1, 0.01, (v) => (v ? pct(v) : 'Off')),
+      el('div', { class: 'menu-sep' }),
+      el('label', { class: 'v-look-row v-look-switch', title: 'The picture on the screens lights the room' }, el('span', { text: 'Screen light' }), glow),
+      glowAmount);
+    // The one switch over all of them: off, they are greyed out and out of reach.
+    const on = el('input', { type: 'checkbox', class: 'switch', checked: look3d.on, 'aria-label': 'Effects' });
+    const paintOn = () => {
+      body.classList.toggle('off', !look3d.on);
+      for (const input of body.querySelectorAll('input')) input.disabled = !look3d.on;
+    };
+    on.addEventListener('change', () => {
+      setLook3d({ on: on.checked });
+      paintOn();
+    });
+    paintOn();
+    const low = el('input', { type: 'checkbox', class: 'switch', checked: look3d.low, 'aria-label': 'Lower quality' });
+    low.addEventListener('change', () => setLook3d({ low: low.checked }));
+    const node = WB.menu(lookBtn, [
+      el('label', { class: 'v-look-row v-look-switch', title: 'Off, the venue is drawn plainly: lit as it was, with no shade and no light from the screens' }, el('span', { text: 'Effects' }), on),
+      el('div', { class: 'menu-sep' }),
+      body,
+      el('div', { class: 'menu-sep' }),
+      el('label', { class: 'v-look-row v-look-switch', title: 'For a slower computer: its shade and the light from the screens are worked out more roughly; the picture keeps its size' }, el('span', { text: 'Lower quality' }), low),
+      el('div', { class: 'menu-sep' }),
+      el('button', {
+        type: 'button', class: 'menu-item', text: 'Reset',
+        onclick: () => {
+          setLook3d(LOOK);
+          WB.closeMenus();
+          lookMenu(lookBtn);
+        },
+      }),
+    ], { cls: 'v-look' });
+    node.querySelector('input').focus({ preventScroll: true });
+    lookBtn.setAttribute('aria-expanded', 'true');
+    new MutationObserver((_, watch) => {
+      if (node.isConnected) return;
+      lookBtn.setAttribute('aria-expanded', 'false');
+      watch.disconnect();
+    }).observe(document.body, { childList: true });
+  }
+
+
   // ---------------------------------------------------------------- going to a moment
   //
   // A video asked for a new moment while it is still finding the last one starts over. Firefox does so
@@ -349,7 +448,7 @@ const WBViewer = (() => {
     const d3Pct = el('span', { class: 'v-3dpct' });
     const D3_TITLE = 'See it on the venue, in 3D. Key 3';
     const d3Btn = el('button', { class: 'iconbtn v-3d-btn', html: ICON.cube, title: D3_TITLE, 'aria-label': '3D', 'aria-pressed': 'false', onclick: () => set3d(!in3d) }, d3Pct);
-    const lookBtn = el('button', { class: 'iconbtn v-look-btn', html: ICON.settings, title: 'How the venue is drawn', 'aria-label': '3D view settings', 'aria-haspopup': 'menu', 'aria-expanded': 'false', hidden: true, onclick: () => lookMenu() });
+    const lookBtn = el('button', { class: 'iconbtn v-look-btn', html: ICON.settings, title: 'How the venue is drawn', 'aria-label': '3D view settings', 'aria-haspopup': 'menu', 'aria-expanded': 'false', hidden: true, onclick: () => lookMenu(lookBtn) });
     const dims = el('span', { class: 'bar-group v-dims', hidden: true }, d3Btn, lookBtn);
     const camBtn = el('button', { class: 'iconbtn v-cam', html: ICON.focus, title: 'Look through the main camera. V goes on to the next camera', 'aria-label': 'Main camera', 'aria-pressed': 'false', onclick: () => toCamera('main') });
     const camMore = el('button', { class: 'iconbtn v-cam-more', html: ICON.chevron, title: "The model's other cameras", 'aria-haspopup': 'menu', onclick: () => cameraMenu() });
@@ -836,6 +935,7 @@ const WBViewer = (() => {
           holds: (e) => e.button === 0 && !spaceDown && (tool === 'pen' || tool === 'eraser' || tool === 'laser'),
         });
         three.setLook(lookShown());
+        listenLook((look) => three.setLook(look));
       }
       await three.load(setting);
       if (warm) await three.warm();
@@ -969,97 +1069,6 @@ const WBViewer = (() => {
       }
       paintDims();
       paintInk();
-    }
-
-    // How the venue is drawn, under the button beside the 3D switch: how much the room is lit, the shade in
-    // its corners and creases (ambient occlusion, and cavity), and the light the screens throw on it, all
-    // under one switch: off, the venue is drawn plainly (PLAIN), and the settings wait as they were. Lower
-    // quality is for a slower computer and so is not part of the look: it works with Effects on or off, and
-    // Reset leaves it. Kept by this browser.
-    const LOOK = { on: true, light: 0.05, ao: 0.59, aoRadius: 0.55, cavity: 0.4, glow: true, glowAmount: 0.95 };
-    const PLAIN = { light: 1, ao: 0, cavity: 0, glow: false };
-    let look3d = { ...LOOK, low: false, ...(store('wb:3dlook') || {}) };
-    const lookShown = () => (look3d.on ? look3d : { ...look3d, ...PLAIN });
-    function setLook3d(change) {
-      look3d = { ...look3d, ...change };
-      store('wb:3dlook', look3d);
-      if (three) three.setLook(lookShown());
-    }
-    const pct = (v) => `${Math.round(v * 100)}%`;
-    function lookMenu() {
-      if (document.querySelector('.v-look')) return void WB.closeMenus();
-      const slider = (label, key, min, max, step, says) => {
-        const value = el('span', { class: 'v-look-val' });
-        const input = el('input', { type: 'range', min, max, step, value: look3d[key], 'aria-label': label });
-        const paint = () => {
-          value.textContent = says(look3d[key]);
-          input.style.setProperty('--p', `${((look3d[key] - min) / (max - min)) * 100}%`);
-        };
-        input.addEventListener('input', () => {
-          setLook3d({ [key]: Number(input.value) });
-          paint();
-          reach.hidden = !look3d.ao;
-        });
-        // The arrows move the slider, not the player along its pieces.
-        input.addEventListener('keydown', (e) => { if (/^(Arrow|Page|Home|End)/.test(e.key)) e.stopPropagation(); });
-        paint();
-        return el('label', { class: 'v-look-row' }, el('span', { text: label }), value, input);
-      };
-      // How far the occlusion reaches is only asked while there is some; the screens' strength, while they light.
-      const reach = slider('Reach', 'aoRadius', 0.1, 4, 0.05, (v) => `${v.toFixed(2)} m`);
-      reach.hidden = !look3d.ao;
-      const glowAmount = slider('Strength', 'glowAmount', 0.1, 3, 0.05, pct);
-      glowAmount.hidden = !look3d.glow;
-      const glow = el('input', { type: 'checkbox', class: 'switch', checked: look3d.glow, 'aria-label': 'Screen light' });
-      glow.addEventListener('change', () => {
-        setLook3d({ glow: glow.checked });
-        glowAmount.hidden = !glow.checked;
-      });
-      const body = el('div', { class: 'v-look-body' },
-        slider('Room light', 'light', 0, 2, 0.01, pct),
-        el('div', { class: 'menu-sep' }),
-        slider('Ambient occlusion', 'ao', 0, 1, 0.01, (v) => (v ? pct(v) : 'Off')),
-        reach,
-        slider('Cavity', 'cavity', 0, 1, 0.01, (v) => (v ? pct(v) : 'Off')),
-        el('div', { class: 'menu-sep' }),
-        el('label', { class: 'v-look-row v-look-switch', title: 'The picture on the screens lights the room' }, el('span', { text: 'Screen light' }), glow),
-        glowAmount);
-      // The one switch over all of them: off, they are greyed out and out of reach.
-      const on = el('input', { type: 'checkbox', class: 'switch', checked: look3d.on, 'aria-label': 'Effects' });
-      const paintOn = () => {
-        body.classList.toggle('off', !look3d.on);
-        for (const input of body.querySelectorAll('input')) input.disabled = !look3d.on;
-      };
-      on.addEventListener('change', () => {
-        setLook3d({ on: on.checked });
-        paintOn();
-      });
-      paintOn();
-      const low = el('input', { type: 'checkbox', class: 'switch', checked: look3d.low, 'aria-label': 'Lower quality' });
-      low.addEventListener('change', () => setLook3d({ low: low.checked }));
-      const node = WB.menu(lookBtn, [
-        el('label', { class: 'v-look-row v-look-switch', title: 'Off, the venue is drawn plainly: lit as it was, with no shade and no light from the screens' }, el('span', { text: 'Effects' }), on),
-        el('div', { class: 'menu-sep' }),
-        body,
-        el('div', { class: 'menu-sep' }),
-        el('label', { class: 'v-look-row v-look-switch', title: 'For a slower computer: its shade and the light from the screens are worked out more roughly; the picture keeps its size' }, el('span', { text: 'Lower quality' }), low),
-        el('div', { class: 'menu-sep' }),
-        el('button', {
-          type: 'button', class: 'menu-item', text: 'Reset',
-          onclick: () => {
-            setLook3d(LOOK);
-            WB.closeMenus();
-            lookMenu();
-          },
-        }),
-      ], { cls: 'v-look' });
-      node.querySelector('input').focus({ preventScroll: true });
-      lookBtn.setAttribute('aria-expanded', 'true');
-      new MutationObserver((_, watch) => {
-        if (node.isConnected) return;
-        lookBtn.setAttribute('aria-expanded', 'false');
-        watch.disconnect();
-      }).observe(document.body, { childList: true });
     }
 
     function paintDims() {
@@ -3478,7 +3487,7 @@ const WBViewer = (() => {
 
   return {
     create, openEntity, openRun, runPieces, usualView, entityRoom, inView, optionsButton, viewGroup, ICON, INK, inkColor, pathData, outlinePath, strokeNode, fmtTime, fmtMoment, timeLabel, cycleTimeMode,
-    frameTime, frameIndex, lastFrame, goTo, whereOf, changing, switchSource, fetchWhole, releaseWhole, showWave,
+    frameTime, frameIndex, lastFrame, goTo, whereOf, changing, switchSource, fetchWhole, releaseWhole, showWave, lookShown, listenLook, lookMenu,
     timeMode: () => timeMode,
   };
 })();

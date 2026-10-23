@@ -3,7 +3,8 @@
 **Status: built.** A third kind of review in a project, beside the board and the playlist (see README.md,
 "Animatics"). The arithmetic of the edit is `public/cut.js`, the page is `public/animatic.js`, its place among
 a project's reviews is in `public/home.js`, the server keeps it (`animatics` in `store.js`, cleanAnimatic and
-the endpoints in `server.js`) and writes it out for a playback system (`cutfiles.js`).
+the endpoints in `server.js`) and writes it out for a playback system (`cutfiles.js`). In a project with a model
+of its venue it is seen on it in 3D through the player's 3D view (`view3d.js`, see docs/3d-preview.md).
 
 ## What it is for
 
@@ -114,6 +115,32 @@ ever moves because a version changed**, and nothing is ever pushed along by anyt
   plays from its video, its volume following its fade; each track's button mutes it. The first sound file in an
   edit turns the video tracks' sound off, as shots in an animatic seldom have sound worth hearing.
 - **Cached ahead.** The edit's videos are asked of the cache in the order they play from the playhead.
+
+## On the venue, in 3D
+
+In a project with a model of its venue (docs/3d-preview.md), the 3D switch in the bar (or 3; 2 comes back) shows
+the edit on it:
+
+- **One canvas for the screens.** The player's 3D view textures the screens with one picture; the edit has
+  several layers blended at once. So in 3D the layers `cut.layersAt` gives are laid over one another on a canvas
+  as the 2D picture blends them (each whole on black, at its opacity), at the edit's shape (at most 3840 across),
+  and the 3D view takes the canvas as its picture (`setSource` takes a `<canvas>`, and takes it again whenever
+  its `fresh` is set). It is laid again only when a layer's frame or opacity changes, so at the shots' rate and
+  not the screen's; and while a video is still on its way to its frame, the last picture stays up rather than
+  blinking. The `<video>` layers play on unseen under the venue, kept to the clock as in 2D.
+- **Which view of each shot.** On the venue, each clip shows the view the project puts on its model (its main
+  one unless it says), as the Timeline does; the settings button offers no view there.
+- **Its shape.** A new animatic starts at the shape most of the project's shots are (usualShape in server.js),
+  so in a project with a venue, the unwrapped picture its screens show, and the canvas fills their UVs. Another
+  shape is fitted into it on black.
+- **The rest is the player's.** The model's cameras (the main one, the others under the arrow, V for the next),
+  flying with W A S D Q E and a drag, and how the venue is drawn (the settings beside the switch: the same
+  settings as the player's, kept by the browser, `lookMenu` in viewer.js). Where it was left, whether in 3D and
+  where the view was, is kept for the tab by model, shared with the player (`wb:3dat:<model>`). The 3D view is
+  made once for the page and lent to the animatic open, as a browser keeps only so many drawing contexts going.
+- **Comments** begun on the venue hold the view still where it is (framed as a comment's view is) and keep it
+  as the comment's `pov`, so the comment is seen from there, here and in the player; picking one turns to the
+  venue and goes there.
 
 ## The editor
 

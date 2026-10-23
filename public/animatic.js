@@ -3,6 +3,8 @@
 // An animatic's page (docs/animatic.md): the edit playing above, its timeline below, the project's shots to put
 // on it down the left, and what is said about the shot on screen down the right. What the edit shows and plays at
 // each frame, and every change made to it, is worked out by cut.js; this draws it, plays it and takes the changes.
+// In a project with a model of its venue, the edit can be seen on it in 3D (view3d.js): the clips showing are
+// laid over one another on a canvas, and the venue's screens show the canvas.
 // Loaded after cut.js, cuttrack.js and viewer.js; opened by home.js.
 const WBAnimatic = (() => {
   const { el, clamp, store } = WB;
@@ -36,6 +38,21 @@ const WBAnimatic = (() => {
   const FONT = (w, px) => `${w} ${px}px Inter, system-ui, sans-serif`;
   const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
+  // The 3D view (view3d.js), made once for the page and lent to whichever animatic is open, as a browser keeps
+  // only so many drawing contexts going. How the venue is drawn is the player's setting (viewer.js), shared.
+  let shared3d = null;
+  let lent = null; // { onFree, frameOf } of the animatic it is lent to
+  async function view3d(setting) {
+    const mod = await import('/view3d.js');
+    if (!shared3d) {
+      shared3d = mod.create({ onFree: (on) => lent && lent.onFree(on), frameOf: () => (lent ? lent.frameOf() : null), holds: () => false });
+      shared3d.setLook(V.lookShown());
+      V.listenLook((look) => shared3d.setLook(look));
+    }
+    await shared3d.load(setting);
+    return shared3d;
+  }
+
   // "anim v3" from a version's label "kilo-0010 anim v3".
   const versionPart = (label, name) => (label && name && label.startsWith(name) ? label.slice(name.length).trim() : label || '');
 
@@ -67,9 +84,12 @@ const WBAnimatic = (() => {
     // ---- what each clip plays
 
     const versionOf = (c) => (c.shot && shots[c.shot] ? shots[c.shot].version : null);
+    // On the venue, each shot shows the view the project puts on its model (its main one unless it says).
+    const venue = project.settings && project.settings.preview3d && project.settings.preview3d.model ? project.settings.preview3d : null;
+    let in3d = false;
     const lookOf = (c) => {
       const v = versionOf(c);
-      return v ? V.inView(v.look, doc.view) : null;
+      return v ? V.inView(v.look, in3d ? venue.view || '' : doc.view) : null;
     };
     const srcOf = (look) => (look ? WB.playable(look) : null);
     const sounds = new Map(); // a sound file's address -> { buffer, peaks } once read, or 'loading' / 'failed'
@@ -122,6 +142,14 @@ const WBAnimatic = (() => {
     const soundBtn = el('button', { type: 'button', class: 'iconbtn', title: 'Sound (M)', onclick: () => setSound(!soundOn) });
     const fitBtn = el('button', { type: 'button', class: 'iconbtn an-wide', html: ICON.fit, title: 'Show the whole edit (Shift+Z)', 'aria-label': 'Show the whole edit', onclick: () => fitAll() });
     const notesBtn = el('button', { type: 'button', class: `iconbtn an-wide${notes.hidden ? '' : ' active'}`, html: ICON.comment, title: 'Comments on the shot on screen (Shift+C)', 'aria-pressed': String(!notes.hidden), onclick: () => toggleNotes() });
+    // The edit on the venue: one switch (and while the venue is on its way, how much has come), how the venue is
+    // drawn, and the model's cameras to look through, its main one and the others under the arrow.
+    const d3Pct = el('span', { class: 'v-3dpct' });
+    const D3_TITLE = 'See the edit on the venue, in 3D. Key 3';
+    const d3Btn = el('button', { type: 'button', class: 'iconbtn v-3d-btn', html: ICON.cube, title: D3_TITLE, 'aria-label': '3D', 'aria-pressed': 'false', hidden: !venue, onclick: () => set3d(!in3d) }, d3Pct);
+    const lookBtn = el('button', { type: 'button', class: 'iconbtn an-wide', html: ICON.settings, title: 'How the venue is drawn', 'aria-label': '3D view settings', 'aria-haspopup': 'menu', hidden: true, onclick: () => V.lookMenu(lookBtn) });
+    const camBtn = el('button', { type: 'button', class: 'iconbtn', html: ICON.focus, title: 'Look through the main camera. V goes on to the next camera', 'aria-label': 'Main camera', 'aria-pressed': 'false', hidden: true, onclick: () => toCamera('main') });
+    const camMore = el('button', { type: 'button', class: 'iconbtn', html: ICON.chevron, title: "The model's other cameras", 'aria-haspopup': 'menu', hidden: true, onclick: () => cameraMenu() });
     let options = null;
     const optionsSlot = el('span', { class: 'an-opts' });
     const bar = el('div', { class: 'an-bar' },
@@ -129,7 +157,7 @@ const WBAnimatic = (() => {
       el('button', { type: 'button', class: 'iconbtn', html: ICON.frameBack, title: 'A frame back (,)', 'aria-label': 'A frame back', onclick: () => step(-1) }),
       el('button', { type: 'button', class: 'iconbtn', html: ICON.frameFwd, title: 'A frame on (.)', 'aria-label': 'A frame on', onclick: () => step(1) }),
       timeBtn, loopBtn, onNow, el('span', { class: 'spacer' }),
-      splitBtn, snapBtn, optionsSlot, soundBtn, fitBtn, notesBtn);
+      el('span', { class: 'an-dims' }, d3Btn, lookBtn, camBtn, camMore), splitBtn, snapBtn, optionsSlot, soundBtn, fitBtn, notesBtn);
 
     const cv = el('canvas', { class: 'an-canvas' });
     const space = el('div', { class: 'an-space' }, cv);
@@ -172,6 +200,7 @@ const WBAnimatic = (() => {
       paintOptions();
       paintAll();
       loadCatalogue();
+      recall3d();
     }
 
     // Each change is saved a moment after the last, over the save it was made from. One somebody else saved
@@ -489,6 +518,8 @@ const WBAnimatic = (() => {
     function newVideo() {
       const video = el('video', { class: 'an-layer', playsinline: '', preload: 'auto' });
       video.disablePictureInPicture = true;
+      // Stopped on the venue, the canvas it shows is laid again once a video has the frame it was sent to.
+      for (const type of ['seeked', 'loadeddata']) video.addEventListener(type, redraw3d);
       frame.append(video);
       const ent = { video, clip: null, src: null, used: 0 };
       pool.push(ent);
@@ -503,7 +534,7 @@ const WBAnimatic = (() => {
       }
       if (!node) {
         node = look
-          ? el('img', { class: 'an-layer', src: look.prev || look.src, alt: '', draggable: 'false' })
+          ? el('img', { class: 'an-layer', src: look.prev || look.src, alt: '', draggable: 'false', onload: redraw3d })
           : el('div', { class: 'an-layer an-slate' }, el('b', { text: p ? p.name : '' }), el('span', { text: doc.task ? `No ${doc.task} filed yet` : 'Nothing filed yet' }));
         node.dataset.key = key;
         frame.append(node);
@@ -534,6 +565,7 @@ const WBAnimatic = (() => {
       });
       wantNow = new Set([...layers.map((l) => l.clip.id), ...soon.map((x) => x.clip.id), ...covered.map((c) => c.id)]);
       const shown = new Set();
+      const drawn = [];
       layers.forEach((l, i) => {
         const look = lookOf(l.clip);
         const p = shots[l.clip.shot];
@@ -554,7 +586,9 @@ const WBAnimatic = (() => {
         node.style.zIndex = String(i + 1);
         node.style.opacity = String(l.opacity);
         shown.add(node);
+        drawn.push({ node, opacity: l.opacity, clip: l.clip, look, name: p ? p.name : '' });
       });
+      if (in3d) composite(drawn);
       for (const s of soon) {
         const look = lookOf(s.clip);
         if (!look || look.type !== 'video') continue;
@@ -815,7 +849,8 @@ const WBAnimatic = (() => {
       const views = catalogue && Array.isArray(catalogue.viewList) ? catalogue.viewList : [];
       options = V.optionsButton(() => [
         { name: 'Task', value: doc.task || '', def: '', options: tasks.length > 1 || doc.task ? [['', 'Newest of any task'], ...tasks.map((x) => [x, `Newest ${x}`])] : [], pick: (v) => setChoice({ task: v || null }) },
-        ...(views.length > 1 ? [V.viewGroup(['', ...views.slice(1)], doc.view || '', (v) => setChoice({ view: v }), views)] : []),
+        // On the venue the view is the one the project puts on its model, so there is none to choose.
+        ...(views.length > 1 && !in3d ? [V.viewGroup(['', ...views.slice(1)], doc.view || '', (v) => setChoice({ view: v }), views)] : []),
       ], { title: 'What the edit plays' });
       optionsSlot.replaceChildren(options);
     }
@@ -884,15 +919,17 @@ const WBAnimatic = (() => {
       draw();
     });
 
-    // The picture fits the stage, in the edit's shape.
+    // The picture fits the stage, in the edit's shape; on the venue, in the shape of the frame the 3D view holds,
+    // which it draws the venue into.
     function fitFrame() {
       if (!doc) return;
       const r = stage.getBoundingClientRect();
       const pad = narrow() ? 0 : 12;
-      const k = Math.min((r.width - pad * 2) / doc.w, (r.height - pad * 2) / doc.h);
-      if (!(k > 0)) return;
-      frame.style.width = `${Math.floor(doc.w * k)}px`;
-      frame.style.height = `${Math.floor(doc.h * k)}px`;
+      const aspect = in3d && three ? three.aspect() : doc.w / doc.h;
+      const w = Math.min(r.width - pad * 2, (r.height - pad * 2) * aspect);
+      if (!(w > 0)) return;
+      frame.style.width = `${Math.floor(w)}px`;
+      frame.style.height = `${Math.floor(w / aspect)}px`;
     }
 
     function zoomTo(next, aboutX = W / 2) {
@@ -1747,7 +1784,12 @@ const WBAnimatic = (() => {
           el('p', { text: x.text }));
         return el('div', {
           class: `an-thread${n.done ? ' done' : ''}${f !== null ? ' seekable' : ''}`,
-          onclick: (e) => { if (f !== null && !e.target.closest('button')) seek(f); },
+          onclick: (e) => {
+            if (e.target.closest('button')) return;
+            if (f !== null) seek(f);
+            // A comment made on the venue is seen from where it was made.
+            if (n.pov && venue) lookFrom(n.pov);
+          },
         },
         line(n), ...replies.map(line),
         el('div', { class: 'an-thread-acts' },
@@ -1767,7 +1809,12 @@ const WBAnimatic = (() => {
       if (!text || !nowVersion || !nowShotClip) return;
       const c = { id: WB.uid(), type: 'comment', text: text.slice(0, 2000), name: me.name, color: me.color, t: Date.now(), done: false, on: nowVersion.id };
       if (replyRoot && replyRoot.on === nowVersion.id) c.re = replyRoot.id;
-      else Object.assign(c, momentIn(nowShotClip, ph));
+      else {
+        Object.assign(c, momentIn(nowShotClip, ph));
+        // Made on the venue, from where the view was: opened in the player, it is seen from there.
+        const pov = in3d && three ? three.pose() : null;
+        if (pov) c.pov = pov;
+      }
       if (c.fr === null) delete c.fr;
       roomNotes = [...roomNotes, c];
       if (!room || roomOf !== nowShotClip.shot) {
@@ -1791,7 +1838,15 @@ const WBAnimatic = (() => {
       room.send([{ t: 'del', ids: [n.id] }]);
       paintNotes();
     }
-    noteBox.addEventListener('focus', () => { if (playing) stop(); });
+    // Beginning a comment on the venue holds the view still where it is, framed as a comment's view is.
+    noteBox.addEventListener('focus', () => {
+      if (playing) stop();
+      if (in3d && three && !replyRoot) {
+        three.hold();
+        fitFrame();
+        paint3d();
+      }
+    });
     noteBox.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -1811,6 +1866,20 @@ const WBAnimatic = (() => {
       if (WB.isTyping(e.target) || (e.target instanceof HTMLInputElement) || document.querySelector('dialog[open]')) return;
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key;
+      // On the venue, W A S D Q E fly and V goes on to the next camera; 2 and 3 switch between the edit as it
+      // is and the venue.
+      if (in3d && three && three.key(e, true)) {
+        e.preventDefault();
+        return void paint3d();
+      }
+      if (in3d && three && (k === 'v' || k === 'V') && !mod && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        return void nextCamera();
+      }
+      if ((e.code === 'Digit2' || e.code === 'Digit3') && venue && !mod && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        return void set3d(e.code === 'Digit3');
+      }
       let done = true;
       if (k === ' ' || (k === 'k' && !mod)) playing ? stop() : play();
       else if (k === ',' || k === '<') step(e.shiftKey ? -Math.round(doc.fps) : -1);
@@ -1866,6 +1935,191 @@ const WBAnimatic = (() => {
       grip.addEventListener('pointerup', up, { once: true });
       grip.addEventListener('pointercancel', up, { once: true });
     });
+
+    // ---- on the venue, in 3D
+
+    let three = null;
+    // The clips showing, laid over one another as the 2D picture blends them, each whole on black, at the
+    // edit's shape (at most 3840 across): what the venue's screens show.
+    const comp = el('canvas');
+    let compKey = '';
+    let lastDrawn = [];
+    function composite(drawn, force = false) {
+      lastDrawn = drawn;
+      const cw = Math.min(doc.w, 3840);
+      const ch = Math.max(1, Math.round((cw * doc.h) / doc.w));
+      // A video still on its way to its frame leaves the last picture up, rather than blinking.
+      if (drawn.some((d) => d.node.tagName === 'VIDEO' && (d.node.readyState < 2 || d.node.seeking))) return;
+      const frameOfNode = (d) => (d.node.tagName === 'VIDEO' ? Math.floor(d.node.currentTime * ((d.look && d.look.fps) || doc.fps) + 1e-3) : d.node.tagName === 'IMG' ? (d.node.complete ? 1 : 0) : 0);
+      const key = `${cw}x${ch}|${drawn.map((d) => `${d.clip.id}:${frameOfNode(d)}:${d.opacity.toFixed(3)}`).join('|')}`;
+      if (key === compKey && !force) return;
+      compKey = key;
+      if (comp.width !== cw || comp.height !== ch) {
+        comp.width = cw;
+        comp.height = ch;
+      }
+      const ctx = comp.getContext('2d');
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, cw, ch);
+      for (const d of drawn) {
+        ctx.globalAlpha = d.opacity;
+        if (d.node.tagName === 'VIDEO' || d.node.tagName === 'IMG') {
+          const sw = d.node.videoWidth || d.node.naturalWidth;
+          const sh = d.node.videoHeight || d.node.naturalHeight;
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, cw, ch);
+          if (!sw || !sh) continue;
+          const k = Math.min(cw / sw, ch / sh);
+          ctx.drawImage(d.node, (cw - sw * k) / 2, (ch - sh * k) / 2, sw * k, sh * k);
+        } else drawSlate(ctx, cw, ch, d.name);
+      }
+      ctx.globalAlpha = 1;
+      comp.fresh = true;
+    }
+    // A shot with nothing filed, as the 2D slate is.
+    function drawSlate(ctx, w, h, name) {
+      ctx.fillStyle = '#111';
+      ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = '#191919';
+      ctx.lineWidth = Math.max(2, h / 60);
+      const step = Math.max(8, h / 18);
+      ctx.beginPath();
+      for (let x = -h; x < w; x += step) {
+        ctx.moveTo(x, h);
+        ctx.lineTo(x + h, 0);
+      }
+      ctx.stroke();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#e8e8e8';
+      ctx.font = FONT(600, Math.round(h * 0.08));
+      ctx.fillText(name, w / 2, h / 2);
+      ctx.fillStyle = '#8a8a8a';
+      ctx.font = FONT(400, Math.round(h * 0.04));
+      ctx.fillText(doc.task ? `No ${doc.task} filed yet` : 'Nothing filed yet', w / 2, h / 2 + h * 0.07);
+      ctx.textAlign = 'start';
+    }
+    function redraw3d() {
+      if (in3d && !closed && doc) composite(lastDrawn);
+    }
+
+    async function set3d(on) {
+      on = !!on && !!venue && !!doc;
+      if (on === in3d) return;
+      if (on) {
+        d3Btn.disabled = true;
+        d3Btn.classList.add('loading');
+        d3Btn.title = 'Loading the venue…';
+        let mod = null;
+        import('/view3d.js').then((m) => { mod = m; }, () => {});
+        const counting = setInterval(() => {
+          const k = mod ? mod.progress(venue.model) : 0;
+          d3Pct.textContent = k == null ? '…' : `${Math.round(k * 100)}%`;
+        }, 150);
+        try {
+          three = await view3d(venue);
+        } catch (err) {
+          console.warn('The 3D view could not be opened:', err);
+          WB.toast("The project's 3D model could not be opened", { ms: 5000 });
+          return;
+        } finally {
+          clearInterval(counting);
+          d3Btn.disabled = false;
+          d3Btn.classList.remove('loading');
+          d3Pct.textContent = '';
+        }
+        if (closed) return;
+        lent = { onFree: () => paint3d(), frameOf: () => frame.getBoundingClientRect() };
+        stage.append(three.canvas);
+        three.goTo('main', false);
+        three.setSource(comp);
+        three.start();
+      } else if (three) {
+        three.stop();
+        three.canvas.remove();
+        three.setSource(null);
+        lent = null;
+      }
+      in3d = on;
+      page.classList.toggle('in3d', on);
+      compKey = '';
+      fitFrame();
+      paintOptions();
+      paint3d();
+      // Each shot shows another view of its version on the venue: the videos are put on their files.
+      render(ph);
+      draw();
+      remember3d();
+    }
+    function paint3d() {
+      const on = in3d && !!three;
+      d3Btn.hidden = !venue;
+      d3Btn.setAttribute('aria-pressed', String(in3d));
+      d3Btn.classList.toggle('active', in3d);
+      if (!d3Btn.disabled) d3Btn.title = in3d ? 'Back to the edit as it is, in 2D. Key 2' : D3_TITLE;
+      lookBtn.hidden = !on;
+      camBtn.hidden = !on;
+      camMore.hidden = !on || three.cameras().length < 2;
+      if (!on) return;
+      camBtn.setAttribute('aria-pressed', String(three.camera() === three.mainCamera() && !three.isFree()));
+      fitFrame();
+    }
+    // The view goes to a camera of the model's (or 'main'), or to where a comment was made.
+    function toCamera(n) {
+      if (!in3d || !three) return;
+      three.goTo(n);
+      fitFrame();
+      paint3d();
+    }
+    async function lookFrom(pov) {
+      if (!in3d) await set3d(true);
+      toCamera(pov);
+    }
+    // V: on a camera of the model's, the next one; anywhere else (flying, or on a comment's view), the main one.
+    function nextCamera() {
+      if (!in3d || !three) return;
+      const on = three.camera();
+      toCamera(on < 0 || three.isFree() ? 'main' : (on + 1) % three.cameras().length);
+    }
+    function cameraMenu() {
+      if (!in3d || !three) return;
+      const main = three.mainCamera();
+      const on = three.camera();
+      WB.menu(camMore, three.cameras().map((cam, i) => el('button', {
+        type: 'button', class: `menu-item menu-check${i === on ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(i === on),
+        onclick: (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          WB.closeMenus();
+          toCamera(i);
+        },
+      }, el('span', { class: 'menu-tick', html: i === on ? ICON.check : '' }), el('span', { text: cam || 'Camera' }), i === main && !/^main$/i.test(cam) && el('span', { class: 'menu-note', text: 'main' }))));
+    }
+    // Whether it was on the venue, and where the view was, kept for this tab by model as the player keeps it:
+    // the animatic opens as the venue was last seen, in it or in the player.
+    const placeKey = venue ? `wb:3dat:${venue.model}` : '';
+    function remember3d() {
+      if (!placeKey) return;
+      try {
+        sessionStorage.setItem(placeKey, JSON.stringify(in3d && three ? { on: 1, at: three.where() } : { on: 0 }));
+      } catch {
+        // Storage can be blocked: it opens in 2D.
+      }
+    }
+    async function recall3d() {
+      if (!placeKey) return;
+      let was = null;
+      try {
+        was = JSON.parse(sessionStorage.getItem(placeKey));
+      } catch {
+        return;
+      }
+      if (!was || !was.on) return;
+      await set3d(true);
+      if (in3d && three && was.at && three.place(was.at)) paint3d();
+    }
+    // The venue is fetched ahead, a moment after the page opens, so the switch is there at once.
+    if (venue) setTimeout(() => { if (!closed) import('/view3d.js').then((m) => m.preload(venue.model)).catch(() => {}); }, 1500);
 
     // ---- its rate and shape
 
@@ -1983,6 +2237,13 @@ const WBAnimatic = (() => {
       FR.ask([]);
       WB.media.want('animatic', []);
       if (room) room.close();
+      if (three && in3d) {
+        remember3d();
+        three.stop();
+        three.canvas.remove();
+        three.setSource(null);
+      }
+      lent = null;
       for (const ent of pool) {
         ent.video.pause();
         ent.video.removeAttribute('src');

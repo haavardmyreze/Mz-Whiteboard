@@ -1522,6 +1522,21 @@ const shotFor = (id) => {
   const e = store.entity(id) || store.entity(liveVersion(id)?.entityId);
   return e && e.tier === 'shot' ? e.id : null;
 };
+// The shape a new animatic of a project starts at: the one most of its shots' newest versions have (in a
+// project with a model of its venue, the unwrapped picture its screens show), or 1920 x 1080.
+function usualShape(project) {
+  const count = new Map();
+  for (const e of store.entities(project.id)) {
+    const look = e.tier === 'shot' && e.newest && e.newest.look;
+    if (!look || !(look.nw >= 16 && look.nh >= 16)) continue;
+    const key = `${Math.round(look.nw)}x${Math.round(look.nh)}`;
+    count.set(key, (count.get(key) || 0) + 1);
+  }
+  const best = [...count].sort((x, y) => y[1] - x[1])[0];
+  if (!best) return { w: 1920, h: 1080 };
+  const [w, h] = best[0].split('x').map(Number);
+  return { w: Math.min(8192, w), h: Math.min(8192, h) };
+}
 // Shots put at the end of an animatic's first video track, one after another, each as long as its newest
 // version. `asked` may name each by a version of it. Returns the edit with them on.
 function appendShots(doc, asked) {
@@ -1607,7 +1622,7 @@ async function handleCatalogue(req, res, parts) {
       const body = await readJson(req, 1024 * 1024);
       const name = cleanName(body.name, null);
       if (!name) return sendJson(res, 400, { error: 'An animatic needs a name' });
-      let doc = cleanAnimatic(body.doc || { fps: usualRate(project) }, project);
+      let doc = cleanAnimatic(body.doc || { fps: usualRate(project), ...usualShape(project) }, project);
       if (body.copy !== undefined) {
         const from = store.animatic(body.copy);
         if (!from || from.projectId !== project.id) return sendJson(res, 404, { error: 'Animatic not found' });

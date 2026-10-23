@@ -1408,7 +1408,8 @@ const playlistCard = (p) => {
   const list = playlistVersions(p);
   return {
     id: p.id, name: p.name, count: list.length, thumbs: list.map((v) => v.thumb).filter(Boolean).slice(0, 4), createdBy: p.createdBy, createdAt: p.createdAt, updatedAt: p.updatedAt,
-    ...(!p.projectId && { loose: true, workspace: spaceName(p.workspace), folderId: p.folderId, entityId: p.entityId }),
+    folderId: p.folderId || null,
+    ...(!p.projectId && { loose: true, workspace: spaceName(p.workspace), entityId: p.entityId }),
   };
 };
 
@@ -1571,8 +1572,15 @@ function animaticCard(a) {
   return {
     id: a.id, name: a.name, shots: new Set(shown.map((c) => c.shot)).size, dur: end / a.doc.fps,
     thumbs: [...new Set(shown.map((c) => cards.get(c.shot)?.thumb).filter(Boolean))].slice(0, 4),
-    createdBy: a.createdBy, createdAt: a.createdAt, updatedAt: a.updatedAt, updatedBy: a.updatedBy,
+    createdBy: a.createdBy, createdAt: a.createdAt, updatedAt: a.updatedAt, updatedBy: a.updatedBy, folderId: a.folderId || null,
   };
+}
+// Where in a project's reviews a playlist or an animatic is to be kept: `asked` is a folder anywhere inside
+// the project, or the project itself (or nothing) for the top of its reviews, kept as null. undefined when
+// `asked` is no folder of the project.
+function reviewFolder(project, asked) {
+  if (!asked || asked === project.id) return null;
+  return typeof asked === 'string' && folders.has(asked) && isWithin(asked, project.id) ? asked : undefined;
 }
 // An animatic whole, as its page needs it: the edit, which save it is, and the newest version of each shot on it.
 const animaticOut = (a) => ({ animatic: animaticCard(a), projectId: a.projectId, doc: a.doc, rev: a.rev, shots: animaticShots(a.doc.clips.filter((c) => c.shot).map((c) => c.shot), a.doc.task) });
@@ -1621,7 +1629,8 @@ async function handleCatalogue(req, res, parts) {
       });
     }
     // GET /api/projects/:id/animatics                  its animatics, the one changed last first
-    // POST /api/projects/:id/animatics { name, doc }    a new one, as given (or empty)
+    // POST /api/projects/:id/animatics { name, doc }    a new one, as given (or empty); each of these takes a
+    //                                                   `folderId` too, a folder of the project's reviews
     //   { name, from: 'timeline', seq }                 the shots of the timeline (of one sequence), each filed one
     //                                                   after another on V1, as long as its newest version
     //   { name, shots: [ids] }                          these shots (or the shots of these versions), the same way
@@ -1643,11 +1652,14 @@ async function handleCatalogue(req, res, parts) {
           : body.shots.slice(0, MAX_CLIPS).filter((id) => typeof id === 'string');
         doc = cleanAnimatic(appendShots(doc, ids), project);
       }
-      const a = store.addAnimatic({ id: newId(), projectId: project.id, name, doc, by: actor(req, body) });
+      const folderId = reviewFolder(project, body.folderId);
+      if (folderId === undefined) return sendJson(res, 404, { error: 'Folder not found' });
+      const a = store.addAnimatic({ id: newId(), projectId: project.id, name, doc, folderId, by: actor(req, body) });
       return sendJson(res, 201, animaticOut(a));
     }
     // GET /api/projects/:id/playlists          its playlists, the one changed last first
     // POST /api/projects/:id/playlists { name, versions }   a new one, with these versions on it to begin with
+    //                                                        (and `folderId`, a folder of the project's reviews)
     // POST /api/projects/:id/playlists { name, board }      a new one of the versions a board of the project
     //                                                        shows, in the order the board reads
     if (parts.length === 4 && parts[3] === 'playlists') {
@@ -1663,7 +1675,9 @@ async function handleCatalogue(req, res, parts) {
         ids = boardReadingVersions(board);
         if (!ids.length) return sendJson(res, 400, { error: 'Nothing on that board is filed as a version' });
       }
-      const p = store.addPlaylist({ id: newId(), projectId: project.id, name, versions: versionsFor(project.id, ids), by: actor(req, body) });
+      const folderId = reviewFolder(project, body.folderId);
+      if (folderId === undefined) return sendJson(res, 404, { error: 'Folder not found' });
+      const p = store.addPlaylist({ id: newId(), projectId: project.id, name, versions: versionsFor(project.id, ids), folderId, by: actor(req, body) });
       return sendJson(res, 200, playlistCard(p));
     }
     // POST /api/projects/:id/likely { looks: [{ key, type, dur, fps, nw, nh, wf }] }: for each video about
@@ -2041,8 +2055,9 @@ async function handleCatalogue(req, res, parts) {
   // PATCH { name }              renamed
   // PATCH { versions }          its versions given anew, in their new order (moved, taken off)
   // PATCH { add }               these put at its end (any it has already stay where they are)
-  // PATCH { folderId }          one outside a project moved to a folder (null: the top of its workspace);
-  //                             { workspace } to the other workspace, landing at its top
+  // PATCH { folderId }          moved to a folder: one outside a project to any (null: the top of its
+  //                             workspace), one in a project to a folder of its reviews (null: their top);
+  //                             { workspace } one outside a project to the other workspace, landing at its top
   // DELETE                      gone; its versions are not touched
   // POST .../versions { files: [{ look }] }   one outside a project: files uploaded to it, each the next version
   if (parts[1] === 'playlists' && (parts.length === 3 || (parts.length === 4 && parts[3] === 'versions'))) {
@@ -2088,6 +2103,10 @@ async function handleCatalogue(req, res, parts) {
       const have = patch.versions || p.versions;
       patch.versions = [...have, ...versionsFor(scope, body.add).filter((id) => !have.includes(id))].slice(0, 1000);
     }
+    if (project && 'folderId' in body) {
+      patch.folderId = reviewFolder(project, body.folderId);
+      if (patch.folderId === undefined) return sendJson(res, 404, { error: 'Folder not found' });
+    }
     if (mine && ('folderId' in body || 'workspace' in body)) {
       const key = 'workspace' in body ? spaceKey(body.workspace, req.user) : p.workspace;
       if ('workspace' in body && body.workspace === 'personal' && !req.user) return sendJson(res, 400, { error: 'Personal workspaces need sign-in' });
@@ -2111,6 +2130,7 @@ async function handleCatalogue(req, res, parts) {
   }
   // GET /api/animatics/:id      the edit, which save it is (`rev`), and the newest version of each shot on it
   // PATCH { name }              renamed
+  // PATCH { folderId }          moved to a folder of the project's reviews (null: their top)
   // PATCH { doc, rev }          the edit saved, over save `rev`; one made from an older save is refused (409)
   //                             with the newer one, so the page can take it
   // PATCH { add: [ids] }        these shots (or the shots of these versions) put at the end of its first video
@@ -2132,6 +2152,10 @@ async function handleCatalogue(req, res, parts) {
     if (body.name !== undefined) {
       patch.name = cleanName(body.name, null);
       if (!patch.name) return sendJson(res, 400, { error: 'An animatic needs a name' });
+    }
+    if ('folderId' in body) {
+      patch.folderId = reviewFolder(project, body.folderId);
+      if (patch.folderId === undefined) return sendJson(res, 404, { error: 'Folder not found' });
     }
     if (body.doc !== undefined) {
       patch.doc = cleanAnimatic(body.doc, project);
@@ -2982,6 +3006,13 @@ async function handleApi(req, res, url) {
         // Nothing inside is deleted: boards, playlists and subfolders move up one level.
         for (const f of folders.values()) if (f.parentId === folder.id) f.parentId = folder.parentId;
         for (const p of store.loosePlaylists()) if (p.folderId === folder.id) store.setPlaylist(p.id, { folderId: folder.parentId });
+        // In a project, its playlists and animatics go up too (to the top of its reviews: null).
+        const project = projectOf(folder.id);
+        if (project) {
+          const up = folder.parentId === project.id ? null : folder.parentId;
+          for (const p of store.playlists(project.id)) if (p.folderId === folder.id) store.setPlaylist(p.id, { folderId: up });
+          for (const a of store.animatics(project.id)) if (a.folderId === folder.id) store.setAnimatic(a.id, { folderId: up });
+        }
         for (const board of boards.values()) {
           if (board.folderId !== folder.id) continue;
           board.folderId = folder.parentId;

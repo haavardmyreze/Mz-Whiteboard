@@ -22,6 +22,11 @@
 })(typeof self !== 'undefined' ? self : this, () => {
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const mod = (a, n) => ((a % n) + n) % n;
+  // A source's length in whole frames of the edit. Its length in seconds times the edit's rate seldom comes out
+  // whole: at 23.976 or 29.97 a version of exactly 100 frames is 99.99997 of them, and one whose file says it
+  // runs a hair short is the same. Counted down, each such clip would end a frame early and show a frame of
+  // black at its cut. So it is rounded, as a clip put on the edit is cut to its source's length.
+  const whole = (length) => Math.round(length);
 
   const videoTracks = (doc) => doc.tracks.filter((t) => t.kind === 'video');
   const audioTracks = (doc) => doc.tracks.filter((t) => t.kind === 'audio');
@@ -35,7 +40,7 @@
   // its source goes from its in point.
   function filled(clip, length) {
     if (clip.loop || !Number.isFinite(length)) return clip.len;
-    return clamp(Math.floor(length) - clip.in, 0, clip.len);
+    return clamp(whole(length) - clip.in, 0, clip.len);
   }
   // The clip just before this one on its track, when it ends exactly where this one starts.
   const before = (doc, clip) => doc.clips.find((c) => c !== clip && c.track === clip.track && clipEnd(c) === clip.start) || null;
@@ -103,7 +108,7 @@
   function sourceFrame(clip, f, length) {
     const k = f - clip.start;
     if (!Number.isFinite(length)) return Math.max(0, clip.in + k);
-    const n = Math.max(1, Math.floor(length));
+    const n = Math.max(1, whole(length));
     return clip.loop ? mod(clip.in + k, n) : clamp(clip.in + k, 0, n - 1);
   }
 
@@ -170,7 +175,7 @@
       const length = lengthOf(clip);
       const own = filled(clip, length);
       if (!own) continue;
-      const n = Math.max(1, Math.floor(length));
+      const n = Math.max(1, whole(length));
       const parts = [];
       if (!clip.loop || !Number.isFinite(length)) parts.push({ start: clip.start, len: own, from: clip.in });
       else {
@@ -243,14 +248,32 @@
     const looped = clip.loop && Number.isFinite(length);
     const d = Math.min(Math.max(df, -clip.start, looped ? -Infinity : -clip.in), clip.len - 1);
     const at = clip.in + d;
-    return { ...clip, start: clip.start + d, len: clip.len - d, in: looped ? mod(at, Math.max(1, Math.floor(length))) : at };
+    return { ...clip, start: clip.start + d, len: clip.len - d, in: looped ? mod(at, Math.max(1, whole(length))) : at };
   }
   // A clip's end moved by `df` frames. It is never drawn out past the end of its source unless it loops (or
   // `free` says so); one a shorter version already leaves short keeps the length it was cut to.
   function trimEnd(clip, df, length = Infinity, free = false) {
     let len = Math.max(1, clip.len + df);
-    if (!free && !clip.loop && Number.isFinite(length)) len = Math.min(len, Math.max(Math.floor(length) - clip.in, clip.len));
+    if (!free && !clip.loop && Number.isFinite(length)) len = Math.min(len, Math.max(whole(length) - clip.in, clip.len));
     return { ...clip, len, fadeIn: Math.min(clip.fadeIn || 0, len), fadeOut: Math.min(clip.fadeOut || 0, len - Math.min(clip.fadeIn || 0, len)) };
+  }
+
+  // The gap on a track at frame `f`: the empty frames there between the clip before (or the start of the edit)
+  // and the next clip, { track, from, to }; null where a clip is, or where nothing comes after.
+  function gapAt(doc, trackId, f) {
+    const list = onTrack(doc, trackId);
+    if (list.some((c) => f >= c.start && f < clipEnd(c))) return null;
+    const next = list.find((c) => c.start > f);
+    if (!next) return null;
+    const from = list.reduce((n, c) => (clipEnd(c) <= f ? Math.max(n, clipEnd(c)) : n), 0);
+    return next.start > from ? { track: trackId, from, to: next.start } : null;
+  }
+  // A gap closed, as an editor's ripple delete does: every clip after it on its track moves back by its length,
+  // and the clips on other tracks stay where they are.
+  function closeGap(doc, gap) {
+    const by = gap.to - gap.from;
+    if (by <= 0) return doc;
+    return withClips(doc, doc.clips.map((c) => (c.track === gap.track && c.start >= gap.to ? { ...c, start: c.start - by } : c)));
   }
 
   // A clip cut in two at frame `f`: the first half keeps its id, its fade in and the dissolve before it; the
@@ -278,6 +301,6 @@
 
   return {
     videoTracks, audioTracks, trackOf, onTrack, clipEnd, editEnd, filled, before, after, dissolveOf, rampAt, span, sourceFrame,
-    layersAt, soundsAt, coming, events, snapPoints, nearest, clear, place, trimStart, trimEnd, split, timecode,
+    whole, layersAt, soundsAt, coming, events, snapPoints, nearest, clear, place, trimStart, trimEnd, gapAt, closeGap, split, timecode,
   };
 });

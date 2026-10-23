@@ -275,6 +275,7 @@ CREATE INDEX IF NOT EXISTS playlists_by_project ON playlists (project_id);
 -- An animatic: an edit of a project's shots on tracks, played through as the cut is. doc is the whole edit as
 -- JSON (its rate and shape, its tracks, its clips; see cleanAnimatic in server.js). Its clips name shots, not
 -- versions, so it always plays their newest. rev counts its saves: a save made from an older one is refused.
+-- folder_id is the folder of the project's reviews it is kept in (null: at the top of them), as a playlist's is.
 CREATE TABLE IF NOT EXISTS animatics (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
@@ -284,7 +285,8 @@ CREATE TABLE IF NOT EXISTS animatics (
   created_at INTEGER NOT NULL,
   created_by TEXT,
   updated_at INTEGER NOT NULL,
-  updated_by TEXT
+  updated_by TEXT,
+  folder_id TEXT
 );
 CREATE INDEX IF NOT EXISTS animatics_by_project ON animatics (project_id);
 
@@ -340,9 +342,9 @@ function openStore(dataDir) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
-  // Playlists made before there were any outside a project lack the columns that place them.
-  for (const column of ['workspace', 'folder_id', 'entity_id']) {
-    if (!db.prepare('PRAGMA table_info(playlists)').all().some((c) => c.name === column)) db.exec(`ALTER TABLE playlists ADD COLUMN ${column} TEXT`);
+  // Playlists and animatics made before they could be kept in folders lack the columns that place them.
+  for (const [table, column] of [['playlists', 'workspace'], ['playlists', 'folder_id'], ['playlists', 'entity_id'], ['animatics', 'folder_id']]) {
+    if (!db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`);
   }
 
   // One write, all or nothing. Called again from inside one (filing several versions at once, say), it
@@ -550,7 +552,7 @@ function openStore(dataDir) {
 
   const animaticOf = (r) => ({
     id: r.id, projectId: r.project_id, name: r.name, doc: JSON.parse(r.doc), rev: r.rev,
-    createdAt: r.created_at, createdBy: r.created_by, updatedAt: r.updated_at, updatedBy: r.updated_by,
+    createdAt: r.created_at, createdBy: r.created_by, updatedAt: r.updated_at, updatedBy: r.updated_by, folderId: r.folder_id,
   });
   const readAnimatics = db.prepare('SELECT * FROM animatics WHERE project_id = ? ORDER BY updated_at DESC');
   const animatics = (projectId) => readAnimatics.all(projectId).map(animaticOf);
@@ -559,20 +561,22 @@ function openStore(dataDir) {
     const r = readAnimatic.get(id);
     return r ? animaticOf(r) : null;
   };
-  const putAnimatic = db.prepare('INSERT INTO animatics (id, project_id, name, doc, rev, created_at, created_by, updated_at, updated_by) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)');
-  function addAnimatic({ id, projectId, name, doc, by = null, at = Date.now() }) {
-    putAnimatic.run(id, projectId, name, JSON.stringify(doc), at, by, at, by);
+  const putAnimatic = db.prepare('INSERT INTO animatics (id, project_id, name, doc, rev, created_at, created_by, updated_at, updated_by, folder_id) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)');
+  function addAnimatic({ id, projectId, name, doc, folderId = null, by = null, at = Date.now() }) {
+    putAnimatic.run(id, projectId, name, JSON.stringify(doc), at, by, at, by, folderId);
     return animatic(id);
   }
-  const updateAnimatic = db.prepare('UPDATE animatics SET name = ?, doc = ?, rev = ?, updated_at = ?, updated_by = ? WHERE id = ? AND rev = ?');
-  // Renamed, or its edit saved. An edit is saved only over the save it was made from (`rev`): one made from
-  // an older save is refused (null), as somebody else has saved since. A rename alone needs no `rev`.
-  function setAnimatic(id, { name, doc, rev } = {}, by = null, at = Date.now()) {
+  const updateAnimatic = db.prepare('UPDATE animatics SET name = ?, doc = ?, rev = ?, updated_at = ?, updated_by = ?, folder_id = ? WHERE id = ? AND rev = ?');
+  // Renamed, moved to another folder of the reviews (`folderId`, null: their top), or its edit saved. An edit
+  // is saved only over the save it was made from (`rev`): one made from an older save is refused (null), as
+  // somebody else has saved since. A rename or a move alone needs no `rev`.
+  function setAnimatic(id, { name, doc, rev, folderId } = {}, by = null, at = Date.now()) {
     const a = animatic(id);
     if (!a) return null;
     if (doc !== undefined && rev !== a.rev) return null;
     const next = doc !== undefined ? a.rev + 1 : a.rev;
-    const done = updateAnimatic.run(name ?? a.name, JSON.stringify(doc ?? a.doc), next, at, doc !== undefined ? by : a.updatedBy, id, a.rev).changes > 0;
+    const done = updateAnimatic.run(name ?? a.name, JSON.stringify(doc ?? a.doc), next, at, doc !== undefined ? by : a.updatedBy,
+      folderId !== undefined ? folderId : a.folderId, id, a.rev).changes > 0;
     return done ? animatic(id) : null;
   }
   const dropAnimatic = db.prepare('DELETE FROM animatics WHERE id = ?');

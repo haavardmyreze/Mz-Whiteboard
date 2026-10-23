@@ -182,21 +182,39 @@
     await refresh();
   }
 
+  // One thing put in a folder (null: the top of its workspace). A playlist or an animatic of a project goes to
+  // a folder of its reviews, the project itself being their top.
+  function moveCall(kind, id, folderId) {
+    if (kind === 'board') return api('PATCH', `/api/boards/${id}`, { folderId });
+    if (kind === 'playlist') return api('PATCH', `/api/playlists/${id}`, { folderId });
+    if (kind === 'animatic') return api('PATCH', `/api/animatics/${id}`, { folderId });
+    return api('PATCH', `/api/folders/${id}`, { parentId: folderId });
+  }
   async function moveTo(kind, id, folderId) {
-    if (kind === 'board') await api('PATCH', `/api/boards/${id}`, { folderId });
-    else if (kind === 'playlist') await api('PATCH', `/api/playlists/${id}`, { folderId });
-    else await api('PATCH', `/api/folders/${id}`, { parentId: folderId });
+    await moveCall(kind, id, folderId);
+    // A project's playlists and animatics come with its catalogue.
+    const proj = folderId && trailTo(folderId).find((f) => f.project);
+    if (proj && (kind === 'playlist' || kind === 'animatic')) {
+      playlistData.delete(id);
+      await loadCatalogue(proj.id, true);
+      shownProject = '';
+    }
     await refresh();
   }
 
   // ------------------------------------------------------------- drag and drop
 
-  const dragged = () => dragging && (dragging.kind === 'folder' ? folderById(dragging.id) : dragging.kind === 'playlist' ? loose(dragging.id) : everything.boards.find((x) => x.id === dragging.id));
+  // What is being dragged: a board, a folder, a playlist outside a project, or one of a project's playlists
+  // and animatics (which say which project, and where among its reviews they are kept).
+  const dragged = () => dragging && (dragging.thing || (dragging.kind === 'folder' ? folderById(dragging.id) : dragging.kind === 'playlist' ? loose(dragging.id) : everything.boards.find((x) => x.id === dragging.id)));
 
   // `ws` is the workspace of the place dropped on. Into another workspace goes to its top level.
   function canDrop(folderId, ws = space) {
     const thing = dragged();
     if (!thing) return false;
+    // A project's playlist or animatic stays among its reviews; one outside a project stays out of them.
+    if (thing.projectId) return (folderId === thing.projectId || (!!folderId && isWithin(folderId, thing.projectId))) && thing.folderId !== folderId;
+    if (dragging.kind === 'playlist' && folderId && inProject(folderId)) return false;
     if (thing.workspace !== ws) return folderId === null;
     if (dragging.kind === 'folder') {
       if (folderId === thing.id || (folderId && isWithin(folderId, thing.id))) return false;
@@ -222,14 +240,14 @@
       const thing = dragged();
       const { kind, id } = dragging;
       dragging = null;
-      (thing.workspace !== ws ? moveSpace(kind, thing) : moveTo(kind, id, folderId)).catch(fail);
+      (!thing.projectId && thing.workspace !== ws ? moveSpace(kind, thing) : moveTo(kind, id, folderId)).catch(fail);
     });
   }
 
-  function draggable(node, kind, id) {
+  function draggable(node, kind, id, thing = null) {
     node.draggable = true;
     node.addEventListener('dragstart', (e) => {
-      dragging = { kind, id };
+      dragging = { kind, id, thing };
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', id); // Firefox will not start a drag without data
       requestAnimationFrame(() => node.classList.add('lifted'));
@@ -406,8 +424,9 @@
   }
   const label = (text, n, ...extra) => groupHead(text, { n, extra });
 
-  // Resolves with a folder id, null for the top level, or undefined if dismissed.
-  function pickFolder({ title, exclude, current }) {
+  // Resolves with a folder id, null for the top level, or undefined if dismissed. With a `root` (a project),
+  // only the folders of its reviews are offered, the project itself standing for their top.
+  function pickFolder({ title, exclude, current, root = null }) {
     return new Promise((resolve) => {
       let chosen = current ?? null;
       const rows = [];
@@ -431,8 +450,13 @@
           walk(f.id, depth + 1);
         }
       };
-      add(null, spaceName(space), 0);
-      walk(null, 1);
+      if (root) {
+        add(root.id, 'Reviews', 0);
+        walk(root.id, 1);
+      } else {
+        add(null, spaceName(space), 0);
+        walk(null, 1);
+      }
       select(chosen);
 
       // Only "Move here" moves; any other way of closing it is a dismissal (see WB.dialog).
@@ -461,11 +485,12 @@
     refresh();
   }
 
-  async function moveDialog(kind, thing) {
+  async function moveDialog(kind, thing, project = null) {
     const target = await pickFolder({
       title: `Move "${thing.name}" to`,
       exclude: kind === 'folder' ? thing.id : null,
-      current: kind === 'folder' ? thing.parentId : thing.folderId,
+      current: kind === 'folder' ? thing.parentId : project ? reviewHome(project, thing) : thing.folderId,
+      root: project,
     });
     if (target === undefined) return;
     await moveTo(kind, thing.id, target);
@@ -486,7 +511,7 @@
   async function removeFolder(folder) {
     const sure = await WB.dialog({
       title: `Delete folder "${folder.name}"?`,
-      text: 'Only the folder is removed. Its boards and subfolders move up one level.',
+      text: 'Only the folder is removed. What is in it moves up one level.',
       ok: 'Delete folder',
       danger: true,
     });
@@ -779,7 +804,9 @@
   // them in. Where boards and folders are selected (`pickable`), its row's box selects it.
   function folderObj(folder, { pickable = false } = {}) {
     const subs = childrenOf(folder.id).length;
-    const boards = boardsIn(folder.id).length;
+    // A folder of a project's reviews holds its playlists and animatics too.
+    const proj = !folder.project && trailTo(folder.id).find((f) => f.project);
+    const boards = proj ? reviewsOf(proj, boardsIn(folder.id), folder.id).length : boardsIn(folder.id).length;
     const what = folder.project ? 'Project' : 'Folder';
     const k = `folder:${folder.id}`;
     return {
@@ -787,7 +814,7 @@
       pick: pickable && (() => pickBoardThing(k)),
       icon: folder.project ? ICON_PROJECT : ICON_FOLDER,
       name: folder.name,
-      lines: [[folder.project && 'Project', boards && plural(boards, 'board'), subs && plural(subs, 'folder')].filter(Boolean).join(' · ') || 'Empty'],
+      lines: [[folder.project && 'Project', boards && plural(boards, proj ? 'review' : 'board'), subs && plural(subs, 'folder')].filter(Boolean).join(' · ') || 'Empty'],
       cells: { kind: what, boards: boards || '', folders: subs || '', where: folderPlace(folder.parentId, folder.workspace) },
       menu: [
         ['Rename', () => rename('folder', folder)],
@@ -845,17 +872,22 @@
     name: 'New', meta: 'A board, a playlist or an animatic', title: 'A board, to lay pieces out freely; a playlist, versions in order; or an animatic, an edit of the shots',
     onclick: (e) => openMenu(e.currentTarget, [['New board', newBoard], ['New playlist', () => newPlaylist(project)], ['New animatic', () => newAnimatic(project)]]),
   });
-  // A project's reviews, its boards, playlists and animatics together, the one changed last first: [{ at, kind, item }].
-  function reviewsOf(project, boards = boardsIn(project.id)) {
+  // Where among a project's reviews a playlist or animatic is kept: a folder inside the project, or the project
+  // itself for their top (and for a folder that has since gone, or left the project).
+  const reviewHome = (project, x) => (x.folderId && folderById(x.folderId) && isWithin(x.folderId, project.id) ? x.folderId : project.id);
+  // A project's reviews in one of its folders (its top, to begin with), boards, playlists and animatics
+  // together, the one changed last first: [{ at, kind, item }].
+  function reviewsOf(project, boards = boardsIn(project.id), folderId = project.id) {
     const cat = catalogues.get(project.id);
-    return [...boards.map((x) => ({ at: x.updatedAt, kind: 'board', item: x })), ...((cat && cat.playlists) || []).map((x) => ({ at: x.updatedAt, kind: 'playlist', item: x })),
-      ...((cat && cat.animatics) || []).map((x) => ({ at: x.updatedAt, kind: 'animatic', item: x }))]
+    const kept = (list) => (list || []).filter((x) => reviewHome(project, x) === folderId);
+    return [...boards.map((x) => ({ at: x.updatedAt, kind: 'board', item: x })), ...kept(cat && cat.playlists).map((x) => ({ at: x.updatedAt, kind: 'playlist', item: x })),
+      ...kept(cat && cat.animatics).map((x) => ({ at: x.updatedAt, kind: 'animatic', item: x }))]
       .sort((a, b) => b.at - a.at);
   }
   // Them as objects; each says what it is only where more than one kind is there.
   function reviewObjs(project, list, opts = {}) {
     const kinds = new Set(list.map((x) => x.kind)).size > 1;
-    return list.map((x) => (x.kind === 'board' ? boardObj(x.item, { ...opts, kinds }) : x.kind === 'animatic' ? animaticObj(project, x.item, { kinds }) : playlistObj(project, x.item, { kinds })));
+    return list.map((x) => (x.kind === 'board' ? boardObj(x.item, { ...opts, kinds }) : x.kind === 'animatic' ? animaticObj(project, x.item, { ...opts, kinds }) : playlistObj(project, x.item, { ...opts, kinds })));
   }
 
   // ------------------------------------------------------------- pinned and recent
@@ -949,11 +981,20 @@
     for (const f of trailTo(rt.id)) opened.add(`f:${f.id}`);
     const f = folderById(rt.id);
     if (!f) return;
+    // A folder of a project's reviews is under its Reviews.
+    const around = !f.project && trailTo(f.id).find((x) => x.project);
+    if (around) opened.add(`rv:${around.id}`);
     if (f.project) {
       opened.add(`f:${f.id}`);
       const v = currentView();
       if (v.page === 'catalogue') opened.add(`c:${f.id}`);
-      if (v.page === 'reviews' || v.page === 'animatic') opened.add(`rv:${f.id}`);
+      if (v.page === 'reviews' || v.page === 'animatic') {
+        opened.add(`rv:${f.id}`);
+        // and so is the folder a playlist or an animatic is kept in.
+        const cat = catalogues.get(f.id);
+        const x = cat && (v.animatic ? cat.animatics : cat.playlists || []).find((y) => y.id === (v.animatic || v.playlist));
+        if (x) for (const g of trailTo(reviewHome(f, x))) opened.add(`f:${g.id}`);
+      }
       const key = hereKey(rt);
       if (key.startsWith('s:')) opened.add(`t:${f.id}:shot`);
     }
@@ -985,7 +1026,7 @@
     if (!f.project) {
       return sideRow({ key: `f:${f.id}`, depth, icon: FOLDER_SM, label: f.name, href: WB.href.folder(f.id), kids: childrenOf(f.id).length ? subs : null, drop, hereK });
     }
-    // A project: its boards (and folders), and its catalogue.
+    // A project: its reviews (in their folders), and its catalogue.
     const cat = catalogues.get(f.id);
     const tierRows = () => {
       if (!cat) {
@@ -1006,23 +1047,28 @@
         });
       });
     };
+    // Its reviews in one of its folders (its top, to begin with): the folders first, each opening to what it
+    // keeps, then its boards, playlists and animatics (a board opens on its own page).
+    const reviewRows = (folderId, d) => [
+      ...childrenOf(folderId).flatMap((g) => {
+        const n = childrenOf(g.id).length + reviewsOf(f, boardsIn(g.id), g.id).length;
+        return sideRow({ key: `f:${g.id}`, depth: d, icon: FOLDER_SM, label: g.name, href: WB.href.folder(g.id), count: n, kids: n ? () => reviewRows(g.id, d + 1) : null, drop: (row) => dropTarget(row, g.id, ws), hereK });
+      }),
+      ...reviewsOf(f, boardsIn(folderId), folderId).flatMap((x) => sideRow(x.kind === 'board'
+        ? { key: `b:${x.item.id}`, depth: d, icon: ICON_BOARDS, label: x.item.name, href: WB.href.board(x.item.id), hereK }
+        : x.kind === 'animatic'
+          ? { key: `an:${f.id}:${x.item.id}`, depth: d, icon: ICON_ANIMATIC, label: x.item.name, href: WB.href.animatic(f.id, x.item.id), hereK }
+          : { key: `pl:${f.id}:${x.item.id}`, depth: d, icon: ICON_PLAYLIST, label: x.item.name, href: WB.href.reviews(f.id, x.item.id), hereK })),
+    ];
     // Its playlists come with its catalogue, so an open project has it fetched.
     const kids = () => {
       if (!cat) loadCatalogue(f.id);
+      const top = childrenOf(f.id).length + reviewsOf(f).length;
       return [
-        // Its reviews, boards, playlists and animatics together, each under it (a board opens on its own page).
-        ...sideRow({
-          key: `rv:${f.id}`, depth: depth + 1, icon: ICON_BOARDS, label: 'Reviews', href: WB.href.reviews(f.id), count: reviewsOf(f).length, drop, hereK,
-          kids: reviewsOf(f).length ? () => reviewsOf(f).flatMap((x) => sideRow(x.kind === 'board'
-            ? { key: `b:${x.item.id}`, depth: depth + 2, icon: ICON_BOARDS, label: x.item.name, href: WB.href.board(x.item.id), hereK }
-            : x.kind === 'animatic'
-              ? { key: `an:${f.id}:${x.item.id}`, depth: depth + 2, icon: ICON_ANIMATIC, label: x.item.name, href: WB.href.animatic(f.id, x.item.id), hereK }
-              : { key: `pl:${f.id}:${x.item.id}`, depth: depth + 2, icon: ICON_PLAYLIST, label: x.item.name, href: WB.href.reviews(f.id, x.item.id), hereK })) : null,
-        }),
+        ...sideRow({ key: `rv:${f.id}`, depth: depth + 1, icon: ICON_BOARDS, label: 'Reviews', href: WB.href.reviews(f.id), count: top, drop, hereK, kids: top ? () => reviewRows(f.id, depth + 2) : null }),
         ...sideRow({ key: `c:${f.id}`, depth: depth + 1, icon: ICON_CAT, label: 'Catalogue', href: WB.href.catalogue(f.id), kids: tierRows, hereK }),
         ...sideRow({ key: `vl:${f.id}`, depth: depth + 1, icon: ICON_LIST, label: 'Versions', href: WB.href.versions(f.id), hereK }),
         ...sideRow({ key: `tl:${f.id}`, depth: depth + 1, icon: ICON_FILM, label: 'Timeline', href: WB.href.timeline(f.id), hereK }),
-        ...subs(),
       ];
     };
     return sideRow({ key: `f:${f.id}`, depth, icon: PROJECT_SM, label: f.name, href: WB.href.folder(f.id), kids, drop, hereK, cls: 'project' });
@@ -1048,8 +1094,9 @@
     renderSide(route());
     renderCrumbs(route());
     const rt = route();
-    // A project's reviews list its playlists, which come with its catalogue.
-    if (rt.kind === 'folder' && rt.id === id && currentView().page === 'reviews' && !currentView().playlist && !typingInPage()) render();
+    // A project's reviews list its playlists, which come with its catalogue; so do the folders among them.
+    const reviewsHere = rt.kind === 'folder' && (rt.id === id ? currentView().page === 'reviews' && !currentView().playlist : isWithin(rt.id, id));
+    if (reviewsHere && !typingInPage()) render();
   }
 
   // What you pinned, each as a row that goes there.
@@ -1143,7 +1190,13 @@
       const trail = trailTo(rt.id);
       const ws = trail.length ? trail[0].workspace : space;
       parts.push([spaceName(ws), spaceHref(ws), null, ws]);
-      for (const f of trail) parts.push([f.name, WB.href.folder(f.id), f.id, ws]);
+      for (const f of trail) {
+        parts.push([f.name, WB.href.folder(f.id), f.id, ws]);
+        // A folder in a project is one of its reviews' folders.
+        if (f.project && f !== trail[trail.length - 1]) parts.push(['Reviews', WB.href.reviews(f.id), f.id, ws]);
+      }
+      // The folders of its reviews a playlist or an animatic is kept in, between Reviews and its name.
+      const keptIn = (x) => x ? trailTo(reviewHome(f, x)).filter((g) => g.id !== f.id && isWithin(g.id, f.id)).map((g) => [g.name, WB.href.folder(g.id), g.id, ws]) : [];
       const f = trail[trail.length - 1];
       pin = f && { kind: 'folder', id: f.id };
       if (f && f.project) {
@@ -1165,14 +1218,16 @@
           }
         } else if (v.page === 'timeline') parts.push(['Timeline', WB.href.timeline(f.id)]);
         else if (v.page === 'animatic') {
-          parts.push(['Reviews', WB.href.reviews(f.id)]);
+          parts.push(['Reviews', WB.href.reviews(f.id), f.id, ws]);
           const a = animaticNamed(f.id, v.animatic);
+          parts.push(...keptIn(a));
           parts.push([a ? a.name : '…', WB.href.animatic(f.id, v.animatic)]);
           animaticHere = a ? { project: f, animatic: a } : null;
         } else if (v.page === 'reviews') {
-          parts.push(['Reviews', WB.href.reviews(f.id)]);
+          parts.push(['Reviews', WB.href.reviews(f.id), f.id, ws]);
           if (v.playlist) {
             const p = playlistData.get(v.playlist);
+            parts.push(...keptIn(p && p.playlist));
             parts.push([p ? p.playlist.name : '…', WB.href.reviews(f.id, v.playlist)]);
             playlistHere = p ? { project: f, playlist: p.playlist } : null;
           }
@@ -1753,7 +1808,7 @@
   // ------------------------------------------------------------- boards and folders, many at once
   //
   // Boxed in a folder or a workspace: moved together to another folder, or (boards) deleted together.
-  const bpick = new Set(); // 'board:<id>' | 'folder:<id>'
+  const bpick = new Set(); // 'board:<id>' | 'folder:<id>', and among a project's reviews 'playlist:<id>' | 'animatic:<id>'
   // ---- what is selected, wherever things can be: one bar at the foot of the page, the same everywhere.
   // Its count says how many are selected and, when a search hides some of them, that those are left out:
   // what the buttons do is done to what can be seen.
@@ -1824,28 +1879,34 @@
         el('button', { type: 'button', class: 'btn small primary pick-move', text: 'Move to…', onclick: () => movePicked().catch(fail) }),
       ],
     });
-    const boardsN = [...bpick].filter((k) => k.startsWith('board:')).length;
-    const foldersN = n - boardsN;
-    bar.querySelector('.pick-count').textContent = n ? `${[boardsN && plural(boardsN, 'board'), foldersN && plural(foldersN, 'folder')].filter(Boolean).join(' and ')} selected` : 'Select boards and folders';
+    const count = (kind) => [...bpick].filter((k) => k.startsWith(`${kind}:`)).length;
+    const boardsN = count('board');
+    const said = ['board', 'folder', 'playlist', 'animatic'].map((kind) => count(kind) && plural(count(kind), kind)).filter(Boolean);
+    bar.querySelector('.pick-count').textContent = n ? `${said.length > 1 ? `${said.slice(0, -1).join(', ')} and ${said[said.length - 1]}` : said[0]} selected` : 'Select boards and folders';
     bar.querySelector('.pick-del').hidden = !boardsN;
     bar.querySelector('.pick-move').disabled = !n;
     bar.querySelector('.pick-clear').hidden = !n;
   }
   async function movePicked() {
     const ids = [...bpick].map((k) => k.split(':'));
-    const target = await pickFolder({ title: `Move ${plural(ids.length, 'item')} to`, exclude: ids.length === 1 && ids[0][0] === 'folder' ? ids[0][1] : null, current: currentFolder() });
+    // A project's playlists and animatics stay among its reviews, so with any of them only its folders are offered.
+    const project = ids.some(([kind]) => kind === 'playlist' || kind === 'animatic') ? projectHere() : null;
+    const target = await pickFolder({ title: `Move ${plural(ids.length, 'item')} to`, exclude: ids.length === 1 && ids[0][0] === 'folder' ? ids[0][1] : null, current: currentFolder(), root: project });
     if (target === undefined) return;
     const failed = [];
     for (const [kind, id] of ids) {
       if (kind === 'folder' && (id === target || (target && isWithin(target, id)))) continue;
       try {
-        if (kind === 'board') await api('PATCH', `/api/boards/${id}`, { folderId: target });
-        else await api('PATCH', `/api/folders/${id}`, { parentId: target });
+        await moveCall(kind, id, target);
       } catch (err) {
         failed.push(err.message);
       }
     }
     dropBoardPick();
+    if (project) {
+      await loadCatalogue(project.id, true);
+      shownProject = '';
+    }
     await refresh();
     tellFailed('moved', ids.length, failed);
   }
@@ -2096,6 +2157,8 @@
     // The search says what it searches here, and the bar offers only what can be made here: boards and
     // folders where boards and folders are listed, not over a catalogue or a list of versions.
     const inProjectHere = !!(here && here.project);
+    // A folder inside a project is one of its reviews' folders, and lists them as its Reviews page does.
+    const reviewsOfHere = inProjectHere ? here : here ? projectHere() : null;
     $('q').placeholder = {
       catalogue: view.entity ? 'Search the catalogue' : 'Search the catalogue',
       versions: 'Search versions, or who filed them',
@@ -2103,7 +2166,7 @@
       animatic: 'Search is not used in an animatic',
       home: 'Search the catalogue',
       reviews: "Search this project's reviews",
-      boards: 'Search boards and folders',
+      boards: reviewsOfHere ? 'Search this folder’s reviews' : 'Search boards and folders',
     }[view.page] || 'Search boards and folders';
     $('q').disabled = view.page === 'timeline' || view.page === 'animatic';
     const makesBoards = rt.kind !== 'folder' || !inProjectHere || view.page === 'reviews';
@@ -2119,14 +2182,19 @@
     // see the folder you are in.
     const q = $('q').value.trim().toLowerCase();
     const matches = (name) => name.toLowerCase().includes(q);
-    const within = (fid) => !inProjectHere || fid === cur || (fid && isWithin(fid, cur));
+    const within = (fid) => !reviewsOfHere || fid === cur || (fid && isWithin(fid, cur));
     const subs = q ? lib.folders.filter((f) => matches(f.name) && f.id !== cur && within(f.id)).sort(byName) : childrenOf(cur);
     const boards = q ? lib.boards.filter((b) => matches(b.name) && within(b.folderId)) : boardsIn(cur);
-    // In a project, its playlists go with its boards, as its reviews.
-    if (inProjectHere && !catalogues.has(cur)) loadCatalogue(cur);
-    const reviews = inProjectHere ? reviewsOf(here, boards).filter((x) => x.kind === 'board' || !q || matches(x.item.name)) : null;
+    // In a project, its playlists and animatics go with its boards, as its reviews. A search there looks
+    // through those in this folder and every folder below it.
+    if (reviewsOfHere && !catalogues.has(reviewsOfHere.id)) loadCatalogue(reviewsOfHere.id);
+    const reviews = reviewsOfHere ? (q
+      ? [cur, ...everything.folders.filter((f) => f.id !== cur && isWithin(f.id, cur)).map((f) => f.id)]
+        .flatMap((fid) => reviewsOf(reviewsOfHere, [], fid)).concat(boards.map((b) => ({ at: b.updatedAt, kind: 'board', item: b })))
+        .filter((x) => matches(x.item.name)).sort((a, b) => b.at - a.at)
+      : reviewsOf(reviewsOfHere, boards, cur)) : null;
     // Elsewhere, playlists that are in no project are listed with the boards, the one changed last first.
-    const lists = inProjectHere ? [] : q ? loosePlaylists().filter((p) => p.workspace === space && matches(p.name)) : playlistsIn(cur);
+    const lists = reviewsOfHere ? [] : q ? loosePlaylists().filter((p) => p.workspace === space && matches(p.name)) : playlistsIn(cur);
     const found = reviews ? reviews.length : boards.length + lists.length;
     // Each says what it is only where both kinds are listed.
     const kinds = boards.length > 0 && lists.length > 0;
@@ -2139,7 +2207,7 @@
       subs.length > 0 && label('Folders', subs.length),
       subs.length > 0 && objectList('folder', subs.map((f) => folderObj(f, { pickable: true })), { grid: 'folder-grid' }),
       (subs.length > 0 || q) && label(reviews ? 'Reviews' : together ? 'Boards and playlists' : 'Boards', found),
-      reviews ? objectList('review', reviewObjs(here, reviews, { pickable: true }), { lead: !q && newReview(here) })
+      reviews ? objectList('review', reviewObjs(reviewsOfHere, reviews, { pickable: true }), { lead: !q && newReview(reviewsOfHere) })
         : together ? objectList('review', together, { lead: !q && NEW_BOARD })
           : objectList('board', boards.map((b) => boardObj(b, { pickable: true })), { lead: !q && NEW_BOARD }),
       q && !subs.length && !found && el('p', { class: 'home-empty', text: `Nothing matches "${$('q').value.trim()}".` }),
@@ -3170,15 +3238,18 @@
 
   // An animatic as an object: its first stills side by side, as a playlist's are, how many shots it has, how
   // long it runs and when it changed. Listed with other kinds (`kinds`), it says it is an animatic.
-  function animaticObj(project, a, { kinds = false } = {}) {
+  function animaticObj(project, a, { kinds = false, pickable = false } = {}) {
     const length = WBViewer.fmtTime(a.dur);
+    const k = `animatic:${a.id}`;
     return {
-      kind: 'playlist', tag: 'a', attrs: { href: WB.href.animatic(project.id, a.id) },
+      kind: 'playlist', tag: 'a', attrs: { href: WB.href.animatic(project.id, a.id), 'data-pick': k }, picked: bpick.has(k),
+      pick: pickable && (() => pickBoardThing(k)),
       still: el('div', { class: `card-thumbs strip n${Math.min(a.thumbs.length, 4)}` }, a.thumbs.map((src) => el('img', { src, alt: '', loading: 'lazy', draggable: 'false' }))),
       name: a.name,
       lines: [`${kinds ? 'Animatic · ' : ''}${plural(a.shots, 'shot')}${a.dur ? ` · ${length}` : ''} · changed ${ago(a.updatedAt)}`],
       cells: { kind: 'Animatic', items: a.shots, changed: [ago(a.updatedAt), new Date(a.updatedAt).toLocaleString()] },
       menu: animaticMenu(project, a),
+      setup: (node) => draggable(node, 'animatic', a.id, reviewThing(project, a)),
     };
   }
 
@@ -3189,6 +3260,7 @@
     return [
       ['Rename…', () => renameAnimatic(project, a)],
       ['Make a copy…', () => copyAnimatic(project, a)],
+      ['Move to…', () => moveDialog('animatic', a, project)],
       open && ['Frame rate and shape…', () => open.settings()],
       open && ['Download for a playback system…', () => open.download()],
       [isPinned('place', href) ? 'Unpin from sidebar' : 'Pin to sidebar', () => togglePin({ kind: 'place', id: href, href, name: a.name, what: 'animatic', projectId: project.id })],
@@ -3229,7 +3301,7 @@
     });
     if (!made) return null;
     try {
-      const a = await api('POST', `/api/projects/${project.id}/animatics`, { name: made.name, ...(made.fill && { from: 'timeline' }), ...(shots && { shots }), by: me.name });
+      const a = await api('POST', `/api/projects/${project.id}/animatics`, { name: made.name, ...(made.fill && { from: 'timeline' }), ...(shots && { shots }), folderId: reviewFolderHere(project), by: me.name });
       animaticsChanged(project);
       if (!shots) location.hash = WB.href.animatic(project.id, a.animatic.id);
       return a.animatic;
@@ -3256,7 +3328,7 @@
     const name = await WB.dialog({ title: 'Make a copy', text: 'The same edit, to cut another way. Each goes its own way from here.', value: `${a.name} copy`, placeholder: 'Animatic name', ok: 'Make copy' });
     if (!name) return;
     try {
-      const made = await api('POST', `/api/projects/${project.id}/animatics`, { name, copy: a.id, by: me.name });
+      const made = await api('POST', `/api/projects/${project.id}/animatics`, { name, copy: a.id, folderId: reviewHome(project, a), by: me.name });
       animaticsChanged(project);
       location.hash = WB.href.animatic(project.id, made.animatic.id);
     } catch (err) {
@@ -3348,16 +3420,27 @@
 
   const playlistData = new Map(); // playlist id -> { playlist, versions } as last fetched
 
+  // A project's playlist or animatic as it is dragged: which project, and the folder of its reviews it is in.
+  const reviewThing = (project, x) => ({ id: x.id, name: x.name, projectId: project.id, workspace: project.workspace, folderId: reviewHome(project, x) });
+  // The folder of a project's reviews the page is in, for what is made there: none (their top) elsewhere.
+  const reviewFolderHere = (project) => {
+    const cur = currentFolder();
+    return cur && cur !== project.id && isWithin(cur, project.id) ? cur : null;
+  };
+
   // A playlist as an object: its first stills side by side as a strip of film (a board's are a grid), how
   // many versions, when it changed. Listed with boards (`kinds`), it says it is a playlist.
-  function playlistObj(project, p, { kinds = false } = {}) {
+  function playlistObj(project, p, { kinds = false, pickable = false } = {}) {
+    const k = `playlist:${p.id}`;
     return {
-      kind: 'playlist', tag: 'a', attrs: { href: WB.href.reviews(project.id, p.id) },
+      kind: 'playlist', tag: 'a', attrs: { href: WB.href.reviews(project.id, p.id), 'data-pick': k }, picked: bpick.has(k),
+      pick: pickable && (() => pickBoardThing(k)),
       still: el('div', { class: `card-thumbs strip n${Math.min(p.thumbs.length, 4)}` }, p.thumbs.map((src) => el('img', { src, alt: '', loading: 'lazy', draggable: 'false' }))),
       name: p.name,
       lines: [`${kinds ? 'Playlist · ' : ''}${plural(p.count, 'version')} · changed ${ago(p.updatedAt)}`],
       cells: { kind: 'Playlist', items: p.count, changed: [ago(p.updatedAt), new Date(p.updatedAt).toLocaleString()] },
       menu: playlistMenu(project, p),
+      setup: (node) => draggable(node, 'playlist', p.id, reviewThing(project, p)),
     };
   }
 
@@ -3365,6 +3448,7 @@
     return [
       ['Rename…', () => renamePlaylist(project, p)],
       ['Lay out on a board…', () => boardOfPlaylist(project, p)],
+      ['Move to…', () => moveDialog('playlist', p, project)],
       [isPinned('place', WB.href.reviews(project.id, p.id)) ? 'Unpin from sidebar' : 'Pin to sidebar', () => togglePin({ kind: 'place', id: WB.href.reviews(project.id, p.id), href: WB.href.reviews(project.id, p.id), name: p.name, what: 'playlist', projectId: project.id })],
       ['Delete playlist…', () => deletePlaylist(project, p), true],
     ];
@@ -3385,7 +3469,7 @@
     });
     if (!name) return null;
     try {
-      const p = await api('POST', `/api/projects/${project.id}/playlists`, { name, versions, by: me.name });
+      const p = await api('POST', `/api/projects/${project.id}/playlists`, { name, versions, folderId: reviewFolderHere(project), by: me.name });
       playlistsChanged(project);
       // One made empty opens, to fill.
       if (!versions.length) location.hash = WB.href.reviews(project.id, p.id);
@@ -3401,7 +3485,7 @@
     const name = await WB.dialog({ title: 'Make a playlist of it', text: `The versions on ${board.name}, in the order it reads: rows first, then left to right.`, value: board.name, placeholder: 'Playlist name', ok: 'Make playlist' });
     if (!name) return;
     try {
-      const p = await api('POST', `/api/projects/${project.id}/playlists`, { name, board: board.id, by: me.name });
+      const p = await api('POST', `/api/projects/${project.id}/playlists`, { name, board: board.id, folderId: board.folderId, by: me.name });
       playlistsChanged(project);
       location.hash = WB.href.reviews(project.id, p.id);
     } catch (err) {
@@ -3415,7 +3499,7 @@
     if (!name) return;
     try {
       const { versions } = await api('GET', `/api/playlists/${p.id}`);
-      const board = await api('POST', '/api/boards', { name, folderId: project.id, workspace: project.workspace, by: me.name });
+      const board = await api('POST', '/api/boards', { name, folderId: reviewHome(project, p), workspace: project.workspace, by: me.name });
       if (versions.length) await api('POST', `/api/projects/${project.id}/place`, { board: board.id, versions: versions.map((v) => v.id), by: me.name });
       location.href = WB.href.board(board.id);
     } catch (err) {

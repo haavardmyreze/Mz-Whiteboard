@@ -3302,3 +3302,44 @@ test('an animatic is an edit of a project\'s shots that always plays their newes
   const domed = (await call('POST', `/api/projects/${venue.id}/animatics`, { name: 'Dome cut' })).body.doc;
   assert.deepEqual([domed.w, domed.h, domed.fps], [4096, 1024, 30]);
 });
+
+test('a project\'s reviews are kept in folders: its playlists and animatics go into them, and come up when one is deleted', async (t) => {
+  const s = start(4904);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  const outside = (await call('POST', '/api/folders', { name: 'Elsewhere' })).body;
+  const week = (await call('POST', '/api/folders', { name: 'Week 1', parentId: project.id })).body;
+  const day = (await call('POST', '/api/folders', { name: 'Monday', parentId: week.id })).body;
+
+  // made in a folder, or at the top of the reviews (the project itself is their top, kept as none)
+  const p = (await call('POST', `/api/projects/${project.id}/playlists`, { name: 'Dailies', folderId: week.id })).body;
+  assert.equal(p.folderId, week.id);
+  const a = (await call('POST', `/api/projects/${project.id}/animatics`, { name: 'Cut A', folderId: project.id })).body.animatic;
+  assert.equal(a.folderId, null);
+  assert.equal((await call('POST', `/api/projects/${project.id}/animatics`, { name: 'Cut B', folderId: outside.id })).status, 404);
+
+  // moved into a folder of the reviews, and nowhere else
+  assert.equal((await call('PATCH', `/api/animatics/${a.id}`, { folderId: day.id })).body.animatic.folderId, day.id);
+  assert.equal((await call('PATCH', `/api/animatics/${a.id}`, { folderId: outside.id })).status, 404);
+  assert.equal((await call('PATCH', `/api/playlists/${p.id}`, { folderId: outside.id })).status, 404);
+  assert.equal((await call('PATCH', `/api/playlists/${p.id}`, { folderId: day.id })).body.folderId, day.id);
+  // a move needs no save of the edit, and keeps it
+  const cat = (await call('GET', `/api/projects/${project.id}`)).body;
+  assert.deepEqual([cat.playlists[0].folderId, cat.animatics[0].folderId], [day.id, day.id]);
+  assert.equal((await call('GET', `/api/animatics/${a.id}`)).body.rev, 1);
+
+  // a folder deleted: what it kept goes up one level, and from the project's first folder to the top
+  await call('DELETE', `/api/folders/${day.id}`);
+  let now = (await call('GET', `/api/projects/${project.id}`)).body;
+  assert.deepEqual([now.playlists[0].folderId, now.animatics[0].folderId], [week.id, week.id]);
+  await call('DELETE', `/api/folders/${week.id}`);
+  now = (await call('GET', `/api/projects/${project.id}`)).body;
+  assert.deepEqual([now.playlists[0].folderId, now.animatics[0].folderId], [null, null]);
+});

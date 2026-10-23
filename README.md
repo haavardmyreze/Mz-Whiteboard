@@ -713,8 +713,15 @@ filed in it.
   into the next, and there is no timeline across them), each with its own comments. In a project with a
   3D model of its venue the player has the 2D / 3D switch here too, each version shown on the model in the
   view the project puts on it. A playlist can be renamed,
-  deleted (its versions stay) and pinned to the sidebar, from the menu beside its title. A version deleted
+  moved, deleted (its versions stay) and pinned to the sidebar, from the menu beside its title. A version deleted
   since is left off it.
+- **Folders in Reviews.** A project's reviews can be kept in folders: New folder (under the arrow beside New
+  board) on its Reviews page, or in one of its folders, makes one there. Boards, playlists, animatics and
+  other folders go into one by being dragged onto it (its card or row, its row in the sidebar, or its name in
+  the path above the page), with Move to… in their menu, or several at once with Select and Move to… (a
+  playlist or an animatic is offered only the folders of its project's reviews; Reviews itself is their top).
+  In the sidebar the folders are under Reviews, each opening to what it keeps. A folder lists what is in it as
+  Reviews does, and what is made there (New) is put in it. Deleting a folder moves what it kept up one level.
 - **Playlists outside a project.** A playlist does not need a project: New playlist, in the menu beside
   New board, makes one in any folder or at the top of a workspace, and it is listed with the boards there
   (a card says Playlist only where boards are listed beside it). With no catalogue to take versions from,
@@ -752,11 +759,13 @@ filed in it.
     ends, what is under it shows after that, and the part it lost is drawn as an outline saying how many
     frames short it came up (a later version long enough fills it again). Nothing is ever pushed along: a
     clip moved or trimmed onto others writes over what it lands on, as an editor's overwrite does, and
-    deleting leaves a gap.
+    deleting leaves a gap. A gap is closed only when asked: click it (it is picked, in the accent) and press
+    Delete, or right-click it for Close the gap, and what comes after it on its track moves back, as an
+    editor's ripple delete does. The other tracks stay where they are.
   - *Tracks.* Video tracks stack, the higher over the lower; each clip is shown whole, fitted to the
     animatic's shape on black, so it covers what is under it. Each track can be hidden (the eye) or have
-    its sound turned off, renamed and deleted from its menu, and more are added under the heads (sixteen in
-    all). A clip that loops goes round its version as often as its length needs, with a mark each time it
+    its sound turned off, renamed and deleted from its menu, and more are added with the + in the corner
+    above the heads, or from a track's menu (sixteen in all). A clip that loops goes round its version as often as its length needs, with a mark each time it
     starts over.
   - *Fades and dissolves.* The small handles under a picked clip's name draw out its fades. A fade shows
     what is under the clip: on the lowest track that is black, so it is a fade to or from black, and over
@@ -769,7 +778,9 @@ filed in it.
     dropped from the desktop onto a sound track goes there too, where it is let go. A sound that is on no
     track can be taken out of the library. The first sound put on a track turns the shots' own sound off,
     each video track's button turns it back on. It plays through the browser's sound, which is also the
-    clock the pictures keep to, so the edit stays in time with it; it is drawn as its waveform. A sound
+    clock the pictures keep to, so the edit stays in time with it; it is drawn as its waveform. Play waits
+    for the sound and the pictures at the playhead to be ready (a moment, at most a second) and then plays
+    smoothly from the first frame. A sound
     track's menu sets how loud it is.
   - *Working on it.* Click picks a clip (Shift adds; a box on empty track picks many), drag moves it (to
     another track of its kind too; Alt copies), and its edges trim it, never past the end of its version
@@ -781,8 +792,8 @@ filed in it.
     it) draw the timeline in and out. Click or drag on the ruler to move the playhead. The middle button,
     held, is a hand: the timeline goes with it, along and down. To watch the edit with the most room, the
     strip button in the bar (or T) folds the timeline into a thin strip of the whole edit across the width:
-    each shot in its place with a frame of its own, where there is sound, and the playhead, to click or drag
-    along; T again brings the timeline back. Which it was is kept by this browser. Every change is saved a moment after it is
+    every track a thin line with its clips along it, as an overview of the cut, and the playhead, to click or
+    drag along; T again brings the timeline back. Which it was is kept by this browser. Every change is saved a moment after it is
     made; one made on an older save than somebody else's is not saved, theirs is shown, and Undo brings
     back yours.
   - *Comments* are about the clip on top under the playhead, on the version it plays, as on the Timeline:
@@ -940,9 +951,11 @@ page, `facets` (what there is to filter by). `PATCH /api/projects/<folder>/versi
 `POST /api/projects/<folder>/place` takes `{ "board", "versions": [...], "layout" }` to put versions on
 one of the project's boards (`"layout": "sequences"` for a column per sequence). An animatic is
 `GET /api/projects/<folder>/animatics` and `POST` with `{ "name", "doc" }`, `{ "name", "from": "timeline", "seq" }`,
-`{ "name", "shots": [...] }` (shots, or versions standing for their shots) or `{ "name", "copy": <id> }`;
+`{ "name", "shots": [...] }` (shots, or versions standing for their shots) or `{ "name", "copy": <id> }`, each
+with a `"folderId"` (a folder of the project's reviews) if it is to be kept in one, as a project's playlist takes;
 `GET /api/animatics/<id>` gives its `doc` (rate, shape, task, view, tracks and clips, every position in
-frames), its `rev` and the newest version of each of its shots; `PATCH` takes `{ "name" }`, `{ "doc", "rev" }`
+frames), its `rev` and the newest version of each of its shots; `PATCH` takes `{ "name" }`, `{ "folderId" }`
+(moved among the project's reviews, as a project's playlist's `PATCH` takes too), `{ "doc", "rev" }`
 (refused with `409` and the newer one when `rev` is not the last save) or `{ "add": [...] }`, and
 `GET /api/animatics/<id>/download` is its zip for a playback system. Filing several files
 files all of them or, if any one is refused, none; so does a `PATCH` of a version.

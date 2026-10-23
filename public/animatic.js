@@ -49,6 +49,7 @@ const WBAnimatic = (() => {
     let name = '';
     let closed = false;
     let sel = new Set();
+    let gapSel = null; // a gap picked on a track, to close: { track, from, to }
     let ph = 0;
     let playing = false;
     let looping = store('wb:an:loop') !== false;
@@ -131,7 +132,7 @@ const WBAnimatic = (() => {
     const notesWidth = store('wb:an:notesw');
     if (Number.isFinite(notesWidth)) notes.style.width = `${notesWidth}px`;
     const binBtn = el('button', { type: 'button', class: `iconbtn an-wide${bin.hidden ? '' : ' active'}`, html: ICON.rows, title: 'The library: shots and sounds (Shift+L)', 'aria-pressed': String(!bin.hidden), onclick: () => toggleBin() });
-    const playBtn = el('button', { type: 'button', class: 'iconbtn', html: ICON.play, title: 'Play (Space)', 'aria-label': 'Play', onclick: () => (playing ? stop() : play()) });
+    const playBtn = el('button', { type: 'button', class: 'iconbtn', html: ICON.play, title: 'Play (Space)', 'aria-label': 'Play', onclick: () => (playing || starting ? stop() : play()) });
     const timeBtn = el('button', { type: 'button', class: 'an-time', title: 'Click to switch between minutes, frames and timecode', onclick: () => V.cycleTimeMode() });
     const loopBtn = el('button', { type: 'button', class: `iconbtn an-loop${looping ? ' active' : ''}`, html: ICON.loop, title: 'Play round from the start at the end', 'aria-pressed': String(looping), onclick: () => setLoop(!looping) });
     const onNow = el('span', { class: 'an-now' });
@@ -168,10 +169,12 @@ const WBAnimatic = (() => {
     const space = el('div', { class: 'an-space' }, cv);
     const scroller = el('div', { class: 'an-scroll', tabindex: '-1' }, space);
     const headsIn = el('div', { class: 'an-heads-in' });
-    const heads = el('div', { class: 'an-heads' }, headsIn);
+    // The corner over the heads stays put as the tracks scroll under it.
+    const headsTop = el('div', { class: 'an-head-ruler' });
+    const heads = el('div', { class: 'an-heads' }, headsTop, headsIn);
     const grip = el('div', { class: 'an-grip', role: 'separator', 'aria-orientation': 'horizontal', title: 'Drag to give the timeline more room or less' });
-    // Watching, the timeline can be a thin strip of the whole edit instead (`mini`): each shot in its place, the
-    // sound under them, and the playhead, to click or drag along.
+    // Watching, the timeline can be a thin strip of the whole edit instead (`mini`): every track as a thin line
+    // with its clips along it, and the playhead, to click or drag along.
     const strip = el('canvas', { class: 'an-strip', role: 'slider', 'aria-label': 'The whole edit: click or drag to move through it' });
     const tl = el('div', { class: 'an-tl' }, heads, scroller, strip);
     const top = el('div', { class: 'an-top' }, bin, stage, notes);
@@ -275,6 +278,7 @@ const WBAnimatic = (() => {
       redo = [];
       doc = next;
       sel = new Set([...sel].filter((x) => doc.clips.some((c) => c.id === x)));
+      gapSel = null;
       scheduleSave();
       paintAll();
     }
@@ -731,8 +735,10 @@ const WBAnimatic = (() => {
     }
 
     // Keeps a video on the moment the edit is at: stopped, exactly on its frame; playing, in step with the
-    // clock, a touch quicker or slower when a little off, and put right with a jump when far off. A looping
-    // clip's video loops by itself, so going round is no jump.
+    // clock, and put right with a jump when far off. More than a frame off, it plays a twentieth quicker or
+    // slower until it has caught up, and then at its own rate again: its rate is changed only then, as a
+    // browser (Firefox above all) can stumble each time it is changed. A looping clip's video loops by itself,
+    // so going round is no jump.
     function keepTime(ent, clip, t, dur) {
       const v = ent.video;
       v.loop = !!clip.loop;
@@ -753,30 +759,69 @@ const WBAnimatic = (() => {
       if (Math.abs(drift) > 0.3) {
         v.playbackRate = 1;
         V.goTo(v, t + 0.05);
-      } else v.playbackRate = clamp(1 - drift * 2, 0.9, 1.1);
+        return;
+      }
+      let rate = v.playbackRate;
+      if ((rate > 1 && drift >= 0) || (rate < 1 && drift <= 0)) rate = 1;
+      if (rate === 1 && Math.abs(drift) > 1 / doc.fps) rate = drift > 0 ? 0.95 : 1.05;
+      if (v.playbackRate !== rate) v.playbackRate = rate;
     }
 
     // ---- playing: the clock is the sound's, so pictures and sound keep together
 
-    let clockAt = 0; // the sound clock's time when playing started from `clockFrom`
+    // Before it plays, the edit is made ready, as an editor does: the sound clock has to be running (a browser
+    // can take a moment to start its sound) and every video showing at the playhead on its frame with enough
+    // to play on from. Started sooner, the pictures and the clock disagree for the first second, and are put
+    // right with a jump. It waits a second at most; a sound clock that never runs (no sound device) leaves the
+    // page's own clock to keep time, without the sound files.
+    let clockAt = 0; // the clock's time when playing started from `clockFrom`
     let clockFrom = 0;
     let raf = 0;
     let voices = [];
-    const clockFrame = () => clockFrom + Math.max(0, actx.currentTime - clockAt) * doc.fps;
+    let starting = 0; // when the play being made ready was asked for
+    let soundClock = true; // whether the sound's clock keeps time (else the page's)
+    const PREROLL = 1000;
+    const clockNow = () => (soundClock ? actx.currentTime : performance.now() / 1000);
+    const clockFrame = () => clockFrom + Math.max(0, clockNow() - clockAt) * doc.fps;
     function play() {
-      if (!doc || playing || !doc.clips.length) return;
+      if (!doc || playing || starting || !doc.clips.length) return;
       ensureAudio();
       actx.resume().catch(() => {});
       if (ph >= endFrame() - 1) ph = 0;
-      playing = true;
-      clockFrom = ph;
-      clockAt = actx.currentTime + 0.05;
-      startSound(ph);
+      render(ph);
+      const asked = starting = performance.now();
+      const t0 = actx.currentTime;
+      const soundReady = () => actx.state === 'running' && actx.currentTime > t0;
+      const picturesReady = () => C.layersAt(doc, Math.floor(ph), lengthOf).every((l) => {
+        const ent = pool.find((p) => p.clip === l.clip.id);
+        return !ent || (ent.video.readyState >= 3 && !ent.video.seeking);
+      });
+      const wait = () => {
+        if (starting !== asked || closed) return;
+        const late = performance.now() - asked > PREROLL;
+        if (!late && !(soundReady() && picturesReady())) {
+          raf = requestAnimationFrame(wait);
+          return;
+        }
+        starting = 0;
+        soundClock = soundReady();
+        playing = true;
+        clockFrom = ph;
+        clockAt = clockNow() + 0.02;
+        startSound(ph);
+        paintPlay();
+        tick();
+      };
       paintPlay();
       keepAhead();
-      tick();
+      wait();
     }
     function stop() {
+      if (starting) {
+        starting = 0;
+        cancelAnimationFrame(raf);
+        paintPlay();
+      }
       if (!playing) return;
       playing = false;
       cancelAnimationFrame(raf);
@@ -815,13 +860,13 @@ const WBAnimatic = (() => {
     function restartAt(f) {
       ph = f;
       clockFrom = f;
-      clockAt = actx.currentTime + 0.05;
+      clockAt = clockNow() + 0.05;
       startSound(f);
     }
     // The sound files from frame `f`, each scheduled on the sound clock to the sample, its fades as ramps.
     function startSound(f) {
       stopSound();
-      if (!actx || !playing) return;
+      if (!actx || !playing || !soundClock) return;
       const base = clockAt + Math.max(0, f - clockFrom) / doc.fps;
       for (const c of doc.clips) {
         if (!c.media) continue;
@@ -872,12 +917,12 @@ const WBAnimatic = (() => {
       paintTime();
     }
     const step = (n) => {
-      if (playing) stop();
+      stop();
       seek(Math.round(ph) + n);
     };
     // The cut before or after the playhead, on any track.
     function toCut(dir) {
-      if (playing) stop();
+      stop();
       const at = Math.round(ph);
       const cuts = [...new Set(doc.clips.flatMap((c) => [c.start, C.clipEnd(c)]))].sort((a, b) => a - b);
       const to = dir > 0 ? cuts.find((x) => x > at) : [...cuts].reverse().find((x) => x < at);
@@ -924,9 +969,10 @@ const WBAnimatic = (() => {
       soundBtn.classList.toggle('off', !soundOn);
     };
     const paintPlay = () => {
-      playBtn.innerHTML = playing ? ICON.pause : ICON.play;
-      playBtn.title = playing ? 'Stop (Space)' : 'Play (Space)';
-      playBtn.setAttribute('aria-label', playing ? 'Stop' : 'Play');
+      const on = playing || !!starting;
+      playBtn.innerHTML = on ? ICON.pause : ICON.play;
+      playBtn.title = on ? 'Stop (Space)' : 'Play (Space)';
+      playBtn.setAttribute('aria-label', on ? 'Stop' : 'Play');
     };
     function paintTime() {
       if (!doc) return;
@@ -1112,6 +1158,23 @@ const WBAnimatic = (() => {
         ctx.stroke();
         ctx.restore();
       }
+      // A gap picked, to close, in the accent as a picked clip is (as it is now, after an undo or another's save).
+      const gp = gapSel && C.gapAt(doc, gapSel.track, gapSel.from);
+      const gr = gp && rowOf(gp.track);
+      if (gr) {
+        const xa = Math.max(-1, xOf(gp.from));
+        const xb = Math.min(W + 1, xOf(gp.to));
+        const y = yOf(gr) + 2;
+        ctx.save();
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = accent;
+        ctx.fillRect(xa, y, xb - xa, gr.h - 4);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(Math.round(xa) + 0.5, y + 0.5, Math.round(xb - xa) - 1, gr.h - 5);
+        ctx.restore();
+      }
       if (held && held.kind === 'box') {
         const [x0, x1] = [Math.min(held.x0, held.x1), Math.max(held.x0, held.x1)];
         const [y0, y1] = [Math.min(held.y0, held.y1), Math.max(held.y0, held.y1)];
@@ -1235,7 +1298,7 @@ const WBAnimatic = (() => {
       }
       // Where a loop starts over.
       if (c.loop && Number.isFinite(length) && length >= 1) {
-        const n = Math.floor(length);
+        const n = C.whole(length);
         ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
         for (let k = n - c.in; k < c.len; k += n) {
           if (k <= 0) continue;
@@ -1472,11 +1535,12 @@ const WBAnimatic = (() => {
       }
       if (hit.kind === 'ruler') {
         const wasPlaying = playing;
-        if (playing) stop();
+        stop();
         held = { kind: 'scrub', pid: e.pointerId, wasPlaying };
         seek(fAt(p.x));
         return;
       }
+      gapSel = null;
       if (hit.kind === 'clip') {
         const c = hit.clip;
         if (e.shiftKey) {
@@ -1489,7 +1553,7 @@ const WBAnimatic = (() => {
       }
       if (hit.kind === 'lane' || hit.kind === 'none') {
         if (!e.shiftKey) sel = new Set();
-        held = { kind: 'box', pid: e.pointerId, x0: p.x, y0: p.y, x1: p.x, y1: p.y, base: new Set(sel), moved: false };
+        held = { kind: 'box', pid: e.pointerId, x0: p.x, y0: p.y, x1: p.x, y1: p.y, base: new Set(sel), moved: false, row: hit.row };
         draw();
       }
     });
@@ -1630,8 +1694,11 @@ const WBAnimatic = (() => {
         return;
       }
       if (h.kind === 'box') {
-        // A click on an empty place goes there.
-        if (!h.moved) seek(fAt(h.x0));
+        // A click on an empty place goes there, and one between clips picks the gap there, to close.
+        if (!h.moved) {
+          gapSel = h.row && !e.shiftKey ? C.gapAt(doc, h.row.track.id, Math.floor(fAt(h.x0))) : null;
+          seek(fAt(h.x0));
+        }
         return void draw();
       }
       if (!h.moved) {
@@ -1705,15 +1772,30 @@ const WBAnimatic = (() => {
     cv.addEventListener('contextmenu', (e) => {
       const p = local(e);
       const hit = hitAt(p.x, p.y);
-      if (hit.kind !== 'clip') return;
+      const gap = hit.kind === 'lane' ? C.gapAt(doc, hit.row.track.id, Math.floor(fAt(p.x))) : null;
+      if (hit.kind !== 'clip' && !gap) return;
       e.preventDefault();
-      if (!sel.has(hit.clip.id)) sel = new Set([hit.clip.id]);
+      if (gap) {
+        sel = new Set();
+        gapSel = gap;
+      } else {
+        gapSel = null;
+        if (!sel.has(hit.clip.id)) sel = new Set([hit.clip.id]);
+      }
       draw();
       const anchor = el('span', { class: 'an-anchor', style: { left: `${e.clientX}px`, top: `${e.clientY - 4}px` } });
       document.body.append(anchor);
-      WB.menu(anchor, clipMenu(hit.clip), { align: 'left' });
+      WB.menu(anchor, gap ? [['Close the gap', () => closeGap()]] : clipMenu(hit.clip), { align: 'left' });
       setTimeout(() => anchor.remove(), 0);
     });
+    // The gap picked closed: what comes after it on its track moves back (Delete, with a gap picked).
+    function closeGap() {
+      if (!gapSel) return;
+      const gap = C.gapAt(doc, gapSel.track, gapSel.from);
+      gapSel = null;
+      if (gap) commit(C.closeGap(doc, gap));
+      else draw();
+    }
     function clipMenu(c) {
       const picked = doc.clips.filter((x) => sel.has(x.id));
       const many = picked.length > 1;
@@ -1754,14 +1836,20 @@ const WBAnimatic = (() => {
       paintAll();
     }
 
-    // ---- the tracks' heads: each with its name, its sound and (a video track) whether it shows
+    // ---- the tracks' heads: each with its name, its sound and (a video track) whether it shows. More tracks are
+    // added from the corner above them, where the timeline is drawn in and out, or from a track's menu, so the
+    // heads take no more room than the tracks.
 
     function paintHeads() {
       if (!doc) return;
+      headsTop.replaceChildren(
+        el('button', {
+          type: 'button', class: 'iconbtn an-add', html: ICON.plus, title: 'Add a track', 'aria-label': 'Add a track', 'aria-haspopup': 'menu',
+          onclick: (e) => WB.menu(e.currentTarget, [['Video track', () => addTrack('video')], ['Sound track', () => addTrack('audio')]]),
+        }),
+        el('button', { type: 'button', class: 'iconbtn an-zoom', text: '−', title: 'Show more of the edit (Ctrl + wheel)', 'aria-label': 'Show more of the edit', onclick: () => zoomTo(ppf / 1.5) }),
+        el('button', { type: 'button', class: 'iconbtn an-zoom', text: '+', title: 'Show less of it, closer (Ctrl + wheel)', 'aria-label': 'Show less of the edit, closer', onclick: () => zoomTo(ppf * 1.5) }));
       headsIn.replaceChildren(
-        el('div', { class: 'an-head-ruler' },
-          el('button', { type: 'button', class: 'iconbtn an-zoom', text: '−', title: 'Show more of the edit (Ctrl + wheel)', 'aria-label': 'Show more of the edit', onclick: () => zoomTo(ppf / 1.5) }),
-          el('button', { type: 'button', class: 'iconbtn an-zoom', text: '+', title: 'Show less of it, closer (Ctrl + wheel)', 'aria-label': 'Show less of the edit, closer', onclick: () => zoomTo(ppf * 1.5) })),
         ...rows.flatMap((r, i) => {
           const t = r.track;
           const gap = i > 0 && rows[i - 1].track.kind !== t.kind ? [el('div', { class: 'an-head-gap', style: { height: `${SPLIT}px` } })] : [];
@@ -1771,10 +1859,7 @@ const WBAnimatic = (() => {
             t.kind === 'video' && el('button', { type: 'button', class: `iconbtn${t.hide ? ' off' : ''}`, html: t.hide ? ICON.eyeOff : ICON.eye, title: t.hide ? 'Hidden: click to show it' : 'Shown: click to hide it', 'aria-pressed': String(!t.hide), onclick: () => setTrack({ hide: !t.hide }) }),
             el('button', { type: 'button', class: `iconbtn${t.mute ? ' off' : ''}`, html: t.mute ? ICON.muted : ICON.sound, title: t.mute ? 'Its sound is off: click to hear it' : 'Its sound is on: click to turn it off', 'aria-pressed': String(!t.mute), onclick: () => setTrack({ mute: !t.mute }) }),
             el('button', { type: 'button', class: 'iconbtn', html: ICON.more, title: 'More', 'aria-haspopup': 'menu', onclick: (e) => WB.menu(e.currentTarget, trackMenu(t)) }))];
-        }),
-        el('div', { class: 'an-head-add' },
-          el('button', { type: 'button', class: 'btn small ghost', html: `${ICON.plus}<span>Video track</span>`, onclick: () => addTrack('video') }),
-          el('button', { type: 'button', class: 'btn small ghost', html: `${ICON.plus}<span>Sound track</span>`, onclick: () => addTrack('audio') })));
+        }));
     }
     // An edit with one more track of a kind, above the others of it: a video track's own sound is off once the
     // edit has a sound file.
@@ -1793,6 +1878,7 @@ const WBAnimatic = (() => {
       const same = doc.tracks.filter((x) => x.kind === t.kind);
       const has = doc.clips.filter((c) => c.track === t.id).length;
       return [
+        [t.kind === 'video' ? 'Add a video track' : 'Add a sound track', () => addTrack(t.kind)],
         ['Rename…', async () => {
           const v = await WB.dialog({ title: 'Rename track', value: t.name, placeholder: 'Track name', ok: 'Rename', maxlength: 40 });
           if (v && v !== t.name) commit({ ...doc, tracks: doc.tracks.map((x) => (x.id === t.id ? { ...x, name: v } : x)) });
@@ -1977,7 +2063,7 @@ const WBAnimatic = (() => {
     }
     // Beginning a comment on the venue holds the view still where it is, framed as a comment's view is.
     noteBox.addEventListener('focus', () => {
-      if (playing) stop();
+      stop();
       if (in3d && three && !replyRoot) venue3d.look();
     });
     noteBox.addEventListener('keydown', (e) => {
@@ -2003,22 +2089,24 @@ const WBAnimatic = (() => {
       // is and the venue.
       if (venue3d.key(e)) return void e.preventDefault();
       let done = true;
-      if (k === ' ' || (k === 'k' && !mod)) playing ? stop() : play();
+      if (k === ' ' || (k === 'k' && !mod)) playing || starting ? stop() : play();
       else if (k === ',' || k === '<') step(e.shiftKey ? -Math.round(doc.fps) : -1);
       else if (k === '.' || k === '>') step(e.shiftKey ? Math.round(doc.fps) : 1);
       else if (k === 'ArrowLeft' && !mod) toCut(-1);
       else if (k === 'ArrowRight' && !mod) toCut(1);
       else if (k === 'Home') seek(0);
       else if (k === 'End') seek(endFrame());
-      else if (k === 'Delete' || k === 'Backspace') removePicked();
+      else if (k === 'Delete' || k === 'Backspace') (gapSel ? closeGap() : removePicked());
       else if (mod && (k === 'b' || k === 'B')) splitAtPlayhead();
       else if (mod && !e.shiftKey && (k === 'z' || k === 'Z')) undoStep(true);
       else if (mod && ((e.shiftKey && (k === 'z' || k === 'Z')) || k === 'y')) undoStep(false);
       else if (mod && (k === 'a' || k === 'A')) {
         sel = new Set(doc.clips.map((c) => c.id));
+        gapSel = null;
         draw();
-      } else if (k === 'Escape' && sel.size) {
+      } else if (k === 'Escape' && (sel.size || gapSel)) {
         sel = new Set();
+        gapSel = null;
         draw();
       } else if ((k === 'm' || k === 'M') && !mod) setSound(!soundOn);
       else if ((k === 'C') && e.shiftKey && !mod) toggleNotes();
@@ -2089,88 +2177,54 @@ const WBAnimatic = (() => {
       strip.height = Math.round(SH * dpr);
       drawStrip();
     }
-    // The whole edit across the width: the clips of the video tracks, the higher over the lower as they are seen
-    // (each its still, or its colour), named where there is room; under them, where there is sound; the playhead.
+    // The whole edit across the width, as an overview of its cut: every track a thin line, in the timeline's
+    // order (the video tracks, the highest first, then the sound tracks), each clip a stretch of it with a hair
+    // between it and the next, and the playhead. A track hidden or not heard is fainter. The strip is as tall
+    // as its tracks need.
+    const STRIP = { pad: 8, line: 4, gap: 2, split: 4 };
+    const stripHeight = () => {
+      const n = doc ? doc.tracks.length : 2;
+      return STRIP.pad * 2 + n * STRIP.line + (n - 1) * STRIP.gap + STRIP.split;
+    };
     function drawStrip() {
-      if (!doc || !SW || !SH) return;
+      if (!doc) return;
+      const want = stripHeight();
+      if (tl.style.getPropertyValue('--strip-h') !== `${want}px`) {
+        tl.style.setProperty('--strip-h', `${want}px`);
+        requestAnimationFrame(() => fitFrame());
+      }
+      if (!SW || !SH) return;
       const ctx = strip.getContext('2d');
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.fillStyle = BED;
       ctx.fillRect(0, 0, SW, SH);
       const end = Math.max(1, endFrame());
       const x = (f) => (f / end) * SW;
-      const top = 4;
-      const h = SH - 14;
-      const want = [];
-      for (const t of C.videoTracks(doc)) {
-        if (t.hide) continue;
+      const order = [...C.videoTracks(doc).slice().reverse(), ...C.audioTracks(doc)];
+      let y = Math.max(STRIP.pad, Math.round((SH - (stripHeight() - STRIP.pad * 2)) / 2));
+      order.forEach((t, i) => {
+        if (i && t.kind === 'audio' && order[i - 1].kind === 'video') y += STRIP.split;
+        const quiet = t.kind === 'video' ? t.hide : t.mute;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
+        ctx.fillRect(0, y, SW, STRIP.line);
         for (const c of C.onTrack(doc, t.id)) {
           const x0 = x(c.start);
-          const x1 = x(c.start + C.filled(c, lengthOf(c)));
-          if (x1 - x0 < 0.5) continue;
-          const look = lookOf(c);
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(x0, top, Math.max(1, x1 - x0 - 1), h);
-          ctx.clip();
-          ctx.fillStyle = CLIP_BG;
-          ctx.fillRect(x0, top, x1 - x0, h);
-          // A frame of its own from the middle of what it plays (as the full timeline takes them), else its
-          // still, else its colour there.
-          let img = null;
-          if (look && look.type === 'video') {
-            const length = lengthOf(c);
-            const at = Math.round((C.sourceFrame(c, Math.floor(c.start + C.filled(c, length) / 2), length) / doc.fps) * 24) / 24;
-            const key = FR.key(srcOf(look), at);
-            img = FR.take(key);
-            if (!img) want.push({ key, src: srcOf(look), at, d: Math.abs(c.start - ph) });
-          }
-          const pic = look && (look.th || look.poster || (look.type === 'image' && (look.prev || look.src)));
-          if (!img && pic) img = FR.imageOf(pic);
-          const rgb = !img && look && look.dur ? FR.colourAt(look, 0.5) : null;
-          if (img) FR.drawCover(ctx, img, x0, top, Math.max(h * 1.6, x1 - x0), h);
-          else if (rgb) {
-            ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
-            ctx.fillRect(x0, top, x1 - x0, h / 2);
-            ctx.fillStyle = `rgb(${rgb[3]},${rgb[4]},${rgb[5]})`;
-            ctx.fillRect(x0, top + h / 2, x1 - x0, h - h / 2);
-          } else if (!look) {
-            ctx.strokeStyle = '#242424';
-            ctx.lineWidth = 4;
-            for (let sx = x0 - h; sx < x1; sx += 10) {
-              ctx.beginPath();
-              ctx.moveTo(sx, top + h);
-              ctx.lineTo(sx + h, top);
-              ctx.stroke();
-            }
-          }
-          const name = c.shot && shots[c.shot] ? shots[c.shot].name : '';
-          ctx.font = FONT(600, 10);
-          if (name && ctx.measureText(name).width + 10 < x1 - x0) {
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
-            ctx.fillRect(x0, top, ctx.measureText(name).width + 10, 15);
-            ctx.fillStyle = TEXT;
-            ctx.fillText(name, x0 + 5, top + 11);
-          }
-          ctx.restore();
+          const xf = x(c.start + C.filled(c, lengthOf(c)));
+          const x1 = x(C.clipEnd(c));
+          const w = Math.max(1, x1 - x0 - 1);
+          // What a short version leaves of the clip is fainter, as the timeline outlines it.
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+          ctx.fillRect(x0, y, w, STRIP.line);
+          ctx.fillStyle = quiet ? 'rgba(255, 255, 255, 0.2)' : t.kind === 'video' ? 'rgba(255, 255, 255, 0.62)' : 'rgba(255, 255, 255, 0.38)';
+          ctx.fillRect(x0, y, Math.max(1, Math.min(w, xf - x0)), STRIP.line);
         }
-      }
-      // Where there is sound, on any track that is heard.
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
-      for (const c of doc.clips) {
-        const t = C.trackOf(doc, c);
-        if (!c.media || !t || t.mute) continue;
-        const x0 = x(c.start);
-        const x1 = x(c.start + C.filled(c, lengthOf(c)));
-        ctx.fillRect(x0, SH - 7, Math.max(1, x1 - x0 - 1), 3);
-      }
+        y += STRIP.line + STRIP.gap;
+      });
       const px = Math.round(x(ph));
       ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
       ctx.fillRect(px - 1.5, 0, 3, SH);
       ctx.fillStyle = accentNow;
       ctx.fillRect(px - 0.5, 0, 1.5, SH);
-      want.sort((a, b) => a.d - b.d);
-      FR.ask(want);
     }
     // Clicked or dragged along, the edit goes there; playing, it plays on from there once let go.
     strip.addEventListener('pointerdown', (e) => {
@@ -2178,7 +2232,7 @@ const WBAnimatic = (() => {
       e.preventDefault();
       strip.setPointerCapture(e.pointerId);
       const wasPlaying = playing;
-      if (playing) stop();
+      stop();
       const to = (ev) => {
         const r = strip.getBoundingClientRect();
         seek(clamp((ev.clientX - r.left) / r.width, 0, 1) * endFrame());
@@ -2202,6 +2256,18 @@ const WBAnimatic = (() => {
     const comp = el('canvas');
     let compKey = '';
     let lastDrawn = [];
+    // The canvas at the edit's shape: true when that changed its size. The 3D view's texture keeps the size the
+    // canvas had when it was given (three.js stores a texture once), so the canvas is sized before it is given,
+    // and given anew when the edit's shape changes it. Given at a browser's own 300 by 150, the venue's screens
+    // would stay black until the 3D view was turned off and on again.
+    function sizeComp() {
+      const cw = Math.min(doc.w, 3840);
+      const ch = Math.max(1, Math.round((cw * doc.h) / doc.w));
+      if (comp.width === cw && comp.height === ch) return false;
+      comp.width = cw;
+      comp.height = ch;
+      return true;
+    }
     function composite(drawn, force = false) {
       lastDrawn = drawn;
       const cw = Math.min(doc.w, 3840);
@@ -2212,10 +2278,7 @@ const WBAnimatic = (() => {
       const key = `${cw}x${ch}|${drawn.map((d) => `${d.clip.id}:${frameOfNode(d)}:${d.opacity.toFixed(3)}`).join('|')}`;
       if (key === compKey && !force) return;
       compKey = key;
-      if (comp.width !== cw || comp.height !== ch) {
-        comp.width = cw;
-        comp.height = ch;
-      }
+      const resized = sizeComp();
       const ctx = comp.getContext('2d');
       ctx.globalAlpha = 1;
       ctx.fillStyle = '#000';
@@ -2234,6 +2297,10 @@ const WBAnimatic = (() => {
       }
       ctx.globalAlpha = 1;
       comp.fresh = true;
+      if (resized && in3d && three) {
+        three.setSource(null);
+        three.setSource(comp);
+      }
     }
     // A shot with nothing filed, as the 2D slate is.
     function drawSlate(ctx, w, h, name) {
@@ -2269,6 +2336,7 @@ const WBAnimatic = (() => {
         if (!three || closed) return;
         stage.append(three.canvas);
         three.goTo('main', false);
+        sizeComp();
         three.setSource(comp);
         three.start();
       } else if (three) {

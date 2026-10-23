@@ -37,6 +37,16 @@ test('cut: a version shorter than its clip leaves the clip short, without holdin
   assert.deepEqual(ids(cut.layersAt(doc, 0, lengths({ a: 8 }))), ['low']);
 });
 
+test('cut: a source whose length in frames is a hair short of whole fills its clip, with no frame of black at the cut', () => {
+  // at 23.976 a version of exactly 100 frames runs 4.170833 seconds, which is 99.99997 frames of the edit
+  const fps = 24000 / 1001;
+  const doc = { ...edit(clip('a', 'v1', 0, 100), clip('b', 'v1', 100, 100)), fps };
+  const len = () => 4.170833 * fps;
+  assert.equal(cut.filled(doc.clips[0], len()), 100);
+  assert.deepEqual(cut.layersAt(doc, 99, len).map((l) => [l.clip.id, l.frame]), [['a', 99]]);
+  assert.deepEqual(cut.events(doc, 'v1', len).map((e) => [e.clip.id, e.start, e.len]), [['a', 0, 100], ['b', 100, 100]]);
+});
+
 test('cut: a looping clip goes round its whole source, from its in point', () => {
   const doc = edit(clip('a', 'v1', 0, 100, { loop: true, in: 8 }));
   const len = lengths({ a: 10 });
@@ -145,6 +155,17 @@ test('cut: trimming keeps what shows where it is, never runs past the source, an
   const loop = clip('l', 'v1', 20, 10, { loop: true, in: 2 });
   assert.equal(cut.trimEnd(loop, 100, 10).len, 110);
   assert.deepEqual([cut.trimStart(loop, -5, 10).start, cut.trimStart(loop, -5, 10).in], [15, 7]);
+});
+
+test('cut: a gap between clips is found on its track, and closing it moves what comes after back, on that track only', () => {
+  const doc = edit(clip('a', 'v1', 10, 20), clip('b', 'v1', 50, 10), clip('c', 'v1', 70, 5), clip('s', 'a1', 0, 100, { media: '/uploads/s.wav' }));
+  assert.deepEqual(cut.gapAt(doc, 'v1', 5), { track: 'v1', from: 0, to: 10 });
+  assert.deepEqual(cut.gapAt(doc, 'v1', 40), { track: 'v1', from: 30, to: 50 });
+  assert.equal(cut.gapAt(doc, 'v1', 15), null); // on a clip
+  assert.equal(cut.gapAt(doc, 'v1', 80), null); // nothing after
+  const closed = cut.closeGap(doc, cut.gapAt(doc, 'v1', 40));
+  assert.deepEqual(closed.clips.map((c) => [c.id, c.start]).sort(), [['a', 10], ['b', 30], ['c', 50], ['s', 0]]);
+  assert.deepEqual(doc.clips.find((c) => c.id === 'b').start, 50); // the edit given is left as it was
 });
 
 test('cut: a clip cut in two shows the same frames, each half keeping its own end\'s fade', () => {

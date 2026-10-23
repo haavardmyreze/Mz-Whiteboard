@@ -20,7 +20,7 @@ left open takes it in within a few seconds, and the next play is the updated edi
 
 - **A third kind of review.** A project's Reviews lists boards, playlists and animatics together, and New makes
   any of the three. An animatic's page is `#/f/<project>/animatic/<id>`, under Reviews in the sidebar with an
-  icon of its own. Its card is its first stills side by side, as a playlist's is, and its line says Animatic
+  icon of its own, in the folder of the reviews it is kept in (`folder_id`, as a playlist's; none is their top). Its card is its first stills side by side, as a playlist's is, and its line says Animatic
   where other kinds are listed beside it. It is renamed, copied ("Make a copy", for another cut of the same
   shots), set up, downloaded, pinned and deleted from the menu beside its title.
 - **Only in a project, and only shots.** A clip names a shot of the project and plays its newest version: of
@@ -38,7 +38,8 @@ left open takes it in within a few seconds, and the next play is the updated edi
 ## The edit, as it is kept
 
 One record per animatic, in the `animatics` table: `id`, `project_id`, `name`, `doc` (JSON), `rev` (a number
-counting its saves), `created_at`, `created_by`, `updated_at`, `updated_by`. The `doc` is the whole edit, small
+counting its saves), `created_at`, `created_by`, `updated_at`, `updated_by`, `folder_id` (the folder of the
+project's reviews it is kept in, or none). The `doc` is the whole edit, small
 enough to be read and written whole:
 
 ```js
@@ -96,6 +97,10 @@ ever moves because a version changed**, and nothing is ever pushed along by anyt
   an outline saying how many frames short it came up.
 - **A looping clip** fills its length whatever its version's length.
 - **A clip dropped in** is as long as its version is then (a still, or a shot with nothing filed, three seconds).
+- **Whole frames.** A version's length in the edit's frames is its length in seconds times the edit's rate,
+  rounded (`cut.whole`), as a clip dropped in is cut to it. At 23.976 or 29.97 a version of exactly 100 frames
+  comes to 99.99997 of them; counted down, every such clip ended a frame early and a frame of black showed at
+  each cut.
 
 ## The player
 
@@ -107,8 +112,13 @@ ever moves because a version changed**, and nothing is ever pushed along by anyt
   elements is shared out among the clips showing, those about to be uncovered, and those about to start, each
   loaded and waiting on its first frame a second and a half ahead (`cut.coming`), so the cut to it is clean.
 - **One clock.** Playing, time is the sound's clock (`AudioContext.currentTime`), which the sound files are
-  scheduled on to the sample. Each video is kept to it: a little off and it plays up to a tenth quicker or
-  slower, more than three tenths of a second off and it jumps. A looping clip's video loops by itself, so going
+  scheduled on to the sample. Before it starts, play waits (a second at most) for that clock to be running, as
+  a browser can take a moment to start its sound, and for every video at the playhead to be on its frame with
+  enough to play on from; started sooner, the pictures and the clock disagreed for the first second and were
+  put right with a jump. A sound clock that never runs leaves the page's own to keep time, without the sound
+  files. Each video is kept to the clock: more than a frame off, it plays a twentieth quicker or slower until it
+  has caught up, and then at its own rate again (its rate is changed only then, as Firefox above all can
+  stumble each time it is changed); more than three tenths of a second off, it jumps. A looping clip's video loops by itself, so going
   round is no jump. Stopped, every layer is put on its exact frame.
 - **Sound.** A sound file is fetched whole and decoded into Web Audio: it starts on the exact sample, its fades
   are ramps on a gain, and its waveform is drawn from it (scaled to its loudest moment). A shot's own sound
@@ -127,7 +137,10 @@ the edit on it:
   and the 3D view takes the canvas as its picture (`setSource` takes a `<canvas>`, and takes it again whenever
   its `fresh` is set). It is laid again only when a layer's frame or opacity changes, so at the shots' rate and
   not the screen's; and while a video is still on its way to its frame, the last picture stays up rather than
-  blinking. The `<video>` layers play on unseen under the venue, kept to the clock as in 2D.
+  blinking. The `<video>` layers play on unseen under the venue, kept to the clock as in 2D. The canvas is put at
+  the edit's shape before the 3D view is given it, and given again whenever that shape changes it: three.js
+  keeps a texture at the size it first saw, and a canvas given at a browser's own 300 by 150 left the screens
+  black until 3D was turned off and on again.
 - **Which view of each shot.** On the venue, each clip shows the view the project puts on its model (its main
   one unless it says), as the Timeline does; the settings button offers no view there.
 - **Its shape.** A new animatic starts at the shape most of the project's shots are (usualShape in server.js),
@@ -162,11 +175,12 @@ the tracks drawn on one canvas on the dark bed the Timeline's close-up has, in b
 - **Room.** On an animatic's page the app's sidebar is a drawer (opened from the bar), the library and the
   comments are dragged wider or narrower at their inner edges and hidden from the bar (Shift+L, Shift+C), and
   the line above the timeline drags; all of it kept by the browser. The middle button, held, pans the timeline.
-- **A strip, to watch.** The strip button (or T) folds the timeline into a strip 44 px high of the whole edit
-  fitted to the width, drawn on its own canvas: the video tracks' clips as they are seen, the higher over the
-  lower, each with a frame of its own from its middle (taken as the timeline takes them, else its still or its
-  colour), named where there is room; a line where there is sound; the playhead. A click or a drag on it moves
-  the playhead, and playing goes on from there once it is let go. The picture takes the room.
+- **A strip, to watch.** The strip button (or T) folds the timeline into a strip of the whole edit fitted to the
+  width, drawn on its own canvas, an overview of the cut: every track a thin line in the timeline's order (the
+  video tracks, the highest first, then the sound tracks), each clip a stretch of it with a hair between it and
+  the next (a short version's lost part fainter, a hidden or muted track fainter still), and the playhead. It is
+  as tall as its tracks need. A click or a drag on it moves the playhead, and playing goes on from there once it
+  is let go. The picture takes the room.
 - **Clips.** Each shows its shot's name and version in a band along its top and its frames under it (its colour
   strip until they come), a slate's stripes, or a sound's waveform. Loops are marked where they start over, a
   short clip's lost part is an outline, fades are slopes, dissolves a cross over the cut. Only what is picked
@@ -176,8 +190,13 @@ the tracks drawn on one canvas on the dark bed the Timeline's close-up has, in b
   trims line up with cuts, the playhead and the edges of clips on other tracks, with a guide line (Ctrl skips
   it). What lands on other clips writes over them (`cut.place`): one wholly under goes, one across an edge is
   trimmed, one across both is cut in two. The handles under a picked clip's band draw out its fades, or at a
-  cut its dissolve. Ctrl+B cuts in two at the playhead; Delete leaves a gap. A clip's menu (right-click) has
-  Loop, a second's fades, No fades, cutting at the playhead, Open the shot and Delete.
+  cut its dissolve. Ctrl+B cuts in two at the playhead; Delete leaves a gap. A click on a gap between clips picks
+  it (`cut.gapAt`), drawn in the accent, and Delete (or Close the gap, its right-click menu) closes it: what comes
+  after it on its track moves back by its length (`cut.closeGap`), as an editor's ripple delete does, and the
+  other tracks stay as they are. A clip's menu (right-click) has Loop, a second's fades, No fades, cutting at the
+  playhead, Open the shot and Delete.
+- **Tracks** are added with the + in the corner above the heads (where the timeline is drawn in and out), or from
+  a track's menu, so the heads take no more room than the tracks.
 - **Undo** is each person's own, kept as the `doc` before each change.
 - **Narrow windows.** Under 900 the list of shots is left out, under 700 the comments and the editing buttons
   too: the picture, its bar and the timeline are what there is room for.

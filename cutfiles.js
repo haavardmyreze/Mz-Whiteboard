@@ -63,7 +63,7 @@ function otio(doc, title, info) {
           OTIO_SCHEMA: 'ExternalReference.1',
           name: file,
           target_url: file,
-          available_range: range(0, Number.isFinite(length) ? Math.floor(length) : e.from + e.len),
+          available_range: range(0, Number.isFinite(length) ? C.whole(length) : e.from + e.len),
           metadata: {},
         },
         effects: [],

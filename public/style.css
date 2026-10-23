@@ -3166,8 +3166,10 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 .an-tl { flex: none; display: flex; height: 260px; min-height: 120px; border-top: 1px solid var(--line); }
 .an-heads { position: relative; flex: none; width: 152px; overflow: hidden; border-right: 1px solid var(--line); }
 .an-heads-in { will-change: transform; }
-.an-head-ruler { display: flex; align-items: center; justify-content: flex-end; gap: 2px; height: 24px; padding: 0 4px; border-bottom: 1px solid var(--line); }
+.an-head-ruler { position: relative; z-index: 1; display: flex; align-items: center; justify-content: flex-end; gap: 2px; height: 24px; padding: 0 4px; border-bottom: 1px solid var(--line); background: var(--bg); }
 .an-zoom { width: 20px; height: 20px; font-size: var(--fs-ui); font-weight: 600; }
+.an-head-ruler .an-add { width: 20px; height: 20px; margin-right: auto; }
+.an-head-ruler .an-add svg { width: 14px; height: 14px; }
 .an-head { display: flex; align-items: center; gap: 0; padding: 0 2px 0 10px; border-bottom: 1px solid var(--line); }
 .an-head-name { flex: 1; min-width: 0; overflow: hidden; color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .an-head .iconbtn { flex: none; width: 26px; height: 26px; }
@@ -3175,9 +3177,8 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 .an-head .iconbtn.off { color: var(--muted); }
 .an-head.muted.audio .an-head-name, .an-head.hidden-track .an-head-name { color: var(--muted); }
 .an-head-gap { border-bottom: 1px solid var(--line-strong); }
-.an-head-add { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 6px 4px 12px; }
 .an-strip { display: none; flex: 1; min-width: 0; height: 100%; cursor: pointer; touch-action: none; }
-.an-tl.mini { height: 44px !important; min-height: 0; }
+.an-tl.mini { height: var(--strip-h, 44px) !important; min-height: 0; }
 .an-tl.mini .an-heads, .an-tl.mini .an-scroll { display: none; }
 .an-tl.mini .an-strip { display: block; }
 .an-scroll { position: relative; flex: 1; min-width: 0; overflow: auto; outline: none; overscroll-behavior: contain; }

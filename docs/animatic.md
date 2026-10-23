@@ -27,13 +27,14 @@ It needs, to begin with:
   lines under it (a board's are a grid, a playlist's a strip), and its line says Animatic where other kinds
   are listed beside it. It can be renamed, pinned, duplicated ("Try another cut" is the common case: two
   orders of the same shots) and deleted from the menu beside its title.
-- **Only in a project.** An animatic's clips are the project's assets, sets and shots, so it needs a
-  catalogue to take them from. A playlist outside a project has no such thing; an animatic there is left out.
-- **What it is made from.** A clip names an entity of the project (a shot, usually; an asset or set works the
-  same) and which of its versions to play: the newest of a task, or the newest of any task. The animatic has a
-  task chosen in its bar, as the Timeline has ("Any task", "anim", "comp"), and a clip follows it unless it
-  is told a task of its own. A clip also shows a view (`cmp`, `bty`) where the project has them, the same way.
-  A shot with nothing filed of that task plays as the Timeline's slate does.
+- **Only in a project.** An animatic's clips are the project's shots, so it needs a catalogue to take them
+  from. A playlist outside a project has no such thing; an animatic there is left out.
+- **What it is made from.** A clip names a shot of the project, and plays its newest version. Assets and sets
+  are not put on an animatic. By default that is the newest of any task, and nobody has to choose anything.
+  Where it matters, the animatic's bar has a task to pick, as the Timeline has ("Any task", "anim", "comp"),
+  and then every clip plays the newest of that task. It is one choice for the whole animatic, never one per
+  clip. A clip shows a view (`cmp`, `bty`) where the project has them, the same way. A shot with nothing filed
+  of that task plays as the Timeline's slate does.
 - **Uses what the Timeline built.** The Timeline already plays the newest version of each shot one into the
   next (`viewer.js`, run mode), keeps the coming shots on this computer (`media.js`), and draws a close-up
   strip of their frames (`cuttrack.js`). The animatic reuses the cache, the frame grabbing and the time
@@ -62,8 +63,8 @@ The `doc` is the whole edit, small enough (a few KB for a long cut) to be read a
     { id: 'a1', kind: 'audio', name: 'A1', mute: false, gain: 1 },
   ],
   clips: [
-    // A shot: the newest version of it (of the edit's task, or its own), from `in` frames into it, for `len` frames.
-    { id, track: 'v1', start: 0, len: 96, in: 0, entity: '<entity id>', task: null, loop: false, fadeIn: 0, fadeOut: 12, gain: 1 },
+    // A shot: the newest version of it (of the edit's task), from `in` frames into it, for at most `len` frames.
+    { id, track: 'v1', start: 0, len: 96, in: 0, shot: '<entity id>', loop: false, fadeIn: 0, fadeOut: 12, gain: 1 },
     // A sound file brought in: an upload of its own, not a version.
     { id, track: 'a1', start: 0, len: 2400, in: 0, media: '/uploads/abc.wav', name: 'temp music.wav', fadeIn: 0, fadeOut: 50, gain: 0.8 },
   ],
@@ -78,9 +79,9 @@ The `doc` is the whole edit, small enough (a few KB for a long cut) to be read a
 - **A fade shows what is under the clip.** A clip's `fadeIn` and `fadeOut` (frames) fade it from and to
   whatever is beneath it. On V1 that is black: a fade to black. On V2 over a clip on V1 it is a dissolve
   between them. A dissolve between two clips side by side on one track is the cut's own: the clip after the
-  cut starts half the dissolve early, over the one before, which plays half of it on past the cut (into
-  frames past its out point if its version has them, otherwise held on its last frame). It is kept as the
-  later clip's `dissolve` (frames). Audio clips fade their sound the same way.
+  cut starts half the dissolve early, over the one before, which plays half of it on past the cut, into
+  frames past its out point. Where its version has no frames there, the dissolve is shorter on that side. It
+  is kept as the later clip's `dissolve` (frames). Audio clips fade their sound the same way.
 - **Loops.** A clip with `loop` set and a `len` longer than its version plays it round again, as many times
   as it fits, which the timeline shows as marks where it starts over.
 - **Saving.** Every edit is saved as it is made (a moment after the last change), with the `rev` it was made
@@ -92,26 +93,21 @@ The `doc` is the whole edit, small enough (a few KB for a long cut) to be read a
 ## The newest version, and what happens when it changes
 
 The server resolves each clip when the animatic is asked for: `GET /api/animatics/<id>` gives the `doc` and,
-for each entity and task it uses, the newest version as the Timeline has it (its look: file, phone copy,
-still, length, rate, colour strip; its label, `kilo-0010 anim v12`). Nothing is copied into the `doc`, so
-there is nothing to keep up to date: filing a version is all it takes.
+for each shot it uses, the newest version as the Timeline has it (its look: file, phone copy, still, length,
+rate, colour strip; its label, `kilo-0010 anim v12`). Nothing is copied into the `doc`, so there is nothing to
+keep up to date: filing a version is all it takes.
 
-A new version is often a different length. The edit must not move when that happens, above all when it is cut
-to music, so **a clip's length is its own and stays as it was cut**:
+A new version is often a different length. An edit can be intricate, cut to music, with tracks lined up
+against each other, so **nothing on the timeline ever moves because a version changed**. Nothing is pushed
+along, ever, by anything but a person moving it.
 
-- **The version is shorter than the clip.** What is left holds the version's last frame (or loops, if the
-  clip loops). The timeline marks the held part with hatching and the clip says how much it is short ("8
-  frames short").
-- **The version is longer.** The clip plays as much of it as it is long, and says how much more there is
-  ("+12 frames"). "Fit to version" in its menu makes it as long as the version, moving the clips after it on
-  the same track along by as much; "Fit every changed clip" in the bar does it for all of them at once.
+- **The version is longer than the clip.** The clip stays as long as it was cut and plays that much of it.
+- **The version is shorter than the clip.** The clip is shorter: it ends where the version ends, and what was
+  after it shows what is under it (a lower track, or black). Its last frame is not held. The length it was cut
+  to is kept in the `doc` all the same (`len` is "at most"), so a later version that is long enough fills it
+  again, and the timeline draws the part it has lost as an empty outline, so it is plain the shot came up short.
+- **A looping clip** fills its length whatever its version's length, going round as often as it needs to.
 - **A clip dropped in** is as long as its version is then.
-
-**What is new since you last looked.** The page remembers, for each person, which version each clip played
-when they last had the animatic open (`user_state`, which already keeps what notifications were read). A clip
-whose version has changed since has a blue mark (blue is "what is new"), and the bar says "3 shots are newer
-since you last looked", with the way to step from one to the next. The Reviews card says the same in its
-line. This is the point of the whole thing: open the edit, see at once what changed, play it.
 
 ## The player
 
@@ -145,10 +141,9 @@ A player of its own, `public/animatic.js`, drawing the edit on the page as it pl
 The page is the player above and the timeline below, beside the sidebar and under the page's bar, as the
 Timeline is docked. A panel on the left lists what can go on it.
 
-- **What can go on it.** The project's shots by sequence, then its assets and sets, each with its newest
-  still (which scrubs under the pointer, as cards do) and a search box. Drag one onto a track, or several at
+- **What can go on it.** The project's shots by sequence, each with its newest still (which scrubs under the pointer, as cards do) and a search box. Drag one onto a track, or several at
   once, which go one after another. Double-click puts one at the playhead on the track in use. Elsewhere,
-  "Add to animatic…" in an entity's or version's menu, and beside "Add to playlist" where versions are picked,
+  "Add to animatic…" in a shot's or version's menu, and beside "Add to playlist" where versions are picked,
   puts them at the end of an animatic's V1 (or makes a new one with them). "Add file…" at the panel's foot, or
   a sound file dropped on the timeline, brings in audio.
 - **A start.** A new animatic can start empty or "from the Timeline": every shot of a sequence (or of all) in
@@ -158,17 +153,16 @@ Timeline is docked. A panel on the left lists what can go on it.
   its sound button and (video) its eye; "Add track" at the foot of each half, and a track's menu takes it away.
 - **Clips.** Each shows its shot's name and the rest of its version's label in a plain band along its top, and
   its frames under it (taken as `cuttrack.js` takes them, from the copy kept on this computer); a sound clip
-  shows its waveform. Loops show where they start over, held frames show hatched, and a fade is a slope drawn
-  in its top corner. Nothing on a clip is coloured but what is selected (blue edge) and what is new (blue
-  mark).
+  shows its waveform. Loops show where they start over, the part a short version leaves empty shows as an outline, and a fade is a slope drawn
+  in its top corner. Nothing on a clip is coloured but what is selected (blue edge).
 - **Working on clips.** Click picks (Shift adds, a box over empty track picks many), drag moves (to another
   track too), Alt and a drag copies, and an edge drags to trim: the left edge moves the in point, the right
-  the length, and past the end of a looping clip it goes on looping. Moves and trims snap to cuts, to the
+  the length (never past the end of its version, unless it loops). Moves and trims snap to cuts, to the
   playhead and to the edges of clips on other tracks, with a guide line (Ctrl held stops it, as on a board).
-  Ctrl+B cuts the clip under the playhead in two. Delete leaves a gap; Shift+Delete closes it up. The small
+  Ctrl+B cuts the clip under the playhead in two. Delete leaves a gap. Nothing closes gaps or pushes clips
+  along on its own; a move only ever moves what is picked. The small
   handle at a clip's top corner drags out its fade; dragged across a cut it makes a dissolve. A clip's menu
-  has Loop, Fade in and out by a second, the task it follows, Fit to version, Open the shot (its page in the
-  catalogue) and Delete.
+  has Loop, Fade in and out by a second, Open the shot (its page in the catalogue) and Delete.
 - **Undo.** Ctrl+Z and Ctrl+Shift+Z, each person their own, kept as the `doc` before each change (it is
   small, so this is simple and exact).
 - **Zoom and scroll.** The wheel scrolls, with Ctrl or Cmd it zooms about the pointer, and the playhead is
@@ -196,17 +190,15 @@ comes on screen. A comment on a slate, or on a sound clip, is not possible, as n
 - `server.js`:
   - `GET /api/projects/<id>/animatics`, and `POST` with `{ name, doc }` or `{ name, from: 'timeline', seq }`;
     the project's catalogue (`GET /api/projects/<id>`) lists them beside its playlists for the Reviews page.
-  - `GET /api/animatics/<id>`: the `doc`, its `rev`, the newest versions it plays, and what this person saw
-    last. `PATCH { name }`, `PATCH { doc, rev }` (409 with the newer one when `rev` is old), `DELETE`.
-    `POST /api/animatics/<id>/seen` records what was seen.
-  - `cleanAnimatic(doc)`, as `cleanLook` and `cleanComment` are: known fields only, whole numbers in range,
-    at most 16 tracks and 2,000 clips, each clip's entity one of the project's, each sound file one on this
-    server.
+  - `GET /api/animatics/<id>`: the `doc`, its `rev`, and the newest versions it plays. `PATCH { name }`, `PATCH { doc, rev }` (409 with the newer one when `rev` is old), `DELETE`.
+    - `cleanAnimatic(doc)`, as `cleanLook` and `cleanComment` are: known fields only, whole numbers in range,
+    at most 16 tracks and 2,000 clips, each clip's shot one of the project's shots, each sound file one on
+    this server.
   - Sound uploads: `.wav`, `.mp3`, `.m4a`, `.aac`, `.ogg`, `.flac` added to `UPLOAD_EXTS` and `MIME`, kept in
     `media` as kind `audio` with their length.
-- `public/edl.js` (new, plain functions with no page, so it is tested on its own as `snap.js` is): what shows
-  at a moment and at what opacity, which frame of its version a clip shows then (loops and held frames
-  included), the clips to load ahead, snapping, moving, trimming, cutting, closing gaps, fitting to a version.
+- `public/cut.js` (new, plain functions with no page, so it is tested on its own as `snap.js` is): what shows
+  at a moment and at what opacity, which frame of its version a clip shows then (loops included), how much
+  of a clip its version fills, the clips to load ahead, snapping, moving, trimming, cutting.
 - `public/animatic.js` (new): the page, the player and the editor.
 - `public/ingest.js`: bringing a sound file in (no review copy: its length and a waveform are read in the
   browser, and the file goes up as it is).
@@ -214,7 +206,7 @@ comes on screen. A comment on a slate, or on a sound clip, is not possible, as n
   "Add to animatic…".
 - `public/icons.js`, `public/style.css`, `public/index.html` (the new scripts), README.md.
 - `test/server.test.js`: making, reading, saving, the `rev` refusal, a clip following a new version, what is
-  refused by `cleanAnimatic`, sound uploads. `test/edl.test.js`: the timeline's arithmetic.
+  refused by `cleanAnimatic`, sound uploads. `test/cut.test.js`: the timeline's arithmetic.
 
 ## In what order
 
@@ -222,39 +214,54 @@ Each step is something that can be tried in the browser.
 
 1. **The record and the server.** The table, the endpoints, `cleanAnimatic`, resolving the newest versions,
    sound uploads, with their tests. An animatic can be made "from the Timeline" and read back.
-2. **The timeline's arithmetic** (`edl.js`) with its tests: what shows when, fades, dissolves, loops, held
-   frames.
+2. **The timeline's arithmetic** (`cut.js`) with its tests: what shows when, fades, dissolves, loops,
+   clips cut short by their versions.
 3. **Playing it.** The page, listed in Reviews and the sidebar, with the player: layers, the one clock, sound,
    the cache, the keys, and the timeline drawn but not yet editable. A cut made from the Timeline plays, with
    a sound file under it.
 4. **Editing it.** The panel of shots, drag on, move, trim, cut, delete, tracks, snapping, undo, saving with
    `rev`.
 5. **Fades and dissolves**, drawn and dragged on the clips.
-6. **Following the newest.** Short and long marks, Fit to version, what is new since you last looked, on the
-   page and on the card.
-7. **Comments** on the clip under the playhead.
+6. **Comments** on the clip under the playhead.
 
 ## Later
 
+- **Downloading the edit for a playback system**, such as disguise: a file describing the cut, and the files
+  it plays (see below).
 - **Presenting it**, as the Timeline is presented: those watching follow the edit, its playhead and its
   sound. The link's files are the edit's.
-- **Downloading the edit as one video**, made in the browser: each frame drawn from the versions, the sound
-  mixed, encoded to MP4 (the same encoding `ingest.js` already does for review copies), for sending to
-  someone outside the app.
 - **Holding a clip to a version**, for comparing the edit as it was with as it is.
 - **A black or a title card** to put on any track: a dip to black over a stack of tracks, a slate between
   scenes.
 - **Editing together, live**, if two people working on one edit at once becomes common.
 
-## To settle before building
+Not planned: following the length of a version by pushing clips along, holding a version's last frame, a
+mark for what is new since somebody last looked, a task per clip, assets and sets on the timeline, and
+downloading the edit as one video.
 
-1. **When a version changes length**, the plan keeps each clip as long as it was cut and marks the
-   difference. The other way is to let clips follow their version's length and push the rest of the track
-   along, which keeps every shot whole but moves the edit against its sound. Keeping the cut is the plan's
-   choice, as animatics are so often cut to music.
-2. **Shots only, or assets and sets too.** The plan takes any entity, as the work to show is not always a
-   shot.
-3. **One task for the whole edit, with a clip able to follow its own**, as planned, or a task per clip
-   always.
-4. **Downloading the edit as a video** is under Later; if it is what is wanted first instead of opening
-   the animatic in the app, it moves up after step 3.
+## Downloading the edit as a file
+
+The aim is that a cut made here goes straight into a playback system, such as disguise, rather than being
+rebuilt there. Which format depends on what the system takes in, which has to be found out first: no
+documentation was found saying disguise imports an EDL, so it is worth asking them what it does take in, and
+whether its API could be used to build its timeline instead. The likely formats, and what each can carry:
+
+- **CMX 3600 EDL**, the old plain-text one: one video track per file (so one file for each track), cuts,
+  dissolves and fades to and from black, sources named by reel and timecode. A dissolve on a higher track over
+  a lower one cannot be said in it, and neither can a loop (it would be written out as the shot again, as
+  many times as it plays).
+- **OpenTimelineIO** (`.otio`, JSON) or **Final Cut Pro XML**: every track, every transition, the sound, in one
+  file. Most editors and conform tools read one of them, and OpenTimelineIO converts to the others.
+
+What it means for the plan now, so that writing any of them out later is simple:
+
+- **Positions are whole frames at the edit's own rate**, as planned. The edit's rate should be the playback
+  system's (25, 50, 60), chosen when the animatic is made.
+- **The `doc` already has the shape all of them share**: tracks, clips with where they sit and which part of
+  their source they use, and fades. Nothing needs to change in it.
+- **The files go with it, named by shot, not by version.** The download would be the cut and the newest
+  version of every shot it plays, each named for its shot (`kilo-0010.mp4`), as the zip of a board already is.
+  The cut then never needs to change when a shot is updated: the new file is put over the old one in the
+  playback system, which is this app's own idea of "always the newest", carried over. Exactly which version
+  each file is goes in a comment in the cut and in a list beside it.
+- **Source timecode** is counted from zero at the start of each file, as versions carry none of their own.

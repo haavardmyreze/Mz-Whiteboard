@@ -286,10 +286,30 @@ const WBFiling = (() => {
     const taskIn = el('input', { type: 'text', value: task, placeholder: 'task', spellcheck: 'false', 'aria-label': 'Task', hidden: !useTasks });
     // What it is, as an icon: the project's when it has it; for a new one, what it is said to be (`tier`),
     // else a shot by its shape, else what the project's names starting the same way are, else a question.
-    // A new one's icon has the choice laid over it, to say otherwise.
+    // A new one's icon is a button, to say otherwise: it opens a menu of what it can be, with a tick on what
+    // it is taken to be now. What is said is its `value` ('' while nothing is).
     const kind = el('span', { class: 'file-kind' });
-    const tier = el('select', { class: 'file-ask', 'aria-label': 'What it is', title: 'What is it?' },
-      el('option', { value: '', text: '?' }), N.TIER_LIST.map((t) => el('option', { value: t.id, text: t.one })));
+    const tier = el('button', { type: 'button', class: 'file-ask', value: '', 'aria-label': 'What it is', 'aria-haspopup': 'menu', title: 'What is it?' });
+    const sayTier = (id) => {
+      tier.value = id;
+      sync();
+      onChange();
+    };
+    tier.addEventListener('click', () => {
+      if (document.querySelector('.tier-menu')) return WB.closeMenus();
+      const n = name();
+      const now = tier.value || (n && N.kindOf(n, entities())) || '';
+      WB.menu(tier, N.TIER_LIST.map((t) => el('button', {
+        type: 'button', class: `menu-item menu-check${t.id === now ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(t.id === now),
+        onclick: (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          WB.closeMenus();
+          tier.focus();
+          sayTier(t.id);
+        },
+      }, el('span', { class: 'menu-tick', html: t.id === now ? WB.icon('check', 14) : '' }), el('span', { class: 'menu-icon', html: WB.icon(TIER_ICON[t.id], 15) }), el('span', { text: t.one[0].toUpperCase() + t.one.slice(1) }))), { align: 'left', cls: 'tier-menu' });
+    });
     // The version it follows, and the one it is to be: typed, or the next (faint).
     const prevSlot = el('span', { class: 'file-follows' });
     const verIn = numInput || el('input', { type: 'text', inputmode: 'numeric', value: typedNumber ? String(typedNumber) : '', spellcheck: 'false', 'aria-label': 'Version', title: 'Version: the next one, unless you say another' });
@@ -813,7 +833,6 @@ const WBFiling = (() => {
       });
     }
 
-    tier.addEventListener('change', () => { sync(); onChange(); });
     if (viewSel) viewSel.addEventListener('change', () => { changed(); viewProblem = null; sync(); onChange(); });
     sync();
     return Object.assign(self, {

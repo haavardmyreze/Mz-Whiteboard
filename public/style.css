@@ -1376,11 +1376,15 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
 .file-kind { position: relative; display: grid; place-items: center; width: 100%; height: 100%; color: var(--text-2); }
 .file-kind.new::after { content: ''; position: absolute; top: 7px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .file-kind.new-seq::after { background: var(--warn-fg); }
-/* A new one's kind can be said otherwise: the choice lies over its icon, unseen, and opens from it. */
+/* A new one's kind can be said otherwise: a button lies over its icon, unseen, and opens a menu from it. */
 .file-is { position: relative; }
-.file-line select.file-ask { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; padding: 0; opacity: 0; cursor: pointer; }
-.file-line select.file-ask[hidden] { display: none; }
-.file-is:has(select.file-ask:not([hidden]):hover) .file-kind, .file-is:has(select.file-ask:focus-visible) .file-kind { background: var(--hover); color: var(--text); }
+.file-ask { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.file-ask[hidden] { display: none; }
+.file-ask:focus-visible { outline: none; }
+.file-is:has(.file-ask:not([hidden]):hover) .file-kind, .file-is:has(.file-ask:focus-visible) .file-kind { background: var(--hover); color: var(--text); }
+.tier-menu { min-width: 140px; }
+.tier-menu .menu-item { display: flex; align-items: center; gap: 8px; }
+.menu-icon { display: inline-grid; flex: none; color: var(--text-2); }
 .file-kind.ask { background: var(--warn-bg); color: var(--warn-fg); font-size: var(--fs-ui); font-weight: 600; }
 .file-kind.ask::after { display: none; }
 /* What there is to say about the row, behind a mark at the end of its line. */
@@ -2305,18 +2309,6 @@ button.imp-row:hover { background: var(--hover); }
 .avatar.xs { flex: none; display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: var(--surface-3); color: var(--text-2); font-size: 7.5px; font-weight: 700; }
 
 /* A project's activity: what happened in it lately. */
-.feed { display: flex; flex-direction: column; max-width: 860px; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); overflow: hidden; }
-.feed-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 14px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
-.feed-row:last-child { border-bottom: 0; }
-.feed-row:hover { background: var(--hover); }
-.feed-row .avatar.sm { flex: none; width: 24px; height: 24px; margin: 1px 0; font-size: 10px; }
-.feed-thumb { flex: none; display: block; width: 44px; height: 28px; overflow: hidden; border-radius: var(--r-1); background: var(--thumb-bg); }
-.feed-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.feed-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.feed-what { font-size: var(--fs-ui); }
-.feed-what strong { font-weight: 600; }
-.feed-text { overflow: hidden; color: var(--text-2); font-size: var(--fs-ui); text-overflow: ellipsis; white-space: nowrap; }
-.feed-where { color: var(--muted); font-size: var(--fs-cap); }
 
 /* Scrubbing a video under the pointer, and playing an asset, set or shot's latest from its card. */
 .card-thumbs.scrubs { position: relative; }
@@ -2426,57 +2418,46 @@ body.picking main { padding-bottom: 120px; }
 .section-label:has(.label-gap)::after { display: none; }
 .home-quiet { margin: 0; padding: 20px 0; color: var(--muted); font-size: var(--fs-ui); line-height: 1.5; }
 
-/* A project's home: this week at a glance, what happened grouped, its sequences, what is waiting. */
-/* A project's week as a line of figures under its title, set on one baseline: the number large, what it
-   counts beside it, the week before quieter still. Then what the project holds, each a way to it. */
-.ph-pulse { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
-.ph-figs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 32px; }
+/* A project's home: this week at a glance, how far along each part is, who is on it, what is waiting. */
+/* The week as a line of figures under the title, set on one baseline: the number large, what it counts
+   beside it, the week before quieter still. */
+.ph-figs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 32px; margin-top: 8px; }
 .ph-fig { display: inline-flex; align-items: baseline; gap: 6px; }
 .ph-fig b { font-size: var(--fs-xl); font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; line-height: 1.2; }
 .ph-fig span { color: var(--text-2); }
 .ph-fig small { color: var(--muted); font-size: var(--fs-sm); }
-.ph-who { align-self: center; align-items: center; }
-.ph-faces { display: inline-flex; }
-.ph-face .avatar.sm { width: 22px; height: 22px; margin-left: -4px; border: 2px solid var(--bg); font-size: 10px; }
-.ph-face:first-child .avatar.sm { margin-left: 0; }
-.ph-holds { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: var(--fs-sm); }
-.ph-holds a { color: var(--muted); text-decoration: none; }
-.ph-holds a:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
-.ph-latest { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
-.ph-day { margin: 18px 0 6px; color: var(--muted); font-size: var(--fs-sm); font-weight: 600; }
-.ph-activity .ph-day:first-child { margin-top: 0; }
-.ph-activity .feed + .ph-day { margin-top: 18px; }
-.ph-group { align-items: center; }
-.ph-stills { display: flex; flex: none; }
-.ph-stills .feed-thumb { width: 36px; height: 24px; margin-right: -14px; border: 2px solid var(--surface-1); }
-.ph-stills .feed-thumb:last-child { margin-right: 0; }
-.ph-group .feed-body { flex: 1; }
-.ph-chev { flex: none; align-self: center; color: var(--muted); transition: transform 0.15s; }
-.ph-group.open .ph-chev { transform: rotate(90deg); }
-.ph-more { border-bottom: 1px solid var(--line); background: var(--surface-2); }
-.ph-more .feed-row { padding-left: 28px; }
-.ph-seqs { display: flex; flex-direction: column; gap: 12px; }
-.ph-seq-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 5px; font-size: var(--fs-sm); }
-.ph-seq-head a { color: var(--text); font-weight: 600; text-decoration: none; }
-.ph-seq-head a:hover { text-decoration: underline; }
-.ph-seq-head span { color: var(--muted); font-size: var(--fs-cap); font-variant-numeric: tabular-nums; }
-.ph-strip { display: flex; gap: 2px; height: 6px; }
-.ph-shot { flex: 1 1 0; min-width: 3px; border-radius: var(--r-pill); background: var(--surface-3); }
-.ph-shot.filed { background: var(--muted); opacity: 0.6; }
-.ph-shot.fresh { background: var(--text-2); }
-a.ph-shot:hover { outline: 2px solid var(--text); outline-offset: 1px; }
-.ph-key { display: flex; align-items: center; gap: 6px; margin-top: 10px; color: var(--muted); font-size: var(--fs-cap); }
-.ph-key .ph-shot { flex: none; width: 10px; height: 10px; margin-left: 6px; }
-.ph-key .ph-shot:first-child { margin-left: 0; }
-.ph-wait { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; font-size: var(--fs-sm); }
+/* A part (assets, sets, shots): a row of marks to each sequence, then its tasks as bars, both on one
+   grid: the name, the marks or the bar, how many. */
+.ph-rows, .ph-tasks { display: grid; grid-template-columns: minmax(64px, max-content) minmax(0, 1fr) 64px; align-items: center; gap: 8px 16px; }
+.ph-row, .ph-task { display: contents; }
+.ph-row > .ph-strip:only-child { grid-column: 1 / -1; }
+.ph-tasks { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.ph-name { overflow: hidden; color: var(--text); font-size: var(--fs-sm); font-weight: 500; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+a.ph-name:hover { text-decoration: underline; text-underline-offset: 3px; }
+.ph-tasks .ph-name { color: var(--text-2); font-weight: 400; }
+.ph-count { color: var(--muted); font-size: var(--fs-cap); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.ph-strip { display: flex; gap: 2px; height: 12px; }
+.ph-mark { flex: 1 1 0; min-width: 3px; max-width: 24px; border-radius: var(--r-1); background: var(--line-strong); }
+.ph-mark.filed { background: var(--muted); opacity: 0.6; }
+.ph-mark.fresh { background: var(--text-2); }
+a.ph-mark:hover, a.ph-mark:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+.ph-bar { position: relative; height: 4px; overflow: hidden; border-radius: var(--r-pill); background: var(--line-strong); }
+.ph-bar span { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--text-2); }
+.ph-key { display: flex; align-items: center; gap: 6px; margin-top: 32px; color: var(--muted); font-size: var(--fs-cap); }
+.ph-key .ph-mark { flex: none; width: 10px; height: 10px; margin-left: 10px; }
+.ph-key .ph-mark:first-child { margin-left: 0; }
+/* Who is on it, a row each between hairlines. */
+.ph-people { display: flex; flex-direction: column; }
+.ph-person { display: flex; align-items: center; gap: 10px; min-height: 44px; border-bottom: 1px solid var(--line); }
+.ph-who { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.ph-who b { font-size: var(--fs-ui); font-weight: 500; }
+.ph-who span { overflow: hidden; color: var(--muted); font-size: var(--fs-sm); text-overflow: ellipsis; white-space: nowrap; }
+.ph-week { flex: none; color: var(--text-2); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.ph-wait { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; font-size: var(--fs-sm); }
 .ph-wait b { font-weight: 600; }
-.ph-names { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--muted); font-size: var(--fs-sm); }
+.ph-names { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-size: var(--fs-sm); }
 .ph-names a { color: var(--text-2); text-decoration: none; }
 .ph-names a:hover { color: var(--text); text-decoration: underline; }
-@media (prefers-reduced-motion: reduce) { .ph-chev { transition: none; } }
-.home-cols .feed { max-width: none; }
-.feed-row { position: relative; width: 100%; }
-.home-work { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
 @media (max-width: 1100px) {
   .home-cols { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
@@ -2664,8 +2645,6 @@ body:has(.viewer.docked:not([hidden])) .home-bar { z-index: 40; }
 /* The sidebar's Pinned heading is not a place of its own. */
 .side-head.plain:hover { background: none; color: var(--muted); }
 .side-head.plain { margin-top: 12px; }
-/* A project's home: what was filed last and its activity, beside its sequences and boards. */
-.home-side .section-label + .home-quiet + .section-label, .home-side .home-work + .section-label { margin-top: 28px; }
 /* The kinds of thing cached ahead, under the switch for all of it. */
 .acct-row.sub { min-height: 30px; margin-top: 2px; padding-left: 14px; }
 .acct-row.sub.off { opacity: 0.5; cursor: default; }
@@ -2809,18 +2788,29 @@ body.viewonly #hint .hint-guest { display: inline; }
 .v-look input[type="range"]::-moz-range-thumb { width: 11px; height: 11px; border: 0; border-radius: 50%; background: var(--text); box-shadow: var(--shadow-1); }
 .v-look input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-soft); }
 .v-look input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--accent-soft); }
-/* A project's settings. */
-.ps-dlg { width: min(520px, calc(100vw - 32px)); }
-.ps-sec { margin: 18px 0 2px; font-size: var(--fs-ui); font-weight: 600; }
-.ps-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 16px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
-.ps-label { display: flex; flex-direction: column; gap: 2px; }
-.ps-label b { font-size: var(--fs-ui); font-weight: 600; }
-.ps-label span { color: var(--muted); font-size: var(--fs-cap); line-height: 1.4; }
-.ps-row[hidden] { display: none; }
-/* One that belongs to the setting above it: under it, without a line between. */
-.ps-row.sub { padding-top: 0; border-top: 0; }
-.ps-row.sub .ps-label { padding-left: 12px; border-left: 2px solid var(--line-strong); }
-.ps-control { display: flex; justify-content: flex-end; }
+/* A project's settings. Above the title, the project. Settings in groups, each under a small heading,
+   the groups set apart by space rather than rules. A switch or a button sits beside its setting's name; a
+   field or a list goes under it, the width of the dialog. */
+.ps-dlg { width: min(480px, calc(100vw - 32px)); }
+.ps-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
+.ps-where { color: var(--muted); font-size: var(--fs-sm); }
+.ps-dlg .ps-head h2 { margin: 0; }
+.ps-group { display: flex; flex-direction: column; gap: 16px; margin-top: 24px; }
+.ps-sec { margin: 0; color: var(--muted); font-size: var(--fs-sm); font-weight: 500; }
+.ps-group > .ps-sec { margin-bottom: -4px; }
+.ps-row { display: flex; align-items: center; gap: 16px; }
+.ps-row .ps-label { flex: 1; }
+.ps-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ps-label b { font-size: var(--fs-ui); font-weight: 500; }
+.ps-label span { color: var(--muted); font-size: var(--fs-sm); line-height: 1.4; }
+.ps-row[hidden], .ps-field[hidden] { display: none; }
+.ps-control { display: flex; flex: none; }
+.ps-field { display: flex; flex-direction: column; gap: 8px; }
+.ps-field-head { display: flex; align-items: flex-end; gap: 16px; }
+.ps-field-head .ps-label { flex: 1; }
+.ps-field-head .btn { flex: none; }
+.ps-dlg .ps-field > input[type="text"], .ps-field > select { width: 100%; height: var(--h); margin: 0; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; }
+.ps-field > select:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
 /* On or off: a switch. */
 input.switch { position: relative; flex: none; width: 34px; height: 20px; margin: 0; border-radius: var(--r-pill); background: var(--surface-3); cursor: pointer; appearance: none; transition: background 0.15s; }
 input.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--text-2); transition: transform 0.15s, background 0.15s; }
@@ -2828,11 +2818,6 @@ input.switch:checked { background: var(--ink-bg); }
 input.switch:checked::after { background: var(--ink-fg); transform: translateX(14px); }
 input.switch:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
 @media (prefers-reduced-motion: reduce) { input.switch, input.switch::after { transition: none; } }
-/* What it has learned of file names: chips, each forgotten with its ×. */
-.ps-chips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
-/* A setting whose control needs the width: its words above it. */
-.ps-row.stack { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-.ps-row.stack .ps-control { justify-content: stretch; }
 /* What a project has learned of names from elsewhere: a row each, the name learned from (as typed, in mono)
    and what it was filed as, then quieter how every name like it is read. */
 .ps-rules { width: 100%; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
@@ -2842,19 +2827,16 @@ input.switch:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-s
 .ps-rule-arrow { flex: none; display: inline-grid; color: var(--muted); transform: rotate(45deg); }
 .ps-rule-as { flex: none; font-weight: 600; white-space: nowrap; }
 .ps-rule-shape { grid-column: 1; color: var(--muted); font-size: var(--fs-cap); overflow-wrap: anywhere; }
-.ps-rule-shape i { padding: 0 4px; border-radius: var(--r-1); background: var(--surface-3); color: var(--text-2); font-style: normal; font-weight: 500; }
+.ps-rule-shape i { color: var(--text-2); font-style: normal; font-weight: 500; }
 .ps-rule-sep { padding: 0 1px; opacity: 0.6; }
 .ps-rule-x { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
-.ps-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 9px; border-radius: var(--r-pill); background: var(--surface-2); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
-.ps-chip-x { display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
-.ps-chip-x:hover { background: var(--hover); color: var(--text); }
-.ps-control input[type="text"], .ps-control select { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; }
-.ps-control input:disabled, .ps-control select:disabled { opacity: 0.5; }
-.ps-model { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
-.ps-file { flex: 1 1 100%; overflow: hidden; font-size: var(--fs-sm); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+/* Its model, as a line between hairlines like a list of one: what it is, then Replace and Remove. */
+.ps-model { display: flex; align-items: center; gap: 8px; min-height: 44px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.ps-model-icon { display: inline-grid; flex: none; color: var(--muted); }
+.ps-file { flex: 1; min-width: 0; overflow: hidden; font-size: var(--fs-ui); text-overflow: ellipsis; white-space: nowrap; }
 .ps-file.none { color: var(--muted); }
+.ps-model .btn { flex: none; }
 .ps-model .btn[hidden] { display: none; }
-@media (max-width: 560px) { .ps-row { grid-template-columns: minmax(0, 1fr); gap: 8px; } .ps-control, .ps-chips, .ps-model { justify-content: flex-start; } .ps-file { text-align: left; } }
 
 /* ---------------------------------------------------------------- presenting a project, and watching it */
 
@@ -3001,8 +2983,6 @@ body.spectating #topbar .brand { pointer-events: none; }
 .rule-more li.rule-rest { display: block; background: none; }
 
 /* The order of a project's sequences, in its settings: numbered, each with arrows to move it. */
-.ps-row:has(.ps-seq-box) { align-items: start; }
-.ps-seq-box { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; width: 100%; }
 .ps-seqs { width: 100%; max-height: 240px; margin: 0; padding: 0; overflow-y: auto; list-style: none; border-top: 1px solid var(--line); }
 .ps-seq { display: flex; align-items: center; gap: 8px; min-height: 32px; border-bottom: 1px solid var(--line); }
 .ps-seq-n { width: 20px; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; text-align: right; }

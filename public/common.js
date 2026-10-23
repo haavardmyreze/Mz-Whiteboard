@@ -588,7 +588,8 @@ const WB = (() => {
       e.stopPropagation();
     });
     node.addEventListener('click', (e) => e.stopPropagation());
-    document.body.append(node);
+    // Opened from a modal dialog, it goes in the dialog, or the dialog would keep it from being clicked.
+    (anchor.closest('dialog[open]') || document.body).append(node);
     const r = anchor.getBoundingClientRect();
     const left = align === 'left' ? r.left : r.right - node.offsetWidth;
     node.style.left = `${clamp(left, 8, innerWidth - node.offsetWidth - 8)}px`;
@@ -641,7 +642,7 @@ const WB = (() => {
     reviews: (id, playlist) => `#/f/${id}/reviews${playlist ? `/${playlist}` : ''}`,
     catalogue: (id, { tier, seq, entity } = {}) => `#/f/${id}/catalogue${entity ? `/${entity}` : seq ? `/s/${encodeURIComponent(seq)}` : tier ? `/t/${tier}` : ''}`,
     versions: (id) => `#/f/${id}/versions`,
-    timeline: (id) => `#/f/${id}/timeline`,
+    timeline: (id, { seq } = {}) => `#/f/${id}/timeline${seq ? `/s/${encodeURIComponent(seq)}` : ''}`,
     board: (id) => `/b/${id}`,
     abs: (h) => (h.startsWith('#') ? `/${h}` : h),
   };

@@ -451,17 +451,17 @@ filed in it.
 - **Notes.** Comments on a version belong to it (see Comments above). Filing a piece takes the comments
   already made on it along. People holding a link to a board see only the notes made on that board;
   the team sees them all.
-- **A project's home.** Clicking a project opens its home page, not its boards: how it is doing and what
-  needs a look. Under its title, this week as one line of figures: versions filed and comments written
-  (each beside the week before), how many assets, sets and shots moved on, and who filed. Under that,
-  quieter, what it holds (how many shots, boards and playlists, and the timeline), each a way there; its parts are in
-  the sidebar too. Then the work leads: what was filed last, large, and its Activity of the last two
-  weeks, by day: each person's filing that day is one row ("Anna filed 23 versions", with their first
-  stills and names), and what one person said about one version is one row, each opened for every line
-  of it with a click. Beside it, each sequence as a strip of its shots in order, toned by whether each was
-  filed this week, before, or not yet (a shot opens with a click), with how many are filed; what is
-  waiting (set up with nothing filed, or quiet for two weeks or more); and the reviews (boards and
-  playlists) last worked on. Its reviews are at `#/f/<project>/reviews`.
+- **A project's home.** Clicking a project opens its home page, not its boards: the big picture of
+  it, how far along it is and who is on it. Its versions, boards and playlists are not there; each has
+  its own page in the sidebar. Under its title, this week as one line of figures: versions filed and
+  comments written (each beside the week before), and how many assets, sets and shots moved on. Then each
+  part of the project in turn (its assets, its sets, and its shots a row to each sequence, in order),
+  every asset, set or shot a mark toned by whether something was filed of it this week, before, or not
+  yet (each opens with a click), with how many of each are filed, and under them each task the part
+  has, in the order work goes through them, as a bar of how many have reached it. Beside that, its
+  people: everyone who works on any of it, with what they are on and how many versions each filed this
+  week; and what is waiting (set up with nothing filed, or quiet for two weeks or more). Searching from
+  the home looks through the catalogue. Its reviews are at `#/f/<project>/reviews`.
 - **The catalogue page.** A project has its Reviews and its Catalogue, both in the sidebar. The catalogue
   is laid out like the project on disk: assets, sets, and shots by sequence, each with its newest
   still. An asset, set or shot opens on every version of it (where each is on a board, who filed it,
@@ -494,6 +494,11 @@ filed in it.
   it. Nothing goes on a board. Click a filed one to open it in
   the player. What a row is doing (Preparing, Uploading...) is said under its bar, so nothing on the
   row moves while it comes in; a row that did not come in has "Try again".
+- **Project settings.** The settings button beside the star on the project's home, or Project settings
+  in its menu, opens them as one dialog in three groups, each under a small heading: Versions (Count by
+  task, Several views of each version and their names, the file names it has learned), Sequences (their
+  order) and 3D (the venue model and what goes with it). A switch or a button sits beside what it sets;
+  a field or a list goes under its name, the width of the dialog.
 - **3D: the work on the venue.** A project whose settings have a model of its venue (the settings button
   beside the star on the project's home, or Project settings in its menu: a `.glb`, and once there is
   one, the name of the material its screens have and, with views, which goes on them) has a 2D / 3D switch in the
@@ -554,7 +559,8 @@ filed in it.
   place of the side strip, the bar under the picture holds every shot as a clip as long as it lasts,
   with its still and where each sequence begins; dragging along it moves through the whole run, and the
   time is the run's, in seconds, frames or timecode as everywhere else. The player's bar picks all
-  sequences or one, and the task; both are remembered. Under the whole run is a close-up of it, as on
+  sequences or one, and the task; both are remembered. The Timeline above a sequence's page in the
+  catalogue opens on that sequence alone (`#/f/<project>/timeline/s/<sequence>`). Under the whole run is a close-up of it, as on
   an editor's cut page: the playhead stays in the middle and the shots go by under it as a strip of their
   own frames, so a cut is seen coming and a moment found to the frame. Drag it to move through the run (it
   stops while held, and plays on when let go if it was playing), click to go to a moment, or use the
@@ -716,7 +722,7 @@ Every project is made of the same things, written one way, so there is nothing t
   it is chosen when it is made. A new name is guessed to be what the project's names starting with the
   same word are (`char-dog` is an asset where `char-robot` is one); when nothing says, it is asked.
   The icon at the start of a filing row shows what it is, and a new one's icon can be clicked to say
-  otherwise.
+  otherwise: it opens a menu of asset, set and shot, with a tick on what it is taken to be.
 - **Sequences and their shots**: a shot is `<sequence>-<four digits>` (`kilo-0010`, `chap01-0020`), its
   sequence everything before the number. Everything that counts shots goes by this: `20`, `+`, the next
   shot, Shift+Enter, the timeline. Sequences go in the order their names sort (chap2 before chap10), unless

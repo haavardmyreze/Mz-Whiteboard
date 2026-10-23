@@ -227,8 +227,8 @@
       else if (more && longer(t)) {
         out.entity = tokenize(`${out.entity}-${t}`);
         continue;
-      } else if (useTasks && out.task === undefined && whole()) out.task = t;
-      else if (out.number != null && !out.extra) out.extra = t;
+      } else if (out.number != null && !out.extra) out.extra = t;
+      else if (useTasks && out.task === undefined && whole()) out.task = t;
       else out.rest.push(w);
       more = false;
     }

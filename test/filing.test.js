@@ -27,6 +27,8 @@ test('filing: a typed line says the name, and the task, version and view after i
   assert.deepEqual(read('kilo-0010_anim_erik_v012_bty.mov'), { entity: 'kilo-0010', task: 'anim', number: 12, view: 'bty' });
   // A word after the version that is no view is an extra of that version, typed or in a file's name.
   assert.deepEqual(read('kilo-0010 anim v12 light-b'), { entity: 'kilo-0010', task: 'anim', number: 12, view: null, extra: 'light-b' });
+  assert.deepEqual(read('kilo-0010 v12 light-b'), { entity: 'kilo-0010', task: undefined, number: 12, view: null, extra: 'light-b' });
+  assert.deepEqual(read('kilo-0010 v12 anim'), { entity: 'kilo-0010', task: 'anim', number: 12, view: null });
   assert.deepEqual(read('kilo-0010 anim v12 bty', { useViews: false }), { entity: 'kilo-0010', task: 'anim', number: 12, view: null, extra: 'bty' });
   assert.deepEqual(read('kilo-0010_comp_erik_v012_warm.png', { views: ['cmp', 'bty'] }), { entity: 'kilo-0010', task: 'comp', number: 12, view: null, extra: 'warm' });
   // A project that does not count by task never reads one, and says what it did not read.

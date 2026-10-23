@@ -146,7 +146,7 @@ private networks, otherwise only the host machine can connect.
   frame by frame, rows first and then left to right, with loose media taking its place among the
   frames. They never scrub a video and never nudge anything in there; out on the board they nudge the
   selection. Moving through a video has its own keys (`,` and `.`), the same in the viewer and for a
-  video selected on the board. Space plays and pauses even when a dropdown just used (which sequence,
+  video selected on the board, and so has moving through a version's extras (`[` and `]`). Space plays and pauses even when a dropdown just used (which sequence,
   which view), a button or a link in the sidebar beside the timeline still has the keyboard: it lets
   go, and the player takes the key. A dropdown gives the keyboard back once something is picked from it.
 - **The timeline.** Under an open video: play, a frame back, a frame on, the time, and a track to drag
@@ -540,17 +540,39 @@ filed in it.
 - **Views of a version.** A version can be shown more than one way, each its own file: on projection
   work, say, the unwrapped picture (cmp) and how it looks projected (bty). A project says whether its
   versions are, and which ways, in its settings ("Several views of each version", with their names, the
-  main one first: `cmp, bty`). Off (as a project starts), a version is one file, filing asks for no view,
-  and a view word in a file's name is said not to be read. On, every row where files are filed has a
+  main one first: `cmp, bty`). Off (as a project starts), a version is one file and filing asks for no
+  view. On, every row where files are filed has a
   View picker of just those: the main one is a version of its own, and any other goes with one. A word
-  after the version in a file's name picks it (`ch04-0030_comp_erik_v110_bty.mov`), and one the project
-  has not got is asked about, never guessed. The line under the row says what happens: "Adds its bty to
+  after the version in a file's name picks it (`ch04-0030_comp_erik_v110_bty.mov`); one the project
+  has not got makes the file an extra instead (below), with the views a click away should it have been
+  meant as one. The line under the row says what happens: "Adds its bty to
   kilo-0010 anim v2", or a new version shown that way only. A view goes with the row of the same file
   version in the batch, above or below it (that is filed first), else with the newest version there is
   that lacks it. A version's card lists its views. In the player, and on the timeline, a dropdown in the
   bar picks the view, by the project's names and in its order, remembered per project; a shot without
   that view shows its main one, and the bar says which is showing. Changing the view stays on the same
   moment.
+- **Extras of a version.** What is sent for one version is often more than one file: beside the shot as
+  it plays, full-size stills to judge it close up (12k frames of a dome, say), or the same frame in
+  another lighting, or another cut. These are a version's extras: any number of files, images or videos,
+  each under a label of its own (`light-a`, `still-1043`, `warm`), none twice. They are not views: a
+  view is one of the ways the project shows every version, an extra belongs to this version alone, and
+  makes no version of its own. A word after the version in a file's name that is no view of the
+  project's makes the file an extra under that label (`kilo-0010_comp_erik_v012_light-b.jpg`); typed on
+  a row's line it is the same (`kilo-0010 comp v12 light-b`). The row says so behind its mark (as a stack
+  of layers), with what it goes with ("Adds it to kilo-0010 comp v12 as an extra, “light-b”") and the way
+  back to a version of its own. An extra goes with the version its number says, else with the version the
+  nearest row above it makes, else with the newest of its asset, set or shot and task; with none there,
+  or with that label taken, it is refused. Filed straight after, it can be taken back (Undo) as a version
+  can, which takes back the extra only. A version's card says how many extras it has, and their labels.
+  In the player, the strip lists the open piece's extras under it, set in under its number, each with
+  its own count of comments; on a window too narrow for the strip, a button in the bar lists them. A click,
+  or `[` and `]`, shows one in the piece's place, and the bar adds its label to the name. The arrows still
+  go from piece to piece. Two files of one shape (a 3K video and its 12K still, or two lightings of a
+  frame) are looked at the same way: flipping between them while zoomed in stays on the same spot at the
+  same zoom, so lighting can be judged by flipping. What is said and drawn on an extra is said on it: each
+  file of a version has its own comments, and picking one shows its file. An extra is looked at as it is,
+  never on the venue in 3D. Whoever watches a presentation sees the extra the presenter shows.
 - **Looking without choosing.** Move the pointer across a video's picture in the catalogue and it
   scrubs through it, as if the pointer were dragging its playhead. An asset, set or shot's picture
   plays its newest version at once ("Latest"); its name goes to its page, which has Play latest too.

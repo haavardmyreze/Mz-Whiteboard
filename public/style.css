@@ -1245,6 +1245,13 @@ body.focus .item:is(.image, .video).peersel { outline: none; }
 .fs-badge { position: absolute; left: 3px; bottom: 3px; display: grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; background: rgba(0, 0, 0, 0.62); color: #fff; }
 .fs-badge svg { width: 7px; height: 7px; margin-left: 1px; }
 .fs-count { position: absolute; right: 3px; top: 3px; min-width: 14px; height: 14px; padding: 0 4px; border-radius: var(--r-pill); background: var(--ink-bg); color: var(--ink-fg); font-size: var(--fs-micro); font-weight: 600; line-height: 14px; letter-spacing: 0; text-align: center; }
+/* A version's other files, under it while it is open: smaller, and set in under its number. The piece
+   itself, while one of them is shown in its place, keeps its number in ink but not the ring. */
+.fs-sub { padding-left: 20px; }
+.fs-item.holds .fs-num { color: var(--text); font-weight: 600; }
+.fs-item.holds .fs-thumb { opacity: 1; }
+/* With the strip there, it is where they are chosen: the bar has them only on a narrow window. */
+@media (min-width: 700px) { .v-files { display: none; } }
 /* Put away and brought back by a tab on its edge, and made wider by that edge. */
 .v-fstab { position: fixed; z-index: 31; left: var(--film); top: calc(50% + var(--bar) / 2); transform: translateY(-50%); display: none; place-items: center; width: 30px; height: 68px; padding: 0; border: 1px solid var(--line); border-left: 0; border-radius: 0 var(--r-3) var(--r-3) 0; background: var(--surface-1); color: var(--muted); cursor: pointer; transition: background 0.12s var(--ease), color 0.12s var(--ease); }
 body.focus .v-fstab { display: grid; }
@@ -1268,6 +1275,8 @@ body.focus:not(.film-off) .fs-grip { display: block; }
   .fs-name { display: -webkit-box; overflow: hidden; color: var(--text-2); font-size: var(--fs-sm); font-weight: 500; line-height: 1.3; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
   .fs-item.current .fs-name { color: var(--text); }
   .fs-kind { color: var(--muted); font-size: var(--fs-cap); font-variant-numeric: tabular-nums; }
+  .fs-sub { padding-left: 24px; }
+  .fs-sub .fs-thumb { width: clamp(40px, 24cqi, 68px); }
 }
 
 /* The timeline: the transport, the time, and a track with a mark for every comment. */

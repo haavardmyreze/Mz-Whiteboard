@@ -511,6 +511,9 @@ function cleanComment(it, peer) {
   // Made in a project's 3D preview: where the view was (a drawing's strokes are in that view's frame).
   const pov = cleanPov(it.pov);
   if (pov) clean.pov = pov;
+  // Made on one of its version's extras rather than its own file: which (see cleanLook).
+  const ex = extraName(it.ex);
+  if (ex) clean.ex = ex;
   return clean;
 }
 
@@ -570,11 +573,16 @@ const liveVersion = (id) => {
 // personal one. A snapshot or an undo that brings back a piece of a version since deleted brings it back
 // as plain media.
 function checkVer(it, board) {
-  if (it.ver === undefined || it.ver === null) return;
+  if (it.ver === undefined || it.ver === null) {
+    if (it.ver === undefined) delete it.ex;
+    return;
+  }
   const v = liveVersion(it.ver);
   const e = v && store.entity(v.entityId);
   const project = e && folders.get(e.projectId);
   if (!project || !(project.workspace === 'myreze' || project.workspace === board.workspace)) delete it.ver;
+  // A piece showing one of its version's extras: only while it is a version, and has that extra.
+  if (it.ex !== undefined && (it.ver === undefined || typeof it.ex !== 'string' || !hasExtra(v.look, it.ex))) delete it.ex;
 }
 
 // Where a piece's files may be. Its file (`src`) is uploaded here, a picture written into the item
@@ -693,8 +701,12 @@ function applyOps(board, ops, peer, touch = true) {
           if (typeof patch.ver === 'string') applied.versions.add(patch.ver);
         }
       }
+      // Which extra of its version a piece shows (see fileVersions) goes with the version: another
+      // version put on it shows that one's own file.
+      if ('ver' in patch && !('ex' in patch)) delete it.ex;
       Object.assign(it, patch);
       if (it.ver === null) delete it.ver;
+      if (!it.ver || typeof it.ex !== 'string') delete it.ex;
       if (it.type !== 'comment') board.changed.add(op.id);
       applied.push({ t: 'set', id: op.id, patch });
     } else if (op.t === 'del') {
@@ -954,12 +966,15 @@ function holdsAnything(folder) {
 
 const LOOK_KEYS = ['type', 'src', 'lo', 'orig', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'wf', 'name', 'view'];
 const MAX_VIEWS = 16;
+const MAX_EXTRAS = 64;
 const UPLOAD_KEYS = new Set(['src', 'lo', 'orig', 'prev', 'th', 'poster']);
 
 // What a board needs to show a file, taken from a piece on a board or from a file brought into the catalogue, keeping
 // only what such a piece has: addresses of uploaded files, its size, length and rate, its name.
 // A version's look may also say which view it is (`view`: cmp, bty, top...) and carry its other views
-// (`views`: a look each, every one named and none twice); a view itself carries no more views.
+// (`views`: a look each, every one named and none twice); a view itself carries no more views. It may also
+// carry extras (`extras`): more files that belong to the version without being another way of showing it,
+// full-size stills or another lighting, say, each with a `label` of its own and none twice.
 function cleanLook(asked, nested = false) {
   const look = {};
   if (!asked || typeof asked !== 'object') return null;
@@ -991,11 +1006,26 @@ function cleanLook(asked, nested = false) {
     }
     if (views.length) look.views = views;
   }
+  if (!nested && Array.isArray(asked.extras)) {
+    const extras = [];
+    for (const x of asked.extras.slice(0, MAX_EXTRAS)) {
+      const c = cleanLook(x, true);
+      const label = x && extraName(x.label);
+      if (c && label && !extras.some((y) => y.label === label)) {
+        delete c.view;
+        extras.push({ ...c, label });
+      }
+    }
+    if (extras.length) look.extras = extras;
+  }
   return look;
 }
 // What a view is called: a token (bty, bty-left, cmp), short.
 const viewName = (v) => (typeof v === 'string' ? naming.tokenize(v).slice(0, 40) || null : null);
 const hasView = (look, view) => look.view === view || (look.views || []).some((x) => x.view === view);
+// What an extra is called: a token too (still-1043, light-b, warm).
+const extraName = viewName;
+const hasExtra = (look, label) => (look.extras || []).some((x) => x.label === label);
 
 // A version as a board and the catalogue show it: what it is called, and the newest of its entity and
 // task when that is a later one.
@@ -1015,7 +1045,7 @@ function versionInfo(ref) {
 function publicVersion(v, user) {
   const from = v.boardId && boards.get(v.boardId);
   return {
-    ...versionInfo(v), look: v.look, originalName: v.originalName, createdAt: v.createdAt, createdBy: v.createdBy,
+    ...versionInfo(v), ...versionFiles(v.look), look: v.look, originalName: v.originalName, createdAt: v.createdAt, createdBy: v.createdBy,
     board: from ? { id: v.boardId, name: canSee(user, from.workspace) ? from.name : null } : null,
   };
 }
@@ -1068,12 +1098,22 @@ function board3d(board) {
 // A version as a board shows it, and in a project with a model of its venue, what goes on the model's
 // screens (`look3d`): the version's view the project puts there (its main one, unless the project names
 // one). A version without that view is not seen in 3D. Only what the player needs, not its timeline strip.
+// A version with extras has its files too (`files`): its own (`ex` ''), then each extra (`ex` its label),
+// so the player can show any of them in place of the piece.
 const LOOK3D_KEYS = ['type', 'src', 'lo', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'name', 'view'];
+const FILE_KEYS = ['type', 'src', 'lo', 'orig', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'wf', 'name'];
+const fileOf = (look, ex) => {
+  const out = { ex };
+  for (const k of FILE_KEYS) if (look[k] !== undefined) out[k] = look[k];
+  return out;
+};
+const versionFiles = (look) => (look && look.extras ? { files: [fileOf(look, ''), ...look.extras.map((x) => fileOf(x, x.label))] } : null);
 function boardVersion(ref, model) {
-  const info = versionInfo(ref);
-  if (!info || !model) return info;
-  const v = typeof ref === 'string' ? liveVersion(ref) : ref;
+  let info = versionInfo(ref);
+  const v = info && (typeof ref === 'string' ? liveVersion(ref) : ref);
   const look = v && v.look;
+  if (info) info = { ...info, ...versionFiles(look) };
+  if (!info || !model) return info;
   if (!look || (look.type !== 'image' && look.type !== 'video')) return info;
   // Its own file is its main view, unless it was filed as another (a version that is only a bty, say).
   const own = !model.view || look.view === model.view || (model.view === model.main && !look.view);
@@ -1158,6 +1198,7 @@ function headStrip(v) {
 // Files pieces of media as versions. Each file is a piece on a board ({ board, item }) or a file
 // brought into the catalogue ({ look }); what each says about itself (entity, task, descriptor,
 // artist, number) goes before what is said for them all. What its name says fills in the rest.
+// One that says `extra` (a label) is no version of its own but an extra of one (see cleanLook).
 // Everything is checked first, and then all of it is filed in one write, so a mistake files nothing;
 // only then are the boards told.
 function fileVersions(req, project, body) {
@@ -1195,13 +1236,17 @@ function fileVersions(req, project, body) {
     // Which view it is files it as that, and nothing else does: a view the file's look carries of its own
     // (a piece copied from another version's view, say) counts only as the project allows, and a new
     // version is its one file, whatever other views a look sent along says it has.
-    const view = viewFor(project, f.view !== undefined ? f.view : look.view);
+    // An extra is neither: it is said in so many words, and a file brought in is filed as one file.
+    const extra = f.extra != null ? extraName(f.extra) : null;
+    if (f.extra != null && !extra) throw refusal(400, 'An extra needs a name');
+    const view = extra ? null : viewFor(project, f.view !== undefined ? f.view : look.view);
     look = { ...look };
     delete look.views;
+    delete look.extras;
     if (view) look.view = view;
     else delete look.view;
     return {
-      board, item, look, asked, view,
+      board, item, look, asked, view, extra,
       entity: entityFor(project, pick('entity') ?? (parsed.entity && { name: parsed.entity, tier: parsed.tier })),
       task: !usesTasks(project) ? null : pick('task') !== undefined ? tokenOrNull(pick('task')) : parsed.task,
       descriptor: pick('descriptor') !== undefined ? tokenOrNull(pick('descriptor')) : parsed.descriptor,
@@ -1212,9 +1257,27 @@ function fileVersions(req, project, body) {
   // Unless it is another view of that version (a file saying which view it is, bty to go with the cmp
   // there): then it goes with that version, as long as the version has no view of that name yet. One
   // saying its view and no number goes with the newest version of its entity and task that lacks that view.
+  // An extra goes with a version that is there, or that a file before it in this lot makes: the one
+  // its number says, else the nearest before it going to the same entity and task, else the newest.
   const asking = new Map();
-  for (const p of plan) {
+  for (const [i, p] of plan.entries()) {
     const label = (n) => naming.label(p.entity.name, p.task, n);
+    if (p.extra) {
+      const sameStream = (o) => !o.extra && o.task === p.task && (o.entity.make ? p.entity.make && o.entity.name === p.entity.name : o.entity.id === p.entity.id);
+      const before = plan.slice(0, i).filter(sameStream);
+      const held = p.asked != null && !p.entity.make && store.numberHolder(p.entity.id, p.task, p.asked);
+      if (p.asked != null) {
+        if (held && !held.deletedAt) p.onto = held;
+        else p.with = before.find((o) => o.asked === p.asked) || null;
+        if (!p.onto && !p.with) throw refusal(409, `There is no ${label(p.asked)} to add “${p.extra}” to`);
+      } else if (before.length) p.with = before[before.length - 1];
+      else {
+        const newest = !p.entity.make && store.newestVersion(p.entity.id, p.task);
+        if (!newest) throw refusal(409, `${naming.label(p.entity.name, p.task, '').replace(/ v$/, '')} has no version to add “${p.extra}” to`);
+        p.onto = store.version(newest.id);
+      }
+      continue;
+    }
     if (p.view && p.asked == null && !p.entity.make) {
       const newest = store.newestVersion(p.entity.id, p.task);
       const v = newest && store.version(newest.id);
@@ -1241,10 +1304,18 @@ function fileVersions(req, project, body) {
     const entity = madeEntity(project, p.entity, by);
     let v;
     const onto = p.onto || (p.with && p.with.made);
+    if (p.extra) {
+      v = store.addExtra(onto.id, { ...p.look, label: p.extra }, by, p.board ? p.board.id : null);
+      if (!v) throw refusal(409, `${naming.label(entity.name, onto.task, onto.number)} has an extra called “${p.extra}” already`);
+      // Said about the piece, it is said about the version, on this extra of it.
+      if (p.board) store.fileNotes(p.board.id, p.item.id, v.id, p.extra);
+      return { p, v };
+    }
     if (onto) {
       v = store.addView(onto.id, { ...p.look, view: p.view });
       // Said about the piece, it is said about the version it is now a view of.
       if (p.board) store.fileNotes(p.board.id, p.item.id, v.id);
+      p.made = v;
       return { p, v };
     }
     if (p.view) p.look.view = p.view;
@@ -1265,13 +1336,13 @@ function fileVersions(req, project, body) {
   }));
   for (const { p, v } of filed) {
     if (!p.board) continue;
-    const applied = applyOps(p.board, [{ t: 'set', id: p.item.id, patch: { ver: v.id } }], null, false);
+    const applied = applyOps(p.board, [{ t: 'set', id: p.item.id, patch: { ver: v.id, ...(p.extra && { ex: p.extra }) } }], null, false);
     if (applied.length) broadcast(p.board, { t: 'op', ops: applied, from: null });
     settle(p.board, applied);
     note(p.board, by || 'Somebody', 'file');
   }
   retellEntities(new Set(filed.map(({ v }) => v.entityId)));
-  return filed.map(({ p, v }) => ({ ...publicVersion(v, req.user), ...(p.view && { filedView: p.view }) }));
+  return filed.map(({ p, v }) => ({ ...publicVersion(v, req.user), ...(p.view && { filedView: p.view }), ...(p.extra && { filedExtra: p.extra }) }));
 }
 
 // Who did something: the person signed in, or the name the page gives, without sign-in.
@@ -1324,6 +1395,7 @@ async function handleCatalogue(req, res, parts) {
         id: v.id, entityId: v.entityId, entity: v.entityName, tier: v.entityTier, task: v.task, number: v.number,
         label: naming.label(v.entityName, v.task, v.number), kind: v.kind, thumb: v.thumb, look: full ? v.look : { type, src, poster, th, dur, fps, nw, nh },
         views: [v.look.view || '', ...(v.look.views || []).map((x) => x.view)].filter((x, i) => i || (v.look.views || []).length),
+        extras: (v.look.extras || []).map((x) => x.label),
         artist: v.artist, createdAt: v.createdAt, createdBy: v.createdBy, hidden: v.hidden, originalName: v.originalName, boards: boardsSeen(on.get(v.id)),
       };
     });
@@ -1785,9 +1857,33 @@ async function handleCatalogue(req, res, parts) {
     if (!project || v.deletedAt) return sendJson(res, 404, { error: 'Not found' });
     const body = await readJson(req);
     const label = versionInfo(v).label;
+    // { extra }: one of its extras, taken back straight after it was added, the version staying as it is.
+    if (body.extra != null) {
+      const name = extraName(body.extra);
+      const x = name && (v.look.extras || []).find((y) => y.label === name);
+      if (!x) return sendJson(res, 404, { error: `${label} has no extra of that name` });
+      const what = `“${name}” of ${label}`;
+      if (!(Date.now() - x.at <= UNFILE_WITHIN)) return sendJson(res, 409, { error: `${what} was added a while ago: there is no taking it back now` });
+      if (req.user && x.by && x.by !== actor(req, body)) return sendJson(res, 409, { error: `${what} was added by ${x.by}` });
+      flushAll();
+      const board = x.board ? boards.get(x.board) : null;
+      if (board) openItems(board);
+      const item = board ? [...board.items.values()].find((it) => it.ver === v.id && it.ex === name) || null : null;
+      if (store.notesOnExtra(v.id, name, item ? board.id : null, item ? item.id : null)) return sendJson(res, 409, { error: `Something has been said about ${what} since` });
+      if (item) {
+        const applied = applyOps(board, [{ t: 'set', id: item.id, patch: { ver: null } }], null, false);
+        if (applied.length) broadcast(board, { t: 'op', ops: applied, from: null });
+        settle(board, applied);
+      }
+      store.unfileExtra(v.id, name, item ? board.id : null, item ? item.id : null);
+      retellEntity(entity.id);
+      tellRoom(entity.id);
+      return sendJson(res, 200, { ok: true });
+    }
     if (Date.now() - v.createdAt > UNFILE_WITHIN) return sendJson(res, 409, { error: `${label} was filed a while ago: archive or delete it instead` });
     if (req.user && v.createdBy && v.createdBy !== actor(req, body)) return sendJson(res, 409, { error: `${label} was filed by ${v.createdBy}` });
     if (Array.isArray(v.look.views) && v.look.views.length) return sendJson(res, 409, { error: `${label} has more views since` });
+    if (Array.isArray(v.look.extras) && v.look.extras.length) return sendJson(res, 409, { error: `${label} has extras since` });
     flushAll();
     const on = store.boardsWithVersion(v.id);
     const board = v.boardId ? boards.get(v.boardId) : null;
@@ -3330,8 +3426,8 @@ function spreadPhoneCopy(src, lo) {
       look.lo = lo;
       touched = true;
     }
-    if (Array.isArray(look.views)) {
-      look.views = look.views.map((x) => (x.src === src && x.lo !== lo ? ((touched = true), { ...x, lo }) : x));
+    for (const key of ['views', 'extras']) {
+      if (Array.isArray(look[key])) look[key] = look[key].map((x) => (x.src === src && x.lo !== lo ? ((touched = true), { ...x, lo }) : x));
     }
     if (touched && store.setLook(id, look)) versions++;
   }
@@ -3526,7 +3622,8 @@ function cleanScene(pres, user, s) {
   return idle;
 }
 
-// What the player is doing, as the presenter's page says it: the piece open (f), the thread read (t), the
+// What the player is doing, as the presenter's page says it: the piece open (f), which of its version's
+// files is shown in its place (x: an extra's label, '' its own), the thread read (t), the
 // moment of the video (m), the zoom on the piece (z: its middle, in drawing units, and how far in), and in
 // 3D, how it is seen (d: on, the model's camera held, a comment's frame held, or the view flown).
 function cleanPlayer(p) {
@@ -3535,6 +3632,7 @@ function cleanPlayer(p) {
   const numbers = (v, n) => Array.isArray(v) && v.length === n && v.every(Number.isFinite);
   const pose = (v) => v && typeof v === 'object' && numbers(v.p, 3) && numbers(v.q, 4) && Number.isFinite(v.fov) && { p: v.p, q: v.q, fov: v.fov, ...(Number.isFinite(v.t) && { t: v.t }) };
   if ('f' in p && (p.f === null || id(p.f))) out.f = p.f;
+  if ('x' in p && typeof p.x === 'string' && p.x.length <= 40) out.x = p.x;
   if ('t' in p && (p.t === null || id(p.t))) out.t = p.t;
   if ('m' in p && (p.m === null || (Array.isArray(p.m) && id(p.m[0]) && Number.isFinite(p.m[1])))) out.m = p.m && [p.m[0], p.m[1], p.m[2] ? 1 : 0];
   if ('z' in p && (p.z === null || numbers(p.z, 3))) out.z = p.z;

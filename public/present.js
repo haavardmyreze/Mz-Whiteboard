@@ -164,13 +164,14 @@ const WBPresent = (() => {
       report();
       // The new piece, and in a run (which plays on into it) how it plays, once it has started.
       if (type === 'open') {
-        tellPlayer({ f: args[0], t: v.thread(), z: v.zoom(), d: v.view3d(), m: v.moment() }, true);
+        tellPlayer({ f: args[0], x: v.file(), t: v.thread(), z: v.zoom(), d: v.view3d(), m: v.moment() }, true);
         setTimeout(() => { if (v.isOpen() && v.current() === args[0]) tellPlayer({ m: v.moment() }); }, 250);
       }
       return;
     }
     if (type === 'media') tellMoment([args[0], Math.round(args[2] * 1000) / 1000, args[1] ? 1 : 0]);
     else if (type === 'thread') tellPlayer({ t: args[0] });
+    else if (type === 'file') tellPlayer({ x: args[1], z: v.zoom() });
     else if (type === 'zoom') tellPlayer({ z: v.zoom() });
     else if (type === '3d') tellPlayer({ d: v.view3d() });
     else if (type === 'laser') send({ t: 'laser', on: args[0], pts: args[1] });

@@ -739,8 +739,8 @@ function openStore(dataDir) {
   // the newest version of each task ({ task (or ''): { id, number, thumb, at, look } }), with enough of
   // its look to play it beside a piece about to follow it, and to say how their lengths differ.
   const headLook = (raw) => {
-    const { type, src, lo, poster, dur, fps, nw, nh, view, views } = JSON.parse(raw);
-    return { type, src, ...(lo && { lo }), poster, dur, fps, nw, nh, viewNames: [view || '', ...(views || []).map((x) => x.view)] };
+    const { type, src, lo, poster, dur, fps, nw, nh, view, views, extras } = JSON.parse(raw);
+    return { type, src, ...(lo && { lo }), poster, dur, fps, nw, nh, viewNames: [view || '', ...(views || []).map((x) => x.view)], extraNames: (extras || []).map((x) => x.label) };
   };
   const entities = (projectId) => {
     const tops = new Map();
@@ -934,6 +934,16 @@ function openStore(dataDir) {
     putLook.run(JSON.stringify({ ...v.look, views: [...(v.look.views || []), look] }), id);
     return version(id);
   }
+  // An extra of a version (see cleanLook in server.js), under its label, with when it came and who
+  // brought it. Null when the version has an extra of that label already.
+  const hasExtra = (look, label) => (look.extras || []).some((x) => x.label === label);
+  // `board` is the board it was filed from, if it was.
+  function addExtra(id, look, by = null, board = null) {
+    const v = version(id);
+    if (!v || hasExtra(v.look, look.label)) return null;
+    putLook.run(JSON.stringify({ ...v.look, extras: [...(v.look.extras || []), { ...look, at: Date.now(), ...(by && { by }), ...(board && { board }) }] }), id);
+    return version(id);
+  }
   // The names of the views a project's versions are shown in, each once.
   const readViews = db.prepare(`SELECT DISTINCT name FROM (
       SELECT json_extract(v.look, '$.view') AS name FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ? AND v.deleted_at IS NULL
@@ -1008,8 +1018,10 @@ function openStore(dataDir) {
     return true;
   }
   // A piece filed as a version takes the notes made on it with it: from then on they are the version's.
+  // Filed as an extra of one, they say which (`ex` in a note's data, as a note made on it there does).
   const putNotesFiled = db.prepare('UPDATE notes SET version_id = ? WHERE board_id = ? AND item_id = ? AND version_id IS NULL');
-  const fileNotes = (boardId, itemId, versionId) => putNotesFiled.run(versionId, boardId, itemId).changes;
+  const putNotesFiledOn = db.prepare("UPDATE notes SET version_id = ?, data = json_set(data, '$.ex', ?) WHERE board_id = ? AND item_id = ? AND version_id IS NULL");
+  const fileNotes = (boardId, itemId, versionId, ex = null) => (ex ? putNotesFiledOn.run(versionId, ex, boardId, itemId) : putNotesFiled.run(versionId, boardId, itemId)).changes;
   // Notes on a version that were not written on the piece it was filed from: written since, elsewhere.
   const readNotesSince = db.prepare('SELECT count(*) AS n FROM notes WHERE version_id = ? AND NOT (board_id IS ? AND item_id IS ?)');
   const notesBesides = (versionId, boardId, itemId) => readNotesSince.get(versionId, boardId, itemId).n;
@@ -1029,6 +1041,23 @@ function openStore(dataDir) {
       const e = entity(v.entityId);
       const dropped = !!e && e.createdAt >= madeSince && !e.artists.length && !e.cc.length && countVersions.get(e.id).n === 0 && dropEntity.run(e.id).changes > 0;
       return { entityId: v.entityId, entityDropped: dropped };
+    });
+  }
+  // An extra taken back just after it was added (see unfileVersion): the notes that went with it are the
+  // piece's again. Notes made on it since are counted first, and refuse it (`notesOnExtra`).
+  const putExtraNotesUnfiled = db.prepare("UPDATE notes SET version_id = NULL, data = json_remove(data, '$.ex') WHERE version_id = ? AND board_id = ? AND item_id = ? AND json_extract(data, '$.ex') = ?");
+  const readExtraNotes = db.prepare("SELECT count(*) AS n FROM notes WHERE version_id = ? AND json_extract(data, '$.ex') = ? AND NOT (board_id IS ? AND item_id IS ?)");
+  const notesOnExtra = (versionId, label, boardId, itemId) => readExtraNotes.get(versionId, label, boardId, itemId).n;
+  function unfileExtra(id, label, boardId, itemId) {
+    return transaction(() => {
+      const v = version(id);
+      if (!v || !hasExtra(v.look, label)) return false;
+      if (boardId) putExtraNotesUnfiled.run(id, boardId, itemId, label);
+      const extras = v.look.extras.filter((x) => x.label !== label);
+      const look = { ...v.look, extras };
+      if (!extras.length) delete look.extras;
+      putLook.run(JSON.stringify(look), id);
+      return true;
     });
   }
   // Every note a board shows: those on its media that is not filed, and those on the versions it holds.
@@ -1104,8 +1133,8 @@ function openStore(dataDir) {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
     transaction, entities, streamHeads, findVersions, projectFilers, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, happenings, people, entityCount,
-    addVersion, addView, projectViews, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
-    note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesBesides, unfileVersion, notesForBoard, notesOfVersions,
+    addVersion, addView, addExtra, projectViews, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
+    note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesBesides, unfileVersion, notesOnExtra, unfileExtra, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,
     grants, setGrant, removeGrant, removeGrantsOn,

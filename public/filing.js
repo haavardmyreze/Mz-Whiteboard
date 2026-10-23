@@ -133,6 +133,7 @@ const WBFiling = (() => {
       if (o.task === undefined && line.task !== undefined) o.task = line.task;
       o.number = line.number;
       o.view = line.view;
+      o.extra = line.extra;
     }
     return out;
   }
@@ -271,7 +272,9 @@ const WBFiling = (() => {
   // put in it; otherwise the line has one here, and what is typed in it or said by a line is kept in
   // `typedNumber()`, starting from `number`. `views` are the project's views, the main one first (null when it shows each
   // version one way): the row then has a View picker (`viewSel`, starting at `view`, the one its name
-  // says), and `viewName()` is the one picked, null for the main one. `named` says the entity given
+  // says), and `viewName()` is the one picked, null for the main one. A word after the version that is no
+  // view (in a project shown one way, any word) makes the piece an extra of that version instead:
+  // `extraName()` is its label, null for a version or view of its own. `named` says the entity given
   // was read from the piece's own file name. `rules` let the project's learned rules read pasted names;
   // `say(text, undo)` tells the person something the keys did (a toast unless the page says otherwise).
   // `piece()` is the look of what is being filed (to compare it with the version it follows).
@@ -328,16 +331,18 @@ const WBFiling = (() => {
     });
     const line_ = el('span', { class: 'file-line' }, el('span', { class: 'file-is' }, kind, tier), ent, useTasks ? taskIn : null, prevSlot, verSeg, viewSel || null, el('span', { class: 'file-info-cell' }, info));
     line_.style.gridTemplateColumns = lineColumns({ useTasks, views });
-    let viewProblem = null;
+    // Which extra of its version it is, if it is one (see readout: it says so, with the way back).
+    let extra = null;
+    const setExtra = (x) => { extra = N.tokenize(x || '') || null; };
     function setView(v) {
-      if (!viewSel || !v) return;
-      viewProblem = null;
-      if (v === views[0]) viewSel.value = '';
-      else if (views.includes(v)) viewSel.value = v;
-      else viewProblem = v;
+      if (!v) return;
+      if (!views || !views.includes(v)) return setExtra(v);
+      extra = null;
+      viewSel.value = v === views[0] ? '' : v;
     }
     setView(namedView);
-    const viewName = () => (viewSel && viewSel.value) || null;
+    const viewName = () => (!extra && viewSel && viewSel.value) || null;
+    const extraName = () => extra;
     let likely = [];
     let fromName = named && !!entity;
     // What a line said of the number, on a page with no field for it. Said by a line, it goes when the
@@ -345,6 +350,7 @@ const WBFiling = (() => {
     const own = { number: typedNumber, said: false };
     const toLine = (l) => {
       if (l.view) setView(l.view);
+      if (l.extra) setExtra(l.extra);
       if (l.number == null) return;
       if (onLine) return onLine(l);
       own.number = l.number;
@@ -410,11 +416,11 @@ const WBFiling = (() => {
     // row, rather than lose them.
     function settle() {
       const l = line();
-      if (!l.entity || l.rest.length || (ent.value === l.entity && l.task === undefined && l.number == null && !l.view)) return;
+      if (!l.entity || l.rest.length || (ent.value === l.entity && l.task === undefined && l.number == null && !l.view && !l.extra)) return;
       changed();
       ent.value = l.entity;
       if (useTasks && l.task !== undefined) taskIn.value = l.task || '';
-      if (l.number != null || l.view) toLine(l);
+      if (l.number != null || l.view || l.extra) toLine(l);
       sync();
       onChange();
     }
@@ -445,7 +451,7 @@ const WBFiling = (() => {
         changed();
         fromName = false;
         if (useTasks && o.task !== undefined) taskIn.value = o.task || '';
-        if (o.number != null || o.view) toLine({ number: o.number, view: o.view });
+        if (o.number != null || o.view || o.extra) toLine({ number: o.number, view: o.view, extra: o.extra });
         settle();
         sync();
         onChange();
@@ -512,7 +518,7 @@ const WBFiling = (() => {
     let likelyAt = 0;
     function checks() {
       const { list, at } = around();
-      const key = [edits, list.length, at, entities().length, likelyAt, ent.value, taskIn.value, tier.value, own.number, viewName(), viewProblem, (piece() || {}).dur];
+      const key = [edits, list.length, at, entities().length, likelyAt, ent.value, taskIn.value, tier.value, own.number, viewName(), extra, (piece() || {}).dur];
       if (!judged || !same(judged.key, key)) judged = { key, out: judge() };
       return judged.out;
     }
@@ -526,11 +532,20 @@ const WBFiling = (() => {
       const e = have(n);
       const typed = ent.value.trim();
       if (l.short) out.push({ text: `${typed} is ${l.short}: ${n}` });
-      else if (typed !== n && l.task === undefined && l.number == null && !l.view && !l.rest.length) out.push({ text: `Called ${n}` });
+      else if (typed !== n && l.task === undefined && l.number == null && !l.view && !l.extra && !l.rest.length) out.push({ text: `Called ${n}` });
       if (l.rest.length) out.push({ text: `Not read: ${l.rest.join(' ')}. Take it out${useTasks ? ' or put it in the task' : ''} to file`, warn: true, rank: 0 });
-      // Its view: one its name says that the project does not have, which way it goes, and a view word in
-      // the name of a piece in a project that shows each version one way.
-      if (viewProblem) out.push({ text: `Its name says the view “${viewProblem}”, which this project has not got. Which is it?`, fixes: views.map((v) => ({ label: v, run: () => { changed(); setView(v); sync(); } })), warn: true, rank: 0 });
+      // An extra: which version it goes with, or that there is none; a view it may have been meant as; and
+      // the way back to a version of its own.
+      if (extra) {
+        const at = number();
+        const head = headOf();
+        const ahead = around().list.slice(0, Math.max(0, around().at)).some((p) => p.name() === n && p.taskName() === taskName() && !p.extraName());
+        const fixes = [...(views || []).filter((x) => x !== views[0]).map((x) => ({ label: `the ${x} view`, run: () => { changed(); setView(x); sync(); } })),
+          { label: 'A version of its own', run: () => { changed(); extra = null; sync(); } }];
+        if (!at || (!ahead && !(e && at <= ((e.tops || {})[taskName() || ''] || 0)))) out.push({ text: `An extra, “${extra}”, but there is no ${at ? N.label(n, taskName(), at) : `version of ${N.label(n, taskName(), '').replace(/ v$/, '')}`} to add it to`, fixes, warn: true, rank: 0 });
+        else if (head && head.number === at && (head.look.extraNames || []).includes(extra)) out.push({ text: `${N.label(n, taskName(), at)} has an extra called “${extra}” already`, fixes, warn: true, rank: 0 });
+        else out.push({ text: `Adds it to ${N.label(n, taskName(), at)} as an extra, “${extra}”`, fixes, extra: true });
+      }
       const v = viewName();
       if (v) {
         const at = number();
@@ -540,7 +555,6 @@ const WBFiling = (() => {
         if (head && head.number === at && (head.look.viewNames || []).includes(v)) out.push({ text: `${N.label(n, taskName(), at)} has its ${v} already`, warn: true, rank: 0 });
         else out.push({ text: ahead || (e && at <= ((e.tops || {})[taskName() || ''] || 0)) ? `Adds its ${v} to ${N.label(n, taskName(), at)}` : `A new ${N.label(n, taskName(), at)}, shown as ${v} only` });
       }
-      if (!views && N.parse(label).view) out.push({ text: `“${N.parse(label).view}” in its name is not read: this project shows each version one way` });
       if (!e) {
         const misses = N.nearMisses(n, names);
         if (misses.length) out.push({ text: 'Not in the project. Did you mean', fixes: misses.map((m) => ({ label: m, run: () => setLine(m) })), warn: true, rank: 1 });
@@ -573,7 +587,7 @@ const WBFiling = (() => {
       // A number typed that the count has passed already: most likely someone's, or was (numbers are never
       // given twice), unless it was skipped. The server says for sure when it is filed.
       const top = e ? (e.tops || {})[taskName() || ''] || 0 : 0;
-      if (e && !numberOf && own.number && own.number <= top) {
+      if (e && !numberOf && !extra && own.number && own.number <= top) {
         out.push({ text: `${N.label(n, taskName(), own.number)} is probably taken: the count is at v${top}`, fixes: [{ label: 'The next instead', run: () => { changed(); own.number = null; sync(); } }], warn: true, rank: 0 });
       }
       if (e && useTasks) {
@@ -621,7 +635,7 @@ const WBFiling = (() => {
     // Ready to file: it says what it is, every word of it is read, and a new one says what it is.
     const ready = () => {
       const n = name();
-      return !!n && !line().rest.length && !viewProblem && (!!have(n) || !!tier.value || !!N.kindOf(n, entities()));
+      return !!n && !line().rest.length && !(extra && checks().some((c) => c.warn && c.rank === 0)) && (!!have(n) || !!tier.value || !!N.kindOf(n, entities()));
     };
 
     // The number it gets: the page's, or the one typed, or one past the highest of its entity and task,
@@ -630,24 +644,31 @@ const WBFiling = (() => {
     let counted = null;
     // Another view (not the main one) goes with a version rather than making one: that of the nearest
     // row above going to the same that is not this view, else the newest there is if it lacks this view.
+    // An extra goes with that of the nearest row above going to the same that is no extra, else the newest.
     function number() {
       if (numberOf) return numberOf();
       if (own.number) return own.number;
       const { list, at } = around();
-      const key = [edits, list.length, at, entities().length, ent.value, taskIn.value, viewName()];
+      const key = [edits, list.length, at, entities().length, ent.value, taskIn.value, viewName(), extra];
       if (counted && same(counted.key, key)) return counted.n;
       const n = name();
       const t = taskName();
       const above = list.slice(0, Math.max(0, at)).filter((p) => p.name() === n && p.taskName() === t);
       const v = viewName();
       let joins = null;
+      if (extra) {
+        const row = [...above].reverse().find((p) => !p.extraName());
+        const head = headOf();
+        counted = { key, n: row ? row.number() : head ? head.number : null };
+        return counted.n;
+      }
       if (v) {
         const row = [...above].reverse().find((p) => p.viewName() !== v);
         const head = headOf();
         joins = row ? row.number() : head && !(head.look.viewNames || []).includes(v) ? head.number : null;
       }
       let top = nextOf(have(n), t) - 1;
-      for (const p of above) top = Math.max(top, p.number());
+      for (const p of above) if (!p.extraName()) top = Math.max(top, p.number());
       counted = { key, n: joins || top + 1 };
       return counted.n;
     }
@@ -679,7 +700,7 @@ const WBFiling = (() => {
       readout.replaceChildren(...shown.map(note));
       const said = shown.map((c) => c.text).join('. ');
       info.className = `file-info${warns.length ? ' warn' : shown.length ? ' note' : ''}`;
-      info.innerHTML = shown.length ? WB.icon(warns.length ? 'warn' : 'info', 15) : '';
+      info.innerHTML = shown.length ? WB.icon(warns.length ? 'warn' : shown.some((c) => c.extra) ? 'stack' : 'info', 15) : '';
       info.hidden = !shown.length;
       info.title = said;
       info.setAttribute('aria-label', said ? `${warns.length ? 'To sort out' : 'Notes'}: ${said}` : '');
@@ -762,7 +783,7 @@ const WBFiling = (() => {
       const l = N.readLine(ent.value, lineContext());
       if (!l.entity || l.rest.length) return;
       const whole = !!have(l.entity) || !!l.short || N.tierOf(l.entity) === 'shot';
-      const more = l.task !== undefined || l.number != null || !!l.view;
+      const more = l.task !== undefined || l.number != null || !!l.view || !!l.extra;
       if (!more && !whole) return;
       combo.hide();
       if (more) settle();
@@ -833,17 +854,17 @@ const WBFiling = (() => {
       });
     }
 
-    if (viewSel) viewSel.addEventListener('change', () => { changed(); viewProblem = null; sync(); onChange(); });
+    if (viewSel) viewSel.addEventListener('change', () => { changed(); extra = null; sync(); onChange(); });
     sync();
     return Object.assign(self, {
       ent, task: taskIn, tier, readout, sync, line: line_, version: verIn, name, have, taskName, settle, setLine, checks, ready, number,
-      typedNumber: () => (numberOf ? null : own.number), viewSel, viewName, setView,
+      typedNumber: () => (numberOf ? null : own.number), viewSel, viewName, setView, extraName, setExtra,
       // A number and view read for it from elsewhere (a learned rule), as if typed on its line; `named`
       // when what it is was read from its own file's name so.
       take: (l) => {
         changed();
         if (l.named) fromName = true;
-        toLine({ number: l.number ?? null, view: l.view || null });
+        toLine({ number: l.number ?? null, view: l.view || null, extra: l.extra || null });
         sync();
       },
       // Its name was read from its own file's name, and has not been changed since.

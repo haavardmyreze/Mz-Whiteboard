@@ -8,8 +8,8 @@ const likely = require('../likely');
 const NAMES = ['kilo-0010', 'kilo-0020', 'kilo-0030', 'char-robot', 'set-living-room', 'ch01-0010'];
 const TASKS = ['model', 'rig', 'lookdev', 'dressing', 'layout', 'anim', 'fx', 'lighting'];
 const read = (text, ctx = {}) => {
-  const { short, rest, ...out } = naming.readLine(text, { names: NAMES, tasks: TASKS, ...ctx });
-  return { ...out, ...(short && { short }), ...(rest.length && { rest }) };
+  const { short, rest, extra, ...out } = naming.readLine(text, { names: NAMES, tasks: TASKS, ...ctx });
+  return { ...out, ...(short && { short }), ...(rest.length && { rest }), ...(extra && { extra }) };
 };
 
 test('filing: a typed line says the name, and the task, version and view after it', () => {
@@ -25,6 +25,10 @@ test('filing: a typed line says the name, and the task, version and view after i
   assert.equal(read('char robot rig').entity, 'char-robot');
   // A file name pasted in is read as a file name is.
   assert.deepEqual(read('kilo-0010_anim_erik_v012_bty.mov'), { entity: 'kilo-0010', task: 'anim', number: 12, view: 'bty' });
+  // A word after the version that is no view is an extra of that version, typed or in a file's name.
+  assert.deepEqual(read('kilo-0010 anim v12 light-b'), { entity: 'kilo-0010', task: 'anim', number: 12, view: null, extra: 'light-b' });
+  assert.deepEqual(read('kilo-0010 anim v12 bty', { useViews: false }), { entity: 'kilo-0010', task: 'anim', number: 12, view: null, extra: 'bty' });
+  assert.deepEqual(read('kilo-0010_comp_erik_v012_warm.png', { views: ['cmp', 'bty'] }), { entity: 'kilo-0010', task: 'comp', number: 12, view: null, extra: 'warm' });
   // A project that does not count by task never reads one, and says what it did not read.
   assert.deepEqual(read('kilo-0010 anim', { useTasks: false }), { entity: 'kilo-0010', task: undefined, number: null, view: null, rest: ['anim'] });
 });

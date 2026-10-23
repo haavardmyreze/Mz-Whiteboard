@@ -159,25 +159,30 @@
   }
 
   // What a line typed where a piece is filed says: which asset, set or shot, and any task, version number
-  // and view after it ("kilo-0010 anim v12 bty"). A whole file name pasted in is read as a file name is.
+  // and view after it ("kilo-0010 anim v12 bty"). A word after the version that is no view is an extra of
+  // that version (`extra`: "kilo-0010 comp v12 light-b"). A whole file name pasted in is read as a file name is.
   // A few short ways to say a shot, read against `ctx.seq` (the sequence being filed in): `20` is shot
   // 0020 of it, `+` its next shot (`kilo+` the next of kilo), and `.` whatever was filed last
   // (`ctx.last`). `task` is left undefined where the line does not say one, so that a task field keeps its
   // own; with `ctx.useTasks` false a line never says one. Words that are read as nothing are in `rest`.
   //   ctx: { names, entities, tasks, views, useViews, seq, last: { entity, task }, useTasks, rules }
   function readLine(text, ctx = {}) {
-    const out = { entity: null, task: undefined, number: null, view: null, short: null, rest: [] };
+    const out = { entity: null, task: undefined, number: null, view: null, extra: null, short: null, rest: [] };
     const raw = String(text || '').trim();
     if (!raw) return out;
     const useTasks = ctx.useTasks !== false;
     const names = ctx.names || [];
+    // The project's views when it says them (`ctx.views`, the main one first), none when it shows each
+    // version one way (`ctx.useViews` false), and the usual ones otherwise.
+    const views = ctx.useViews === false ? [] : ctx.views && ctx.views.length ? ctx.views : VIEWS;
     if (raw.includes('_') && !/\s/.test(raw)) {
       const p = parse(raw, ctx.entities || names.map((name) => ({ name, tier: tierOf(name) || 'asset' })));
       const ruled = !p.entity && byRules(raw, ctx.rules, ctx.tasks);
       if (p.entity || ruled) {
         out.entity = p.entity || ruled.entity;
         if (useTasks && (p.task || (ruled && ruled.task))) out.task = p.task || ruled.task;
-        out.view = ctx.useViews === false ? null : p.view || (ruled && ruled.view) || null;
+        out.view = ctx.useViews === false ? null : (ruled && ruled.view) || (views.includes(p.view) ? p.view : null);
+        if (p.view && !out.view) out.extra = p.view;
         out.number = (ruled ? ruled.number : p.hip) || null;
         if (ruled) out.short = 'read as names like it are';
         return out;
@@ -204,10 +209,7 @@
     } else out.entity = tokenize(first) || null;
     // A word after the name is a version number, a view or a task, by what it is. Any other word is more
     // of the name ("living room", "set living room") for as long as that makes it more of a name: not
-    // once it is one the project has, or a shot.
-    // The project's views when it says them (`ctx.views`, the main one first), none when it shows each
-    // version one way (`ctx.useViews` false), and the usual ones otherwise.
-    const views = ctx.useViews === false ? [] : ctx.views && ctx.views.length ? ctx.views : VIEWS;
+    // once it is one the project has, or a shot. After the version, it is an extra.
     const tasks = ctx.tasks || [];
     const whole = () => !!out.entity && (names.includes(out.entity) || !!tierOf(out.entity));
     const longer = (t) => {
@@ -226,6 +228,7 @@
         out.entity = tokenize(`${out.entity}-${t}`);
         continue;
       } else if (useTasks && out.task === undefined && whole()) out.task = t;
+      else if (out.number != null && !out.extra) out.extra = t;
       else out.rest.push(w);
       more = false;
     }

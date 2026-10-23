@@ -2981,6 +2981,11 @@
     const views = v.views || (v.look && (v.look.views || []).length ? [v.look.view || 'main', ...v.look.views.map((x) => x.view)] : []);
     return views.length ? views.map((x) => x || 'main') : null;
   };
+  // A version's extras, by label: said only of one that has some.
+  const verExtras = (v) => {
+    const extras = v.extras || (v.look && v.look.extras ? v.look.extras.map((x) => x.label) : []);
+    return extras.length ? extras : null;
+  };
 
   // A version as an object: its picture (scrubbed under the pointer, opened in the player with a click),
   // its shot and the rest of its label, what is known of it, the boards it is on, and its menu. On the
@@ -2991,6 +2996,7 @@
   // Listed on a playlist, `open` is how it opens (the playlist playing from it) and `menu` comes first in its menu.
   function versionObj(project, entity, v, { list = false, tierName = (t) => t, day = false, kinds = false, tiers = false, open, menu = [] } = {}) {
     const views = verViews(v);
+    const extras = verExtras(v);
     const about = [
       list && clock(v.createdAt),
       list && tiers && tierName(v.tier),
@@ -3007,11 +3013,13 @@
         about,
         // Shown more than one way: its views, the main one first.
         views && `Views: ${views.join(', ')}`,
+        extras && `Extras: ${extras.join(', ')}`,
         !list && `Filed ${ago(v.createdAt)}${v.createdBy ? ` by ${v.createdBy}` : ''}${v.hidden ? ' · archived' : ''}`,
         list && v.hidden && 'Archived',
         verBoards(v, 4),
       ],
-      aside: [v.hidden && 'Archived', views && el('span', { text: plural(views.length, 'view'), title: `Views: ${views.join(', ')}` })].filter(Boolean),
+      aside: [v.hidden && 'Archived', views && el('span', { text: plural(views.length, 'view'), title: `Views: ${views.join(', ')}` }),
+        extras && el('span', { text: plural(extras.length, 'extra'), title: `Extras: ${extras.join(', ')}` })].filter(Boolean),
       cells: {
         kind: 'Version', where: entity.name,
         task: v.task || '—',
@@ -3499,17 +3507,20 @@
     const PHASE = { enc: 'Preparing', up: 'Uploading', strip: 'Building timeline', orig: 'Keeping the original' };
     const choiceOf = (r) => ({ name: r.fields.f.name(), task: r.fields.f.taskName() });
     const viewOf = (r) => r.fields.f.viewName();
+    const extraOf = (r) => r.fields.f.extraName();
     // The next number for a row: one past the highest its asset, set or shot and task has, counting the
     // rows above it still to be filed to the same. Another view of the row just above (the same name and
     // task, from the same version of the file) is the same version, and has its number.
     // The row a view goes with: another of the same asset, set or shot and task, from the same version of
     // the file (by the version its name says, when both say one), the main one first, above or below it.
     // Without a version in the names, the nearest row above going there.
+    // An extra goes with such a row too, one that is no extra, or else with the newest version there is.
     function partnerOf(r) {
       const view = viewOf(r);
-      if (!view) return null;
+      const extra = extraOf(r);
+      if (!view && !extra) return null;
       const { name, task } = choiceOf(r);
-      const others = rows.filter((o) => o !== r && o.fields && o.status !== 'failed' && viewOf(o) !== view
+      const others = rows.filter((o) => o !== r && o.fields && o.status !== 'failed' && (extra ? !extraOf(o) : viewOf(o) !== view && !extraOf(o))
         && choiceOf(o).name === name && choiceOf(o).task === task);
       if (r.parsed.hip != null) {
         const same = others.filter((o) => o.parsed.hip === r.parsed.hip);
@@ -3521,6 +3532,12 @@
     function nextNumber(r) {
       const { name, task } = choiceOf(r);
       const view = viewOf(r);
+      if (extraOf(r)) {
+        const partner = partnerOf(r);
+        if (partner) return partner.status === 'filed' && partner.version ? partner.version.number : Number(partner.fields.num.value) || nextNumber(partner);
+        const head = known(name) && known(name).heads && known(name).heads[task || ''];
+        return head ? head.number : '';
+      }
       if (view) {
         const partner = partnerOf(r);
         if (partner) {
@@ -3537,8 +3554,8 @@
       for (const o of rows) {
         if (o === r) break;
         if (o.status === 'filed' || !o.fields) continue;
-        // A view that goes with another row makes no version of its own.
-        if (viewOf(o) && partnerOf(o)) continue;
+        // A view that goes with another row makes no version of its own, nor does an extra.
+        if ((viewOf(o) && partnerOf(o)) || extraOf(o)) continue;
         const c = choiceOf(o);
         if (c.name === name && c.task === task) n = Math.max(n, (Number(o.fields.num.value) || n) + 1);
       }
@@ -3672,8 +3689,8 @@
         // Another view of the version the row above is: shown as going with it.
         const above = rows[rows.indexOf(r) - 1];
         const { task } = choiceOf(r);
-        r.node?.classList.toggle('with-above', !!(above && above.fields && viewOf(r) && unfiled(r) && unfiled(above)
-          && choiceOf(above).name === name && choiceOf(above).task === task && viewOf(above) !== viewOf(r) && Number(above.fields.num.value) === Number(num.value)));
+        r.node?.classList.toggle('with-above', !!(above && above.fields && (viewOf(r) || extraOf(r)) && unfiled(r) && unfiled(above)
+          && choiceOf(above).name === name && choiceOf(above).task === task && (extraOf(r) || viewOf(above) !== viewOf(r)) && Number(above.fields.num.value) === Number(num.value)));
         paintHead();
       };
       for (const input of [ent, task, num]) {
@@ -3760,7 +3777,7 @@
     async function unfileRow(r) {
       if (r.status !== 'filed' || !r.version) return;
       try {
-        await api('POST', `/api/versions/${r.version.id}/unfile`, { by: me.name });
+        await api('POST', `/api/versions/${r.version.id}/unfile`, { by: me.name, ...(r.version.filedExtra && { extra: r.version.filedExtra }) });
       } catch (err) {
         r.fields.undo.hidden = true;
         return fail(err);
@@ -3784,9 +3801,9 @@
       // A new sequence is said out loud once before it is made.
       if (!(await WBFiling.confirmSequences([r.fields.f], seqsAsked))) return;
       if (!canFile(r)) return;
-      // A view goes with its version, so the row that makes that version is filed first, then this counts from it.
+      // A view or an extra goes with its version, so the row that makes that version is filed first, then this counts from it.
       const partner = partnerOf(r);
-      if (partner && !viewOf(partner) && unfiled(partner) && (canFile(partner) || partner.inflight)) {
+      if (partner && !viewOf(partner) && !extraOf(partner) && unfiled(partner) && (canFile(partner) || partner.inflight)) {
         await fileRow(partner);
         r.fields.sync();
       }
@@ -3802,9 +3819,10 @@
       paintRow(r);
       try {
         const view = viewOf(r);
-        const res = await api('POST', `/api/projects/${project.id}/versions`, { files: [{ look: r.look, entity, task, view, ...(Number.isSafeInteger(number) && number >= 1 && { number }) }], by: me.name });
+        const extra = extraOf(r);
+        const res = await api('POST', `/api/projects/${project.id}/versions`, { files: [{ look: r.look, entity, task, view, ...(extra && { extra }), ...(Number.isSafeInteger(number) && number >= 1 && { number }) }], by: me.name });
         const v = res.versions[0];
-        Object.assign(r, { status: 'filed', label: v.filedView ? `${v.label} · ${v.filedView}` : v.label, version: v, filedAt: Date.now() });
+        Object.assign(r, { status: 'filed', label: v.filedView || v.filedExtra ? `${v.label} · ${v.filedView || v.filedExtra}` : v.label, version: v, filedAt: Date.now() });
         store(`wb:file:${project.id}`, { entity: name, task });
         // What is filed now has its number: the rows still to go count on from it.
         cat = null;

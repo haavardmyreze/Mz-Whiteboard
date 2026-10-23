@@ -1288,7 +1288,7 @@ function versionLabels() {
     return known.get(id);
   };
 }
-// A line of a project's Activity, or of the feed: a version filed, or a note written.
+// A line of a project's Activity: a version filed, or a note written.
 const versionLine = (v, entity, label) => ({ kind: 'version', at: v.createdAt, by: v.createdBy, entity, version: { id: v.id, label: label(v.id), thumb: v.thumb, kind: v.kind } });
 const noteLine = (n, entity, label) => ({
   kind: 'note', at: n.createdAt, by: n.data.name || n.createdBy, color: n.data.color, entity,
@@ -1737,50 +1737,6 @@ async function handleCatalogue(req, res, parts) {
   // GET /api/people: every name the app knows, for picking artists and people to keep in the loop.
   if (parts[1] === 'people' && parts.length === 2 && req.method === 'GET') {
     return sendJson(res, 200, { people: store.people() });
-  }
-  // GET /api/feed?name=: what is relevant to the person asking (signed in, or by the name given).
-  //   work: what they make: the assets, sets and shots they are an artist on, or have filed versions of
-  //   cc:   what they are cc'd on, as cards like work's
-  //   items: in the last two weeks: notes on their work (theirs too, marked `mine`), and versions filed
-  //          by others of their work and of what they are cc'd on
-  if (parts[1] === 'feed' && parts.length === 2 && req.method === 'GET') {
-    const url = new URL(req.url, 'http://x');
-    const name = req.user ? req.user.name : cleanName(url.searchParams.get('name'), null);
-    if (!name) return sendJson(res, 200, { work: [], items: [] });
-    const byId = new Map();
-    for (const e of store.entitiesOf(name)) byId.set(e.id, e);
-    for (const e of store.entitiesFiledBy(name)) if (!byId.has(e.id)) byId.set(e.id, { ...e, role: 'filed' });
-    for (const [id, e] of byId) if (!projectFor(e.projectId)) byId.delete(id);
-    const mine = [...byId.values()];
-    const isWork = (e) => e.role === 'artist' || e.role === 'filed';
-    const since = Date.now() - 14 * 24 * 3600 * 1000;
-    const { versions, notes } = store.happenings(mine.map((e) => e.id), since, 150);
-    const me = name.toLowerCase();
-    const about = (e) => ({ id: e.id, name: e.name, tier: e.tier, projectId: e.projectId, project: folders.get(e.projectId).name, role: e.role });
-    const label = versionLabels();
-    const items = [
-      ...versions.filter((v) => (v.createdBy || '').toLowerCase() !== me).map((v) => versionLine(v, about(byId.get(v.entityId)), label)),
-      ...notes.filter((n) => isWork(byId.get(n.entityId))).map((n) => {
-        const line = noteLine(n, about(byId.get(n.entityId)), label);
-        line.mine = (n.data.name || n.createdBy || '').toLowerCase() === me;
-        line.note.done = !!n.data.done;
-        line.note.board = n.boardId ? { id: n.boardId, name: boardNameFor(req.user, n.boardId, n.boardName, n.boardWorkspace) } : null;
-        return line;
-      }),
-    ].sort((a, b) => b.at - a.at).slice(0, 80);
-    const shown = store.entityCards(mine.map((e) => e.id));
-    const card = (e) => {
-      const c = shown.get(e.id) || { versions: 0, latestAt: null, thumb: null, newest: null };
-      return {
-        ...about(e), versions: c.versions, latestAt: c.latestAt, thumb: c.thumb,
-        newest: c.newest && { ...c.newest, label: naming.label(e.name, c.newest.task, c.newest.number) }, artists: e.artists, cc: e.cc,
-      };
-    };
-    const byLatest = (a, b) => (b.latestAt || 0) - (a.latestAt || 0) || a.name.localeCompare(b.name, undefined, { numeric: true });
-    const work = mine.filter(isWork).map(card).sort(byLatest);
-    // What they are cc'd on, the same way: its newest is what a browser keeps ahead for them.
-    const cc = mine.filter((e) => e.role === 'cc').map(card).sort(byLatest);
-    return sendJson(res, 200, { name, work, cc, items });
   }
   // GET /api/playlists/:id      the playlist, and its versions in order, each whole, to list and to play
   // PATCH { name }              renamed
@@ -2443,7 +2399,7 @@ async function handleApi(req, res, url) {
     if (!project) return sendJson(res, 404, { error: 'Project not found' });
     return handlePresentApi(req, res, url, project, parts[4] || '');
   }
-  if (['projects', 'entities', 'versions', 'playlists', 'people', 'feed'].includes(parts[1])) return handleCatalogue(req, res, parts);
+  if (['projects', 'entities', 'versions', 'playlists', 'people'].includes(parts[1])) return handleCatalogue(req, res, parts);
   if (parts[1] === 'library' && req.method === 'GET') {
     return sendJson(res, 200, {
       folders: [...folders.values()].filter((f) => canSee(req.user, f.workspace)).map(publicFolder),

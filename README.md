@@ -796,8 +796,7 @@ highest number each task of each entity has reached). `POST /api/projects/<folde
 `{ "names": [...], "tier" }` to set many up at once; `PATCH /api/entities/<id>` takes `name`, `tier`,
 `artists` and `cc`, and `PATCH /api/projects/<folder>/entities` takes `{ "ids": [...], "tier",
 "artists": { "add" | "remove" | "set": [...] }, "cc": { ... } }` to change many at once. `GET /api/people`
-lists the names the app knows, and `GET /api/feed?name=` is what happened lately to the work of the person named (and `cc`, what they are cc'd on, each with
-its newest version). No page asks for it now.
+lists the names the app knows.
 `GET /api/projects/<folder>/activity` what happened in the project in the last two weeks (versions
 filed and comments, newest first), `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest version,
 `GET /api/projects/<folder>/versions?before=` the project's versions newest first, 300 a page, each with
@@ -823,13 +822,13 @@ first word alone, `[{ "word", "seq" }]` and `[{ "word", "name" }]`).
 
 The newest version of an asset, set or shot and task is the one with the highest number (numbers can
 be set by hand); the newest of an asset, set or shot as a whole is the latest filed of those, one per
-task. Archived and deleted versions are never the newest. Cards, the timeline, a board's "newer" chip
-and the feed all mean this.
+task. Archived and deleted versions are never the newest. Cards, the timeline and a board's "newer" chip
+all mean this.
 
 `GET /api/notifications` lists comments written in the catalogue too: those have `board: null`, and
 any comment about a version has its `versionId`, `entityId` and `projectId` (open it at
 `#/f/<projectId>/catalogue/<entityId>`). The name of a board somebody cannot see is never given out
-(`null` in its place), in notes, the feed, versions or the catalogue.
+(`null` in its place), in notes, versions or the catalogue.
 
 A board's live connection (`/ws?board=<id>`): the page says `{ t: 'hello', name, color, cid }`, where
 `cid` is made afresh for each page load (at most 40 characters) and kept across its reconnections, and

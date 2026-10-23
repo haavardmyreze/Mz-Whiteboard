@@ -1714,7 +1714,7 @@ test('a version can be filed as something else, archived, and deleted once no bo
   assert.equal(added.ver, undefined);
 });
 
-test('a project is set up with its assets, sets and shots ahead, each with artists and people cc\'d, and a feed says what happened to them', async (t) => {
+test('a project is set up with its assets, sets and shots ahead, each with artists and people cc\'d', async (t) => {
   const s = start(4841);
   t.after(s.stop);
   await s.ready;
@@ -1747,35 +1747,6 @@ test('a project is set up with its assets, sets and shots ahead, each with artis
   assert.equal((await call('PATCH', `/api/entities/${shot.id}`, { name: 'kilo-0020' })).status, 409);
   assert.equal((await call('PATCH', `/api/entities/${shot.id}`, { tier: 'planet' })).status, 400);
   assert.deepEqual((await call('GET', '/api/people')).body.people, ['Anna', 'Erik']);
-
-  // a version filed by Ben and a note on it reach Erik's and Anna's feeds, not Ben's
-  const src = (await (await fetch(`${s.base}/api/upload?name=a.png`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
-  const v = (await call('POST', `/api/projects/${project.id}/versions`, { by: 'Ben', entity: shot.id, task: 'anim', files: [{ look: { type: 'image', src, name: 'a.png' } }] })).body.versions[0];
-  const room = await joiner(4841)(`entity=${shot.id}`, 'Anna');
-  t.after(() => room.ws.close());
-  room.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'feednote1', type: 'comment', on: v.id, text: 'Lovely timing' } }] }));
-  await pause(250);
-  // Erik is its artist: it is his work, and the note and the version by others reach him
-  const erik = (await call('GET', '/api/feed?name=erik')).body;
-  assert.deepEqual(erik.work.map((e) => [e.name, e.role, e.versions, e.newest.label]), [['kilo-0010', 'artist', 1, 'kilo-0010 anim v1']]);
-  assert.deepEqual(erik.items.map((i) => [i.kind, i.by, i.entity.name, i.version.label]), [['note', 'Anna', 'kilo-0010', 'kilo-0010 anim v1'], ['version', 'Ben', 'kilo-0010', 'kilo-0010 anim v1']]);
-  assert.equal(erik.items[0].note.text, 'Lovely timing');
-  // Anna is cc'd: new versions reach her, it is not her work
-  const anna = (await call('GET', '/api/feed?name=Anna')).body;
-  assert.deepEqual([anna.work, anna.items.map((i) => i.kind)], [[], ['version']]);
-  // and what she is cc'd on comes as cards with its newest, for her browser to keep ahead
-  assert.deepEqual(anna.cc.map((e) => [e.name, e.role, e.newest.id, e.newest.look.src]), [['kilo-0010', 'cc', v.id, src]]);
-  assert.deepEqual(erik.cc, []);
-  // Ben filed it: it is his work too, and Anna's note reaches him; his own version does not
-  const ben = (await call('GET', '/api/feed?name=Ben')).body;
-  assert.deepEqual([ben.work.map((e) => [e.name, e.role]), ben.items.map((i) => [i.kind, i.by])], [[['kilo-0010', 'filed']], [['note', 'Anna']]]);
-  // what you said yourself on your work is there too, marked as yours
-  const benRoom = await joiner(4841)(`entity=${shot.id}`, 'Ben');
-  t.after(() => benRoom.ws.close());
-  benRoom.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'feednote2', type: 'comment', on: v.id, text: 'Fixed in the next one' } }] }));
-  await pause(250);
-  const ben2 = (await call('GET', '/api/feed?name=Ben')).body;
-  assert.deepEqual(ben2.items.map((i) => [i.kind, i.by, i.mine]), [['note', 'Ben', true], ['note', 'Anna', false]]);
 });
 
 test('a project\'s timeline is every shot in order with its newest version, and a card knows its newest', async (t) => {

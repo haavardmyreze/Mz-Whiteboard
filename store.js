@@ -118,7 +118,7 @@ END;
 
 -- The catalogue of a project. An entity is an asset, a set or a shot; every version belongs to one. It
 -- can be there before anything is filed of it. artists and cc are names (JSON arrays): who makes it, and
--- who else follows it; both see what happens to it in their feed.
+-- who else follows it.
 CREATE TABLE IF NOT EXISTS entities (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
@@ -682,7 +682,7 @@ function openStore(dataDir) {
   const taskKey = (task) => task || '';
 
   // Which version is the newest, wherever that is asked (an entity's card, the timeline, a board's chip
-  // saying a newer one is there, the feed): of one task, the one with the highest number; of an entity
+  // saying a newer one is there): of one task, the one with the highest number; of an entity
   // as a whole, the most recently filed of those, one per task. Archived and deleted versions are never
   // the newest. A number can be set by hand, so within a task it is the number, not when it was filed,
   // that says which comes after which.
@@ -725,7 +725,7 @@ function openStore(dataDir) {
     return out;
   }
   const noCard = { versions: 0, latestAt: null, thumb: null, newest: null };
-  // The cards of some entities, by id (the feed's).
+  // The cards of some entities, by id.
   const entityCards = (ids) => (ids.length ? cards(ids.map(() => '?').join(', '), ids) : new Map());
 
   // The highest number each task of each entity has reached (deleted versions too: their numbers are
@@ -840,18 +840,6 @@ function openStore(dataDir) {
     });
     return { ok: true, entity: entity(id) };
   }
-  // Every entity with this person among its artists or cc, in any project (the caller sees which it may
-  // show). Named as both, they are its artist.
-  const readFollowed = db.prepare(`SELECT e.*, min(CASE p.role WHEN 'artist' THEN 0 ELSE 1 END) AS cc_only
-    FROM entity_people p JOIN entities e ON e.id = p.entity_id WHERE p.name_key = ? GROUP BY e.id`);
-  function entitiesOf(name) {
-    const key = String(name || '').trim().toLowerCase();
-    if (!key) return [];
-    return readFollowed.all(key).map((r) => ({ ...entityOf(r), role: r.cc_only ? 'cc' : 'artist' }));
-  }
-  // The entities this person has filed versions of (in any project): their work too, named or not.
-  const readFiledBy = db.prepare('SELECT DISTINCT e.* FROM versions v JOIN entities e ON e.id = v.entity_id WHERE lower(v.created_by) = ? AND v.deleted_at IS NULL');
-  const entitiesFiledBy = (name) => readFiledBy.all(String(name || '').trim().toLowerCase()).map(entityOf);
   // What happened lately to some entities: versions filed and notes written, newest first.
   function happenings(entityIds, since, limit = 80) {
     if (!entityIds.length) return { versions: [], notes: [] };
@@ -1115,7 +1103,7 @@ function openStore(dataDir) {
   return {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
-    transaction, entities, streamHeads, findVersions, projectFilers, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, entitiesOf, entitiesFiledBy, happenings, people, entityCount,
+    transaction, entities, streamHeads, findVersions, projectFilers, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, happenings, people, entityCount,
     addVersion, addView, projectViews, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
     note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesBesides, unfileVersion, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,

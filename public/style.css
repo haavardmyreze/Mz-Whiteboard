@@ -3049,14 +3049,24 @@ body.spectating #topbar .brand { pointer-events: none; }
    Its page fills the window under its title: the edit playing in the middle, the shots to put on it down its
    left and what is said about the shot on screen down its right; under them the bar that plays it, and its
    timeline. The timeline is drawn (animatic.js) on the dark bed the Timeline's close-up has, in both themes. */
-body.an-on main { display: flex; flex-direction: column; max-width: none; height: calc(100dvh - var(--bar)); padding-bottom: 16px; }
+body.an-on main { display: flex; flex-direction: column; max-width: none; height: calc(100dvh - var(--bar)); padding: 4px 20px 16px; }
+body.an-on .page-head { margin-top: 12px; }
+/* The app's sidebar gives the animatic its room: it is a drawer, opened from the bar, as on a narrow window. */
+body.an-on .side-toggle { display: grid; }
+body.an-on .side { position: fixed; z-index: 30; top: var(--bar); bottom: 0; left: 0; height: auto; background: var(--surface-1); box-shadow: var(--shadow-pop); transform: translateX(-105%); transition: transform 0.2s var(--ease); }
+body.an-on.side-open .side { transform: none; }
+body.an-on.side-open .side-scrim { display: block; position: fixed; z-index: 29; inset: var(--bar) 0 0 0; background: var(--backdrop); }
 body.an-on #content { flex: 1; min-height: 0; }
 .an { display: flex; flex-direction: column; height: 100%; margin-top: 12px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); }
 .an-top { flex: 1 1 auto; display: flex; min-height: 160px; }
 
-.an-bin { flex: none; display: flex; flex-direction: column; width: 232px; border-right: 1px solid var(--line); }
-.an-bin-head { padding: 8px; border-bottom: 1px solid var(--line); }
-.an-bin-q { width: 100%; height: var(--h-sm); padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: var(--fs-sm); }
+.an-bin { position: relative; flex: none; display: flex; flex-direction: column; width: 232px; border-right: 1px solid var(--line); }
+.an-bin[hidden] { display: none; }
+.an-bin-head { display: flex; align-items: center; gap: 4px; padding: 8px; border-bottom: 1px solid var(--line); }
+.an-bin-hide { flex: none; width: var(--h-sm); height: var(--h-sm); color: var(--muted); }
+.an-bin-hide svg { width: 14px; height: 14px; }
+.an-bin-head2 { padding: 12px 12px 2px; color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; }
+.an-bin-q { flex: 1; min-width: 0; width: 100%; height: var(--h-sm); padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: var(--fs-sm); }
 .an-bin-q:focus { border-color: var(--accent); outline: none; }
 .an-bin-list { flex: 1; min-height: 0; overflow: auto; padding: 4px 0 8px; }
 .an-bin-seq { display: flex; align-items: center; justify-content: space-between; padding: 12px 8px 4px 12px; color: var(--muted); font-size: var(--fs-cap); font-weight: 600; }
@@ -3069,6 +3079,24 @@ body.an-on #content { flex: 1; min-height: 0; }
 .an-shot-name { overflow: hidden; font-size: var(--fs-ui); font-weight: 500; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
 .an-shot-meta { color: var(--muted); font-size: var(--fs-cap); font-variant-numeric: tabular-nums; letter-spacing: 0; }
 .an-shot.none .an-shot-name { color: var(--text-2); font-weight: 400; }
+.an-sound .an-shot-still { display: grid; place-items: center; color: var(--muted); }
+.an-sound .an-shot-still svg { width: 16px; height: 16px; }
+.an-sound-off { flex: none; width: 24px; height: 24px; margin-left: auto; color: var(--muted); opacity: 0; }
+.an-sound-off svg { width: 12px; height: 12px; }
+.an-sound:hover .an-sound-off, .an-sound:focus-visible .an-sound-off { opacity: 1; }
+@media (hover: none) { .an-sound-off { opacity: 1; } }
+/* What is carried from the library to the timeline: its still and name, beside the pointer. */
+.an-carry { position: fixed; z-index: var(--z-tip); top: 0; left: 0; display: flex; align-items: center; gap: 8px; max-width: 240px; padding: 4px 10px 4px 4px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-1); box-shadow: var(--shadow-2); color: var(--text); font-size: var(--fs-sm); font-weight: 500; white-space: nowrap; pointer-events: none; }
+.an-carry img { width: 40px; height: 24px; object-fit: cover; }
+.an-carry-mark { display: grid; place-items: center; width: 24px; height: 24px; color: var(--muted); }
+.an-carry-mark svg { width: 16px; height: 16px; }
+.an-carry span:last-child { overflow: hidden; text-overflow: ellipsis; }
+body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
+/* A panel's inner edge, dragged to make it wider or narrower. */
+.an-edge { position: absolute; z-index: 3; top: 0; bottom: 0; width: 7px; cursor: col-resize; touch-action: none; }
+.an-edge.right { right: -4px; }
+.an-edge.left { left: -4px; }
+.an-edge:hover, .an-edge.held { background: linear-gradient(to right, transparent 3px, var(--accent) 3px, var(--accent) 4px, transparent 4px); }
 .an-bin-note { margin: 0; padding: 16px 12px; color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; }
 .an-bin-foot { padding: 8px; border-top: 1px solid var(--line); }
 .an-bin-foot .btn { width: 100%; }
@@ -3088,7 +3116,7 @@ body.an-on #content { flex: 1; min-height: 0; }
 .an-empty[hidden] { display: none; }
 .an-empty p { max-width: 320px; margin: 0; line-height: 1.6; }
 
-.an-notes { flex: none; display: flex; flex-direction: column; width: 288px; border-left: 1px solid var(--line); }
+.an-notes { position: relative; flex: none; display: flex; flex-direction: column; width: 288px; border-left: 1px solid var(--line); }
 .an-notes[hidden] { display: none; }
 .an-notes-head { padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .an-notes-title { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: var(--fs-ui); }

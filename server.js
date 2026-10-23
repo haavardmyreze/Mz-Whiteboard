@@ -1474,10 +1474,20 @@ function cleanAnimatic(asked, project) {
     }
   }
   clips.sort((x, y) => x.start - y.start);
+  // The sound files brought in, in its library whether or not they are on a track (each once, and every one
+  // on a track among them).
+  const sounds = [];
+  const addSound = (x) => {
+    const file = x && uploadName(x.media);
+    if (!file || store.media(file)?.kind !== 'audio' || sounds.some((y) => y.media === `/uploads/${file}`) || sounds.length >= 200) return;
+    sounds.push({ media: `/uploads/${file}`, name: String(x.name ?? '').slice(0, 200), dur: Number.isFinite(x.dur) && x.dur > 0 ? x.dur : null });
+  };
+  for (const x of Array.isArray(a.sounds) ? a.sounds : []) addSound(x);
+  for (const c of clips) if (c.media) addSound(c);
   const task = typeof a.task === 'string' ? naming.tokenize(a.task).slice(0, 40) || null : null;
   return {
     fps: ANIMATIC_RATES.includes(a.fps) ? a.fps : 25, w: wholeIn(a.w, 16, 8192, 1920), h: wholeIn(a.h, 16, 8192, 1080),
-    task, view: viewName(a.view) || '', tracks, clips,
+    task, view: viewName(a.view) || '', tracks, clips, sounds,
   };
 }
 

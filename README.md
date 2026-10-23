@@ -739,9 +739,14 @@ filed in it.
   the settings button of its bar): file a version and every animatic the shot is in plays it, and an
   animatic left open takes it in by itself within a few seconds, as it does what somebody else saved. A new
   animatic can start empty or with every filed shot in order, each as long as its newest version. Its page
-  is the edit playing in the middle, the project's shots down the left (drag one onto a track, double-click
-  to put it at the playhead, or Add all for a sequence), what is said about the shot on screen down the
-  right, and under them its bar and its timeline.
+  is the edit playing in the middle, its library down the left (the project's shots, and the sound files
+  brought in: drag one onto a track, double-click to put it at the playhead, or Add all for a sequence),
+  what is said about the shot on screen down the right, and under them its bar and its timeline. The app's
+  own sidebar makes way for it: on an animatic's page it is a drawer, opened with the button at the left of
+  the bar. The library and the comments are made wider or narrower at their inner edges, and the line above
+  the timeline gives it more room or less; the library is hidden and brought back with the button at the
+  start of the bar (or Shift+L) and the comments with the one at its end (Shift+C). All of it is kept by
+  this browser.
   - *Nothing moves by itself.* A clip keeps the length it was cut to. A newer version that is longer plays
     as much of it as the clip is long; one that is shorter leaves the clip short: it ends where the version
     ends, what is under it shows after that, and the part it lost is drawn as an outline saying how many
@@ -758,9 +763,11 @@ filed in it.
     another clip it is a dissolve into it. At a cut between two clips on one track the handle makes a
     dissolve centred on the cut. "Fade in and out by a second" and "No fades" are in a clip's menu (a
     right-click), with Loop, cutting in two at the playhead and opening the shot.
-  - *Sound.* Add sound file… (or a WAV, MP3, M4A, AAC, OGG or FLAC file dropped on the page or onto a sound
-    track) brings in music, a temp track or a voice-over: read here, sent up as it is, and put at the playhead
-    on the first sound track with room (or a new one). The first sound file turns the shots' own sound off,
+  - *Sound.* Add sound file… (or a WAV, MP3, M4A, AAC, OGG or FLAC file dropped on the page) brings in
+    music, a temp track or a voice-over: read here, sent up as it is, and kept in the library under Sounds,
+    to drag onto a sound track (onto one that is taken, it goes on the first with room, or a new one). One
+    dropped from the desktop onto a sound track goes there too, where it is let go. A sound that is on no
+    track can be taken out of the library. The first sound put on a track turns the shots' own sound off,
     each video track's button turns it back on. It plays through the browser's sound, which is also the
     clock the pictures keep to, so the edit stays in time with it; it is drawn as its waveform. A sound
     track's menu sets how loud it is.
@@ -771,15 +778,16 @@ filed in it.
     cut before or after, Home and End to the start and end, Ctrl+B cuts in two at the playhead, Delete
     deletes, Ctrl+Z and Ctrl+Shift+Z undo and redo (each person their own), M is the sound, C writes a
     comment, Shift+C folds the comments away, and Ctrl and the wheel (or + and -, or Shift+Z for all of
-    it) draw the timeline in and out. Click or drag on the ruler to move the playhead. The line between
-    the picture and the timeline drags to give either more room. Every change is saved a moment after it is
+    it) draw the timeline in and out. Click or drag on the ruler to move the playhead. The middle button,
+    held, is a hand: the timeline goes with it, along and down. Every change is saved a moment after it is
     made; one made on an older save than somebody else's is not saved, theirs is shown, and Undo brings
     back yours.
   - *Comments* are about the clip on top under the playhead, on the version it plays, as on the Timeline:
     they are that version's, so they are there in the catalogue and on every board it is on. A thread
     about a moment goes there when clicked.
   - *On the venue, in 3D.* In a project with a model of its venue, the 3D switch in the bar (or 3, and 2
-    to come back) shows the edit on it, as the player shows a piece: the clips showing are laid over one
+    to come back) shows the edit on it, with the player's own 3D view and controls, the same component: the
+    clips showing are laid over one
     another, fades and dissolves and all, and the venue's screens show them, each shot in the view the
     project puts on its model. Everything else goes on as in 2D: playing, scrubbing, the timeline, the
     sound. The model's cameras are beside the switch (the main one, the others under the arrow, and V goes
@@ -798,7 +806,7 @@ filed in it.
   - Its frame rate and shape are in that menu too ("Frame rate and shape…"): every position is a frame at
     its rate (it starts at the rate and shape most of the project's shots have), and changing it keeps each
     cut where it is in time. It can also be renamed, copied (to try another cut), pinned and deleted there. Editing
-    wants a desk: on a narrow window the list of shots, and then the comments, are left out.
+    wants a desk: on a narrow window the library, and then the comments, are left out.
 - **Changing many at once.** Select, above the catalogue, picks assets, sets and shots with a click
   (Shift and a click for every one between), or drag on empty space to draw a box over them, as in a
   file manager (with Shift, Ctrl or Cmd it adds to what is picked; the Versions list and an asset's

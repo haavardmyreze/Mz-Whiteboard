@@ -133,11 +133,13 @@ the edit on it:
 - **Its shape.** A new animatic starts at the shape most of the project's shots are (usualShape in server.js),
   so in a project with a venue, the unwrapped picture its screens show, and the canvas fills their UVs. Another
   shape is fitted into it on black.
-- **The rest is the player's.** The model's cameras (the main one, the others under the arrow, V for the next),
-  flying with W A S D Q E and a drag, and how the venue is drawn (the settings beside the switch: the same
-  settings as the player's, kept by the browser, `lookMenu` in viewer.js). Where it was left, whether in 3D and
-  where the view was, is kept for the tab by model, shared with the player (`wb:3dat:<model>`). The 3D view is
-  made once for the page and lent to the animatic open, as a browser keeps only so many drawing contexts going.
+- **The rest is the player's, the same component.** `venue` in viewer.js is how every player shows its piece on
+  the venue, and both the player and the animatic use it: the switch (with how far the venue has come while it
+  loads), how the venue is drawn (the same settings, kept by the browser), the model's cameras (V for the next),
+  flying with W A S D Q E and a drag, 2 and 3, the venue made ready ahead, where it was left (for the tab by
+  model, `wb:3dat:<model>`, so it opens as it was last seen in either), and the page's one 3D view, lent to
+  whichever is showing it. All a host does is lay out its own picture: the player its piece box, the animatic
+  its frame and the canvas of its layers.
 - **Comments** begun on the venue hold the view still where it is (framed as a comment's view is) and keep it
   as the comment's `pov`, so the comment is seen from there, here and in the player; picking one turns to the
   venue and goes there.
@@ -149,9 +151,17 @@ screen down the right, and under them the bar (play, step, the time, loop, the s
 the settings button, sound, show all of it, comments) and the timeline: track heads on the left, a ruler, and
 the tracks drawn on one canvas on the dark bed the Timeline's close-up has, in both themes.
 
-- **Putting shots on.** Drag one from the list onto a track, double-click it (or Enter) to put it at the
-  playhead on the track in use, or Add all for a sequence (at the end of V1). A new animatic can start with
-  every filed shot in order. Sound files come from Add sound file… or are dropped on the page or a sound track.
+- **The library** lists the project's shots, by sequence, and the sound files brought in (`doc.sounds`, kept by
+  the server with every sound on a track among them). A shot or a sound is carried onto the timeline with the
+  pointer (a press and a move: not the browser's drag and drop, which a page cannot steer), and while it is
+  carried the timeline shows where it would land, lined up with what is near; let go there, it is put down as
+  any clip is (writing over what is under it). Double-click (or Enter) puts it at the playhead on the track in
+  use; Add all puts a sequence at the end of V1. A new animatic can start with every filed shot in order. Sound
+  files come from Add sound file…, or dropped on the page, into the library; dropped from the desktop onto a
+  sound track, there as well.
+- **Room.** On an animatic's page the app's sidebar is a drawer (opened from the bar), the library and the
+  comments are dragged wider or narrower at their inner edges and hidden from the bar (Shift+L, Shift+C), and
+  the line above the timeline drags; all of it kept by the browser. The middle button, held, pans the timeline.
 - **Clips.** Each shows its shot's name and version in a band along its top and its frames under it (its colour
   strip until they come), a slate's stripes, or a sound's waveform. Loops are marked where they start over, a
   short clip's lost part is an outline, fades are slopes, dissolves a cross over the cut. Only what is picked

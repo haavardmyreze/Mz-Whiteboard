@@ -193,6 +193,215 @@ const WBViewer = (() => {
   }
 
 
+  // ---------------------------------------------------------------- the venue in 3D, one way for every player
+  //
+  // Whatever shows a piece of a project with a model of its venue (the player here, an animatic's page) shows
+  // it on the venue the same way, with this: the 2D / 3D switch (with how far the venue has come while it
+  // loads), how the venue is drawn, the model's cameras (its main one, the others under the arrow, V for the
+  // next), flying with W A S D Q E, 2 and 3, where it was left (for the tab, by model), the venue fetched and
+  // made ready ahead, and the page's one 3D view (view3d.js), lent to whichever of them is showing it, as a
+  // browser keeps only so many drawing contexts going. What a host does itself is say what it has and lay out
+  // its own picture: `host` gives
+  //   setting()      the project's 3D setting ({ model, screen, camera, view }), or null
+  //   can()          whether what it has open can be seen on the venue now
+  //   isOn()         whether it shows the venue
+  //   toggle(on)     shows the venue (having asked `ready()` for the view) or its own picture: the switch,
+  //                  and 2 and 3, call it
+  //   frameOf()      where the frame the view holds is on the page (a box laid out at `three.aspect()`)
+  //   holds(e)       whether a press on the venue is its own (a pen), not a move of the view
+  //   quiet()        whether the keys are its own just now (a pen in hand), not the view's
+  //   onFree(on)     the view left its frame to fly, or came to one
+  //   onLook()       the view went to another frame or moved: its box takes the frame's shape again
+  //   onLoad(k)      how much of the venue has come while it loads (null: not known; false: there)
+  //   toast(text)    how it says something (the venue could not be opened); WB.toast unless it says otherwise
+  let shared3d = null;
+  let lender = null; // the venue component the 3D view is lent to
+  const warmed3d = new Set();
+  async function makeView3d(setting, warm = false) {
+    const mod = await import('/view3d.js');
+    if (!shared3d) {
+      shared3d = mod.create({
+        onFree: (on) => { if (lender) lender.freed(on); },
+        frameOf: () => (lender ? lender.host.frameOf() : null),
+        holds: (e) => !!lender && lender.host.holds(e),
+      });
+      shared3d.setLook(lookShown());
+      listenLook((look) => shared3d.setLook(look));
+    }
+    await shared3d.load(setting);
+    if (warm) await shared3d.warm();
+    return shared3d;
+  }
+  function venue(host, { title = 'See it on the venue, in 3D. Key 3', back = 'Back to the picture as it is, in 2D. Key 2' } = {}) {
+    const ICON = WB.iconSet(20);
+    const d3Pct = el('span', { class: 'v-3dpct' });
+    const d3Btn = el('button', { type: 'button', class: 'iconbtn v-3d-btn', html: ICON.cube, title, 'aria-label': '3D', 'aria-pressed': 'false', onclick: () => host.toggle(!host.isOn()) }, d3Pct);
+    const lookBtn = el('button', { type: 'button', class: 'iconbtn v-look-btn', html: ICON.settings, title: 'How the venue is drawn', 'aria-label': '3D view settings', 'aria-haspopup': 'menu', 'aria-expanded': 'false', hidden: true, onclick: () => lookMenu(lookBtn) });
+    const dims = el('span', { class: 'bar-group v-dims', hidden: true }, d3Btn, lookBtn);
+    const camBtn = el('button', { type: 'button', class: 'iconbtn v-cam', html: ICON.focus, title: 'Look through the main camera. V goes on to the next camera', 'aria-label': 'Main camera', 'aria-pressed': 'false', onclick: () => look('main') });
+    const camMore = el('button', { type: 'button', class: 'iconbtn v-cam-more', html: ICON.chevron, title: "The model's other cameras", 'aria-haspopup': 'menu', onclick: () => cameraMenu() });
+    const cams = el('span', { class: 'bar-group v-cams', hidden: true }, camBtn, camMore);
+    const me = { host, freed: (on) => { host.onFree(on); paint(); } };
+    const owns = () => lender === me && !!shared3d;
+    const showing = () => host.isOn() && owns();
+
+    // The view, with the venue in it, lent to this host: fetched (how far it has come on the switch) and made
+    // the first time. Null if it could not be.
+    async function ready() {
+      const setting = host.setting();
+      if (!setting || !setting.model) return null;
+      d3Btn.disabled = true;
+      d3Btn.classList.add('loading');
+      d3Btn.title = 'Loading the venue…';
+      let mod = null;
+      import('/view3d.js').then((m) => { mod = m; }, () => {});
+      const counting = setInterval(() => {
+        const k = mod ? mod.progress(setting.model) : 0;
+        d3Pct.textContent = k == null ? '…' : `${Math.round(k * 100)}%`;
+        host.onLoad(k);
+      }, 150);
+      host.onLoad(0);
+      try {
+        await makeView3d(setting);
+        lender = me;
+        return shared3d;
+      } catch (err) {
+        console.warn('The 3D view could not be opened:', err);
+        (host.toast || WB.toast)("The project's 3D model could not be opened", { ms: 5000 });
+        return null;
+      } finally {
+        clearInterval(counting);
+        host.onLoad(false);
+        d3Btn.disabled = false;
+        d3Btn.classList.remove('loading');
+        d3Pct.textContent = '';
+        paint();
+      }
+    }
+    // Fetched and made ready a moment after, when the page has nothing better to do, so the switch is quick.
+    // Once a model.
+    function prepare(setting = host.setting(), delay = 0) {
+      if (!setting || !setting.model || warmed3d.has(setting.model)) return;
+      warmed3d.add(setting.model);
+      const run = async () => {
+        try {
+          const mod = await import('/view3d.js');
+          await mod.preload(setting.model);
+          if (!host.isOn()) await makeView3d(setting, true);
+        } catch {
+          warmed3d.delete(setting.model);
+        }
+      };
+      setTimeout(() => (window.requestIdleCallback ? requestIdleCallback(run, { timeout: 600 }) : run()), delay);
+    }
+
+    // The view goes to another frame: a camera of the model's ('main', or its number), a comment's place, or,
+    // with none given, holds still where it is, framed as a comment's view is.
+    function look(pov, animate = true) {
+      if (!showing()) return;
+      if (pov === undefined) shared3d.hold();
+      else shared3d.goTo(pov, animate);
+      host.onLook();
+      paint();
+    }
+    // V: on a camera of the model's, the next one (the last comes round to the first); anywhere else (flying,
+    // or on a comment's frame), the main camera.
+    function next() {
+      if (!showing()) return;
+      const on = shared3d.camera();
+      look(on < 0 || shared3d.isFree() ? 'main' : (on + 1) % shared3d.cameras().length);
+    }
+    function cameraMenu() {
+      if (!showing()) return;
+      const names = shared3d.cameras();
+      const main = shared3d.mainCamera();
+      const on = shared3d.camera();
+      // Every camera of the model, the main one too (marked so), with a tick on the one looked through.
+      WB.menu(camMore, names.map((name, i) => el('button', {
+        type: 'button', class: `menu-item menu-check${i === on ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(i === on),
+        onclick: (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          WB.closeMenus();
+          look(i);
+        },
+      }, el('span', { class: 'menu-tick', html: i === on ? ICON.check : '' }), el('span', { text: name || 'Camera' }), i === main && !/^main$/i.test(name) && el('span', { class: 'menu-note', text: 'main' }))));
+    }
+    // The venue's keys: true when the key was taken. On the venue, W A S D Q E fly (unless the host's keys are
+    // its own) and V goes on to the next camera; 2 and 3 switch, where what is open can be seen on it.
+    function key(e) {
+      const plain = !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
+      if (showing() && !host.quiet() && shared3d.key(e, true)) {
+        host.onLook();
+        paint();
+        return true;
+      }
+      if (showing() && plain && e.key.toLowerCase() === 'v') {
+        next();
+        return true;
+      }
+      if (plain && (e.code === 'Digit2' || e.code === 'Digit3') && host.can()) {
+        host.toggle(e.code === 'Digit3');
+        return true;
+      }
+      return false;
+    }
+
+    // Where the venue was last seen from in this tab (sessionStorage, by model): whether it was shown, and where
+    // the view was. Shared by every host, so what opens next opens that way.
+    const placeKey = () => {
+      const setting = host.setting();
+      return setting && setting.model ? `wb:3dat:${setting.model}` : '';
+    };
+    function remember() {
+      if (!placeKey() || !host.can()) return;
+      try {
+        sessionStorage.setItem(placeKey(), JSON.stringify(showing() ? { on: 1, at: shared3d.where() } : { on: 0 }));
+      } catch {
+        // Storage can be blocked: it opens in 2D.
+      }
+    }
+    // `still()` says whether what was open is still what is open once the venue is up.
+    async function recall(still = () => true) {
+      if (host.isOn() || !host.can() || !placeKey()) return;
+      let was = null;
+      try {
+        was = JSON.parse(sessionStorage.getItem(placeKey()));
+      } catch {
+        return;
+      }
+      if (!was || !was.on) return;
+      await host.toggle(true);
+      if (!showing() || !still() || !was.at || !shared3d.place(was.at)) return;
+      host.onLook();
+      paint();
+    }
+
+    function paint() {
+      const on = showing();
+      dims.hidden = !host.can();
+      lookBtn.hidden = !on;
+      d3Btn.setAttribute('aria-pressed', String(host.isOn()));
+      if (!d3Btn.disabled) d3Btn.title = host.isOn() ? back : title;
+      cams.hidden = !on;
+      if (!on) return;
+      camBtn.setAttribute('aria-pressed', String(shared3d.camera() === shared3d.mainCamera() && !shared3d.isFree()));
+      camMore.hidden = shared3d.cameras().length < 2;
+    }
+
+    return {
+      dims, cams, ready, prepare, look, next, key, remember, recall, paint, owns,
+      // The page's 3D view, while it is lent to this host.
+      three: () => (owns() ? shared3d : null),
+      // Stops showing the venue here: the view stops, and its canvas comes down.
+      putAway() {
+        if (!owns()) return;
+        shared3d.stop();
+        shared3d.canvas.remove();
+      },
+    };
+  }
+
   // ---------------------------------------------------------------- going to a moment
   //
   // A video asked for a new moment while it is still finding the last one starts over. Firefox does so
@@ -442,24 +651,41 @@ const WBViewer = (() => {
     const dlBtn = el('button', { class: 'iconbtn', html: ICON.download, title: 'Download the original media', onclick: () => opts.download && open && opts.download(open) });
     const zoomBtn = el('button', { class: 'btn ghost v-zoom', html: ICON.fit, title: 'Fitted to the screen. Click for actual size', onclick: () => toggleZoom() });
     const doneBtn = el('button', { class: 'btn primary', text: 'Done', title: 'Close (Esc)', onclick: () => close() });
-    // In a project with a model of its venue, the piece can be seen on it (view3d.js): 2D or 3D, and in 3D
-    // the model's cameras to look through: its main one, and the others under the arrow beside it.
-    // One switch: pressed, the picture is on the venue; and while the venue is still on its way, how much has come.
-    const d3Pct = el('span', { class: 'v-3dpct' });
-    const D3_TITLE = 'See it on the venue, in 3D. Key 3';
-    const d3Btn = el('button', { class: 'iconbtn v-3d-btn', html: ICON.cube, title: D3_TITLE, 'aria-label': '3D', 'aria-pressed': 'false', onclick: () => set3d(!in3d) }, d3Pct);
-    const lookBtn = el('button', { class: 'iconbtn v-look-btn', html: ICON.settings, title: 'How the venue is drawn', 'aria-label': '3D view settings', 'aria-haspopup': 'menu', 'aria-expanded': 'false', hidden: true, onclick: () => lookMenu(lookBtn) });
-    const dims = el('span', { class: 'bar-group v-dims', hidden: true }, d3Btn, lookBtn);
-    const camBtn = el('button', { class: 'iconbtn v-cam', html: ICON.focus, title: 'Look through the main camera. V goes on to the next camera', 'aria-label': 'Main camera', 'aria-pressed': 'false', onclick: () => toCamera('main') });
-    const camMore = el('button', { class: 'iconbtn v-cam-more', html: ICON.chevron, title: "The model's other cameras", 'aria-haspopup': 'menu', onclick: () => cameraMenu() });
-    const camGroup = el('span', { class: 'bar-group v-cams', hidden: true }, camBtn, camMore);
+    // In a project with a model of its venue, the piece can be seen on it (view3d.js), the way every player
+    // shows it (venue, above): its switch, how it is drawn and its cameras are in the bar.
+    const venue3d = venue({
+      setting: () => opts.view3d || null,
+      can: () => has3d(),
+      isOn: () => in3d,
+      toggle: (on) => set3d(on),
+      frameOf: () => pieceBox.getBoundingClientRect(),
+      // Drawing, erasing and pointing are done on the frame held; any other press moves the view.
+      holds: (e) => e.button === 0 && !spaceDown && (tool === 'pen' || tool === 'eraser' || tool === 'laser'),
+      quiet: () => tool === 'pen' || tool === 'eraser',
+      onFree: (on) => {
+        if (on && (tool === 'pen' || tool === 'eraser')) setTool('pan');
+        paintInk();
+        emit('3d');
+      },
+      onLook: () => {
+        emit('3d');
+        if (in3d && three && Math.round(1600 / three.aspect()) !== H) {
+          sizeBox();
+          fit();
+        }
+        paintInk();
+      },
+      // (Whoever watches is told too: following somebody into 3D, the button is not there to see.)
+      onLoad: (k) => emit('3dload', k),
+      toast: (text, o) => toast(text, o),
+    });
     const brand = el('a', { class: 'brand', href: '/', title: 'All boards' }, el('span', { class: 'logomark', html: (document.querySelector('[data-logo-slot] svg') || {}).outerHTML || '' }), el('span', { class: 'wordmark', text: 'Boards' }));
     const bar = el('header', { class: 'appbar chrome v-bar' },
       brand,
       el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' }), crumb,
       el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' }),
       el('span', { class: 'stepper' }, prevBtn, posEl, nextBtn),
-      nameEl, el('div', { class: 'spacer' }), clearBtn, camGroup, filesBtn, extras, dims,
+      nameEl, el('div', { class: 'spacer' }), clearBtn, venue3d.cams, filesBtn, extras, venue3d.dims,
       el('span', { class: 'bar-group' }, dlBtn, zoomBtn),
       WB.themeButton(), doneBtn);
     // On a phone there is no room for the panel's brush: the viewer's own few tools sit along the bottom.
@@ -885,93 +1111,29 @@ const WBViewer = (() => {
         if (three.canvas.parentNode !== stage) stage.prepend(three.canvas);
         three.setSource(media);
         three.start();
-      } else if (three) {
-        three.stop();
-        three.canvas.remove();
-      }
+      } else venue3d.putAway();
     }
 
-    // ---- 3D: the piece on the project's model of its venue (view3d.js)
+    // ---- 3D: the piece on the project's model of its venue (view3d.js, through venue above)
 
     let in3d = false;
-    let three = null; // the 3D view, made the first time it is asked for
+    let three = null; // the page's 3D view, while it is lent to this player (see venue)
     let busy3d = false; // following somebody into 3D (see follow3d)
     let next3d = null;
     // An extra shown in a piece's place is looked at as it is, never on the venue.
     const has3d = () => !!(opts.view3d && opts.view3d.model) && (!opts.can3d || (!!open && opts.can3d(open))) && !(open && (open.shownEx || '') !== (open.ex || ''));
-    // A piece that can be seen on the model open, the 3D view and the model are fetched ahead, a moment
-    // after, so the switch is there at once (the piece's own picture comes first). Once a model.
-    // The view itself is made then too, the model put in it and what draws it compiled, which is the rest of
-    // the wait: switching is then only showing it.
-    const warmed = new Set();
+    // A piece that can be seen on the model open, the venue is fetched and made ready a moment after, so the
+    // switch is there at once (the piece's own picture comes first).
     function warm3d() {
-      if (has3d()) prepare3d(opts.view3d, 1500);
-    }
-    // Made ready for a project's model whether or not anything is open: a page that knows its project has one
-    // asks for this as it opens, so a refresh does not leave the whole of it to the moment 3D is pressed.
-    // (What is fetched is in the browser's cache after the first time; what is made has to be made again.)
-    function prepare3d(setting, delay = 0) {
-      if (!setting || !setting.model || warmed.has(setting.model)) return;
-      warmed.add(setting.model);
-      const run = async () => {
-        try {
-          const mod = await import('/view3d.js');
-          await mod.preload(setting.model);
-          if (!in3d) await readyThree(mod, setting, true);
-        } catch {
-          warmed.delete(setting.model);
-        }
-      };
-      // When the page has nothing better to do, and soon whatever it is doing.
-      setTimeout(() => (window.requestIdleCallback ? requestIdleCallback(run, { timeout: 600 }) : run()), delay);
-    }
-    // The 3D view, made the first time it is wanted, with the project's model in it.
-    async function readyThree(mod, setting, warm = false) {
-      if (!three) {
-        three = mod.create({
-          onFree: (on) => { if (on && (tool === 'pen' || tool === 'eraser')) setTool('pan'); paintDims(); paintInk(); emit('3d'); },
-          frameOf: () => pieceBox.getBoundingClientRect(),
-          // Drawing, erasing and pointing are done on the frame held; any other press moves the view.
-          holds: (e) => e.button === 0 && !spaceDown && (tool === 'pen' || tool === 'eraser' || tool === 'laser'),
-        });
-        three.setLook(lookShown());
-        listenLook((look) => three.setLook(look));
-      }
-      await three.load(setting);
-      if (warm) await three.warm();
+      if (has3d()) venue3d.prepare(opts.view3d, 1500);
     }
     async function set3d(on) {
       on = !!on && has3d() && !!open;
       if (on === in3d) return;
       if (on) {
-        d3Btn.disabled = true;
-        // Not fetched ahead yet (see warm3d): how far it has come, on the button, till it is there.
-        d3Btn.classList.add('loading');
-        d3Btn.title = 'Loading the venue…';
-        let mod = null;
-        // (Whoever watches is told too: following somebody into 3D, the button is not there to see.)
-        const counting = setInterval(() => {
-          const k = mod ? mod.progress(opts.view3d.model) : 0;
-          d3Pct.textContent = k == null ? '…' : `${Math.round(k * 100)}%`;
-          emit('3dload', k);
-        }, 150);
-        emit('3dload', 0);
-        try {
-          mod = await import('/view3d.js');
-          await readyThree(mod, opts.view3d);
-        } catch (err) {
-          console.warn('The 3D view could not be opened:', err);
-          toast("The project's 3D model could not be opened", { ms: 5000 });
-          return;
-        } finally {
-          clearInterval(counting);
-          emit('3dload', false);
-          d3Btn.disabled = false;
-          d3Btn.classList.remove('loading');
-          d3Pct.textContent = '';
-          d3Btn.title = D3_TITLE;
-        }
-        if (!open) return;
+        // Not fetched ahead yet (see warm3d): how far it has come is on the switch till it is there.
+        three = await venue3d.ready();
+        if (!three || !open) return;
       }
       // A drawing half made belongs to the view it was made in.
       if (draft && draft.strokes.length) {
@@ -990,43 +1152,7 @@ const WBViewer = (() => {
     }
     // The view goes to another frame (a camera of the model's, a comment's place: see view3d.js), and the
     // piece box takes its shape.
-    function look(pov, animate = true) {
-      if (!in3d || !three) return;
-      if (pov === undefined) three.hold();
-      else three.goTo(pov, animate);
-      emit('3d');
-      if (Math.round(1600 / three.aspect()) !== H) {
-        sizeBox();
-        fit();
-      }
-      paintDims();
-      paintInk();
-    }
-    const toCamera = (n) => look(n);
-    // V: on a camera of the model's, the next one (the last comes round to the first); anywhere else (flying,
-    // or on a comment's frame), the main camera.
-    function nextCamera() {
-      if (!in3d || !three) return;
-      const on = three.camera();
-      const n = three.cameras().length;
-      toCamera(on < 0 || three.isFree() ? 'main' : (on + 1) % n);
-    }
-    function cameraMenu() {
-      if (!in3d || !three) return;
-      const names = three.cameras();
-      const main = three.mainCamera();
-      const on = three.camera();
-      // Every camera of the model, the main one too (marked so), with a tick on the one looked through.
-      WB.menu(camMore, names.map((name, i) => el('button', {
-        type: 'button', class: `menu-item menu-check${i === on ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(i === on),
-        onclick: (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          WB.closeMenus();
-          toCamera(i);
-        },
-      }, el('span', { class: 'menu-tick', html: i === on ? ICON.check : '' }), el('span', { text: name || 'Camera' }), i === main && !/^main$/i.test(name) && el('span', { class: 'menu-note', text: 'main' }))));
-    }
+    const look = (pov, animate = true) => venue3d.look(pov, animate);
     // In 3D a comment is made from where the view is: the moment one is begun (the pen taken up, the box
     // clicked into, a comment sent), the view holds still there, framed 16:9, and that frame goes with the
     // comment. A drawing begun already keeps the frame it was begun in, and the view goes back to it.
@@ -1037,50 +1163,14 @@ const WBViewer = (() => {
     }
     const povHere = () => (in3d && three ? three.pose() : null);
 
-    // Where the venue was last seen from in this tab (sessionStorage, by model): whether the player was in
-    // 3D, and where the view was. Kept as the player closes, and as the page goes, wherever it could have
-    // been in 3D; the next piece opened in this project opens that way.
-    const placeKey = () => (opts.view3d && opts.view3d.model ? `wb:3dat:${opts.view3d.model}` : '');
-    function remember3d() {
-      if (!placeKey() || !has3d()) return;
-      try {
-        sessionStorage.setItem(placeKey(), JSON.stringify(in3d && three ? { on: 1, at: three.where() } : { on: 0 }));
-      } catch {
-        // Storage can be blocked: it opens in 2D.
-      }
-    }
+    // Where the venue was last seen from in this tab is kept as the player closes, and as the page goes (venue).
+    const remember3d = () => venue3d.remember();
     window.addEventListener('pagehide', () => { if (open) remember3d(); });
-    async function recall3d() {
-      if (in3d || !has3d()) return;
-      let was = null;
-      try {
-        was = JSON.parse(sessionStorage.getItem(placeKey()));
-      } catch {
-        return;
-      }
-      if (!was || !was.on) return;
+    function recall3d() {
       const id = open.id;
-      await set3d(true);
-      if (!in3d || !three || !open || open.id !== id || !was.at || !three.place(was.at)) return;
-      emit('3d');
-      if (Math.round(1600 / three.aspect()) !== H) {
-        sizeBox();
-        fit();
-      }
-      paintDims();
-      paintInk();
+      return venue3d.recall(() => !!open && open.id === id);
     }
-
-    function paintDims() {
-      dims.hidden = !has3d();
-      lookBtn.hidden = !(in3d && three);
-      d3Btn.setAttribute('aria-pressed', String(in3d));
-      d3Btn.title = in3d ? 'Back to the picture as it is, in 2D. Key 2' : D3_TITLE;
-      camGroup.hidden = !(in3d && three);
-      if (camGroup.hidden) return;
-      camBtn.setAttribute('aria-pressed', String(three.camera() === three.mainCamera() && !three.isFree()));
-      camMore.hidden = three.cameras().length < 2;
-    }
+    const paintDims = () => venue3d.paint();
     // Made in 3D, a drawing is seen from where it was drawn only; drawn on the picture, on the picture only.
     const drawnHere = (c) => (c.pov ? in3d && !!three && three.at(c.pov) : !in3d);
 
@@ -2804,24 +2894,12 @@ const WBViewer = (() => {
         e.stopImmediatePropagation();
         return;
       }
-      // In 3D, W A S D Q E fly (unless a pen is in hand) and V goes on to the next camera.
-      if (in3d && three && tool !== 'pen' && tool !== 'eraser' && three.key(e, true)) {
+      // The venue's keys: W A S D Q E fly (unless a pen is in hand), V goes on to the next camera, and 2 and 3
+      // switch between the picture and the venue (venue, above).
+      if (venue3d.key(e)) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        paintDims();
-        paintInk();
         return;
-      }
-      if (in3d && three && k === 'v' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        return void nextCamera();
-      }
-      // 2 and 3 switch between the picture and the venue, where the project has a model of it.
-      if ((e.code === 'Digit2' || e.code === 'Digit3') && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && has3d()) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        return void set3d(e.code === 'Digit3');
       }
       // Enter works a button that has the keyboard; Space always plays and pauses, even when a button
       // clicked a moment ago still has it.
@@ -2928,7 +3006,7 @@ const WBViewer = (() => {
         if (video) video.muted = !soundWanted;
         if (spare) spare.video.muted = !soundWanted;
       },
-      prepare3d: (setting) => prepare3d(setting),
+      prepare3d: (setting) => venue3d.prepare(setting),
       // Hears what the player does, whatever host it has; returns how to stop.
       watch(fn) {
         watchers.add(fn);
@@ -3487,7 +3565,7 @@ const WBViewer = (() => {
 
   return {
     create, openEntity, openRun, runPieces, usualView, entityRoom, inView, optionsButton, viewGroup, ICON, INK, inkColor, pathData, outlinePath, strokeNode, fmtTime, fmtMoment, timeLabel, cycleTimeMode,
-    frameTime, frameIndex, lastFrame, goTo, whereOf, changing, switchSource, fetchWhole, releaseWhole, showWave, lookShown, listenLook, lookMenu,
+    frameTime, frameIndex, lastFrame, goTo, whereOf, changing, switchSource, fetchWhole, releaseWhole, showWave, venue,
     timeMode: () => timeMode,
   };
 })();

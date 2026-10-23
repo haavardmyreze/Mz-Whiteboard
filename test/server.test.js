@@ -3255,6 +3255,10 @@ test('an animatic is an edit of a project\'s shots that always plays their newes
   assert.deepEqual(doc.clips.map((c) => c.id), ['c1', 'c5', 'c2']);
   assert.deepEqual([doc.clips[0].fadeIn, doc.clips[0].fadeOut, doc.clips[0].loop], [30, 18, true]);
   assert.deepEqual([doc.clips[1].media, doc.clips[1].dur], [audio, 10]);
+  // its library lists the sound files brought in, those on a track among them
+  assert.deepEqual(doc.sounds, [{ media: audio, name: 'music.wav', dur: 10 }]);
+  const listed = await call('PATCH', `/api/animatics/${a.animatic.id}`, { rev: saved.body.rev, doc: { ...doc, sounds: [{ media: audio, name: 'music.wav', dur: 10 }, { media: notAudio, name: 'b.png' }, { media: '/uploads/nothere.wav' }] } });
+  assert.deepEqual(listed.body.doc.sounds.map((x) => x.media), [audio]);
   assert.equal(doc.clips[2].dissolve, 12);
 
   // shots added from elsewhere go on the end of V1, and need no save to have been read

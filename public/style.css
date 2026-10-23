@@ -3046,18 +3046,26 @@ body.spectating #topbar .brand { pointer-events: none; }
 
 /* ---------------------------------------------------------------- an animatic
 
-   Its page fills the window under its title: the edit playing in the middle, the shots to put on it down its
-   left and what is said about the shot on screen down its right; under them the bar that plays it, and its
-   timeline. The timeline is drawn (animatic.js) on the dark bed the Timeline's close-up has, in both themes. */
-body.an-on main { display: flex; flex-direction: column; max-width: none; height: calc(100dvh - var(--bar)); padding: 4px 20px 16px; }
-body.an-on .page-head { margin-top: 12px; }
+   Its page takes the whole window under the bar, edge to edge, as a board does: where it is goes in the bar
+   (#barpath), and the page has no heading. The edit plays in the middle under a bar of how it is seen, the shots
+   to put on it are down its left and what is said about the shot on screen down its right; under them the
+   timeline's bar (its tools, playing, how it is drawn), and the timeline. The timeline is drawn (animatic.js) on
+   the dark bed the Timeline's close-up has, in both themes. */
+body.an-on main { display: flex; flex-direction: column; max-width: none; height: calc(100dvh - var(--bar)); padding: 0; }
+body.an-on .page-head, body.an-on .home-head .search, body.an-on .search-toggle, body.an-on .wm-by { display: none; }
+.bar-path { flex: 0 1 auto; display: flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
+.bar-path[hidden] { display: none; }
+.bar-path .bar-crumb { flex-shrink: 1; display: inline-flex; align-items: center; color: var(--muted); font-weight: 500; text-decoration: none; }
+.bar-path .bar-crumb:hover { color: var(--text); }
+.bar-here { flex: 0 1 auto; min-width: 0; padding: 0 6px 0 8px; overflow: hidden; color: var(--text); font-size: var(--fs-ui); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 699px) { .bar-path .bar-way, .bar-path .bar-way + .bar-slash { display: none; } }
 /* The app's sidebar gives the animatic its room: it is a drawer, opened from the bar, as on a narrow window. */
 body.an-on .side-toggle { display: grid; }
 body.an-on .side { position: fixed; z-index: 30; top: var(--bar); bottom: 0; left: 0; height: auto; background: var(--surface-1); box-shadow: var(--shadow-pop); transform: translateX(-105%); transition: transform 0.2s var(--ease); }
 body.an-on.side-open .side { transform: none; }
 body.an-on.side-open .side-scrim { display: block; position: fixed; z-index: 29; inset: var(--bar) 0 0 0; background: var(--backdrop); }
 body.an-on #content { flex: 1; min-height: 0; }
-.an { display: flex; flex-direction: column; height: 100%; margin-top: 12px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface-1); }
+.an { display: flex; flex-direction: column; height: 100%; overflow: hidden; background: var(--surface-1); }
 .an-top { flex: 1 1 auto; display: flex; min-height: 160px; }
 
 .an-bin { position: relative; flex: none; display: flex; flex-direction: column; width: 232px; border-right: 1px solid var(--line); }
@@ -3106,6 +3114,12 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 .an-act:hover { background: var(--hover); color: var(--text); }
 .an-act.danger:hover { color: var(--danger); }
 
+.an-view { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+/* Over the picture, as over the player's: the panels' switches at its ends, the shot on screen, how it is seen. */
+.an-vbar { flex: none; display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 4px; border-bottom: 1px solid var(--line); }
+.an-vbar .iconbtn { flex: none; }
+.an-vbar .iconbtn svg { width: 16px; height: 16px; }
+.an-vbar .iconbtn.off { color: var(--muted); }
 .an-stage { position: relative; flex: 1; display: grid; place-items: center; min-width: 0; overflow: hidden; background: var(--viewer-bg); }
 .an-frame { position: relative; overflow: hidden; background: #000; }
 .an-layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; visibility: hidden; }
@@ -3142,14 +3156,18 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 .an-note-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .an-note-at { color: var(--muted); font-size: var(--fs-cap); font-variant-numeric: tabular-nums; }
 
-.an-bar { flex: none; display: flex; align-items: center; gap: 2px; height: 44px; padding: 0 8px; border-top: 1px solid var(--line); }
+/* The timeline's bar: its tools and snapping, playing it in the middle, how it is drawn at the end. */
+.an-bar { flex: none; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; height: 44px; padding: 0 8px; border-top: 1px solid var(--line); }
+.an-bar-side, .an-transport, .an-tools { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.an-bar-side.end { justify-content: flex-end; }
+.an-sep { flex: none; width: 1px; height: 20px; margin: 0 6px; background: var(--line); }
 .an-bar .iconbtn { flex: none; }
 .an-bar .iconbtn svg { width: 16px; height: 16px; }
 .an-bar .iconbtn.off { color: var(--muted); }
 .an-time { flex: none; min-width: 112px; height: var(--h-sm); margin: 0 4px; padding: 0 8px; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text); font: inherit; font-size: var(--fs-sm); font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; cursor: pointer; }
 .an-time:hover { background: var(--hover); }
 .an-loop { color: var(--muted); }
-.an-now { display: flex; align-items: baseline; gap: 6px; min-width: 0; margin-left: 8px; overflow: hidden; font-size: var(--fs-ui); white-space: nowrap; }
+.an-now { display: flex; align-items: baseline; gap: 6px; min-width: 0; margin-left: 4px; overflow: hidden; font-size: var(--fs-ui); white-space: nowrap; }
 .an-now b { font-weight: 600; }
 .an-now span { overflow: hidden; color: var(--muted); text-overflow: ellipsis; }
 .an-opts { display: contents; }
@@ -3177,6 +3195,13 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 .an-head .iconbtn.off { color: var(--muted); }
 .an-head.muted.audio .an-head-name, .an-head.hidden-track .an-head-name { color: var(--muted); }
 .an-head-gap { border-bottom: 1px solid var(--line-strong); }
+/* Compact tracks: thin, a clip its band alone, and their heads' buttons made to fit. */
+.an-tl.compact .an-head .iconbtn { width: 24px; height: 24px; }
+/* A clip's label, in its menu: the painter's colours, and none. */
+.an-swatches { display: flex; align-items: center; gap: 2px; padding: 6px 8px 8px; }
+.an-swatches-name { margin-right: 6px; color: var(--muted); font-size: var(--fs-sm); }
+.an-swatches .swatch { margin: 0 2px; }
+.an-swatch-none { background: linear-gradient(to top right, transparent 46%, var(--muted) 46% 54%, transparent 54%); }
 .an-strip { display: none; flex: 1; min-width: 0; height: 100%; cursor: pointer; touch-action: none; }
 .an-tl.mini { height: var(--strip-h, 44px) !important; min-height: 0; }
 .an-tl.mini .an-heads, .an-tl.mini .an-scroll { display: none; }
@@ -3189,15 +3214,14 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 /* Narrower, the list of shots goes first; on a narrow window the comments go too, and the picture and its
    timeline are what there is room for. */
 @media (max-width: 900px) {
-  .an-bin { display: none; }
+  .an-bin, .an-binbtn { display: none; }
   .an-notes { width: 240px; }
 }
 @media (max-width: 699px) {
-  body.an-on main { padding: 8px 16px 12px; }
-  .an { margin-top: 8px; }
   .an-notes { display: none; }
   .an-heads { width: 112px; }
-  .an-now, .an-bar .an-wide { display: none; }
+  .an .an-wide { display: none; }
+  .an-bar { grid-template-columns: auto 1fr; }
   .an-tl { height: 200px; }
 }
 /* On a phone the bar keeps what watching needs: stepping a frame is for a desk. */

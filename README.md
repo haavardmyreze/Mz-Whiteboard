@@ -746,14 +746,20 @@ filed in it.
   the settings button of its bar): file a version and every animatic the shot is in plays it, and an
   animatic left open takes it in by itself within a few seconds, as it does what somebody else saved. A new
   animatic can start empty or with every filed shot in order, each as long as its newest version. Its page
-  is the edit playing in the middle, its library down the left (the project's shots, and the sound files
-  brought in: drag one onto a track, double-click to put it at the playhead, or Add all for a sequence),
-  what is said about the shot on screen down the right, and under them its bar and its timeline. The app's
-  own sidebar makes way for it: on an animatic's page it is a drawer, opened with the button at the left of
-  the bar. The library and the comments are made wider or narrower at their inner edges, and the line above
-  the timeline gives it more room or less; the library is hidden and brought back with the button at the
-  start of the bar (or Shift+L) and the comments with the one at its end (Shift+C). All of it is kept by
-  this browser.
+  takes the whole window under the bar, edge to edge, as a board does: where it is (Kilo / Reviews / Cut A,
+  with its pin and its menu) is in the bar itself, and there is no heading. The edit plays in the middle under
+  a bar of how it is seen, as the player's is: the shot on screen, what the edit plays (the settings button),
+  the 2D / 3D switch and the venue's cameras, the sound, and at its ends the switches for the library (Shift+L)
+  and the comments (Shift+C). The library is down the left (the project's shots, and the sound files brought
+  in: drag one onto a track, double-click to put it at the playhead, or Add all for a sequence), what is said
+  about the shot on screen down the right, and under them the timeline's bar and the timeline. The timeline's
+  bar has its tools and snapping on the left, playing in the middle (the time, a frame back, play, a frame on,
+  loop) and how the timeline is drawn on the right (compact tracks, the strip, all of it). The app's own
+  sidebar makes way for it: on an animatic's page it is a drawer, opened with the button at the left of the
+  bar. The library and the comments are made wider or narrower at their inner edges, and the line above the
+  timeline gives it more room or less. All of it is kept by this browser. The ring in the bar says how much of
+  what the animatic plays is cached on this computer, and each clip says so at the end of its band: a tick
+  once it is, a ring filling while it comes, a cloud while it plays from the server.
   - *Nothing moves by itself.* A clip keeps the length it was cut to. A newer version that is longer plays
     as much of it as the clip is long; one that is shorter leaves the clip short: it ends where the version
     ends, what is under it shows after that, and the part it lost is drawn as an outline saying how many
@@ -782,6 +788,16 @@ filed in it.
     for the sound and the pictures at the playhead to be ready (a moment, at most a second) and then plays
     smoothly from the first frame. A sound
     track's menu sets how loud it is.
+  - *Tools*, as an editor has them, in the timeline's bar: Select (V) picks, moves and trims; Track select
+    forward (A) picks every clip from the one clicked (or the place) on, on every track, and Track select
+    backward (Shift+A) every clip up to it, to move together straight away (with Shift, on that track only);
+    the Blade (B) cuts the clip clicked in two there (with Shift, every clip there on every track); the Hand
+    (H) moves the timeline about. Esc goes back to Select.
+  - *Labels.* A clip's menu (a right-click) has a row of label colours, the painter's colours a board's
+    frames take: its band is that colour on the timeline and in the strip, to mark a scene, a kind of shot or
+    what is to be redone.
+  - *Compact tracks.* The compact button in the timeline's bar (or Shift+T) makes the tracks thin, as in
+    Resolve: each clip its band alone, with its name, label and fades, to see more of a long edit at once.
   - *Working on it.* Click picks a clip (Shift adds; a box on empty track picks many), drag moves it (to
     another track of its kind too; Alt copies), and its edges trim it, never past the end of its version
     unless it loops. Edges line up with cuts, the playhead and clips on other tracks (the magnet in the bar;

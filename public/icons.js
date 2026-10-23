@@ -22,6 +22,8 @@
     cube: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/>',
     cloud: '<path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 9.5 4.3 4.3 0 0 1 17.5 18z"/>',
     comment: '<path d="M4 5h16v11H11l-5 4v-4H4z"/>',
+    // An animatic's tracks drawn thin, as an editor's compact tracks.
+    compact: '<rect x="3" y="4.5" width="18" height="3.5" rx="1"/><rect x="3" y="10.25" width="18" height="3.5" rx="1"/><rect x="3" y="16" width="18" height="3.5" rx="1"/>',
     disk: '<path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
     dot: '<circle cx="12" cy="12" r="2" fill="currentColor"/>',
     download: '<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
@@ -90,6 +92,9 @@
     tag: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/>',
     text: '<path d="M5 7V4h14v3M12 4v16M9 20h6"/>',
     tidy: '<rect x="3" y="4" width="8" height="7"/><rect x="13" y="4" width="8" height="7"/><rect x="3" y="13" width="5" height="7"/><rect x="10" y="13" width="11" height="7"/>',
+    // Track select tools: everything from here on along the tracks, or everything up to here.
+    trackBack: '<path d="M20 4v16"/><path d="M16 12H4M8 8l-4 4 4 4"/>',
+    trackFwd: '<path d="M4 4v16"/><path d="M8 12h12M16 8l4 4-4 4"/>',
     trash: '<path d="M4 7h16M10 4h4M6 7l1 13h10l1-13M10 11v5M14 11v5"/>',
     undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
     upload: '<rect x="3" y="5" width="18" height="14"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 15l-5-5-8 9"/>',

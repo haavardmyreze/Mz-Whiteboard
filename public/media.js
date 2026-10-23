@@ -741,6 +741,9 @@
     ready,
     get available() { return available; },
     has: (src) => index.has(src),
+    // Whether a video is on its way here, and how far it has come (1 once it is kept): for a page that draws
+    // its own marks, as an animatic's timeline does on each clip.
+    coming, progress: progressOf,
     sizeOf: (src) => (index.get(src) || {}).size || 0,
     total,
     failed: (src) => failed.has(src),

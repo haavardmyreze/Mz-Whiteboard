@@ -37,86 +37,17 @@
   const MIN_Z = 0.02;
   const MAX_Z = 16;
   // Ink colours, and the shape of a drawn line: see ink.js, shared with the player.
-  const { INK, LASER_LIFE, isLight, inkColor, svgEl, fillText, pathData, outlinePath, pointSegDist } = WBInk;
+  const { INK, LASER_LIFE, isLight, inkColor, svgEl, fillText, pathData, outlinePath, pointSegDist, tone, mute, deepen, PIGMENTS } = WBInk;
   const NOTE_FILLS = ['note', '#fff2a8', '#ffd3d1', '#d4f1d2', '#d0e6ff', '#e7dbff'];
   // 'ink' and 'note' stand for the theme's own text and note colours, so a board reads well in either theme.
   const isPlainNote = (c) => c === 'note';
   const noteColor = (c) => (isPlainNote(c) ? (isLight() ? '#ffffff' : '#2a2a2a') : c);
   const NOTE_INK = { light: '#1a1a1a', dark: '#f0f0f0' };
 
-  // Colours are stored as they were picked and shown through OKLCH, where equal numbers look equally
-  // light. Every block is set to one lightness, every frame header to another and every note to a
-  // third, so a row of colours reads as one family, white headings are as legible on yellow as on
-  // blue, and nothing shouts over the artwork. Only the hue, and how grey it is, comes from the
-  // stored colour.
-  const toLinear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-  const fromLinear = (c) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
-  function oklchOf(hex) {
-    const n = parseInt(hex.slice(1), 16);
-    const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255].map((v) => toLinear(v / 255));
-    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
-    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
-    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
-    const A = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
-    const B = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
-    return { l: 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, c: Math.hypot(A, B), h: Math.atan2(B, A) };
-  }
-  function linearRgb(L, C, h) {
-    const a = C * Math.cos(h);
-    const b = C * Math.sin(h);
-    const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
-    const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
-    const s = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
-    return [
-      4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-      -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-      -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
-    ];
-  }
-  const toneCache = new Map();
-  // The stored colour's hue at the given lightness, with its chroma capped. Greys keep to a range of
-  // lightness instead, so black stays darker than grey.
-  function tone(hex, L, maxC, grey) {
-    if (!/^#[0-9a-f]{6}$/i.test(hex || '')) return hex;
-    const key = `${hex}|${L}|${maxC}|${grey}`;
-    if (toneCache.has(key)) return toneCache.get(key);
-    const from = oklchOf(hex);
-    let l = L;
-    let c = Math.min(from.c, maxC);
-    let h = from.h;
-    if (from.c < 0.03) {
-      c = 0;
-      l = Math.min(grey[1], Math.max(grey[0], from.l));
-    } else if (L < 0.7 && h > 1.4 && h < 1.92) {
-      // A yellow turned down this far goes olive; leaning it towards orange keeps it golden.
-      h -= 0.19;
-    }
-    let rgb = linearRgb(l, c, h);
-    // Step the chroma down until the colour fits in sRGB, rather than clipping it to a different hue.
-    while (c > 0 && rgb.some((v) => v < -0.0005 || v > 1.0005)) {
-      c = Math.max(0, c - 0.004);
-      rgb = linearRgb(l, c, h);
-    }
-    const out = `#${rgb.map((v) => Math.round(Math.min(1, Math.max(0, fromLinear(Math.min(1, Math.max(0, v))))) * 255).toString(16).padStart(2, '0')).join('')}`;
-    toneCache.set(key, out);
-    return out;
-  }
-  // Heading blocks: mid-toned, so a white heading always reads.
-  const mute = (hex) => (isLight() ? tone(hex, 0.57, 0.16, [0.22, 0.52]) : tone(hex, 0.53, 0.135, [0.27, 0.46]));
-  // Frames sit a rung below blocks in the hierarchy: the same hues, set deeper.
-  const deepen = (hex) => (isLight() ? tone(hex, 0.47, 0.13, [0.2, 0.42]) : tone(hex, 0.4, 0.1, [0.24, 0.36]));
   // Notes take the theme's side: pale paper with dark writing on light, a tinted slate with light
   // writing on dark, so a coloured note is no brighter than a plain one.
   const noteFill = (c) => (isPlainNote(c) ? noteColor(c) : isLight() ? tone(c, 0.94, 0.06, [0.9, 0.97]) : tone(c, 0.42, 0.075, [0.26, 0.4]));
   const swatchColor = (c) => (c === 'ink' ? inkColor(c) : c === 'note' ? noteColor(c) : c);
-  // The colours of frames and the free-standing heading blocks: a painter's box rather than a highlighter
-  // set, each named for its pigment, and set through `mute` and `deepen` so every one carries white type.
-  // A new block starts in graphite: a heading, not a shout.
-  const PIGMENTS = [
-    ['#3d3d40', 'Graphite'], ['#c0392b', 'Cadmium red'], ['#c8952c', 'Yellow ochre'], ['#a65a3a', 'Burnt sienna'],
-    ['#2e7d67', 'Viridian'], ['#3f4fb0', 'Ultramarine'], ['#7d4b8e', 'Quinacridone violet'], ['#4a5d73', "Payne's grey"],
-    ['#17171a', 'Ivory black'],
-  ];
   const BLOCK_COLORS = PIGMENTS.map(([c]) => c);
   // A frame starts untinted; its header can take any pigment but graphite, which is next to untinted.
   const FRAME_COLORS = ['#8a8a93', ...BLOCK_COLORS.slice(1)];

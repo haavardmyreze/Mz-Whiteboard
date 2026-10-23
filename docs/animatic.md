@@ -55,7 +55,8 @@ enough to be read and written whole:
   ],
   clips: [
     // A shot: its newest version, from `in` frames into it, for at most `len` frames.
-    { id, track: 'v1', start: 0, len: 96, in: 0, shot: '<entity id>', loop: false, fadeIn: 0, fadeOut: 12, dissolve: 0, gain: 1 },
+    // `label`, where one is picked, is its colour (#rrggbb, one of the painter's colours in ink.js).
+    { id, track: 'v1', start: 0, len: 96, in: 0, shot: '<entity id>', loop: false, fadeIn: 0, fadeOut: 12, dissolve: 0, gain: 1, label: '#2e7d67' },
     // A sound file: an upload of its own, not a version.
     { id, track: 'a1', start: 0, len: 2400, in: 0, media: '/uploads/abc.wav', name: 'temp music.wav', dur: 96, fadeIn: 0, fadeOut: 50, dissolve: 0, gain: 0.8 },
   ],
@@ -124,7 +125,11 @@ ever moves because a version changed**, and nothing is ever pushed along by anyt
   are ramps on a gain, and its waveform is drawn from it (scaled to its loudest moment). A shot's own sound
   plays from its video, its volume following its fade; each track's button mutes it. The first sound file in an
   edit turns the video tracks' sound off, as shots in an animatic seldom have sound worth hearing.
-- **Cached ahead.** The edit's videos are asked of the cache in the order they play from the playhead.
+- **Cached ahead.** The edit's videos, and its sound files, are asked of the cache in the order they play from
+  the playhead (media.js; the service worker answers the sound files' fetches from it as it does the videos).
+  The ring in the app's bar says how much of it is kept (its scope is the animatic's, given to home.js through
+  `onScope`), and each clip draws whether its file is at the end of its band (`WB.media.has`, `coming`,
+  `progress`): a tick, a ring filling, or a cloud while it plays from the server.
 
 ## On the venue, in 3D
 
@@ -159,10 +164,15 @@ the edit on it:
 
 ## The editor
 
-The page is the edit playing in the middle, the project's shots down the left, the comments on the shot on
-screen down the right, and under them the bar (play, step, the time, loop, the shot on screen, cut, snapping,
-the settings button, sound, show all of it, comments) and the timeline: track heads on the left, a ruler, and
-the tracks drawn on one canvas on the dark bed the Timeline's close-up has, in both themes.
+The page takes the whole window under the app's bar, as a board does: where it is goes in the bar itself
+(`#barpath`, filled by renderCrumbs in home.js, with its pin and menu), the page has no heading, and nothing pads
+it from the window's edges. The edit plays in the middle under the viewer's bar (`an-vbar`: the library's switch,
+the shot on screen, what the edit plays, the 2D / 3D switch and the venue's cameras, the sound, the comments'
+switch), as the player's controls are over its piece; the project's shots are down the left and the comments on
+the shot on screen down the right. Under them is the timeline's bar (`an-bar`): its tools and snapping on the
+left, playing in the middle (the time, a frame back, play, a frame on, loop), and how the timeline is drawn on
+the right (compact tracks, the strip, all of it). Then the timeline: track heads on the left, a ruler, and the
+tracks drawn on one canvas on the dark bed the Timeline's close-up has, in both themes.
 
 - **The library** lists the project's shots, by sequence, and the sound files brought in (`doc.sounds`, kept by
   the server with every sound on a track among them). A shot or a sound is carried onto the timeline with the
@@ -182,9 +192,20 @@ the tracks drawn on one canvas on the dark bed the Timeline's close-up has, in b
   as tall as its tracks need. A click or a drag on it moves the playhead, and playing goes on from there once it
   is let go. The picture takes the room.
 - **Clips.** Each shows its shot's name and version in a band along its top and its frames under it (its colour
-  strip until they come), a slate's stripes, or a sound's waveform. Loops are marked where they start over, a
-  short clip's lost part is an outline, fades are slopes, dissolves a cross over the cut. Only what is picked
-  is coloured (in the accent), and the playhead.
+  strip until they come), a slate's stripes, or a sound's waveform; at the band's end, whether its file is
+  cached. Loops are marked where they start over, a short clip's lost part is an outline, fades are slopes,
+  dissolves a cross over the cut. What is picked is outlined in the accent, its band lighter, and the playhead
+  is in the accent.
+- **Labels.** A clip's band takes the colour of its label (`label`, picked in its menu from the painter's colours
+  of a board's frames, `PIGMENTS` in ink.js), set through `tone` as a block is on the dark theme, as the bed is
+  dark in both; the strip draws the clip in it too.
+- **Compact tracks.** The compact button (Shift+T) draws the tracks thin (32 and 28 px), each clip its band
+  alone with its name (a sound's shape faint behind it), its fade handles along its top. Kept by the browser.
+- **Tools.** Select (V); Track select forward (A) and backward (Shift+A), which pick every clip from the one
+  pressed (or the place) on, or up to its end, on every track (Shift: that track), and hold them to be moved at
+  once (pressed away from any clip, they keep their tracks); the Blade (B), which cuts the clip pressed in two
+  where it is pressed, lined up as an edge is, showing where first (Shift: every clip there); and the Hand (H).
+  Esc goes back to Select. In 3D, the venue's keys come first (A flies, V is the next camera).
 - **Working on clips.** Click picks (Shift adds, a box on empty track picks many), drag moves (to another track
   of its kind too; Alt copies), the edges trim (never past the end of the version unless it loops). Moves and
   trims line up with cuts, the playhead and the edges of clips on other tracks, with a guide line (Ctrl skips
@@ -198,8 +219,8 @@ the tracks drawn on one canvas on the dark bed the Timeline's close-up has, in b
 - **Tracks** are added with the + in the corner above the heads (where the timeline is drawn in and out), or from
   a track's menu, so the heads take no more room than the tracks.
 - **Undo** is each person's own, kept as the `doc` before each change.
-- **Narrow windows.** Under 900 the list of shots is left out, under 700 the comments and the editing buttons
-  too: the picture, its bar and the timeline are what there is room for.
+- **Narrow windows.** Under 900 the list of shots is left out, under 700 the comments, the tools and the editing
+  buttons too: the picture, its bars and the timeline are what there is room for.
 
 ## Comments
 

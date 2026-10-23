@@ -16,7 +16,8 @@ const WBAnimatic = (() => {
   const ICON = WB.iconSet(18);
 
   const RULER = 24;                     // the ruler along the top of the timeline
-  const LANE = { video: 56, audio: 40 }; // a track's height
+  // A track's height: as usual, or compact (as an editor's thin tracks), when a clip is its band alone.
+  const LANES = { normal: { video: 56, audio: 40 }, compact: { video: 32, audio: 28 } };
   const BAND = 15;                      // the band along the top of a clip, with its name
   const SPLIT = 8;                      // between the video tracks and the sound tracks
   const EDGE = 6;                       // how near its edge a press takes hold of a clip's edge
@@ -40,9 +41,12 @@ const WBAnimatic = (() => {
   const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
   // "anim v3" from a version's label "kilo-0010 anim v3".
+  // The colours a clip can be labelled with: the painter's colours of a board's frames.
+  const LABELS = WBInk.PIGMENTS.slice(1);
+
   const versionPart = (label, name) => (label && name && label.startsWith(name) ? label.slice(name.length).trim() : label || '');
 
-  function open(host, { project, id, me, onName = () => {}, onGone = () => {} }) {
+  function open(host, { project, id, me, onName = () => {}, onGone = () => {}, onScope = () => {} }) {
     let doc = null;
     let rev = 0;
     let shots = {};
@@ -55,6 +59,11 @@ const WBAnimatic = (() => {
     let looping = store('wb:an:loop') !== false;
     let soundOn = store('wb:an:sound') !== false;
     let snapping = store('wb:an:snap') !== false;
+    let compact = store('wb:an:compact') === true;
+    const lane = () => (compact ? LANES.compact : LANES.normal);
+    // The tool in hand on the timeline (TOOLS, below): picking and moving, picking every clip from a place on, or
+    // up to it, cutting where clicked, or moving the timeline about.
+    let tool = 'select';
     let undo = [];
     let redo = [];
     let saveTimer = 0;
@@ -131,15 +140,24 @@ const WBAnimatic = (() => {
 
     const notesWidth = store('wb:an:notesw');
     if (Number.isFinite(notesWidth)) notes.style.width = `${notesWidth}px`;
-    const binBtn = el('button', { type: 'button', class: `iconbtn an-wide${bin.hidden ? '' : ' active'}`, html: ICON.rows, title: 'The library: shots and sounds (Shift+L)', 'aria-pressed': String(!bin.hidden), onclick: () => toggleBin() });
+    const binBtn = el('button', { type: 'button', class: `iconbtn an-binbtn${bin.hidden ? '' : ' active'}`, html: ICON.rows, title: 'The library: shots and sounds (Shift+L)', 'aria-label': 'The library', 'aria-pressed': String(!bin.hidden), onclick: () => toggleBin() });
     const playBtn = el('button', { type: 'button', class: 'iconbtn', html: ICON.play, title: 'Play (Space)', 'aria-label': 'Play', onclick: () => (playing || starting ? stop() : play()) });
     const timeBtn = el('button', { type: 'button', class: 'an-time', title: 'Click to switch between minutes, frames and timecode', onclick: () => V.cycleTimeMode() });
     const loopBtn = el('button', { type: 'button', class: `iconbtn an-loop${looping ? ' active' : ''}`, html: ICON.loop, title: 'Play round from the start at the end', 'aria-pressed': String(looping), onclick: () => setLoop(!looping) });
     const onNow = el('span', { class: 'an-now' });
-    const splitBtn = el('button', { type: 'button', class: 'iconbtn an-wide', html: ICON.scissors, title: 'Cut in two at the playhead (Ctrl+B)', 'aria-label': 'Cut in two at the playhead', onclick: () => splitAtPlayhead() });
     const snapBtn = el('button', { type: 'button', class: `iconbtn an-wide${snapping ? ' active' : ''}`, html: ICON.snap, title: 'Line edges up with cuts and the playhead (hold Ctrl to skip)', 'aria-pressed': String(snapping), onclick: () => setSnap(!snapping) });
     const soundBtn = el('button', { type: 'button', class: 'iconbtn', title: 'Sound (M)', onclick: () => setSound(!soundOn) });
     const fitBtn = el('button', { type: 'button', class: 'iconbtn an-wide', html: ICON.fit, title: 'Show the whole edit (Shift+Z)', 'aria-label': 'Show the whole edit', onclick: () => fitAll() });
+    const compactBtn = el('button', { type: 'button', class: `iconbtn an-wide${compact ? ' active' : ''}`, html: ICON.compact, title: 'Compact tracks: thin, with each clip its name alone (Shift+T)', 'aria-label': 'Compact tracks', 'aria-pressed': String(compact), onclick: () => setCompact(!compact) });
+    // The tools for the timeline, as an editor has them, each with its key.
+    const TOOLS = [
+      ['select', ICON.select, 'Select (V): pick, move and trim clips'],
+      ['fwd', ICON.trackFwd, 'Track select forward (A): every clip from where you click on, on every track (Shift: on that track)'],
+      ['back', ICON.trackBack, 'Track select backward (Shift+A): every clip up to where you click, on every track (Shift: on that track)'],
+      ['blade', ICON.scissors, 'Blade (B): cut a clip in two where you click (Shift: every track there)'],
+      ['hand', ICON.pan, 'Hand (H): drag to move along the timeline'],
+    ];
+    const toolBtns = new Map(TOOLS.map(([k, html, title]) => [k, el('button', { type: 'button', class: `iconbtn${k === tool ? ' active' : ''}`, html, title, 'aria-label': title.split(' (')[0], 'aria-pressed': String(k === tool), onclick: () => setTool(k) })]));
     const miniBtn = el('button', { type: 'button', class: 'iconbtn', html: ICON.strip, title: 'The timeline as a thin strip, to watch the edit with the most room (T)', 'aria-label': 'Timeline as a strip', 'aria-pressed': 'false', onclick: () => setMini(!mini) });
     const notesBtn = el('button', { type: 'button', class: `iconbtn an-wide${notes.hidden ? '' : ' active'}`, html: ICON.comment, title: 'Comments on the shot on screen (Shift+C)', 'aria-pressed': String(!notes.hidden), onclick: () => toggleNotes() });
     // The edit on the venue, as the player shows a piece on it (venue in viewer.js): its switch, how the venue is
@@ -158,12 +176,22 @@ const WBAnimatic = (() => {
     }, { title: 'See the edit on the venue, in 3D. Key 3', back: 'Back to the edit as it is, in 2D. Key 2' });
     let options = null;
     const optionsSlot = el('span', { class: 'an-opts' });
+    // Over the picture, as over the player's: the panels' switches at its ends, the shot on screen, and how the edit
+    // is seen (what it plays, on the venue or not and from where, its sound).
+    const vbar = el('div', { class: 'an-vbar' },
+      binBtn, onNow, el('span', { class: 'spacer' }),
+      optionsSlot, el('span', { class: 'an-dims' }, venue3d.dims, venue3d.cams), soundBtn, notesBtn);
+    // Under it, the timeline's own bar: its tools and snapping on the left, playing it in the middle, and how the
+    // timeline is drawn on the right.
     const bar = el('div', { class: 'an-bar' },
-      binBtn, playBtn,
-      el('button', { type: 'button', class: 'iconbtn an-step', html: ICON.frameBack, title: 'A frame back (,)', 'aria-label': 'A frame back', onclick: () => step(-1) }),
-      el('button', { type: 'button', class: 'iconbtn an-step', html: ICON.frameFwd, title: 'A frame on (.)', 'aria-label': 'A frame on', onclick: () => step(1) }),
-      timeBtn, loopBtn, onNow, el('span', { class: 'spacer' }),
-      el('span', { class: 'an-dims' }, venue3d.dims, venue3d.cams), splitBtn, snapBtn, optionsSlot, soundBtn, fitBtn, miniBtn, notesBtn);
+      el('div', { class: 'an-bar-side an-wide' }, el('span', { class: 'an-tools', role: 'group', 'aria-label': 'Tools' }, ...toolBtns.values()), el('span', { class: 'an-sep' }), snapBtn),
+      el('div', { class: 'an-transport' },
+        timeBtn,
+        el('button', { type: 'button', class: 'iconbtn an-step', html: ICON.frameBack, title: 'A frame back (,)', 'aria-label': 'A frame back', onclick: () => step(-1) }),
+        playBtn,
+        el('button', { type: 'button', class: 'iconbtn an-step', html: ICON.frameFwd, title: 'A frame on (.)', 'aria-label': 'A frame on', onclick: () => step(1) }),
+        loopBtn),
+      el('div', { class: 'an-bar-side end' }, compactBtn, miniBtn, fitBtn));
 
     const cv = el('canvas', { class: 'an-canvas' });
     const space = el('div', { class: 'an-space' }, cv);
@@ -176,8 +204,9 @@ const WBAnimatic = (() => {
     // Watching, the timeline can be a thin strip of the whole edit instead (`mini`): every track as a thin line
     // with its clips along it, and the playhead, to click or drag along.
     const strip = el('canvas', { class: 'an-strip', role: 'slider', 'aria-label': 'The whole edit: click or drag to move through it' });
-    const tl = el('div', { class: 'an-tl' }, heads, scroller, strip);
-    const top = el('div', { class: 'an-top' }, bin, stage, notes);
+    const tl = el('div', { class: `an-tl${compact ? ' compact' : ''}` }, heads, scroller, strip);
+    const view = el('div', { class: 'an-view' }, vbar, stage);
+    const top = el('div', { class: 'an-top' }, bin, view, notes);
     const page = el('div', { class: 'an' }, top, bar, grip, tl);
     host.replaceChildren(page);
     document.body.classList.add('an-on');
@@ -933,16 +962,37 @@ const WBAnimatic = (() => {
       const x = ph * ppf - scroller.scrollLeft;
       if (x > W - 40 || x < 0) scroller.scrollLeft = Math.max(0, ph * ppf - 40);
     }
-    // What the edit plays is kept on this computer, from the playhead on (media.js).
+    // The file a clip plays, as it is kept on this computer: its shot's video, or its sound file.
+    const fileOf = (c) => {
+      if (c.media) return c.media;
+      const look = lookOf(c);
+      return look && look.type === 'video' ? srcOf(look) : null;
+    };
+    // What the edit plays is kept on this computer, from the playhead on (media.js), its sound files with it; the
+    // bar's ring says how much of it is (onScope), and each clip on the timeline says whether it is.
     function keepAhead() {
       if (!doc) return;
-      const order = doc.clips.filter((c) => c.shot).sort((a, b) => ((a.start < ph) - (b.start < ph)) || a.start - b.start);
-      const srcs = order.map((c) => {
-        const look = lookOf(c);
-        return look && look.type === 'video' ? srcOf(look) : null;
-      }).filter(Boolean);
-      WB.media.want('animatic', srcs, { rank: WB.media.RANK.timeline, hold: true });
+      const order = doc.clips.slice().sort((a, b) => ((a.start < ph) - (b.start < ph)) || a.start - b.start);
+      const items = [];
+      for (const c of order) {
+        const src = fileOf(c);
+        if (src && !items.some((x) => x.src === src)) items.push({ src, name: c.shot && shots[c.shot] ? shots[c.shot].name : c.name || 'A sound' });
+      }
+      WB.media.want('animatic', items.map((x) => x.src), { rank: WB.media.RANK.timeline, hold: true });
+      onScope({ label: 'this animatic', items });
     }
+    // Whether a clip's file is kept here: 'cached', 'coming' (with how far it has come), 'remote', or 'none' where
+    // nothing can be kept (a still, a slate, a browser with nowhere to keep it).
+    function cacheOf(c) {
+      const src = fileOf(c);
+      const M = WB.media;
+      if (!src || !M.available || !M.keepable(src) || M.failed(src)) return { state: 'none' };
+      if (M.has(src)) return { state: 'cached' };
+      return M.coming(src) ? { state: 'coming', k: M.progress(src) } : { state: 'remote' };
+    }
+    const offMedia = WB.media.on(() => {
+      if (!closed && !playing) draw();
+    });
 
     function setLoop(on) {
       looping = on;
@@ -1027,14 +1077,15 @@ const WBAnimatic = (() => {
       rows = [];
       let y = 0;
       const vids = C.videoTracks(doc).slice().reverse();
+      const h = lane();
       for (const t of vids) {
-        rows.push({ track: t, y, h: LANE.video });
-        y += LANE.video;
+        rows.push({ track: t, y, h: h.video });
+        y += h.video;
       }
       y += SPLIT;
       for (const t of C.audioTracks(doc)) {
-        rows.push({ track: t, y, h: LANE.audio });
-        y += LANE.audio;
+        rows.push({ track: t, y, h: h.audio });
+        y += h.audio;
       }
       return y;
     }
@@ -1184,6 +1235,13 @@ const WBAnimatic = (() => {
         ctx.lineWidth = 1;
         ctx.strokeRect(x0 + 0.5, y0 + 0.5, x1 - x0, y1 - y0);
       }
+      // Where the blade would cut.
+      if (tool === 'blade' && bladeAt) {
+        const bx = Math.round(xOf(bladeAt.f)) + 0.5;
+        const rows2 = bladeAt.all ? rows : rows.filter((r) => r.track.id === bladeAt.track);
+        ctx.fillStyle = TEXT;
+        for (const r of rows2) ctx.fillRect(bx - 0.5, yOf(r), 1, r.h);
+      }
       drawRuler(ctx);
       // What an edge lined up with.
       if (guide !== null) {
@@ -1273,12 +1331,16 @@ const WBAnimatic = (() => {
         ctx.clip();
         ctx.fillStyle = CLIP_BG;
         ctx.fillRect(left, y, right - left, h);
-        if (c.media) drawWave(ctx, c, x0, y + BAND, h - BAND, left, right);
-        else drawPictures(ctx, c, length, x0, y + BAND, h - BAND, left, right, want);
-        ctx.fillStyle = on ? BAND_ON : BAND_BG;
-        ctx.fillRect(left, y, right - left, BAND);
+        // Compact, a clip is its band alone (a sound's shape faint behind its name).
+        const bandH = compact ? h : BAND;
+        if (!compact && c.media) drawWave(ctx, c, x0, y + BAND, h - BAND, left, right);
+        else if (!compact) drawPictures(ctx, c, length, x0, y + BAND, h - BAND, left, right, want);
+        ctx.fillStyle = bandColour(c, on);
+        ctx.fillRect(left, y, right - left, bandH);
+        if (compact && c.media) drawWave(ctx, c, x0, y, h, left, right, 0.22);
         drawFades(ctx, c, x0, xf, y, h);
-        drawLabel(ctx, c, x0, xf, y, on);
+        const room = drawCache(ctx, c, xf, y, bandH);
+        drawLabel(ctx, c, x0, xf - room, y, on, bandH);
         ctx.restore();
       }
       // What a short version leaves of it: its outline only, and how short it came up.
@@ -1323,7 +1385,7 @@ const WBAnimatic = (() => {
         ctx.lineWidth = 1;
         for (const hx of [hx0, hx1]) {
           ctx.beginPath();
-          ctx.rect(Math.round(hx) - 3.5, y + BAND + 2.5, 7, 7);
+          ctx.rect(Math.round(hx) - 3.5, handleY(y), 7, 7);
           ctx.fill();
           ctx.stroke();
         }
@@ -1386,7 +1448,7 @@ const WBAnimatic = (() => {
       }
     }
 
-    function drawWave(ctx, c, x0, y, h, left, right) {
+    function drawWave(ctx, c, x0, y, h, left, right, alpha = 0.5) {
       const s = sounds.get(c.media);
       const mid = y + h / 2;
       if (!s || !s.peaks) {
@@ -1395,7 +1457,7 @@ const WBAnimatic = (() => {
         return;
       }
       const per = 100 / doc.fps; // peaks a frame
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
       for (let x = Math.floor(left); x < right; x++) {
         const fa = c.in + (x - x0) / ppf;
         const fb = c.in + (x + 1 - x0) / ppf;
@@ -1406,8 +1468,11 @@ const WBAnimatic = (() => {
       }
     }
 
-    function drawFades(ctx, c, x0, xf, y, h) {
+    function drawFades(ctx, c, x0, xf, y0, h0) {
       const d = C.dissolveOf(doc, c);
+      // Its slopes run under its band; compact, where the band is all of it, over the whole of it.
+      const y = compact ? y0 - BAND : y0;
+      const h = compact ? h0 + BAND : h0;
       ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
       ctx.lineWidth = 1;
@@ -1441,7 +1506,57 @@ const WBAnimatic = (() => {
       }
     }
 
-    function drawLabel(ctx, c, x0, xf, y, on) {
+    // A clip's band: its label's colour (a board's painter's colours, set as a block's on the dark theme, as the
+    // timeline's bed is dark in both), lighter when it is picked; without one, grey, and near white picked.
+    function bandColour(c, on) {
+      if (c.label) return on ? WBInk.tone(c.label, 0.82, 0.08, [0.8, 0.88]) : WBInk.tone(c.label, 0.53, 0.135, [0.27, 0.46]);
+      return on ? BAND_ON : BAND_BG;
+    }
+    // Where a clip's fade handles sit: just under its band, or compact, along its top.
+    const handleY = (top) => (compact ? top + 2.5 : top + BAND + 2.5);
+    // Whether a clip's file is kept on this computer, as a card says it, at the end of its band: a tick once it is,
+    // a ring filling while it comes, a cloud while it plays from the server. How much room it took.
+    function drawCache(ctx, c, xf, y, bandH) {
+      const st = cacheOf(c);
+      const x0 = xOf(c.start);
+      if (st.state === 'none' || xf - x0 < 56) return 0;
+      const on = sel.has(c.id);
+      const cx = Math.min(xf, W) - 10;
+      const cy = y + bandH / 2;
+      const ink = on ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255, 255, 255, 0.6)';
+      ctx.save();
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = 1.3;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      if (st.state === 'cached') {
+        ctx.moveTo(cx - 3.5, cy + 0.2);
+        ctx.lineTo(cx - 1, cy + 2.7);
+        ctx.lineTo(cx + 3.8, cy - 2.6);
+        ctx.stroke();
+      } else if (st.state === 'coming') {
+        ctx.globalAlpha = 0.35;
+        ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * clamp(st.k || 0, 0.04, 1));
+        ctx.stroke();
+      } else {
+        // A cloud: a flat base under two rises.
+        ctx.moveTo(cx - 4, cy + 3);
+        ctx.lineTo(cx + 3.6, cy + 3);
+        ctx.arc(cx + 2.4, cy + 0.9, 2.1, Math.PI / 2, -Math.PI / 2.4, true);
+        ctx.arc(cx - 0.3, cy - 0.4, 2.9, -Math.PI / 6, Math.PI * 1.05, true);
+        ctx.arc(cx - 3.2, cy + 1.3, 1.7, -Math.PI / 2, Math.PI / 2, true);
+        ctx.stroke();
+      }
+      ctx.restore();
+      return 18;
+    }
+
+    function drawLabel(ctx, c, x0, xf, y, on, bandH = BAND) {
       const p = c.shot ? shots[c.shot] : null;
       const name = p ? p.name : c.name || 'Sound';
       const rest = p ? (p.version ? versionPart(p.version.label, p.name) : 'nothing filed') : '';
@@ -1451,7 +1566,8 @@ const WBAnimatic = (() => {
       const rw = rest ? ctx.measureText(rest).width + 6 : 0;
       // Held at the left of the timeline while the rest of the clip is still in sight.
       const tx = clamp(Math.max(x0, 0) + 6, x0 + 6, Math.max(x0 + 6, xf - nw - rw - 6));
-      const base = y + BAND - 4;
+      const base = bandH === BAND ? y + BAND - 4 : Math.round(y + bandH / 2 + 4);
+      if (xf - x0 < 16) return;
       ctx.fillStyle = on ? '#111' : TEXT;
       ctx.font = FONT(600, 11);
       ctx.fillText(name, tx, base);
@@ -1484,7 +1600,7 @@ const WBAnimatic = (() => {
         if (x < x0 - EDGE / 2 || x > x1 + EDGE / 2) continue;
         const xf = xOf(c.start + C.filled(c, lengthOf(c)));
         const top = yOf(r) + 2;
-        if ((sel.has(c.id) || (hover && hover.clip === c.id)) && xf - x0 > 28 && y >= top + BAND - 2 && y < top + BAND + 13) {
+        if ((sel.has(c.id) || (hover && hover.clip === c.id)) && xf - x0 > 28 && y >= handleY(top) - 4.5 && y < handleY(top) + 10.5) {
           const [hx0, hx1] = fadeHandles(c, x0, xf);
           if (Math.abs(x - hx0) <= 6) return { kind: 'clip', clip: c, part: 'fadeIn', row: r };
           if (Math.abs(x - hx1) <= 6) return { kind: 'clip', clip: c, part: 'fadeOut', row: r };
@@ -1541,6 +1657,7 @@ const WBAnimatic = (() => {
         return;
       }
       gapSel = null;
+      if (tool !== 'select' && toolDown(e, p, hit)) return;
       if (hit.kind === 'clip') {
         const c = hit.clip;
         if (e.shiftKey) {
@@ -1563,6 +1680,7 @@ const WBAnimatic = (() => {
       const p = local(e);
       if (!held) {
         const hit = hitAt(p.x, p.y);
+        if (tool !== 'select') return void toolHover(e, p, hit);
         const was = hover && hover.clip;
         hover = hit.kind === 'clip' ? { clip: hit.clip.id, part: hit.part } : null;
         cv.style.cursor = hit.kind === 'clip' ? CURSOR[hit.part] : hit.kind === 'ruler' ? 'text' : 'default';
@@ -1616,8 +1734,9 @@ const WBAnimatic = (() => {
             guide = best.at;
           }
         } else guide = null;
-        // Up or down a track, among tracks of their kind; never off the end.
-        const r = rowAt(p.y);
+        // Up or down a track, among tracks of their kind; never off the end. (Picked with a track select tool away
+        // from any clip, they stay on their tracks.)
+        const r = held.lockTrack ? null : rowAt(p.y);
         let dt = 0;
         if (r) {
           const kinds = (k) => doc.tracks.filter((t) => t.kind === k);
@@ -1686,7 +1805,7 @@ const WBAnimatic = (() => {
       held = null;
       guide = null;
       if (h.kind === 'pan') {
-        cv.style.cursor = 'default';
+        cv.style.cursor = TOOL_CURSOR[tool] || 'default';
         return;
       }
       if (h.kind === 'scrub') {
@@ -1717,8 +1836,10 @@ const WBAnimatic = (() => {
     cv.addEventListener('pointerup', letGo);
     cv.addEventListener('pointercancel', letGo);
     cv.addEventListener('pointerleave', () => {
-      if (!held && hover) {
+      if (!held && (hover || bladeAt)) {
         hover = null;
+        bladeAt = null;
+        guide = null;
         draw();
       }
     });
@@ -1803,7 +1924,24 @@ const WBAnimatic = (() => {
       const second = frames(1);
       const patchAll = (fn) => commit({ ...doc, clips: doc.clips.map((x) => (sel.has(x.id) ? fn(x) : x)) });
       const loopOn = shotsPicked.length && shotsPicked.every((x) => x.loop);
+      // Its label: the painter's colours a board's frames take, or none.
+      const shared = picked.every((x) => (x.label || '') === (picked[0].label || '')) ? picked[0].label || '' : null;
+      const swatch = (hex, name) => el('button', {
+        type: 'button', class: `swatch${hex ? '' : ' an-swatch-none'}${shared === hex ? ' active' : ''}`, title: name, 'aria-label': name,
+        style: hex ? { background: WBInk.tone(hex, 0.53, 0.135, [0.27, 0.46]) } : null,
+        onclick: () => {
+          WB.closeMenus();
+          patchAll((x) => {
+            const { label, ...rest } = x;
+            return hex ? { ...rest, label: hex } : rest;
+          });
+        },
+      });
+      const labels = el('div', { class: 'an-swatches', role: 'group', 'aria-label': 'Label' },
+        el('span', { class: 'an-swatches-name', text: 'Label' }), swatch('', 'No label'), ...LABELS.map(([hex, n]) => swatch(hex, n)));
       return [
+        labels,
+        el('div', { class: 'menu-sep' }),
         shotsPicked.length > 0 && [loopOn ? 'Stop looping' : 'Loop', () => patchAll((x) => (x.shot ? { ...x, loop: !loopOn } : x))],
         ['Fade in and out by a second', () => patchAll((x) => {
           const own = C.filled(x, lengthOf(x));
@@ -1828,7 +1966,10 @@ const WBAnimatic = (() => {
       const at = Math.round(ph);
       const under = doc.clips.filter((c) => c.start < at && C.clipEnd(c) > at);
       const which = under.some((c) => sel.has(c.id)) ? under.filter((c) => sel.has(c.id)) : under;
-      if (!which.length) return;
+      if (which.length) cutAt(which, at);
+    }
+    // Some clips cut in two at frame `at` (the blade, or Ctrl+B): the second halves are picked.
+    function cutAt(which, at) {
       const halves = new Map(which.map((c) => [c.id, C.split(c, at, newId(), lengthOf(c))]));
       const clips = doc.clips.flatMap((c) => halves.get(c.id) || [c]);
       commit({ ...doc, clips: clips.sort((a, b) => a.start - b.start) });
@@ -2104,7 +2245,8 @@ const WBAnimatic = (() => {
         sel = new Set(doc.clips.map((c) => c.id));
         gapSel = null;
         draw();
-      } else if (k === 'Escape' && (sel.size || gapSel)) {
+      } else if (k === 'Escape' && tool !== 'select') setTool('select');
+      else if (k === 'Escape' && (sel.size || gapSel)) {
         sel = new Set();
         gapSel = null;
         draw();
@@ -2112,6 +2254,11 @@ const WBAnimatic = (() => {
       else if ((k === 'C') && e.shiftKey && !mod) toggleNotes();
       else if ((k === 'L') && e.shiftKey && !mod) toggleBin();
       else if ((k === 't' || k === 'T') && !mod && !e.shiftKey) setMini(!mini);
+      else if (k === 'T' && e.shiftKey && !mod) setCompact(!compact);
+      else if ((k === 'v' || k === 'V') && !mod && !e.shiftKey) setTool('select');
+      else if ((k === 'a' || k === 'A') && !mod) setTool(e.shiftKey ? 'back' : 'fwd');
+      else if ((k === 'b' || k === 'B') && !mod && !e.shiftKey) setTool('blade');
+      else if ((k === 'h' || k === 'H') && !mod && !e.shiftKey) setTool('hand');
       else if ((k === 'c' || k === 'C') && !mod && !e.shiftKey) {
         if (notes.hidden) toggleNotes();
         if (nowVersion) noteBox.focus();
@@ -2148,6 +2295,75 @@ const WBAnimatic = (() => {
       grip.addEventListener('pointercancel', up, { once: true });
     });
 
+    // ---- the tools
+
+    let bladeAt = null; // where the blade would cut: { f, track, all }
+    function setTool(k) {
+      tool = k;
+      for (const [key, b] of toolBtns) {
+        b.classList.toggle('active', key === k);
+        b.setAttribute('aria-pressed', String(key === k));
+      }
+      bladeAt = null;
+      hover = null;
+      cv.style.cursor = TOOL_CURSOR[k] || 'default';
+      draw();
+    }
+    const TOOL_CURSOR = { fwd: 'e-resize', back: 'w-resize', blade: 'crosshair', hand: 'grab' };
+    // The frame a blade or a track select tool works at: lined up with the playhead and the cuts near it, as an edge is.
+    const toolFrame = (p, e) => snapped(Math.round(fAt(p.x)), new Set(), e);
+    function toolHover(e, p, hit) {
+      cv.style.cursor = hit.kind === 'ruler' ? 'text' : TOOL_CURSOR[tool] || 'default';
+      const was = bladeAt;
+      const hadGuide = guide;
+      guide = null;
+      if (tool === 'blade') {
+        const f = toolFrame(p, e);
+        const on = hit.kind === 'clip' && f > hit.clip.start && f < C.clipEnd(hit.clip);
+        bladeAt = on || (e.shiftKey && hit.kind !== 'ruler') ? { f, track: hit.row && hit.row.track.id, all: e.shiftKey } : null;
+      } else bladeAt = null;
+      if (!bladeAt) guide = null;
+      if (JSON.stringify(was) !== JSON.stringify(bladeAt) || hadGuide !== guide) draw();
+    }
+    // A press with a tool other than Select: true when the tool took it.
+    function toolDown(e, p, hit) {
+      if (tool === 'hand') {
+        held = { kind: 'pan', pid: e.pointerId, x: e.clientX, y: e.clientY, left: scroller.scrollLeft, top: scroller.scrollTop };
+        cv.style.cursor = 'grabbing';
+        return true;
+      }
+      if (tool === 'blade') {
+        // Cuts the clip pressed in two where it is pressed; with Shift, every clip there on every track.
+        const f = toolFrame(p, e);
+        guide = null;
+        const which = e.shiftKey ? doc.clips.filter((c) => c.start < f && C.clipEnd(c) > f)
+          : hit.kind === 'clip' && hit.clip.start < f && C.clipEnd(hit.clip) > f ? [hit.clip] : [];
+        if (which.length) cutAt(which, f);
+        return true;
+      }
+      // Track select: every clip from the clip pressed (or the place) on, or up to its end, on every track or, with
+      // Shift, on this one; then held to be moved together, as Select moves what it picked.
+      const anchor = hit.kind === 'clip' ? hit.clip : null;
+      const fwd = tool === 'fwd';
+      const at = anchor ? (fwd ? anchor.start : C.clipEnd(anchor)) : Math.round(fAt(p.x));
+      const track = hit.row ? hit.row.track.id : null;
+      const picked = doc.clips.filter((c) => (!e.shiftKey || c.track === track) && (fwd ? c.start >= at : C.clipEnd(c) <= at));
+      sel = new Set(picked.map((c) => c.id));
+      if (picked.length) {
+        held = { kind: 'body', pid: e.pointerId, x: p.x, y: p.y, clip: anchor || picked[0], row: hit.row, copy: e.altKey, moved: false, solo: false, lockTrack: !anchor };
+      }
+      draw();
+      return true;
+    }
+    function setCompact(on) {
+      compact = on;
+      store('wb:an:compact', on);
+      tl.classList.toggle('compact', on);
+      compactBtn.classList.toggle('active', on);
+      compactBtn.setAttribute('aria-pressed', String(on));
+      paintAll();
+    }
+
     // ---- the timeline as a strip
 
     let mini = false;
@@ -2179,7 +2395,7 @@ const WBAnimatic = (() => {
     }
     // The whole edit across the width, as an overview of its cut: every track a thin line, in the timeline's
     // order (the video tracks, the highest first, then the sound tracks), each clip a stretch of it with a hair
-    // between it and the next, and the playhead. A track hidden or not heard is fainter. The strip is as tall
+    // between it and the next (in its label's colour, where it has one), and the playhead. A track hidden or not heard is fainter. The strip is as tall
     // as its tracks need.
     const STRIP = { pad: 8, line: 4, gap: 2, split: 4 };
     const stripHeight = () => {
@@ -2215,7 +2431,8 @@ const WBAnimatic = (() => {
           // What a short version leaves of the clip is fainter, as the timeline outlines it.
           ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
           ctx.fillRect(x0, y, w, STRIP.line);
-          ctx.fillStyle = quiet ? 'rgba(255, 255, 255, 0.2)' : t.kind === 'video' ? 'rgba(255, 255, 255, 0.62)' : 'rgba(255, 255, 255, 0.38)';
+          ctx.fillStyle = c.label ? WBInk.tone(c.label, quiet ? 0.35 : 0.6, 0.135, [0.3, 0.5])
+            : quiet ? 'rgba(255, 255, 255, 0.2)' : t.kind === 'video' ? 'rgba(255, 255, 255, 0.62)' : 'rgba(255, 255, 255, 0.38)';
           ctx.fillRect(x0, y, Math.max(1, Math.min(w, xf - x0)), STRIP.line);
         }
         y += STRIP.line + STRIP.gap;
@@ -2478,6 +2695,8 @@ const WBAnimatic = (() => {
       stopFrames();
       FR.ask([]);
       WB.media.want('animatic', []);
+      offMedia();
+      onScope(null);
       if (room) room.close();
       if (three && in3d) {
         venue3d.remember();

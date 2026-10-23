@@ -3343,3 +3343,23 @@ test('a project\'s reviews are kept in folders: its playlists and animatics go i
   now = (await call('GET', `/api/projects/${project.id}`)).body;
   assert.deepEqual([now.playlists[0].folderId, now.animatics[0].folderId], [null, null]);
 });
+
+test('an animatic\'s clip keeps the label colour picked for it, and nothing that is not a colour', async (t) => {
+  const s = start(4905);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  await call('POST', `/api/projects/${project.id}/entities`, { names: ['kilo-0010'] });
+  const shot = (await call('GET', `/api/projects/${project.id}`)).body.entities.find((e) => e.name === 'kilo-0010').id;
+  const a = (await call('POST', `/api/projects/${project.id}/animatics`, { name: 'Cut A' })).body;
+  const clip = (id, label) => ({ id, track: 'v1', start: id === 'c1' ? 0 : 50, len: 50, in: 0, shot, label });
+  const saved = await call('PATCH', `/api/animatics/${a.animatic.id}`, { doc: { ...a.doc, clips: [clip('c1', '#2E7D67'), clip('c2', 'red')] }, rev: a.rev });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.body.doc.clips.map((c) => [c.id, c.label]), [['c1', '#2e7d67'], ['c2', undefined]]);
+});

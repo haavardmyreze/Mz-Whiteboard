@@ -1263,8 +1263,7 @@
     // A project's home and its timeline are not lists: nothing there is shown more than one way.
     layoutSeg.hidden = !!(rt.kind === 'folder' && folderById(rt.id)?.project && ['timeline', 'home', 'animatic'].includes(currentView().page));
     const pinned = pin && isPinned(pin.kind, pin.id);
-    $('pagetools').replaceChildren(
-      ...[pin && el('button', {
+    const tools = [pin && el('button', {
         type: 'button', class: `iconbtn crumb-pin${pinned ? ' on' : ''}`, html: ICON_STAR,
         title: pinned ? 'Pinned to the sidebar. Click to unpin' : 'Pin to sidebar', 'aria-pressed': String(!!pinned),
         onclick: () => togglePin(pin),
@@ -1273,7 +1272,24 @@
       playlistHere && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('more', 16), title: 'Rename or delete the playlist', 'aria-label': 'Playlist menu', 'aria-haspopup': 'menu', onclick: (e) => openMenu(e.currentTarget, playlistHere.loose ? loosePlaylistMenu(playlistHere.loose) : playlistMenu(playlistHere.project, playlistHere.playlist)) }),
       animaticHere && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('more', 16), title: 'Rename, copy, set up, download or delete the animatic', 'aria-label': 'Animatic menu', 'aria-haspopup': 'menu', onclick: (e) => openMenu(e.currentTarget, animaticMenu(animaticHere.project, animaticHere.animatic, { here: true })) }),
       ...presentingHere(rt),
-      ].filter(Boolean));
+    ].filter(Boolean);
+    // An animatic wants all of the window for its work, as a board does: where it is goes in the bar, after
+    // the mark (which stands for the workspace), its name last with its pin and menu, and the page has no
+    // heading of its own.
+    const inBar = !!animaticHere || (rt.kind === 'folder' && folderById(rt.id)?.project && currentView().page === 'animatic');
+    $('barpath').hidden = !inBar;
+    if (inBar) {
+      const slash = () => el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' });
+      $('barpath').replaceChildren(...parts.slice(1, -1).flatMap(([label, href, folderId, ws]) => {
+        const node = el('a', { class: 'bar-crumb bar-way', href, text: label, title: label });
+        if (folderId !== undefined) dropTarget(node, folderId, ws);
+        return [slash(), node];
+      }), slash(), el('span', { class: 'bar-here', text: title, title }), ...tools);
+      $('pagetools').replaceChildren();
+    } else {
+      $('barpath').replaceChildren();
+      $('pagetools').replaceChildren(...tools);
+    }
     document.title = `${parts[parts.length - 1][0]} · Boards`;
   }
 
@@ -1317,14 +1333,16 @@
     pageSrcs.push({ src, name });
   }
 
-  // The ring in the bar: how much of what you are looking at (the timeline, or the page's cards) is cached.
+  // The ring in the bar: how much of what you are looking at (the timeline, an animatic, or the page's cards) is
+  // cached.
   let pageScope = null;
   let tlScope = null;
+  let cutScope = null; // what the animatic open plays
   let runOf = null; // the project whose timeline is open
   const cacheRing = (() => {
     const button = el('button', { id: 'kept', class: 'kept-ring', hidden: true });
     document.querySelector('.home-head .bellwrap').before(button);
-    return WB.media.ring(button, () => (runOf && tlScope) || pageScope);
+    return WB.media.ring(button, () => (runOf && tlScope) || cutScope || pageScope);
   })();
   // ------------------------------------------------------------- a project's versions, newest first
   //
@@ -3394,6 +3412,10 @@
         cutNames.set(aid, name);
         renderCrumbs(route());
         renderSide(route());
+      },
+      onScope: (scope) => {
+        cutScope = scope;
+        cacheRing.paint();
       },
       onGone: () => {
         closeAnimatic(false);

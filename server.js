@@ -1432,7 +1432,7 @@ const trackId = (v) => typeof v === 'string' && /^[\w-]{1,24}$/.test(v);
 // An edit as it may be kept: what it says that makes sense, and nothing else. Its rate is one of the usual
 // ones; it has at least one video track and one sound track; each clip is on a track of its kind, a video
 // clip names a shot of `project`, and a sound clip an uploaded sound file. Fades are no longer than their
-// clip. A dissolve (on the clip after a cut) is no longer than the clip either.
+// clip. A dissolve (on the clip after a cut) is no longer than the clip either. A label is a colour, as #rrggbb.
 function cleanAnimatic(asked, project) {
   const a = asked && typeof asked === 'object' ? asked : {};
   const tracks = [];
@@ -1465,6 +1465,8 @@ function cleanAnimatic(asked, project) {
     if (start === null || len === null) continue;
     const fadeIn = wholeIn(c.fadeIn, 0, len, 0);
     const clip = { id: c.id, track: c.track, start, len, in: wholeIn(c.in, 0, MAX_FRAMES, 0), fadeIn, fadeOut: Math.min(len - fadeIn, wholeIn(c.fadeOut, 0, len, 0)), dissolve: wholeIn(c.dissolve, 0, len, 0), gain: gainOf(c.gain) };
+    // A label colour picked for it, as a board's frames and blocks have theirs (the painter's colours in ink.js).
+    if (typeof c.label === 'string' && /^#[0-9a-f]{6}$/i.test(c.label)) clip.label = c.label.toLowerCase();
     if (kindOf.get(c.track) === 'video') {
       if (!isShot(c.shot)) continue;
       clips.push({ ...clip, shot: c.shot, loop: c.loop === true });

@@ -2795,7 +2795,8 @@
   // An asset, set or shot as an object: its newest picture (scrubbed, and the latest played with a click),
   // how many versions it has and when the last was filed, its tasks and its artists, and its menu. In the
   // catalogue (`pickable`) it is selected with a click while selecting, and its row's box starts that.
-  // In its sequence's row (`inRow`) a shot is said short: its number, and what its newest version is.
+  // In the catalogue's rows (`inRow`) it is said short: its name (a shot's number alone, its sequence
+  // naming the row) and what its newest version is.
   function entityObj(project, e, { pickable = false, inRow = false } = {}) {
     const newest = e.newest || null;
     const tier = (project && catalogues.get(project.id)?.tiers.find((t) => t.id === e.tier)) || null;
@@ -2840,7 +2841,7 @@
       }),
       box: el('span', { class: 'pick-box', 'aria-hidden': 'true' }),
       still: thumbs,
-      name: inRow ? e.name.slice(N.seqOf(e.name).length + 1) : e.name,
+      name: inRow && e.tier === 'shot' && N.seqOf(e.name) ? e.name.slice(N.seqOf(e.name).length + 1) : e.name,
       title: e.name,
       lines: inRow ? [newest && N.label(null, newest.task, newest.number)] : [e.versions == null ? kind.toLowerCase() : e.versions ? `${plural(e.versions, 'version')} · last ${ago(e.latestAt)}` : 'Nothing filed yet', artists && artists()],
       cells: {
@@ -2865,6 +2866,13 @@
       && (!view.tier || e.tier === view.tier) && (!view.seq || (e.tier === 'shot' && N.seqOf(e.name) === view.seq)));
     const out = [];
     const shown = (es) => objectList('entity', es.map((e) => entityObj(project, e, { pickable: true })), { grid: 'board-grid ent-grid', bare: true });
+    // As cards, the whole catalogue (or all its shots) is one grid, as a clip launcher lays out its
+    // layers: the same small print everywhere, after a column where each sequence is named. Assets and
+    // sets have no order, so theirs wraps; a sequence runs along its row in order, scrolling sideways.
+    // A sequence's page, or the assets' or the sets', is one group and wraps its cards as any list.
+    const rows = WB.layout() === 'cards' && !view.seq && (!view.tier || view.tier === 'shot');
+    const row = (head, es, wrap) => el('div', { class: `seq-row${wrap ? ' wrap' : ''}` }, head || el('div', { class: 'seq-row-head' }),
+      objectList('entity', es.map((e) => entityObj(project, e, { pickable: true, inRow: true })), { grid: 'seq-track' }));
     picking.order = [];
     for (const tier of cat.tiers) {
       const of = list.filter((e) => e.tier === tier.id);
@@ -2872,7 +2880,7 @@
       out.push(groupHead(tier.label, { n: of.length }));
       picking.order.push(...of.map((e) => e.id));
       if (tier.id !== 'shot') {
-        out.push(shown(of));
+        out.push(rows ? el('div', { class: 'seq-rows' }, row(null, of, true)) : shown(of));
         continue;
       }
       // Shots by sequence, as they are on disk.
@@ -2883,16 +2891,14 @@
       }
       const bySeq = seqSort(project);
       const sorted = [...seqs].sort(([a], [b]) => (a === 'other') - (b === 'other') || bySeq(a, b));
-      // As cards, each sequence is a row and its shots run along it in order, so the whole edit reads
-      // down the sequences and across their shots. A sequence's own page wraps its one row as before.
-      if (WB.layout() !== 'cards' || view.seq) {
+      if (!rows) {
         for (const [seq, shots] of sorted) out.push(groupHead(seq, { level: 2 }), shown(shots));
         continue;
       }
-      out.push(el('div', { class: 'seq-rows' }, sorted.map(([seq, shots]) => el('div', { class: 'seq-row' },
+      out.push(el('div', { class: 'seq-rows' }, sorted.map(([seq, shots]) => row(
         el(seq === 'other' ? 'div' : 'a', { class: 'seq-row-head', ...(seq !== 'other' && { href: WB.href.catalogue(project.id, { seq }), title: `Open ${seq}` }) },
           el('span', { class: 'seq-row-name', text: seq }), el('span', { class: 'tally', text: String(shots.length) })),
-        objectList('entity', shots.map((e) => entityObj(project, e, { pickable: true, inRow: seq !== 'other' })), { grid: 'seq-track' })))));
+        shots))));
     }
     if (!out.length) {
       out.push(el('div', { class: 'home-empty cat-empty' },

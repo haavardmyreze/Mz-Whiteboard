@@ -3303,6 +3303,39 @@ test('an animatic is an edit of a project\'s shots that always plays their newes
   assert.deepEqual([domed.w, domed.h, domed.fps], [4096, 1024, 30]);
 });
 
+test('a project\'s timeline is an edit of every shot in order, as an animatic\'s page plays one', async (t) => {
+  const s = start(4906);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body) => {
+    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${project.id}`, { project: true });
+  await call('POST', `/api/projects/${project.id}/entities`, { names: ['kilo-0010', 'kilo-0020', 'lima-0010', 'char-robot'] });
+  const up = async (name) => (await (await fetch(`${s.base}/api/upload?name=${name}`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
+  const file = async (name, task, dur) => (await call('POST', `/api/projects/${project.id}/versions`, { entity: { name }, task, files: [{ look: { type: 'video', src: await up('a.mp4'), name: 'x.mp4', dur, fps: 25 } }] })).body.versions[0];
+  await file('kilo-0010', 'anim', 4);
+  await file('lima-0010', 'comp', 2);
+  const cat = (await call('GET', `/api/projects/${project.id}`)).body;
+  const id = (name) => cat.entities.find((e) => e.name === name).id;
+  const edit = async (q = '') => (await call('GET', `/api/projects/${project.id}/timeline/edit${q}`)).body;
+
+  // every shot in order on V1, each as long as its newest version, a shot with nothing filed as long as a still;
+  // each clip named by its shot, so it is the same edit when asked again
+  const all = await edit();
+  assert.deepEqual(all.doc.clips.map((c) => [c.id, c.shot, c.start, c.len, c.track]), [
+    [id('kilo-0010'), id('kilo-0010'), 0, 100, 'v1'], [id('kilo-0020'), id('kilo-0020'), 100, 75, 'v1'], [id('lima-0010'), id('lima-0010'), 175, 50, 'v1']]);
+  assert.deepEqual([all.shots[id('kilo-0010')].version.label, all.shots[id('kilo-0020')].version, all.rev], ['kilo-0010 anim v1', null, 0]);
+  assert.deepEqual((await edit()).doc, all.doc);
+  // of one sequence, without the shots with nothing filed, or the newest of one task
+  assert.deepEqual((await edit('?seq=kilo&empty=0')).doc.clips.map((c) => c.shot), [id('kilo-0010')]);
+  const comp = await edit('?task=comp');
+  assert.deepEqual([comp.doc.task, comp.doc.clips.map((c) => c.len), comp.shots[id('kilo-0010')].version], ['comp', [75, 75, 50], null]);
+});
+
 test('a project\'s reviews are kept in folders: its playlists and animatics go into them, and come up when one is deleted', async (t) => {
   const s = start(4904);
   t.after(s.stop);

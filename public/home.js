@@ -1184,6 +1184,7 @@
     let settingsOf = null; // a project's home has the way to its settings
     let playlistHere = null; // a playlist's page has its menu beside its title
     let animaticHere = null; // and so has an animatic's
+    let timelineHere = null; // and the timeline's
     const onLoose = currentLoose();
     if (rt.kind === 'space') parts.push([spaceName(rt.space), spaceHref(rt.space), null, rt.space]);
     else {
@@ -1216,7 +1217,10 @@
             parts.push([name, WB.href.catalogue(f.id, { entity: v.entity })]);
             pin = e || (shownEntity && shownEntity.id === v.entity) ? { kind: 'entity', id: v.entity, name, projectId: f.id, tier: (e || shownEntity).tier, thumb: (e && e.thumb) || null } : null;
           }
-        } else if (v.page === 'timeline') parts.push(['Timeline', WB.href.timeline(f.id)]);
+        } else if (v.page === 'timeline') {
+          parts.push(['Timeline', WB.href.timeline(f.id)]);
+          timelineHere = f;
+        }
         else if (v.page === 'animatic') {
           parts.push(['Reviews', WB.href.reviews(f.id), f.id, ws]);
           const a = animaticNamed(f.id, v.animatic);
@@ -1271,12 +1275,13 @@
       settingsOf && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('settings', 16), title: 'Project settings', 'aria-label': 'Project settings', onclick: () => projectSettings(settingsOf) }),
       playlistHere && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('more', 16), title: 'Rename or delete the playlist', 'aria-label': 'Playlist menu', 'aria-haspopup': 'menu', onclick: (e) => openMenu(e.currentTarget, playlistHere.loose ? loosePlaylistMenu(playlistHere.loose) : playlistMenu(playlistHere.project, playlistHere.playlist)) }),
       animaticHere && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('more', 16), title: 'Rename, copy, set up, download or delete the animatic', 'aria-label': 'Animatic menu', 'aria-haspopup': 'menu', onclick: (e) => openMenu(e.currentTarget, animaticMenu(animaticHere.project, animaticHere.animatic, { here: true })) }),
+      timelineHere && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('more', 16), title: 'Make an animatic of the timeline', 'aria-label': 'Timeline menu', 'aria-haspopup': 'menu', onclick: (e) => openMenu(e.currentTarget, [['Make an animatic of it…', () => animaticOfTimeline(timelineHere)]]) }),
       ...presentingHere(rt),
     ].filter(Boolean);
-    // An animatic wants all of the window for its work, as a board does: where it is goes in the bar, after
+    // An animatic, and the timeline, want all of the window, as a board does: where it is goes in the bar, after
     // the mark (which stands for the workspace), its name last with its pin and menu, and the page has no
     // heading of its own.
-    const inBar = !!animaticHere || (rt.kind === 'folder' && folderById(rt.id)?.project && currentView().page === 'animatic');
+    const inBar = !!animaticHere || (rt.kind === 'folder' && folderById(rt.id)?.project && ['animatic', 'timeline'].includes(currentView().page));
     $('barpath').hidden = !inBar;
     if (inBar) {
       const slash = () => el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' });
@@ -1336,13 +1341,11 @@
   // The ring in the bar: how much of what you are looking at (the timeline, an animatic, or the page's cards) is
   // cached.
   let pageScope = null;
-  let tlScope = null;
-  let cutScope = null; // what the animatic open plays
-  let runOf = null; // the project whose timeline is open
+  let cutScope = null; // what the animatic or the timeline open plays
   const cacheRing = (() => {
     const button = el('button', { id: 'kept', class: 'kept-ring', hidden: true });
     document.querySelector('.home-head .bellwrap').before(button);
-    return WB.media.ring(button, () => (runOf && tlScope) || cutScope || pageScope);
+    return WB.media.ring(button, () => cutScope || pageScope);
   })();
   // ------------------------------------------------------------- a project's versions, newest first
   //
@@ -2031,84 +2034,6 @@
   window.addEventListener('pointerup', endMarquee);
   window.addEventListener('pointercancel', endMarquee);
 
-  // A project's timeline: its shots played through in the player, as an edit (viewer.js, openRun): the
-  // newest version of each, of one task or any, all sequences or one, chosen in the player's bar.
-  // runOf: the project whose timeline is open (declared with the cache ring, which asks for it).
-  async function openTimeline(project) {
-    runOf = project.id;
-    const key = project.id;
-    let seq = store(`wb:tl:seq:${key}`) || '';
-    let task = store('wb:tl:task') || '';
-    let withEmpty = store('wb:tl:empty') !== false;
-    // Which view of each shot (cmp, bty...), kept per project and shared with its catalogue's player. In 3D,
-    // the one the project puts on its model.
-    let view = store(`wb:view:${key}`) || '';
-    const preview3d = project.settings && project.settings.preview3d;
-    let in3d = false;
-    let data = null;
-    let reloadRun = () => {};
-    const load = async () => {
-      data = await api('GET', `/api/projects/${project.id}/timeline${task ? `?task=${encodeURIComponent(task)}` : ''}`);
-      if (seq && !data.shots.some((x) => x.seq === seq)) seq = '';
-      if (!data.shots.length) return [];
-      if (!view) view = WBViewer.usualView(data);
-      const pieces = await WBViewer.runPieces(data, { seq, task, withEmpty, view: in3d ? preview3d.view : view });
-      // All of it is cached, after the next few shots the player asks for first; the ring says how far.
-      const videos = pieces.filter((x) => x.type === 'video' && !x.empty);
-      for (const x of videos) if (!x.lo) needsPhoneCopy.add(x.full);
-      phoneCopies.poke();
-      tlScope = { label: 'this timeline', items: videos.map((x) => ({ src: x.src, name: x.label })) };
-      WB.media.want('timeline', tlScope.items.map((x) => x.src), { rank: WB.media.RANK.timeline, hold: true });
-      cacheRing.paint();
-      return pieces;
-    };
-    try {
-      await WBViewer.openRun(thePlayer(), {
-        load, me, dock: true,
-        // What it is, for somebody presenting it (present.js).
-        scene: () => ({ k: 'run', seq, task, empty: withEmpty, view: in3d ? '' : view }),
-        ...(preview3d && preview3d.model && {
-          view3d: { ...preview3d, key: project.id },
-          onMode3d: (on) => { in3d = on; reloadRun({ keep: true }); },
-        }),
-        title: () => `${project.name} · Timeline`,
-        // What the run is, all in one button (viewer.js optionsButton): which sequence, the newest of which
-        // task, whether shots with nothing filed are there as slates, and which view. Only what is a choice
-        // in this project is offered: a task, say, only where there are two to choose between.
-        choices: (reload) => {
-          reloadRun = reload;
-          const opts = WBViewer.optionsButton(() => {
-            const seqs = [...new Set(data.shots.map((x) => x.seq).filter(Boolean))];
-            const untasked = data.shots.some((x) => x.version && !x.version.task);
-            const tasks = task || data.tasks.length > 1 || (data.tasks.length === 1 && untasked) ? data.tasks : [];
-            const emptyShots = !withEmpty || data.shots.some((x) => !x.version);
-            const views = data.shots.some((x) => x.version && (x.version.look.views || []).length)
-              ? [...(data.shots.some((x) => x.version && !x.version.look.view) ? [''] : []), ...data.views] : [];
-            return [
-              { name: 'Sequence', value: seq, def: '', options: seqs.length > 1 || seq ? [['', 'All sequences'], ...seqs.map((x) => [x, x])] : [], pick: (v) => { seq = v; store(`wb:tl:seq:${key}`, v); reload(); } },
-              { name: 'Task', value: task, def: '', options: tasks.length ? [['', 'Newest of any task'], ...tasks.map((x) => [x, `Newest ${x}`])] : [], pick: (v) => { task = v; store('wb:tl:task', v); reload(); } },
-              { name: 'Shots', value: withEmpty ? 'all' : 'filed', def: 'all', options: emptyShots ? [['all', 'All shots, a slate where nothing is filed'], ['filed', 'Only shots with something filed']] : [], pick: (v) => { withEmpty = v === 'all'; store('wb:tl:empty', withEmpty); reload(); } },
-              // In 3D the view is the one the project puts on its model, so there is none to choose.
-              ...(views.length > 1 && !in3d ? [WBViewer.viewGroup(views, view, (v) => { view = v; store(`wb:view:${key}`, v); reload({ keep: true }); }, project.settings && Array.isArray(project.settings.views) ? project.settings.views : null)] : []),
-            ];
-          }, { title: 'What the timeline plays' });
-          return [opts];
-        },
-        onClose: () => {
-          runOf = null;
-          tlScope = null;
-          WB.media.want('timeline', []);
-          cacheRing.paint();
-          if (currentView().page === 'timeline' && currentFolder() === project.id) location.hash = WB.href.folder(project.id);
-        },
-      });
-    } catch (err) {
-      runOf = null;
-      tlFailed = project.id;
-      $('content').replaceChildren(el('p', { class: 'home-empty', text: `${err.message}. File versions of the project's shots, and they play here in order.` }));
-    }
-  }
-
   let renderedFor = null;
   function render() {
     const rt = route();
@@ -2122,7 +2047,6 @@
       // Somewhere new: a search typed for the last page does not carry over to this one.
       if (renderedFor !== null && !searching) $('q').value = '';
       renderedFor = location.hash;
-      tlFailed = null;
       // Going elsewhere from the sidebar or the bar closes a player docked beside them.
       if (lookingAt && player && player.isOpen()) {
         lookingAt = null;
@@ -2135,13 +2059,9 @@
       pageScope = null;
       cacheRing.paint();
     }
-    // An animatic's page lets go of its player and its edit (saving what is not saved yet) once you go elsewhere.
-    if (cutPage && !(rt.kind === 'folder' && rt.id === cutPage.project.id && currentView().page === 'animatic' && currentView().animatic === cutPage.id)) closeAnimatic();
-    // The timeline is docked beside the sidebar: going elsewhere from it (the sidebar, the bar) closes it.
-    if (runOf && !(rt.kind === 'folder' && rt.id === runOf && currentView().page === 'timeline') && thePlayer().isOpen()) {
-      runOf = null;
-      thePlayer().close();
-    }
+    // An animatic's page, or the timeline's, lets go of its player and its edit (saving what is not saved yet) once
+    // you go elsewhere.
+    if (cutPage && !(rt.kind === 'folder' && rt.id === cutPage.project.id && cutKey(currentView()) === cutPage.key)) closeAnimatic();
     if (vpick.project && (rt.kind !== 'folder' || rt.id !== vpick.project || !(currentView().page === 'versions' || currentView().entity || currentView().playlist))) dropVersionPick();
     if (picking.on && (rt.kind !== 'folder' || rt.id !== picking.project || currentView().page !== 'catalogue' || currentView().entity)) {
       const f = folderById(picking.project);
@@ -2251,7 +2171,6 @@
   }
   // A search being typed narrows what is already loaded; nothing is fetched for it.
   let searching = false;
-  let tlFailed = null; // the project whose timeline would not open, until you go elsewhere
 
   let shownProject = '';
   let shownEntity = null; // the asset, set or shot whose page is showing, for the crumbs before its catalogue is in
@@ -2268,18 +2187,14 @@
     if (view.page === 'animatic') return animaticPage(project, view.animatic);
     if (view.page === 'home') return projectHome(project, fresh, sig);
     if (view.page === 'timeline') {
-      // The player plays it; the page behind says so. The background refresh of the library leaves it be,
-      // and one that would not open is not tried again until you come back to it.
-      // Opened for one sequence, it plays that one: it is chosen as if picked in the player, and the address
-      // goes back to the timeline's own, so the sequence can be changed there as ever.
+      // Opened for one sequence, it plays that one: it is chosen as if picked in its bar, and the address goes
+      // back to the timeline's own, so the sequence can be changed there as ever.
       if (view.seq) {
         store(`wb:tl:seq:${project.id}`, view.seq);
         history.replaceState(null, '', WB.href.timeline(project.id));
+        if (cutPage && cutPage.key === 'tl') closeAnimatic(false);
       }
-      if ((runOf === project.id && thePlayer().isOpen()) || tlFailed === project.id) return;
-      $('content').replaceChildren(el('p', { class: 'home-empty', text: 'Opening the timeline…' }));
-      openTimeline(project);
-      return;
+      return timelinePage(project);
     }
     // What is being brought in shows above the catalogue, on its page and on each entity's.
     const tray = importer(project).tray;
@@ -3347,6 +3262,14 @@
     }
   }
 
+  // An animatic of what the timeline plays now: its shots with something filed, in its order.
+  async function animaticOfTimeline(project) {
+    const ids = cutPage && cutPage.key === 'tl' ? cutPage.ctl.filedShots() : [];
+    if (!ids.length) return void WB.toast('Nothing filed is on the timeline yet.');
+    const a = await newAnimatic(project, ids);
+    if (a) location.hash = WB.href.animatic(project.id, a.id);
+  }
+
   async function renameAnimatic(project, a) {
     const name = await WB.dialog({ title: 'Rename animatic', value: a.name, placeholder: 'Animatic name', ok: 'Rename' });
     if (!name || name === a.name) return;
@@ -3420,8 +3343,11 @@
   }
 
   // An animatic's page: the editor, opened once and left be as the rest of the page is brought up to date.
+  // The timeline's is the same page, watched rather than edited (animatic.js, `timeline`). `cutKey` says
+  // which of them a view is, as `cutPage.key` says which is open.
+  const cutKey = (v) => (v.page === 'animatic' ? `an:${v.animatic}` : v.page === 'timeline' ? 'tl' : null);
   function animaticPage(project, aid) {
-    if (cutPage && cutPage.id === aid && $('content').contains(cutPage.node)) return;
+    if (cutPage && cutPage.key === `an:${aid}` && $('content').contains(cutPage.node)) return;
     closeAnimatic();
     if (!catalogues.has(project.id)) loadCatalogue(project.id);
     const ctl = WBAnimatic.open($('content'), {
@@ -3441,15 +3367,32 @@
         location.hash = WB.href.reviews(project.id);
       },
     });
-    cutPage = { id: aid, project, ctl, node: $('content').firstElementChild };
+    cutPage = { key: `an:${aid}`, id: aid, project, ctl, node: $('content').firstElementChild };
+  }
+  // A project's timeline: every shot in order, each its newest version, on the animatic's page. Somebody
+  // presenting it is followed through it as through the player (present.js hears what it tells).
+  function timelinePage(project) {
+    if (cutPage && cutPage.key === 'tl' && cutPage.project.id === project.id && $('content').contains(cutPage.node)) return;
+    closeAnimatic();
+    if (!catalogues.has(project.id)) loadCatalogue(project.id);
+    const ctl = WBAnimatic.open($('content'), {
+      project, timeline: true, me,
+      onScope: (scope) => {
+        cutScope = scope;
+        cacheRing.paint();
+      },
+    });
+    cutPage = { key: 'tl', project, ctl, node: $('content').firstElementChild, unhear: ctl.presenter.watch(WBPresent.heard) };
+    WBPresent.report();
   }
   // `changed`: what it now says (its length, its stills) is fetched for the lists.
   function closeAnimatic(changed = true) {
     if (!cutPage) return;
-    const { ctl, project } = cutPage;
+    const { ctl, project, key, unhear } = cutPage;
     cutPage = null;
+    if (unhear) unhear();
     ctl.close();
-    if (changed) setTimeout(() => loadCatalogue(project.id, true), 600);
+    if (changed && key !== 'tl') setTimeout(() => loadCatalogue(project.id, true), 600);
   }
 
   // ------------------------------------------------------------- a project's playlists
@@ -4642,7 +4585,8 @@
   // ---- presenting the project you are in (present.js): whoever has its link sees what you open in the
   // player, the catalogue's versions or the timeline, as you show it; the lists in between they are not shown.
   if (WB.info().canShare) {
-    WBPresent.init({ me: () => me, viewer: thePlayer, project: projectHere, page: () => ({ k: 'idle' }) });
+    // The player tells what it shows, and so does the timeline's page while it is open.
+    WBPresent.init({ me: () => me, viewer: () => (cutPage && cutPage.key === 'tl' && cutPage.ctl.presenter.isOpen() ? cutPage.ctl.presenter : thePlayer()), player: thePlayer, project: projectHere, page: () => ({ k: 'idle' }) });
     presentBtn = WBPresent.button();
     presentBtn.hidden = true;
     $('presentslot').replaceWith(presentBtn);

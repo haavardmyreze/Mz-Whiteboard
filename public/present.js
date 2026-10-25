@@ -9,9 +9,12 @@
 // Each person has one link per project, kept (so it can go in the invitation to every review), and it is
 // live only while they present. Presenting lasts in this tab across pages (sessionStorage), until stopped.
 //
-//   WBPresent.init({ me, viewer, page, project })   on a page that may present: who you are, its player,
-//                                                    what the page shows besides the player
-//                                                    ({ k: 'board', board } or null), the project it is in
+//   WBPresent.init({ me, viewer, player, page, project })   on a page that may present: who you are, what tells
+//                                                    what is shown (`viewer`: its player, or what stands in for it,
+//                                                    as the timeline's page does), the player itself, heard from
+//                                                    the start (`player`, else `viewer`), what the page shows
+//                                                    besides ({ k: 'board', board } or null), the project it is in
+//   WBPresent.heard(type, ...)                       what a stand-in for the player tells, as the player does
 //   WBPresent.button()                               the bar's button: Present, or Presenting while you are
 //   WBPresent.token()                                the link presented through in this tab, if any
 //   WBPresent.onChange(fn)                           hears presenting start and stop
@@ -404,7 +407,7 @@ const WBPresent = (() => {
   function init(next) {
     host = next;
     document.body.append(pill);
-    const v = host.viewer && host.viewer();
+    const v = host.player ? host.player() : host.viewer && host.viewer();
     if (unwatch) unwatch();
     unwatch = v ? v.watch(onPlayer) : null;
     window.addEventListener('hashchange', () => setTimeout(() => report(), 0));
@@ -425,7 +428,7 @@ const WBPresent = (() => {
   }
 
   return {
-    init, button, token, report,
+    init, button, token, report, heard: onPlayer,
     onChange: (fn) => listeners.add(fn),
   };
 })();

@@ -341,13 +341,14 @@ const WBCutTrack = (() => {
         ctx.fill();
         ctx.fillRect(x - 0.75, tileY, 1.5, tileH);
       }
-      // The playhead, which stays where it is: white edged with black, to be seen on any picture.
+      // The playhead, which stays where it is: white edged with black, to be seen on any picture, its head in
+      // the accent, as every playhead's is.
       const px = Math.round(W / 2);
       ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
       ctx.fillRect(px - 2, 0, 4, H);
       ctx.fillStyle = '#fff';
       ctx.fillRect(px - 1, 0, 2, H);
-      ctx.fillStyle = '#ff5a4f';
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#5ba0fa';
       ctx.beginPath();
       ctx.moveTo(W / 2 - 6, 0);
       ctx.lineTo(W / 2 + 6, 0);

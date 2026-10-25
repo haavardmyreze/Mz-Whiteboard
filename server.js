@@ -1889,6 +1889,20 @@ async function handleCatalogue(req, res, parts) {
         }),
       });
     }
+    // GET /api/projects/:id/timeline/edit?task=&seq=&empty=&view=   the timeline as an edit, as an animatic's page
+    // plays one (and as its GET gives it): every shot in order, of `seq` or all, one after another on V1, each as
+    // long as its newest version (of `task`, or of any). A shot with nothing filed is held as a still is, its slate,
+    // unless `empty=0` leaves it out. Each clip's id is its shot's, so the same timeline asked again is the same edit.
+    if (parts.length === 5 && parts[3] === 'timeline' && parts[4] === 'edit' && req.method === 'GET') {
+      const sp = new URL(req.url, 'http://x').searchParams;
+      const base = cleanAnimatic({ fps: usualRate(project), ...usualShape(project), task: sp.get('task') || '', view: sp.get('view') || '' }, project);
+      const seq = sp.get('seq') || '';
+      const ids = timelineShots(project.id, base.task)
+        .filter(({ e, v }) => (v || sp.get('empty') !== '0') && (!seq || naming.seqOf(e.name) === seq)).map(({ e }) => e.id);
+      const edit = appendShots(base, ids);
+      const doc = cleanAnimatic({ ...edit, clips: edit.clips.map((c) => ({ ...c, id: c.shot })) }, project);
+      return sendJson(res, 200, { animatic: { name: 'Timeline' }, projectId: project.id, doc, rev: 0, shots: animaticShots(ids, doc.task) });
+    }
     // PATCH { ids, tier, artists: { add, remove, set }, cc: { add, remove, set }, names, tiers }: many at once. What is not
     // said of them is left as each has it; all or none are changed.
     if (parts.length === 4 && parts[3] === 'entities' && req.method === 'PATCH') {

@@ -588,32 +588,22 @@ filed in it.
   scrubs through it, as if the pointer were dragging its playhead. An asset, set or shot's picture
   plays its newest version at once ("Latest"); its name goes to its page, which has Play latest too.
 - **The timeline.** A project's Timeline (in the sidebar, or above the catalogue) plays every shot in
-  order, sequence by sequence, in the player, as an edit, beside the sidebar and under the page's bar,
-  which stay in reach (going elsewhere from either closes the timeline): the newest version of each (of any task, or
-  of one), one into the next. The next shot is loaded while one plays, so the cut to it is clean. In
-  place of the side strip, the bar under the picture holds every shot as a clip as long as it lasts,
-  with its still and where each sequence begins; dragging along it moves through the whole run, and the
-  time is the run's, in seconds, frames or timecode as everywhere else. The player's bar picks all
-  sequences or one, and the task; both are remembered. The Timeline above a sequence's page in the
-  catalogue opens on that sequence alone (`#/f/<project>/timeline/s/<sequence>`). Under the whole run is a close-up of it, as on
-  an editor's cut page: the playhead stays in the middle and the shots go by under it as a strip of their
-  own frames, so a cut is seen coming and a moment found to the frame. Drag it to move through the run (it
-  stops while held, and plays on when let go if it was playing), click to go to a moment, or use the
-  wheel to move along it. It is always at the same scale, some fourteen seconds across a laptop,
-  however long the edit; the buttons in its corner (or the wheel with Ctrl or Cmd) draw it out to show
-  1.5, 2 or 3 times as much, still so many pixels a second, and that is remembered. Each shot has a
-  plain band along its top with its name and version (in the accent colour for the shot under the
-  playhead, and with the sequence's name where one begins), so the frames under it are never written
-  over, and every cut is a gap down the whole height. On the whole run above it the sequences are a
-  row of bands, named where there is room, the shots under them their stills, named only where wide
-  enough. Its
-  frames are taken from the shots in the browser as they come into view, nearest the playhead first;
-  until one is in, its place has the colour the shot has there. The arrows step from shot to shot, Space plays
-  and pauses, loop goes round to the first shot, and what is written is about the shot under the
-  playhead, on its version, like any other comment. Stills hold for three seconds. The shot on screen
-  and its version are written over the picture and in the bar, and each clip in the strip says its
-  shot. Shots with nothing filed (of the task chosen) are there as a slate, held like a still, with no
-  comments, as they have no version to be on; "Filed shots only" leaves them out.
+  order, sequence by sequence, as an edit: the newest version of each (of any task, or of one), one into
+  the next, each as long as that version, a still held for three seconds. It is an animatic's page, watched
+  rather than edited (`public/animatic.js`, laid out by `GET /api/projects/<folder>/timeline/edit`), so it
+  looks and plays as an animatic does: the whole window under the app's bar (where it is goes in the bar,
+  with its pin and a menu that makes an animatic of it), the shot on screen and its version over the
+  picture, its comments beside it, and under it the bar to play it by and the timeline, a ruler and one
+  track of the shots, each with its name and version along its top and its own frames under that, the
+  playhead in the accent. There are no tools, no library and no sound tracks, and nothing on it is saved:
+  a press anywhere on the timeline goes there, a shot's menu (right-click) opens its page or downloads its
+  original, and the keys are those for watching (Space, the arrows from cut to cut, `,` and `.` a frame,
+  T for the thin strip, + and − to draw it in and out). What it plays is chosen with the settings button
+  over the picture: all sequences or one, the newest of any task or of one, every shot (a slate where
+  nothing is filed, of the task chosen, with no comments as it has no version to be on) or only those filed,
+  and the view; all are remembered. The Timeline above a sequence's page in the catalogue opens on that
+  sequence alone (`#/f/<project>/timeline/s/<sequence>`). What it plays is brought up to date every little
+  while, so a version filed shows up on it.
 - **Presenting it.** Present, in the bar of a project's pages and of its boards, makes a link to
   watch you by (`/p/<link>`): whoever opens it sees what you show, as you show it, and nothing else.
   They follow you from a board, into the viewer and out, to an asset's versions in the player, to the
@@ -962,7 +952,8 @@ highest number each task of each entity has reached). `POST /api/projects/<folde
 "artists": { "add" | "remove" | "set": [...] }, "cc": { ... } }` to change many at once. `GET /api/people`
 lists the names the app knows.
 `GET /api/projects/<folder>/activity` what happened in the project in the last two weeks (versions
-filed and comments, newest first), `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest version,
+filed and comments, newest first), `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest version
+(and `.../timeline/edit?task=&seq=&empty=&view=` lays them out as an edit, as an animatic's `GET` gives one, for the Timeline's page),
 `GET /api/projects/<folder>/versions?before=` the project's versions newest first, 300 a page, each with
 the boards it is on (when
 `more` is true, its `next` is what to give as `before` for the following page; a time in milliseconds
@@ -1061,9 +1052,9 @@ public/board.js    The canvas: rendering, input, sync, following
 public/present.js  Presenting a project: the link, the pill, and saying what is shown as you go
 public/watch.js    The page a presentation's link opens: what the presenter shows, followed, and nothing else (watch.html)
 public/snap.js     Smart snapping's geometry: edges, centres, equal gaps (tested on its own)
-public/cuttrack.js A run's close-up track: the playhead held in the middle, frames going by under it
+public/cuttrack.js A run's close-up track (as somebody watching a presented timeline sees it), and the frames every track draws
 public/cut.js      An animatic's arithmetic: what shows and is heard at each frame, and its changes (tested on its own)
-public/animatic.js An animatic's page: its player, its timeline, the shots to put on it and their comments
+public/animatic.js An animatic's page: its player, its timeline, the shots to put on it and their comments; the Timeline too
 public/viewer.js   The player: one piece at a time, its strip, timeline, comments and drawings; used by boards and the catalogue
 public/ink.js      Drawing: pen strokes, their outlines and colours; used by boards and the player
 public/ingest.js   Bringing media in: review copies of video, originals, timeline strips, stills; used by boards and the catalogue

@@ -2413,7 +2413,7 @@ const WBViewer = (() => {
       afterThread();
     });
     const cpFoot = el('div', { class: 'cp-foot' });
-    const composer = el('textarea', { rows: 1, maxlength: 2000, placeholder: 'Leave a comment…', 'aria-label': 'Comment' });
+    const composer = el('textarea', { rows: 1, maxlength: 2000, placeholder: 'Comment on this', 'aria-label': 'Comment' });
     const replyBox = el('textarea', { rows: 1, maxlength: 2000, placeholder: 'Reply…', 'aria-label': 'Reply' });
     const editBox = el('textarea', { rows: 1, maxlength: 2000, 'aria-label': 'Edit comment' });
     // In 3D, beginning to write a comment holds the view where it is (see holdForComment).
@@ -2434,7 +2434,7 @@ const WBViewer = (() => {
     const cpEraser = el('button', { class: 'iconbtn mini', title: 'Eraser: drag over a drawing to remove it (E)', html: ICON.eraser, onclick: () => setTool(tool === 'eraser' ? 'pen' : 'eraser') });
     const cpBrush = el('div', { class: 'cp-brush', hidden: true }, cpInks, cpEraser);
     const cpCompose = el('div', { class: 'cp-compose' }, cpBrush, composer,
-      el('div', { class: 'cp-actions' }, cpPen, momentChip, drawnChip, el('button', { class: 'btn small primary', text: 'Comment', title: 'Send (Enter)', onclick: submitComment })));
+      el('div', { class: 'cp-actions' }, cpPen, momentChip, drawnChip, el('button', { class: 'btn small primary', text: 'Send', title: 'Send (Enter)', onclick: submitComment })));
 
     function buildInks() {
       cpInks.replaceChildren(...INK.map((c) => el('button', {
@@ -2668,7 +2668,8 @@ const WBViewer = (() => {
       }
       drawnChip.hidden = !strokes;
       drawnChip.children[1].textContent = strokes > 1 ? `Drawing · ${strokes}` : 'Drawing';
-      composer.placeholder = strokes ? 'Say what the drawing is about…' : 'Leave a comment…';
+      // Said as the animatic's page says it: what the comment is on, by name.
+      composer.placeholder = strokes ? 'Say what the drawing is about…' : `Comment on ${(open && open.label) || 'this'}`;
       cpCompose.classList.toggle('drafting', strokes > 0);
       cpPen.hidden = !can.draw();
       cpBrush.hidden = !can.draw() || (tool !== 'pen' && tool !== 'eraser');
@@ -2742,7 +2743,7 @@ const WBViewer = (() => {
       if (open.type === 'video') list.sort((a, b) => (momentOf(a) ?? -1) - (momentOf(b) ?? -1) || byTime(a, b));
       cpCount.hidden = !openN;
       cpCount.textContent = String(openN);
-      const empty = any ? [ICON.check, 'All resolved'] : [ICON.comment, 'No comments yet'];
+      const empty = any ? [ICON.check, 'All resolved'] : [ICON.comment, 'Nothing said about this yet'];
       const held = [replyBox, editBox].find((box) => document.activeElement === box);
       const typing = held && [held.selectionStart, held.selectionEnd];
       const top = cpList.scrollTop;

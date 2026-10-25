@@ -3205,6 +3205,8 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 .an-grip { flex: none; height: 5px; margin-top: -3px; cursor: ns-resize; touch-action: none; }
 .an-grip:hover { background: var(--line-strong); }
 .an-tl { flex: none; display: flex; height: 260px; min-height: 120px; border-top: 1px solid var(--line); }
+/* The Timeline's one track, with room under it to scroll along. */
+.an-timeline .an-tl { height: 120px; }
 .an-heads { position: relative; flex: none; width: 152px; overflow: hidden; border-right: 1px solid var(--line); }
 .an-heads-in { will-change: transform; }
 .an-head-ruler { position: relative; z-index: 1; display: flex; align-items: center; justify-content: flex-end; gap: 2px; height: 24px; padding: 0 4px; border-bottom: 1px solid var(--line); background: var(--bg); }

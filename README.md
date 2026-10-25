@@ -465,7 +465,7 @@ filed in it.
 - **The catalogue page.** A project has its Reviews and its Catalogue, both in the sidebar. The catalogue
   is laid out like the project on disk: assets, sets, and shots by sequence, each with its newest
   still. As cards, the catalogue is one grid, as a clip launcher lays out its layers: every asset, set
-  and shot the same small print, whatever its length, with its name beneath (a shot's number alone) and
+  and shot the print its card is anywhere else, one size whatever its length, with its name beneath (a shot's number alone) and
   what its newest version is (`anim v12`), all starting from the same edge. The shots are a row to each
   sequence, named at its left (a link to its page) with how many shots it has, its shots along it in
   order, scrolling sideways where they run past the edge; a shot with nothing filed keeps its place,

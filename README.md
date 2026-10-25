@@ -464,7 +464,13 @@ filed in it.
   the home looks through the catalogue. Its reviews are at `#/f/<project>/reviews`.
 - **The catalogue page.** A project has its Reviews and its Catalogue, both in the sidebar. The catalogue
   is laid out like the project on disk: assets, sets, and shots by sequence, each with its newest
-  still. An asset, set or shot opens on every version of it (where each is on a board, who filed it,
+  still. As cards, the shots are laid out as a clip launcher lays out its layers: a row to each
+  sequence, named at its left (a link to its page) with how many shots it has, and its shots along it in
+  order, scrolling sideways where they run past the edge. Each is the same small print, whatever its
+  length, with its number beneath and what its newest version is (`anim v12`); a shot with nothing filed
+  keeps its place, empty, so the gaps in a sequence show. On a phone the sequence's name sits above its
+  row. A sequence's own page, and the rows and the table, list its shots as any other list. An asset, set
+  or shot opens on every version of it (where each is on a board, who filed it,
   what its name said) and every note made about any of them, on any board. Click a version and it opens
   in the player, the same one a board uses, with the other versions in the strip beside it: comment and
   draw there, and it is on every board the version is on, live, as what is said on those boards is

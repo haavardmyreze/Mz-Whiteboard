@@ -2795,7 +2795,8 @@
   // An asset, set or shot as an object: its newest picture (scrubbed, and the latest played with a click),
   // how many versions it has and when the last was filed, its tasks and its artists, and its menu. In the
   // catalogue (`pickable`) it is selected with a click while selecting, and its row's box starts that.
-  function entityObj(project, e, { pickable = false } = {}) {
+  // In its sequence's row (`inRow`) a shot is said short: its number, and what its newest version is.
+  function entityObj(project, e, { pickable = false, inRow = false } = {}) {
     const newest = e.newest || null;
     const tier = (project && catalogues.get(project.id)?.tiers.find((t) => t.id === e.tier)) || null;
     const kind = tier ? tier.one.charAt(0).toUpperCase() + tier.one.slice(1) : N.TIERS.includes(e.tier) ? e.tier.charAt(0).toUpperCase() + e.tier.slice(1) : '';
@@ -2839,8 +2840,9 @@
       }),
       box: el('span', { class: 'pick-box', 'aria-hidden': 'true' }),
       still: thumbs,
-      name: e.name,
-      lines: [e.versions == null ? kind.toLowerCase() : e.versions ? `${plural(e.versions, 'version')} · last ${ago(e.latestAt)}` : 'Nothing filed yet', artists && artists()],
+      name: inRow ? e.name.slice(N.seqOf(e.name).length + 1) : e.name,
+      title: e.name,
+      lines: inRow ? [newest && N.label(null, newest.task, newest.number)] : [e.versions == null ? kind.toLowerCase() : e.versions ? `${plural(e.versions, 'version')} · last ${ago(e.latestAt)}` : 'Nothing filed yet', artists && artists()],
       cells: {
         kind, where: project.name,
         versions: e.versions || '',
@@ -2880,7 +2882,17 @@
         (seqs.get(seq) || seqs.set(seq, []).get(seq)).push(e);
       }
       const bySeq = seqSort(project);
-      for (const [seq, shots] of [...seqs].sort(([a], [b]) => (a === 'other') - (b === 'other') || bySeq(a, b))) out.push(groupHead(seq, { level: 2 }), shown(shots));
+      const sorted = [...seqs].sort(([a], [b]) => (a === 'other') - (b === 'other') || bySeq(a, b));
+      // As cards, each sequence is a row and its shots run along it in order, so the whole edit reads
+      // down the sequences and across their shots. A sequence's own page wraps its one row as before.
+      if (WB.layout() !== 'cards' || view.seq) {
+        for (const [seq, shots] of sorted) out.push(groupHead(seq, { level: 2 }), shown(shots));
+        continue;
+      }
+      out.push(el('div', { class: 'seq-rows' }, sorted.map(([seq, shots]) => el('div', { class: 'seq-row' },
+        el(seq === 'other' ? 'div' : 'a', { class: 'seq-row-head', ...(seq !== 'other' && { href: WB.href.catalogue(project.id, { seq }), title: `Open ${seq}` }) },
+          el('span', { class: 'seq-row-name', text: seq }), el('span', { class: 'tally', text: String(shots.length) })),
+        objectList('entity', shots.map((e) => entityObj(project, e, { pickable: true, inRow: seq !== 'other' })), { grid: 'seq-track' })))));
     }
     if (!out.length) {
       out.push(el('div', { class: 'home-empty cat-empty' },

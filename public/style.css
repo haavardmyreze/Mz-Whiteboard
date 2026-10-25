@@ -2100,6 +2100,26 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
 .vl-tools + .section-label, .vt-head + .section-label { margin-top: 20px; }
 .ent-grid { grid-template-columns: repeat(auto-fill, minmax(208px, 1fr)); gap: 28px 20px; }
 .card.ent .card-thumbs, .card.ver .card-thumbs { aspect-ratio: 16 / 10; }
+/* As cards, the catalogue's shots are a row to each sequence, as a clip launcher lays out its layers: the
+   sequence named at the left, its shots along it in order, scrolling sideways where they run past the
+   edge. Every shot is the same small print, however long it is: the timeline is where length shows.
+   The still is 160 by 100, and the sequence's name sits level with it. */
+.seq-row { display: flex; gap: 16px; padding: 16px 0; }
+.seq-row:first-child { padding-top: 0; }
+.seq-row + .seq-row { border-top: 1px solid var(--line); }
+.seq-row-head { flex: none; display: flex; flex-direction: column; justify-content: center; gap: 2px; width: 112px; height: 100px; color: var(--text-2); font-size: var(--fs-ui); font-weight: 600; text-decoration: none; }
+a.seq-row-head:hover { color: var(--text); }
+.seq-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seq-row-head .tally { color: var(--muted); font-size: var(--fs-sm); font-weight: 400; font-variant-numeric: tabular-nums; }
+/* Room around the prints for a picked one's ring, which the scroller would otherwise cut. */
+.seq-track { flex: 1; display: grid; grid-auto-flow: column; grid-auto-columns: 160px; gap: 12px; min-width: 0; margin: -4px 0 -4px -4px; padding: 4px 4px 8px; overflow-x: auto; overscroll-behavior-x: contain; }
+[data-layout="cards"] .seq-track .card .card-body { padding: 8px 1px 0; }
+.seq-track .card-meta { margin-top: 0; font-size: var(--fs-cap); }
+@media (max-width: 560px) {
+  .seq-row { flex-direction: column; gap: 8px; }
+  .seq-row-head { flex-direction: row; justify-content: flex-start; align-items: baseline; gap: 8px; width: auto; height: auto; }
+  .seq-track { grid-auto-columns: 136px; }
+}
 .card.ver .card-thumbs { position: relative; width: 100%; padding: 0; border: 0; font: inherit; cursor: zoom-in; }
 .card.ver .card-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card.ver.hidden-ver { opacity: 0.55; }

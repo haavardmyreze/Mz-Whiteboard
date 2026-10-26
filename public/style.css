@@ -493,7 +493,7 @@ body.home:not(.admin) .appbar .wordmark { color: var(--text); }
 .split > .split-more svg { width: 14px; height: 14px; }
 
 .home-wrap { display: flex; align-items: flex-start; }
-.home main { flex: 1; min-width: 0; max-width: 1264px; margin: 0 auto; padding: 16px 32px 96px; }
+.home main { flex: 1; min-width: 0; padding: 16px 32px 96px; }
 #content > .section-label:first-child, .ent-page > .section-label:first-child { margin-top: 24px; }
 
 /* The sidebar: Home, then each workspace's folders and projects as a tree. A drawer on a narrow window. */
@@ -1892,7 +1892,7 @@ body.show-names:not(.focus) .item:is(.image, .video):not([data-name=""])::before
    People, groups and who may open what. Every list sits on a panel, a row to a person, and each
    person and group has a face to be found by; the words are for what the faces cannot say. */
 
-.admin main { max-width: 1064px; }
+.admin main { max-width: 1064px; margin: 0 auto; }
 .admin-head h1 { margin: 0; font-size: var(--fs-title); font-weight: 600; line-height: 1.2; letter-spacing: -0.02em; }
 .admin-head p { margin: 6px 0 0; color: var(--muted); line-height: 1.5; }
 
@@ -2448,8 +2448,9 @@ body.picking main { padding-bottom: 120px; }
 .dlg .pf-in:focus { border: 0; box-shadow: none; }
 .be-ctl .pf { min-height: 34px; }
 
-/* Home: Updates beside My work, under what is pinned. */
-.home-cols { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: 40px; align-items: start; }
+/* A project's home: how far along it is, with who is on it and what is waiting beside that. The side
+   keeps to the width of a list however wide the window; the parts take the rest. */
+.home-cols { display: grid; grid-template-columns: minmax(0, 1fr) clamp(280px, 40%, 464px); gap: 40px; align-items: start; }
 .home-cols .section-label { margin-top: 32px; }
 .section-label .label-gap { flex: 1; }
 .section-label:has(.label-gap)::after { display: none; }
@@ -3074,7 +3075,7 @@ body.spectating #topbar .brand { pointer-events: none; }
    to put on it are down its left and what is said about the shot on screen down its right; under them the
    timeline's bar (its tools, playing, how it is drawn), and the timeline. The timeline is drawn (animatic.js) on
    the dark bed the Timeline's close-up has, in both themes. */
-body.an-on main { display: flex; flex-direction: column; max-width: none; height: calc(100dvh - var(--bar)); padding: 0; }
+body.an-on main { display: flex; flex-direction: column; height: calc(100dvh - var(--bar)); padding: 0; }
 body.an-on .page-head, body.an-on .home-head .search, body.an-on .search-toggle, body.an-on .wm-by { display: none; }
 .bar-path { flex: 0 1 auto; display: flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
 .bar-path[hidden] { display: none; }

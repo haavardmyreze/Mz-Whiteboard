@@ -1,7 +1,7 @@
 'use strict';
 
 // Presenting a project: everybody who opens its link (/p/<token>, see watch.js) sees what you show, as you
-// show it, and can do nothing else. A board, an asset's versions in the player, the timeline: they follow
+// show it, and can do nothing else. A board, an asset's versions in the player, an animatic: they follow
 // you through all of it, onto the frame you are on, the thread you read, how far you are zoomed in, 2D or
 // 3D. Anything else (a list of the catalogue, a page outside the project) they are not shown: they wait
 // on what they saw last until you open something again.
@@ -11,7 +11,7 @@
 //
 //   WBPresent.init({ me, viewer, player, page, project })   on a page that may present: who you are, what tells
 //                                                    what is shown (`viewer`: its player, or what stands in for it,
-//                                                    as the timeline's page does), the player itself, heard from
+//                                                    as an animatic's page does), the player itself, heard from
 //                                                    the start (`player`, else `viewer`), what the page shows
 //                                                    besides ({ k: 'board', board } or null), the project it is in
 //   WBPresent.heard(type, ...)                       what a stand-in for the player tells, as the player does
@@ -126,7 +126,7 @@ const WBPresent = (() => {
     };
   }
 
-  // What is shown now: the player's own word for it (an asset's versions, the timeline), else the page's (a board).
+  // What is shown now: the player's own word for it (an asset's versions, an animatic), else the page's (a board).
   function sceneNow() {
     const v = host && host.viewer && host.viewer();
     const fromPlayer = v && v.isOpen() && v.scene();
@@ -365,7 +365,7 @@ const WBPresent = (() => {
         : EXPIRY;
       dlg.replaceChildren(el('form', { method: 'dialog', onsubmit: (e) => e.preventDefault() },
         el('h2', { text: `Present ${name}` }),
-        el('p', { class: 'share-note', text: 'Whoever opens the link sees what you show, as you show it: boards, versions in the player, the timeline. They follow you and cannot look about for themselves, and they never see the catalogue\'s lists or anything outside the project. No sign-in is needed.' }),
+        el('p', { class: 'share-note', text: 'Whoever opens the link sees what you show, as you show it: boards, versions in the player, animatics. They follow you and cannot look about for themselves, and they never see the catalogue\'s lists or anything outside the project. No sign-in is needed.' }),
         !link && el('div', { class: 'dlg-actions' },
           el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }),
           el('button', { type: 'button', class: 'btn primary', text: 'Make a link', onclick: () => call('POST', '') })),

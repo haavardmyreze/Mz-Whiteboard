@@ -6,11 +6,11 @@
 // In a project with a model of its venue, the edit can be seen on it in 3D, the way the player shows a piece
 // (venue in viewer.js, and view3d.js): the clips showing are laid over one another on a canvas, and the venue's
 // screens show the canvas.
-// The project's Timeline is this page too (`timeline`), as an edit nobody makes: every shot in order on one track,
-// each its newest version, as the server lays it out (GET /api/projects/:id/timeline/edit). It is watched, never
-// edited: no library, no tools, nothing saved, and what it plays is chosen in the bar (which sequence, the newest
-// of which task, slates for shots with nothing filed, the view). Somebody presenting it is followed through it.
-// Loaded after cut.js, cuttrack.js and viewer.js; opened by home.js.
+// Somebody presenting a project can show an animatic (present.js): those watching (watch.js) have this page too,
+// `watched`: the same edit, from the link's own address, never edited (no library, no tools, nothing saved), its
+// playhead, its playing and its venue following the presenter's (`follow`), and the comments on the shot on
+// screen as the link shows them, to read. Loaded after cut.js, cuttrack.js and viewer.js; opened by home.js and
+// watch.js.
 const WBAnimatic = (() => {
   const { el, clamp, store } = WB;
   const C = WBCut;
@@ -33,7 +33,7 @@ const WBAnimatic = (() => {
   const SAVE_AFTER = 500;
   const PULL_EVERY = 15000;
   const AUDIO_EXT = /\.(wav|mp3|m4a|aac|ogg|oga|opus|flac)$/i;
-  // The timeline is a dark bed in both themes, as the Timeline's close-up is, so pictures read the same on it: the
+  // The timeline is a dark bed in both themes, so pictures read the same on it: the
   // page's own black (style.css --bg), the tracks a shade over it, and a clip its pictures.
   const BED = '#090909';
   const LANE_BG = '#101010';
@@ -49,12 +49,11 @@ const WBAnimatic = (() => {
 
   const versionPart = (label, name) => (label && name && label.startsWith(name) ? label.slice(name.length).trim() : label || '');
 
-  function open(host, { project, id = null, timeline = false, me, onName = () => {}, onGone = () => {}, onScope = () => {} }) {
-    // What the Timeline plays, kept by this browser (per project where it is the project's own).
-    const choice = timeline ? { seq: store(`wb:tl:seq:${project.id}`) || '', task: store('wb:tl:task') || '', empty: store('wb:tl:empty') !== false, view: store(`wb:view:${project.id}`) || '' } : null;
-    const source = () => (timeline
-      ? `/api/projects/${project.id}/timeline/edit?${new URLSearchParams({ seq: choice.seq, task: choice.task, empty: choice.empty ? '1' : '0', view: choice.view })}`
-      : `/api/animatics/${id}`);
+  // `watched`, for somebody watching it presented: { source (where the edit is fetched from), room (where the
+  // comments on a shot come from, as viewer.js's entityRoom gives them), comments (whether they are shown) }.
+  function open(host, { project, id = null, watched = null, me, onName = () => {}, onGone = () => {}, onScope = () => {} }) {
+    const watching = !!watched;
+    const source = () => (watched ? watched.source : `/api/animatics/${id}`);
     let doc = null;
     let rev = 0;
     let shots = {};
@@ -119,7 +118,7 @@ const WBAnimatic = (() => {
     const binSearch = el('input', { type: 'search', class: 'an-bin-q', placeholder: 'Find a shot or a sound', 'aria-label': 'Find a shot or a sound', autocomplete: 'off', spellcheck: 'false', oninput: () => paintBin() });
     const soundInput = el('input', { type: 'file', accept: 'audio/*,.wav,.mp3,.m4a,.aac,.ogg,.flac', multiple: true, hidden: true, onchange: () => { addSounds([...soundInput.files]); soundInput.value = ''; } });
     const binEdge = el('div', { class: 'an-edge right', role: 'separator', 'aria-orientation': 'vertical', title: 'Drag to make the library wider or narrower' });
-    const bin = el('aside', { class: 'an-bin', 'aria-label': 'The library: shots and sounds to put on the edit', hidden: timeline || store('wb:an:bin') === false },
+    const bin = el('aside', { class: 'an-bin', 'aria-label': 'The library: shots and sounds to put on the edit', hidden: watching || store('wb:an:bin') === false },
       el('div', { class: 'an-bin-head' }, binSearch,
         el('button', { type: 'button', class: 'iconbtn an-bin-hide', html: ICON.close, title: 'Hide the library (Shift+L)', 'aria-label': 'Hide the library', onclick: () => toggleBin(false) })),
       binList,
@@ -140,11 +139,12 @@ const WBAnimatic = (() => {
     const noteAt = el('span', { class: 'an-note-at' });
     const noteSend = el('button', { type: 'button', class: 'btn small primary', text: 'Send', onclick: () => sendNote() });
     const notesEdge = el('div', { class: 'an-edge left', role: 'separator', 'aria-orientation': 'vertical', title: 'Drag to make the comments wider or narrower' });
-    const notes = el('aside', { class: 'an-notes', 'aria-label': 'Comments on the shot on screen', hidden: store('wb:an:notes') === false },
+    // Watching, the comments are there to read, and only where the link shows them.
+    const notes = el('aside', { class: 'an-notes', 'aria-label': 'Comments on the shot on screen', hidden: (watched && !watched.comments) || store('wb:an:notes') === false },
       notesEdge,
       el('div', { class: 'an-notes-head' }, notesTitle),
       notesList,
-      el('div', { class: 'an-note-compose' }, noteBox, el('div', { class: 'an-note-row' }, noteAt, el('span', { class: 'spacer' }), noteSend)));
+      !watching && el('div', { class: 'an-note-compose' }, noteBox, el('div', { class: 'an-note-row' }, noteAt, el('span', { class: 'spacer' }), noteSend)));
 
     const notesWidth = store('wb:an:notesw');
     if (Number.isFinite(notesWidth)) notes.style.width = `${notesWidth}px`;
@@ -186,13 +186,14 @@ const WBAnimatic = (() => {
     const optionsSlot = el('span', { class: 'an-opts' });
     // Over the picture, as over the player's: the panels' switches at its ends, the shot on screen, and how the edit
     // is seen (what it plays, on the venue or not and from where, its sound).
+    // Watching, the sound is the watching page's to turn on and off, and the comments are there only if shown.
     const vbar = el('div', { class: 'an-vbar' },
-      !timeline && binBtn, onNow, el('span', { class: 'spacer' }),
-      optionsSlot, el('span', { class: 'an-dims' }, venue3d.dims, venue3d.cams), soundBtn, notesBtn);
+      !watching && binBtn, onNow, el('span', { class: 'spacer' }),
+      optionsSlot, el('span', { class: 'an-dims' }, venue3d.dims, venue3d.cams), !watching && soundBtn, !(watched && !watched.comments) && notesBtn);
     // Under it, the timeline's own bar: its tools and snapping on the left, playing it in the middle, and how the
     // timeline is drawn on the right.
     const bar = el('div', { class: 'an-bar' },
-      el('div', { class: 'an-bar-side an-wide' }, ...(timeline ? [] : [el('span', { class: 'an-tools', role: 'group', 'aria-label': 'Tools' }, ...toolBtns.values()), el('span', { class: 'an-sep' }), snapBtn])),
+      el('div', { class: 'an-bar-side an-wide' }, ...(watching ? [] : [el('span', { class: 'an-tools', role: 'group', 'aria-label': 'Tools' }, ...toolBtns.values()), el('span', { class: 'an-sep' }), snapBtn])),
       el('div', { class: 'an-transport' },
         timeBtn,
         el('button', { type: 'button', class: 'iconbtn an-step', html: ICON.frameBack, title: 'A frame back (,)', 'aria-label': 'A frame back', onclick: () => step(-1) }),
@@ -215,12 +216,11 @@ const WBAnimatic = (() => {
     const tl = el('div', { class: `an-tl${compact ? ' compact' : ''}` }, heads, scroller, strip);
     const view = el('div', { class: 'an-view' }, vbar, stage);
     const top = el('div', { class: 'an-top' }, bin, view, notes);
-    const page = el('div', { class: `an${timeline ? ' an-timeline' : ''}` }, top, bar, grip, tl);
+    const page = el('div', { class: `an${watching ? ' an-watched' : ''}` }, top, bar, grip, tl);
     host.replaceChildren(page);
     document.body.classList.add('an-on');
-    // How much room the timeline has, kept for next time: the Timeline's own, its one track wanting less.
-    const TL_KEY = timeline ? 'wb:tl:height' : 'wb:an:tl';
-    const tlHeight = store(TL_KEY);
+    // How much room the timeline has, kept for next time.
+    const tlHeight = store('wb:an:tl');
     if (Number.isFinite(tlHeight)) tl.style.height = `${tlHeight}px`;
 
     // ---- loading, saving, and taking what others saved
@@ -249,8 +249,14 @@ const WBAnimatic = (() => {
       fitAll(true);
       paintOptions();
       paintAll();
-      loadCatalogue();
       venue3d.paint();
+      // Watching, the catalogue is not to be had, and the venue is seen as the presenter sees it.
+      if (watching) {
+        if (followLater) follow(followLater.p, performance.now() - followLater.at);
+        followLater = null;
+        return;
+      }
+      loadCatalogue();
       venue3d.recall();
     }
 
@@ -300,7 +306,7 @@ const WBAnimatic = (() => {
         const data = await WB.api('GET', asked);
         if (closed || dirty || saving || held || asked !== source()) return;
         const was = JSON.stringify([doc, shots]);
-        if (data.rev !== rev && data.animatic.updatedBy && data.animatic.updatedBy !== me.name) WB.toast(`${data.animatic.updatedBy} changed the edit`, { key: 'an-pull' });
+        if (!watching && data.rev !== rev && data.animatic.updatedBy && data.animatic.updatedBy !== me.name) WB.toast(`${data.animatic.updatedBy} changed the edit`, { key: 'an-pull' });
         take(data);
         if (JSON.stringify([doc, shots]) !== was) paintAll();
       } catch (err) {
@@ -993,7 +999,7 @@ const WBAnimatic = (() => {
         if (src && !items.some((x) => x.src === src)) items.push({ src, name: c.shot && shots[c.shot] ? shots[c.shot].name : c.name || 'A sound' });
       }
       WB.media.want('animatic', items.map((x) => x.src), { rank: WB.media.RANK.timeline, hold: true });
-      onScope({ label: timeline ? 'this timeline' : 'this animatic', items });
+      onScope({ label: 'this animatic', items });
     }
     // Whether a clip's file is kept here: 'cached', 'coming' (with how far it has come), 'remote', or 'none' where
     // nothing can be kept (a still, a slate, a browser with nowhere to keep it).
@@ -1022,7 +1028,7 @@ const WBAnimatic = (() => {
     }
     function setSound(on) {
       soundOn = on;
-      store('wb:an:sound', on);
+      if (!watching) store('wb:an:sound', on);
       if (master) master.gain.value = on ? 1 : 0;
       paintSound();
       render(ph);
@@ -1060,10 +1066,10 @@ const WBAnimatic = (() => {
       joinShot(c);
     }
 
-    // ---- for somebody presenting the Timeline (present.js): what it shows, told as the player tells it, so those
-    // watching follow it in theirs (watch.js): the piece on screen (its version, or the slate of a shot with nothing
-    // filed, `empty-<shot>`, as WBViewer.runPieces names them), where in it the playhead is and whether it plays,
-    // and how the venue is seen.
+    // ---- for somebody presenting it (present.js): what it shows, told as the player tells it, so those watching
+    // follow it on theirs (watch.js): the piece on screen (its version, or the slate of a shot with nothing filed,
+    // `empty-<shot>`), which their comments are about; where the playhead is in the edit and whether it plays; and
+    // how the venue is seen.
 
     const heard = new Set();
     const tell = (...args) => { for (const fn of heard) fn(...args); };
@@ -1073,14 +1079,14 @@ const WBAnimatic = (() => {
       const v = versionOf(c);
       return v ? v.id : `empty-${c.shot}`;
     };
-    const momentNow = () => (pieceNow ? [pieceNow.id, Math.round(momentIn(pieceNow.clip, ph).at * 1000) / 1000, playing ? 1 : 0] : null);
+    const momentNow = () => (doc ? [id, Math.round((ph / doc.fps) * 1000) / 1000, playing ? 1 : 0] : null);
     function told() {
       const m = heard.size ? momentNow() : null;
       if (m) tell('media', m[0], !!m[2], m[1]);
     }
     const presenter = {
       isOpen: () => !closed && !!doc,
-      scene: () => ({ k: 'run', seq: choice.seq, task: choice.task, empty: choice.empty, view: in3d ? '' : choice.view }),
+      scene: () => ({ k: 'animatic', animatic: id }),
       current: () => (pieceNow ? pieceNow.id : null),
       file: () => '',
       thread: () => null,
@@ -1102,25 +1108,60 @@ const WBAnimatic = (() => {
       },
     };
 
-    // The task each clip plays the newest of, and the view, where there is a choice.
+    // ---- watching it presented: where the presenter's playhead is, whether it plays, and how the venue is seen
+
+    // A moment said `since` milliseconds ago: where it plays, played on since. Playing along already, being a
+    // little out is left be, as a jump would be seen.
+    function followMoment(m, since = 0) {
+      if (!doc || !Array.isArray(m) || m[0] !== id) return;
+      const on = !!m[2];
+      const f = (m[1] + (on ? since / 1000 : 0)) * doc.fps;
+      if (!on) {
+        stop();
+        return void seek(f);
+      }
+      if (!(playing || starting) || Math.abs(ph - f) > doc.fps / 4) seek(f);
+      if (!playing && !starting) play();
+    }
+    // In 2D or 3D, through the same camera, frame or flight. What comes in while the venue is still loading waits,
+    // and the latest of it is what is shown.
+    let next3d = null;
+    let busy3d = false;
+    function follow3d(d) {
+      next3d = { d };
+      if (busy3d) return;
+      busy3d = true;
+      (async () => {
+        while (next3d && !closed) {
+          const { d: x } = next3d;
+          next3d = null;
+          const on = !!(x && x.on) && !!venue;
+          if (on !== in3d) await set3d(on);
+          if (!on || !in3d || !three) continue;
+          if (x.f) three.steer(x.f);
+          else if (Number.isInteger(x.c)) venue3d.look(x.c);
+          else if (x.q) venue3d.look(x.q);
+        }
+      })().finally(() => { busy3d = false; });
+    }
+    // What is said before the edit is in waits for it (see load), the moment going on meanwhile.
+    let followLater = null;
+    function follow(p, since = 0) {
+      if (!p) return;
+      if (!doc) {
+        followLater = { p: { ...(followLater && followLater.p), ...p }, at: performance.now() - since };
+        return;
+      }
+      if ('m' in p) followMoment(p.m, since);
+      if ('d' in p) follow3d(p.d);
+    }
+
+    // The task each clip plays the newest of, and the view, where there is a choice. Watching, the edit plays as
+    // the presenter has it.
     function paintOptions() {
-      if (!doc) return;
+      if (!doc || watching) return;
       const tasks = (catalogue && catalogue.tasks) || [];
       const views = catalogue && Array.isArray(catalogue.viewList) ? catalogue.viewList : [];
-      if (timeline) {
-        // The Timeline's: which sequence, the newest of which task, whether shots with nothing filed are there as
-        // slates, and the view. Only what is a choice in this project is offered.
-        const list = projectShots();
-        const seqs = [...new Set(list.map((e) => N.seqOf(e.name)).filter(Boolean))];
-        const unfiled = !choice.empty || list.some((e) => !(choice.task ? e.heads && e.heads[choice.task] : e.newest));
-        options = V.optionsButton(() => [
-          { name: 'Sequence', value: choice.seq, def: '', options: seqs.length > 1 || choice.seq ? [['', 'All sequences'], ...seqs.map((x) => [x, x])] : [], pick: (v) => setChoice({ seq: v }) },
-          { name: 'Task', value: choice.task, def: '', options: tasks.length > 1 || choice.task ? [['', 'Newest of any task'], ...tasks.map((x) => [x, `Newest ${x}`])] : [], pick: (v) => setChoice({ task: v }) },
-          { name: 'Shots', value: choice.empty ? 'all' : 'filed', def: 'all', options: unfiled ? [['all', 'All shots, a slate where nothing is filed'], ['filed', 'Only shots with something filed']] : [], pick: (v) => setChoice({ empty: v === 'all' }) },
-          ...(views.length > 1 && !in3d ? [V.viewGroup(['', ...views.slice(1)], choice.view, (v) => setChoice({ view: v }), views)] : []),
-        ], { title: 'What the timeline plays' });
-        return void optionsSlot.replaceChildren(options);
-      }
       options = V.optionsButton(() => [
         { name: 'Task', value: doc.task || '', def: '', options: tasks.length > 1 || doc.task ? [['', 'Newest of any task'], ...tasks.map((x) => [x, `Newest ${x}`])] : [], pick: (v) => setChoice({ task: v || null }) },
         // On the venue the view is the one the project puts on its model, so there is none to choose.
@@ -1129,27 +1170,6 @@ const WBAnimatic = (() => {
       optionsSlot.replaceChildren(options);
     }
     async function setChoice(patch) {
-      if (timeline) {
-        const seqWas = choice.seq;
-        Object.assign(choice, patch);
-        store(`wb:tl:seq:${project.id}`, choice.seq);
-        store('wb:tl:task', choice.task);
-        store('wb:tl:empty', choice.empty);
-        store(`wb:view:${project.id}`, choice.view);
-        try {
-          take(await WB.api('GET', source()));
-        } catch (err) {
-          return void WB.toast(err.message);
-        }
-        if (closed) return;
-        if (choice.seq !== seqWas) {
-          ph = 0;
-          fitAll();
-        }
-        paintOptions();
-        paintAll();
-        return;
-      }
       commit({ ...doc, ...patch });
       clearTimeout(saveTimer);
       await save();
@@ -1178,7 +1198,6 @@ const WBAnimatic = (() => {
         rows.push({ track: t, y, h: h.video });
         y += h.video;
       }
-      if (timeline) return y;
       y += SPLIT;
       for (const t of C.audioTracks(doc)) {
         rows.push({ track: t, y, h: h.audio });
@@ -1770,8 +1789,8 @@ const WBAnimatic = (() => {
       } catch {
         // capture is a nicety
       }
-      // On the Timeline, a press anywhere goes there, as on the ruler.
-      if (hit.kind === 'ruler' || timeline) {
+      // Watching, a press anywhere goes there, as on the ruler.
+      if (hit.kind === 'ruler' || watching) {
         const wasPlaying = playing;
         stop();
         held = { kind: 'scrub', pid: e.pointerId, wasPlaying };
@@ -1801,7 +1820,7 @@ const WBAnimatic = (() => {
       if (!doc) return;
       const p = local(e);
       if (!held) {
-        if (timeline) return;
+        if (watching) return;
         const hit = hitAt(p.x, p.y);
         if (tool !== 'select') return void toolHover(e, p, hit);
         const was = hover && hover.clip;
@@ -1991,13 +2010,13 @@ const WBAnimatic = (() => {
     // Sound files dragged from the desktop onto the timeline go in the library, and on a sound track where they
     // are let go over one; let go anywhere else on the page, in the library only.
     scroller.addEventListener('dragover', (e) => {
-      if (timeline || ![...e.dataTransfer.types].includes('Files')) return;
+      if (watching || ![...e.dataTransfer.types].includes('Files')) return;
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = 'copy';
     });
     scroller.addEventListener('drop', (e) => {
-      if (timeline || ![...e.dataTransfer.types].includes('Files')) return;
+      if (watching || ![...e.dataTransfer.types].includes('Files')) return;
       e.preventDefault();
       e.stopPropagation();
       const p = local(e);
@@ -2005,7 +2024,7 @@ const WBAnimatic = (() => {
       addSounds([...e.dataTransfer.files], r && r.track.kind === 'audio' ? { track: r.track.id, at: Math.max(0, Math.round(fAt(p.x))) } : {});
     });
     const pageDrop = (e) => {
-      if (timeline || ![...e.dataTransfer.types].includes('Files')) return;
+      if (watching || ![...e.dataTransfer.types].includes('Files')) return;
       e.preventDefault();
       if (e.type === 'drop') addSounds([...e.dataTransfer.files]);
     };
@@ -2016,15 +2035,7 @@ const WBAnimatic = (() => {
     cv.addEventListener('contextmenu', (e) => {
       const p = local(e);
       const hit = hitAt(p.x, p.y);
-      if (timeline) {
-        if (hit.kind !== 'clip') return;
-        e.preventDefault();
-        const anchor = el('span', { class: 'an-anchor', style: { left: `${e.clientX}px`, top: `${e.clientY - 4}px` } });
-        document.body.append(anchor);
-        WB.menu(anchor, shotMenu(hit.clip), { align: 'left' });
-        setTimeout(() => anchor.remove(), 0);
-        return;
-      }
+      if (watching) return;
       const gap = hit.kind === 'lane' ? C.gapAt(doc, hit.row.track.id, Math.floor(fAt(p.x))) : null;
       if (hit.kind !== 'clip' && !gap) return;
       e.preventDefault();
@@ -2041,20 +2052,6 @@ const WBAnimatic = (() => {
       WB.menu(anchor, gap ? [['Close the gap', () => closeGap()]] : clipMenu(hit.clip), { align: 'left' });
       setTimeout(() => anchor.remove(), 0);
     });
-    // A shot's menu on the Timeline: its page, and the file its version was made from.
-    function shotMenu(c) {
-      const v = versionOf(c);
-      const file = v && (v.look.orig || v.look.src);
-      return [
-        ['Open the shot', () => { location.hash = WB.href.catalogue(project.id, { entity: c.shot }); }],
-        file && ['Download the original', () => {
-          const a = el('a', { href: file, download: `${v.label}${/\.[a-z0-9]+$/i.exec(file)?.[0] || ''}` });
-          document.body.append(a);
-          a.click();
-          a.remove();
-        }],
-      ].filter(Boolean);
-    }
     // The gap picked closed: what comes after it on its track moves back (Delete, with a gap picked).
     function closeGap() {
       if (!gapSel) return;
@@ -2130,7 +2127,7 @@ const WBAnimatic = (() => {
     function paintHeads() {
       if (!doc) return;
       headsTop.replaceChildren(...[
-        !timeline && el('button', {
+        !watching && el('button', {
           type: 'button', class: 'iconbtn an-add', html: ICON.plus, title: 'Add a track', 'aria-label': 'Add a track', 'aria-haspopup': 'menu',
           onclick: (e) => WB.menu(e.currentTarget, [['Video track', () => addTrack('video')], ['Sound track', () => addTrack('audio')]]),
         }),
@@ -2143,7 +2140,7 @@ const WBAnimatic = (() => {
           const setTrack = (patch) => commit({ ...doc, tracks: doc.tracks.map((x) => (x.id === t.id ? { ...x, ...patch } : x)) });
           return [...gap, el('div', { class: `an-head ${t.kind}${t.mute ? ' muted' : ''}${t.hide ? ' hidden-track' : ''}`, style: { height: `${r.h}px` } },
             el('span', { class: 'an-head-name', text: t.name, title: t.name }),
-            ...(timeline ? [] : [t.kind === 'video' && el('button', { type: 'button', class: `iconbtn${t.hide ? ' off' : ''}`, html: t.hide ? ICON.eyeOff : ICON.eye, title: t.hide ? 'Hidden: click to show it' : 'Shown: click to hide it', 'aria-pressed': String(!t.hide), onclick: () => setTrack({ hide: !t.hide }) }),
+            ...(watching ? [] : [t.kind === 'video' && el('button', { type: 'button', class: `iconbtn${t.hide ? ' off' : ''}`, html: t.hide ? ICON.eyeOff : ICON.eye, title: t.hide ? 'Hidden: click to show it' : 'Shown: click to hide it', 'aria-pressed': String(!t.hide), onclick: () => setTrack({ hide: !t.hide }) }),
             el('button', { type: 'button', class: `iconbtn${t.mute ? ' off' : ''}`, html: t.mute ? ICON.muted : ICON.sound, title: t.mute ? 'Its sound is off: click to hear it' : 'Its sound is on: click to turn it off', 'aria-pressed': String(!t.mute), onclick: () => setTrack({ mute: !t.mute }) }),
             el('button', { type: 'button', class: 'iconbtn', html: ICON.more, title: 'More', 'aria-haspopup': 'menu', onclick: (e) => WB.menu(e.currentTarget, trackMenu(t)) })]))];
         }));
@@ -2203,7 +2200,7 @@ const WBAnimatic = (() => {
         roomOf = shot;
         roomNotes = [];
         if (shot) {
-          room = V.entityRoom(shot, me, (list) => {
+          room = (watched ? watched.room : V.entityRoom)(shot, me, (list) => {
             roomNotes = list;
             paintNotes();
           });
@@ -2245,6 +2242,7 @@ const WBAnimatic = (() => {
     edgeDrag(binEdge, bin, 'wb:an:binw', 1, 160, 520);
     edgeDrag(notesEdge, notes, 'wb:an:notesw', -1, 220, 560);
     function toggleNotes() {
+      if (watched && !watched.comments) return;
       notes.hidden = !notes.hidden;
       store('wb:an:notes', !notes.hidden);
       notesBtn.classList.toggle('active', !notes.hidden);
@@ -2302,7 +2300,7 @@ const WBAnimatic = (() => {
           },
         },
         line(n), ...replies.map(line),
-        el('div', { class: 'an-thread-acts' },
+        !watching && el('div', { class: 'an-thread-acts' },
           el('button', { type: 'button', class: 'an-act', text: 'Reply', onclick: () => replyTo(n) }),
           el('button', { type: 'button', class: 'an-act', text: n.done ? 'Open again' : 'Resolve', onclick: () => room && room.send([{ t: 'set', id: n.id, patch: { done: !n.done } }]) }),
           n.name === me.name && el('button', { type: 'button', class: 'an-act danger', text: 'Delete', onclick: () => deleteNote(n) })));
@@ -2375,8 +2373,8 @@ const WBAnimatic = (() => {
       // On the venue, W A S D Q E fly and V goes on to the next camera; 2 and 3 switch between the edit as it
       // is and the venue.
       if (venue3d.key(e)) return void e.preventDefault();
-      // The Timeline is not edited: its keys are those for watching it.
-      if (timeline && (k === 'Delete' || k === 'Backspace' || (mod && /^[bzya]$/i.test(k)) || (!mod && /^[vabhl]$/i.test(k)))) return;
+      // Watching, it is not edited: the keys are those for watching it.
+      if (watching && (k === 'Delete' || k === 'Backspace' || (mod && /^[bzya]$/i.test(k)) || (!mod && /^[vabhl]$/i.test(k)))) return;
       let done = true;
       if (k === ' ' || (k === 'k' && !mod)) playing || starting ? stop() : play();
       else if (k === ',' || k === '<') step(e.shiftKey ? -Math.round(doc.fps) : -1);
@@ -2398,7 +2396,7 @@ const WBAnimatic = (() => {
         sel = new Set();
         gapSel = null;
         draw();
-      } else if ((k === 'm' || k === 'M') && !mod) setSound(!soundOn);
+      } else if ((k === 'm' || k === 'M') && !mod && !watching) setSound(!soundOn);
       else if ((k === 'C') && e.shiftKey && !mod) toggleNotes();
       else if ((k === 'L') && e.shiftKey && !mod) toggleBin();
       else if ((k === 't' || k === 'T') && !mod && !e.shiftKey) setMini(!mini);
@@ -2436,7 +2434,7 @@ const WBAnimatic = (() => {
       };
       const up = () => {
         grip.removeEventListener('pointermove', move);
-        store(TL_KEY, Math.round(tl.getBoundingClientRect().height));
+        store('wb:an:tl', Math.round(tl.getBoundingClientRect().height));
       };
       grip.addEventListener('pointermove', move);
       grip.addEventListener('pointerup', up, { once: true });
@@ -2793,8 +2791,8 @@ const WBAnimatic = (() => {
       paintPlay();
       paintSound();
       keepAhead();
-      emptyNote.replaceChildren(...(timeline
-        ? [el('p', { text: 'File versions of the project’s shots, and they play here in order.' })]
+      emptyNote.replaceChildren(...(watching
+        ? [el('p', { text: 'Nothing is on this animatic yet.' })]
         : [el('p', { text: 'Drag shots here from the list, or put the project’s filed shots on V1 in their order.' }),
           el('button', { type: 'button', class: 'btn small', text: 'Put every filed shot on', onclick: () => appendShots(projectShots().filter((e) => provisional(e).version)) })]));
       if (catalogue) paintBin();
@@ -2865,9 +2863,7 @@ const WBAnimatic = (() => {
       heard.clear();
     }
 
-    // The shots on it with something filed, in its order (to make an animatic of the timeline).
-    const filedShots = () => (doc ? doc.clips.filter((c) => c.shot && versionOf(c)).sort((a, b) => a.start - b.start).map((c) => c.shot) : []);
-    return { id, close, settings, download: () => download(), name: () => name, presenter, filedShots };
+    return { id, close, settings, download: () => download(), name: () => name, presenter, follow, sound: (on) => setSound(on) };
   }
 
   return { open };

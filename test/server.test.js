@@ -1749,7 +1749,7 @@ test('a project is set up with its assets, sets and shots ahead, each with artis
   assert.deepEqual((await call('GET', '/api/people')).body.people, ['Anna', 'Erik']);
 });
 
-test('a project\'s timeline is every shot in order with its newest version, and a card knows its newest', async (t) => {
+test('an animatic of every filed shot has them in order with their newest version, and a card knows its newest', async (t) => {
   const s = start(4842);
   t.after(s.stop);
   await s.ready;
@@ -1767,13 +1767,11 @@ test('a project\'s timeline is every shot in order with its newest version, and 
   const comp = await file('kilo-0010', 'comp', 5);
   await file('kilo-0020', 'anim', 3);
 
-  const tl = (await call('GET', `/api/projects/${project.id}/timeline`)).body;
-  // shots only, by sequence and number (0100 after 0020), each with its newest version of any task
-  assert.deepEqual(tl.shots.map((x) => [x.name, x.seq, x.version && x.version.label]), [['abc-0010', 'abc', null], ['kilo-0010', 'kilo', 'kilo-0010 comp v1'], ['kilo-0020', 'kilo', 'kilo-0020 anim v1'], ['kilo-0100', 'kilo', null]]);
-  assert.equal(tl.shots[1].version.look.dur, 5);
-  assert.deepEqual(tl.tasks, ['anim', 'comp']);
-  const anim = (await call('GET', `/api/projects/${project.id}/timeline?task=anim`)).body;
-  assert.deepEqual(anim.shots.map((x) => x.version && x.version.label), [null, 'kilo-0010 anim v1', 'kilo-0020 anim v1', null]);
+  // shots only, with something filed, by sequence and number, each with its newest version of any task
+  const cut = (await call('POST', `/api/projects/${project.id}/animatics`, { name: 'All', from: 'shots', by: 'Anna' })).body;
+  const order = cut.doc.clips.slice().sort((a, b) => a.start - b.start);
+  assert.deepEqual(order.map((c) => [cut.shots[c.shot].name, cut.shots[c.shot].seq, cut.shots[c.shot].version.label]), [['kilo-0010', 'kilo', 'kilo-0010 comp v1'], ['kilo-0020', 'kilo', 'kilo-0020 anim v1']]);
+  assert.equal(order[0].len, Math.round(5 * cut.doc.fps), 'as long as its newest version');
   // the catalogue's cards carry their newest version, to scrub and to play
   const cat = (await call('GET', `/api/projects/${project.id}`)).body;
   const k10 = cat.entities.find((e) => e.name === 'kilo-0010');
@@ -1950,11 +1948,12 @@ test('a version can be shown more than one way: each view is filed with it, by n
   const two = (await file([{ view: 'cmp', number: 3, look: await look('e.mp4') }, { view: 'bty', number: 3, look: await look('f.mp4') }])).body.versions;
   assert.equal(two[0].id, two[1].id);
   assert.deepEqual(two[1].look.views.map((v) => v.view), ['bty']);
-  // The timeline and the catalogue carry the views, and the project knows their names.
-  const tl = (await call('GET', `/api/projects/${project.id}/timeline`)).body;
-  assert.deepEqual(tl.views, ['bty', 'top']);
-  assert.equal(tl.shots[0].version.look.view, undefined);
-  assert.deepEqual(tl.shots[0].version.look.views.map((v) => v.view), ['bty']);
+  // An animatic and the catalogue carry the views, and the project knows their names.
+  assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.views, ['bty', 'top']);
+  const cut = (await call('POST', `/api/projects/${project.id}/animatics`, { name: 'All', from: 'shots', by: 'Anna' })).body;
+  const shot = Object.values(cut.shots)[0];
+  assert.equal(shot.version.look.view, undefined);
+  assert.deepEqual(shot.version.look.views.map((v) => v.view), ['bty']);
   // Shown one way again: views filed stay, and none is filed.
   await call('PATCH', `/api/folders/${project.id}`, { settings: { views: false } });
   assert.equal((await call('GET', `/api/projects/${project.id}`)).body.viewList, null);
@@ -2576,8 +2575,8 @@ test('shot names are read by the project\'s naming rules, whatever their sequenc
   await call('PATCH', `/api/folders/${project.id}`, { project: true });
   const { made } = await call('POST', `/api/projects/${project.id}/entities`, { names: ['ch01-0010', 'kilo-0010', 'char-robot'] });
   assert.deepEqual(made.map((e) => [e.name, e.tier]), [['ch01-0010', 'shot'], ['kilo-0010', 'shot'], ['char-robot', 'asset']]);
-  const tl = await call('GET', `/api/projects/${project.id}/timeline`);
-  assert.deepEqual(tl.shots.map((x) => [x.name, x.seq]), [['ch01-0010', 'ch01'], ['kilo-0010', 'kilo']]);
+  const cut = await call('POST', `/api/projects/${project.id}/animatics`, { name: 'Shots', shots: made.filter((e) => e.tier === 'shot').map((e) => e.id), by: 'Anna' });
+  assert.deepEqual(Object.values(cut.shots).map((x) => [x.name, x.seq]).sort(), [['ch01-0010', 'ch01'], ['kilo-0010', 'kilo']]);
 });
 
 // ---------------------------------------------------------------- the database, brought up to date
@@ -2805,14 +2804,22 @@ test('a project is presented through a link of its presenter: live only while th
   assert.notEqual(last(carla, 'p').p.f, 'elsewhere');
   otherTab.ws.close();
 
-  // The timeline: its shots can be loaded, as it plays them.
-  host.ws.send(JSON.stringify({ t: 'scene', scene: { k: 'run', seq: '', task: '', empty: true, view: '' } }));
+  // An animatic: its edit and the files it plays can be loaded, read-only, and no other animatic.
+  const cut = (await call(anna, 'POST', `/api/projects/${kilo.id}/animatics`, { name: 'Cut', from: 'shots', by: 'Anna' })).body;
+  const otherCut = (await call(anna, 'POST', `/api/projects/${kilo.id}/animatics`, { name: 'Other', by: 'Anna' })).body;
+  assert.equal((await call(null, 'GET', `/api/watch/${token}/animatic/${cut.animatic.id}`)).status, 404, 'not shown yet');
+  host.ws.send(JSON.stringify({ t: 'scene', scene: { k: 'animatic', animatic: cut.animatic.id, evil: 'x' }, p: { f: v10, m: [cut.animatic.id, 2.5, 1] } }));
   await wait(150);
-  const run = await call(null, 'GET', `/api/watch/${token}/timeline`);
-  assert.equal(run.status, 200);
-  assert.deepEqual(run.body.shots.map((x) => x.version && x.version.label), ['kilo-0010 anim v1', 'kilo-0020 anim v1']);
+  assert.deepEqual(last(carla, 'scene').scene, { k: 'animatic', animatic: cut.animatic.id });
+  assert.deepEqual(last(carla, 'scene').p.m, [cut.animatic.id, 2.5, 1]);
+  const watched = await call(null, 'GET', `/api/watch/${token}/animatic/${cut.animatic.id}`);
+  assert.equal(watched.status, 200);
+  assert.deepEqual(watched.body.animatic, { id: cut.animatic.id, name: 'Cut' }, 'its name, and nothing of who made it');
+  assert.deepEqual(Object.values(watched.body.shots).map((x) => x.version && x.version.label).sort(), ['kilo-0010 anim v1', 'kilo-0020 anim v1']);
+  assert.equal(watched.body.doc.clips.length, 2);
   assert.equal(await file(b), 200);
-  assert.equal((await call(null, 'GET', `/api/watch/${token}/timeline?task=comp`)).status, 404, 'not the one shown');
+  assert.equal((await call(null, 'GET', `/api/watch/${token}/animatic/${otherCut.animatic.id}`)).status, 404, 'not the one shown');
+  assert.equal((await call(null, 'PATCH', `/api/animatics/${cut.animatic.id}`, { name: 'Mine now' })).status, 401, 'and not to be changed');
 
   // The board: watched through the link, following her own peer on it.
   editor.ws.send(JSON.stringify({ t: 'lead', present: token }));
@@ -3090,7 +3097,15 @@ test('a project puts its sequences in the order it is given, and those it does n
   const project = (await call('POST', '/api/folders', { name: 'Haus' })).body;
   await call('PATCH', `/api/folders/${project.id}`, { project: true });
   await call('POST', `/api/projects/${project.id}/entities`, { names: ['elec-0010', 'haus-0020', 'kine-0010', 'haus-0010', 'zulu-0010', 'char-rock'] });
-  const seqs = async () => [...new Set((await call('GET', `/api/projects/${project.id}/timeline`)).body.shots.map((x) => x.name))];
+  // Each shot with a still filed, so a new animatic of every filed shot has them all, in the project's order.
+  for (const name of ['elec-0010', 'haus-0020', 'kine-0010', 'haus-0010', 'zulu-0010']) {
+    const src = (await (await fetch(`${s.base}/api/upload?name=${name}.png`, { method: 'POST', body: crypto.randomBytes(100) })).json()).url;
+    await call('POST', `/api/projects/${project.id}/versions`, { entity: { name }, task: 'anim', files: [{ look: { type: 'image', src, name: `${name}.png` } }] });
+  }
+  const seqs = async () => {
+    const cut = (await call('POST', `/api/projects/${project.id}/animatics`, { name: 'Order', from: 'shots', by: 'Anna' })).body;
+    return cut.doc.clips.slice().sort((a, b) => a.start - b.start).map((c) => cut.shots[c.shot].name);
+  };
   // without an order, by name
   assert.deepEqual(await seqs(), ['elec-0010', 'haus-0010', 'haus-0020', 'kine-0010', 'zulu-0010']);
   // in the order given; one it does not name (zulu) after, and a name that is no sequence is left out
@@ -3200,9 +3215,9 @@ test('an animatic is an edit of a project\'s shots that always plays their newes
   const cat = (await call('GET', `/api/projects/${project.id}`)).body;
   const id = (name) => cat.entities.find((e) => e.name === name).id;
 
-  // made from the timeline: its filed shots in order on V1, each as long as its newest version, at the rate most have
+  // made of every filed shot: in order on V1, each as long as its newest version, at the rate most have
   assert.equal((await call('POST', `/api/projects/${project.id}/animatics`, { name: ' ' })).status, 400);
-  const made = await call('POST', `/api/projects/${project.id}/animatics`, { name: 'Cut A', from: 'timeline', by: 'Anna' });
+  const made = await call('POST', `/api/projects/${project.id}/animatics`, { name: 'Cut A', from: 'shots', by: 'Anna' });
   assert.equal(made.status, 201);
   const a = made.body;
   assert.deepEqual([a.doc.fps, a.doc.tracks.map((x) => [x.id, x.kind]), a.rev], [25, [['v1', 'video'], ['a1', 'audio']], 1]);
@@ -3301,39 +3316,6 @@ test('an animatic is an edit of a project\'s shots that always plays their newes
   }
   const domed = (await call('POST', `/api/projects/${venue.id}/animatics`, { name: 'Dome cut' })).body.doc;
   assert.deepEqual([domed.w, domed.h, domed.fps], [4096, 1024, 30]);
-});
-
-test('a project\'s timeline is an edit of every shot in order, as an animatic\'s page plays one', async (t) => {
-  const s = start(4906);
-  t.after(s.stop);
-  await s.ready;
-  const json = { 'content-type': 'application/json' };
-  const call = async (method, url, body) => {
-    const res = await fetch(s.base + url, { method, headers: json, body: body && JSON.stringify(body) });
-    return { status: res.status, body: await res.json() };
-  };
-  const project = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
-  await call('PATCH', `/api/folders/${project.id}`, { project: true });
-  await call('POST', `/api/projects/${project.id}/entities`, { names: ['kilo-0010', 'kilo-0020', 'lima-0010', 'char-robot'] });
-  const up = async (name) => (await (await fetch(`${s.base}/api/upload?name=${name}`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
-  const file = async (name, task, dur) => (await call('POST', `/api/projects/${project.id}/versions`, { entity: { name }, task, files: [{ look: { type: 'video', src: await up('a.mp4'), name: 'x.mp4', dur, fps: 25 } }] })).body.versions[0];
-  await file('kilo-0010', 'anim', 4);
-  await file('lima-0010', 'comp', 2);
-  const cat = (await call('GET', `/api/projects/${project.id}`)).body;
-  const id = (name) => cat.entities.find((e) => e.name === name).id;
-  const edit = async (q = '') => (await call('GET', `/api/projects/${project.id}/timeline/edit${q}`)).body;
-
-  // every shot in order on V1, each as long as its newest version, a shot with nothing filed as long as a still;
-  // each clip named by its shot, so it is the same edit when asked again
-  const all = await edit();
-  assert.deepEqual(all.doc.clips.map((c) => [c.id, c.shot, c.start, c.len, c.track]), [
-    [id('kilo-0010'), id('kilo-0010'), 0, 100, 'v1'], [id('kilo-0020'), id('kilo-0020'), 100, 75, 'v1'], [id('lima-0010'), id('lima-0010'), 175, 50, 'v1']]);
-  assert.deepEqual([all.shots[id('kilo-0010')].version.label, all.shots[id('kilo-0020')].version, all.rev], ['kilo-0010 anim v1', null, 0]);
-  assert.deepEqual((await edit()).doc, all.doc);
-  // of one sequence, without the shots with nothing filed, or the newest of one task
-  assert.deepEqual((await edit('?seq=kilo&empty=0')).doc.clips.map((c) => c.shot), [id('kilo-0010')]);
-  const comp = await edit('?task=comp');
-  assert.deepEqual([comp.doc.task, comp.doc.clips.map((c) => c.len), comp.shots[id('kilo-0010')].version], ['comp', [75, 75, 50], null]);
 });
 
 test('a project\'s reviews are kept in folders: its playlists and animatics go into them, and come up when one is deleted', async (t) => {

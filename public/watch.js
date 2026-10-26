@@ -2,7 +2,7 @@
 
 // Watching somebody present a project (/p/<token>, see present.js and "presenting a project" in server.js).
 // Whatever they show is shown here, as they show it: a board (its read-only page, in a frame, following
-// them on it), an asset, set or shot's versions in the player, or the project's timeline. Nothing here is
+// them on it), an asset, set or shot's versions in the player, or an animatic, read-only. Nothing here is
 // to be steered: no going elsewhere, no looking about. Only what is this screen's own is in reach: the
 // sound, full screen, and folding the comments and the strip away.
 (async () => {
@@ -30,6 +30,8 @@
   let notes = [];
   const noteListeners = new Set();
   let frame = null;     // the board's page, when a board is shown
+  let cut = null;       // the animatic's page, when an animatic is shown
+  let cutItems = [];    // the files it plays, as it says them
   let soundOn = false;
 
   const viewer = WBViewer.create({ me: () => me, title: () => '', media: () => [], notes: () => [], locked: true, add() {}, set() {}, remove() {} });
@@ -42,11 +44,12 @@
   });
 
   // How much of what is shown is cached on this computer (media.js's ring, as in the app's own bar): the
-  // board's videos, an asset's versions, the timeline's shots. What is shown is fetched ahead too, from the
-  // piece open on, so the presenter's next one is likelier to be here already.
+  // board's videos, an asset's versions, an animatic's shots and sounds. What is shown is fetched ahead too,
+  // from the piece open on, so the presenter's next one is likelier to be here already.
   let frameItems = [];
   const shownItems = () => {
     if (scene && scene.k === 'board') return frameItems;
+    if (scene && scene.k === 'animatic') return cutItems;
     if (!viewer.isOpen()) return [];
     return (viewer.host().media() || []).filter((p) => p.type === 'video' && !p.empty).map((p) => ({ src: p.src, name: p.label || p.name }));
   };
@@ -99,7 +102,7 @@
     cacheSoon();
     if (!scene) return;
     const items = shownItems().map((x) => x.src);
-    const open = items.indexOf((viewer.host().media() || []).find((p) => p.id === viewer.current())?.src);
+    const open = viewer.isOpen() ? items.indexOf((viewer.host().media() || []).find((p) => p.id === viewer.current())?.src) : 0;
     const from = Math.max(0, open);
     const now = [...items.slice(from), ...items.slice(0, from)];
     for (const src of [...now].reverse()) {
@@ -107,8 +110,9 @@
       if (i >= 0) shownBefore.splice(i, 1);
       shownBefore.unshift(src);
     }
-    // A board fetches its own (board.js, in the frame); the rest of the visit comes after what is shown now.
-    if (scene.k !== 'board') WB.media.want('watch', now, { rank: WB.media.RANK.board, hold: true });
+    // A board fetches its own (board.js, in the frame), and so does an animatic (animatic.js); the rest of the
+    // visit comes after what is shown now.
+    if (scene.k !== 'board' && scene.k !== 'animatic') WB.media.want('watch', now, { rank: WB.media.RANK.board, hold: true });
     WB.media.want('watch:before', shownBefore.filter((src) => !now.includes(src)), { rank: WB.media.RANK.page, hold: true });
   }
   window.addEventListener('message', (e) => {
@@ -192,6 +196,7 @@
   function setSound(on) {
     soundOn = on;
     viewer.sound(on);
+    if (cut) cut.sound(on);
     if (frame && frame.contentWindow) frame.contentWindow.postMessage({ wb: 'sound', on }, location.origin);
     paintStatus();
   }
@@ -243,8 +248,12 @@
     viewer.close();
     if (frame) frame.remove();
     frame = null;
+    if (cut) cut.close();
+    cut = null;
+    cutItems = [];
+    stage.replaceChildren();
   }
-  const keyOf = (s) => (!s || s.k === 'idle' ? '' : s.k === 'board' ? `b:${s.board}` : s.k === 'entity' ? `e:${s.entity}` : `r:${s.seq}|${s.task}|${s.empty}|${s.view}`);
+  const keyOf = (s) => (!s || s.k === 'idle' ? '' : s.k === 'board' ? `b:${s.board}` : s.k === 'entity' ? `e:${s.entity}` : s.k === 'animatic' ? `a:${s.animatic}` : '');
 
   async function show(next) {
     scene = next;
@@ -281,25 +290,20 @@
           version: typeof state.f === 'string' ? state.f : null, me, title: info.project.name,
           follow: { page, view: next.view, room: noteRoom, read: info.access === 'comments' },
         });
-      } else if (next.k === 'run') {
-        const data = await WB.api('GET', `/api/watch/${token}/timeline${next.task ? `?task=${encodeURIComponent(next.task)}` : ''}`);
+      } else if (next.k === 'animatic') {
+        // The animatic's own page, read-only, its edit from the link: it plays where the presenter's plays.
+        const source = `/api/watch/${token}/animatic/${encodeURIComponent(next.animatic)}`;
+        const page = await WB.api('GET', source);
         if (mounting !== job) return;
-        const preview3d = data.project.settings && data.project.settings.preview3d;
-        if (preview3d && preview3d.model) {
-          viewer.prepare3d({ ...preview3d, key: data.project.id });
-          modelSrc = preview3d.model;
-        }
-        let in3d = false;
-        let reload = () => {};
-        const load = () => WBViewer.runPieces(data, { seq: next.seq, task: next.task, withEmpty: next.empty, view: in3d ? preview3d.view : next.view });
-        await WBViewer.openRun(viewer, {
-          load, me, title: () => `${info.project.name} · Timeline`,
-          choices: (again) => { reload = again; return []; },
-          ...(preview3d && preview3d.model && {
-            view3d: { ...preview3d, key: data.project.id },
-            onMode3d: (on) => { in3d = on; reload({ keep: true }); },
-          }),
-          follow: { room: noteRoom, read: info.access === 'comments' },
+        const venue3d = page.project.settings && page.project.settings.preview3d;
+        if (venue3d && venue3d.model) modelSrc = venue3d.model;
+        cut = WBAnimatic.open(stage, {
+          project: page.project, id: page.animatic.id, me,
+          watched: { source, room: noteRoom, comments: info.access === 'comments' },
+          onScope: (scope) => {
+            cutItems = scope ? scope.items : [];
+            fetchAhead();
+          },
         });
       }
     } catch (err) {
@@ -312,6 +316,7 @@
     mounting = null;
     shownKey = key;
     viewer.sound(soundOn);
+    if (cut) cut.sound(soundOn);
     paintWaiting();
     apply();
     fetchAhead();
@@ -319,8 +324,10 @@
   }
 
   // Whoever is watching is shown what the presenter's player does: the piece, 2D or 3D, the moment, the
-  // thread, the zoom. A video playing has played on since it was said.
+  // thread, the zoom. A video playing has played on since it was said. In an animatic, where its playhead is
+  // and how the venue is seen.
   function apply(patch = state) {
+    if (scene && scene.k === 'animatic') return void (cut && !mounting && cut.follow(patch, performance.now() - stateAt));
     if (!scene || scene.k === 'board' || scene.k === 'idle' || mounting || !viewer.isOpen()) return;
     // A piece this page has not got (filed since it loaded, say) leaves the one showing as it is.
     const has = (id) => (viewer.host().media() || []).some((p) => p.id === id);

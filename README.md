@@ -32,14 +32,14 @@ private networks, otherwise only the host machine can connect.
 - **Getting around.** There is no separate home page: the app opens on the workspace you were last in
   (Myreze to begin with), and the mark in the corner goes back to it. A sidebar on the left holds what
   you pinned (each a row that goes there), then each workspace with its folders and projects as a tree. A project opens to its
-  Reviews (its boards, playlists and animatics, each under it), Catalogue, Versions and Timeline, and the catalogue
+  Reviews (its boards, playlists and animatics, each under it), Catalogue and Versions, and the catalogue
   to its assets, sets and shots, the shots by
   sequence, each with a count. Only what you are in is open: the way to the page you are on is opened
   for you, and the rest close as you go elsewhere (an arrow opens a row for a look in the meantime). Rows
   with nothing in them show no count. Every page opens with its title, set large: the place you are in
   (kilo-0010). Above it, one small line says how you got there (Myreze / Kilo / Catalogue / Shots / kilo),
   each part a link. The star beside the title pins exactly what is there to the sidebar: a board's folder, a
-  project, a sequence, a tier of the catalogue, the catalogue, Versions, the Timeline, or an asset, set or
+  project, a sequence, a tier of the catalogue, the catalogue, Versions, or an asset, set or
   shot. On a narrow window the sidebar is a drawer, opened with the button at the left of the bar.
 - **Pinning.** Pin from a card's `...` menu or the star beside where you are; pins are kept by this
   browser and listed in the sidebar until you unpin them.
@@ -97,7 +97,7 @@ private networks, otherwise only the host machine can connect.
   (a 6-second 1080p test came down from 7.2 MB to 1.6 MB). Phones (a touch screen, and a small one) and
   browsers saving data or on a slow mobile line play and keep it instead, so it arrives several times
   sooner; everybody else plays the review copy. Nobody makes them by hand: any desk browser of the team
-  that can make video and has a video without one on its page (a board, the catalogue, the timeline) makes
+  that can make video and has a video without one on its page (a board, the catalogue, an animatic) makes
   it in the background, one at a time, never while a video is open or while presenting. The server makes
   sure only one browser makes each, and once it has one it is put on every board and every version that
   shows that file. A review copy already as light as a phone copy is its own. Following somebody (or
@@ -166,22 +166,22 @@ private networks, otherwise only the host machine can connect.
   the videos are cached, with a count beside it ("2/5 cached"), and turns to a tick and "Cached" once
   the whole board is; hover or press it and it says more.
 - **Videos are kept on this computer everywhere, not only on boards.** One cache serves every page
-  (`public/media.js`): whatever video you open, in a board, the catalogue or the timeline, is
-  kept, and is there at once the next time. Ahead of you, in this order, it also fetches the timeline's
+  (`public/media.js`): whatever video you open, in a board, the catalogue or an animatic, is
+  kept, and is there at once the next time. Ahead of you, in this order, it also fetches an animatic's
   next few shots as it plays, the open board's videos, the videos the page you are on shows (the
   catalogue's cards, say), and the newest version of what you pinned. Your settings
   (your name at the top right) turn fetching ahead off, or either of boards and pinned. Up
   to 4 GB is kept; what was wanted longest ago makes room, never what the open board, the page or
-  the timeline is showing, and when nothing more can be made room for, fetching ahead stops rather
+  an animatic is showing, and when nothing more can be made room for, fetching ahead stops rather
   than throwing out what is wanted. A small service worker (`public/sw.js`) answers the pages' own
-  video players from the kept copies, scrubbing included, so a card scrubbed on hover or the
-  timeline's next shot plays from the disk too. What is kept is listed in IndexedDB, a record a video,
+  video players from the kept copies, scrubbing included, so a card scrubbed on hover or an
+  animatic's next shot plays from the disk too. What is kept is listed in IndexedDB, a record a video,
   and a lock for each file keeps two tabs from fetching the same one.
 - **Seeing what is cached.** Every video card (in the catalogue, an asset's versions, the Versions
   list) has a badge in its top right corner: a green tick once it is cached on this computer, a
   ring filling while it comes, a cloud while it still plays from the server. The ring a board has in
-  its bar is in the page's bar too, for whatever you are looking at: the cards of the page, or with the
-  timeline open, the whole timeline ("3/12 cached", then "Cached"), which is fetched in full behind the
+  its bar is in the page's bar too, for whatever you are looking at: the cards of the page, or with an
+  animatic open, the whole animatic ("3/12 cached", then "Cached"), which is fetched in full behind the
   next few shots. Pressed, it says how much of it is here, what is on its way, and how full the cache is.
   A video that is more than the browser can process (a very large frame in Safari, say) is not added:
   a message names it and says which browsers to add it from instead, rather than putting the bare
@@ -260,7 +260,7 @@ private networks, otherwise only the host machine can connect.
   join on the frame they are on, not at the start. In the viewer you see as much of the piece as they
   do: zoomed in where they are. Pan, zoom or open something yourself to stop; should they leave the
   board, it says so. The laser pointer (L) is visible to everyone. To take people through more than
-  one board, through versions and the timeline, present the project instead (see below).
+  one board, through versions and animatics, present the project instead (see below).
 - **Notifications.** The bell on the board list collects what concerns you from every board: replies
   in threads you wrote in, comments on what you added and on boards you made, and comments that
   @mention your name. Opening one goes straight to the comment. What you have read is remembered
@@ -317,7 +317,7 @@ deleting anything). A link can end after a day, a week or a month, can be replac
 that stops the old one at once, and can be turned off. Changing any of it applies to whoever is
 watching straight away. Somebody holding a link can load only the files that board shows (never the
 files its videos were made from). A project can also be presented through a link of the same kind,
-which follows whoever presents it from board to player to timeline (see "Presenting it", under
+which follows whoever presents it from board to player to animatic (see "Presenting it", under
 Projects). Behind IAP neither kind of link exists, since nothing gets past Google's sign-in. The settings,
 and how to reach the server from outside the building, are in [DEPLOY.md](DEPLOY.md); copy
 `.env.example` to `.env` to set them.
@@ -511,7 +511,7 @@ filed in it.
 - **3D: the work on the venue.** A project whose settings have a model of its venue (the settings button
   beside the star on the project's home, or Project settings in its menu: a `.glb`, and once there is
   one, the name of the material its screens have and, with views, which goes on them) has a 2D / 3D switch in the
-  player's bar, in the catalogue and on the timeline. In 3D the picture plays on the model's screens
+  player's bar, in the catalogue and in an animatic. In 3D the picture plays on the model's screens
   (through their own UVs), seen through the model's main camera, letterboxed at that camera's frame (Main
   camera in the settings lists the cameras in the file to choose from; without a choice, the one named
   `main`, or else the first);
@@ -557,7 +557,7 @@ filed in it.
   meant as one. The line under the row says what happens: "Adds its bty to
   kilo-0010 anim v2", or a new version shown that way only. A view goes with the row of the same file
   version in the batch, above or below it (that is filed first), else with the newest version there is
-  that lacks it. A version's card lists its views. In the player, and on the timeline, a dropdown in the
+  that lacks it. A version's card lists its views. In the player, and in an animatic, a dropdown in the
   bar picks the view, by the project's names and in its order, remembered per project; a shot without
   that view shows its main one, and the bar says which is showing. Changing the view stays on the same
   moment.
@@ -587,27 +587,10 @@ filed in it.
 - **Looking without choosing.** Move the pointer across a video's picture in the catalogue and it
   scrubs through it, as if the pointer were dragging its playhead. An asset, set or shot's picture
   plays its newest version at once ("Latest"); its name goes to its page, which has Play latest too.
-- **The timeline.** A project's Timeline (in the sidebar, or above the catalogue) plays every shot in
-  order, sequence by sequence, as an edit: the newest version of each (of any task, or of one), one into
-  the next, each as long as that version, a still held for three seconds. It is an animatic's page, watched
-  rather than edited (`public/animatic.js`, laid out by `GET /api/projects/<folder>/timeline/edit`), so it
-  looks and plays as an animatic does: the whole window under the app's bar (where it is goes in the bar,
-  with its pin and a menu that makes an animatic of it), the shot on screen and its version over the
-  picture, its comments beside it, and under it the bar to play it by and the timeline, a ruler and one
-  track of the shots, each with its name and version along its top and its own frames under that, the
-  playhead in the accent. There are no tools, no library and no sound tracks, and nothing on it is saved:
-  a press anywhere on the timeline goes there, a shot's menu (right-click) opens its page or downloads its
-  original, and the keys are those for watching (Space, the arrows from cut to cut, `,` and `.` a frame,
-  T for the thin strip, + and − to draw it in and out). What it plays is chosen with the settings button
-  over the picture: all sequences or one, the newest of any task or of one, every shot (a slate where
-  nothing is filed, of the task chosen, with no comments as it has no version to be on) or only those filed,
-  and the view; all are remembered. The Timeline above a sequence's page in the catalogue opens on that
-  sequence alone (`#/f/<project>/timeline/s/<sequence>`). What it plays is brought up to date every little
-  while, so a version filed shows up on it.
 - **Presenting it.** Present, in the bar of a project's pages and of its boards, makes a link to
   watch you by (`/p/<link>`): whoever opens it sees what you show, as you show it, and nothing else.
-  They follow you from a board, into the viewer and out, to an asset's versions in the player, to the
-  timeline and back, onto the frame you are on, playing as you play, reading the thread you read (with
+  They follow you from a board, into the viewer and out, to an asset's versions in the player, to an
+  animatic and back, onto the frame you are on, playing as you play, reading the thread you read (with
   its drawing), zoomed in as far as you are, in 2D or 3D through the camera you look through, flying
   with you, and your laser. They cannot go elsewhere or look about: the corner is no way out, and their
   keys, wheel and pointer move nothing. Only what is their screen's own is in reach: the sound, full
@@ -615,13 +598,18 @@ filed in it.
   are never shown: while you look for the next thing, what they saw last stays behind the same cover a
   lost connection has, saying you are finding what to show next. Anything outside the project is shown
   the same way, as nothing.
+  - *An animatic, read-only.* An animatic you have open is shown on its own page, as you see it but with
+    nothing to change: no library, no tools, no comment box. Its playhead goes where yours goes and plays
+    as yours plays, it is seen on the venue as you see it, and the comments beside it (where the link shows
+    them) are those on the shot on screen. What you change in it reaches them within a few seconds, as it
+    reaches anybody else with it open.
   - *Smooth to watch.* A scrub reaches them as it is made (up to thirty moments a second, always the last);
     a video playing stays with yours by playing a touch quicker or slower (a tenth at most) rather than
     jumping, and only jumps when a second or more off. A video still loading (a phone on a mobile network,
     say) is not sent on to the next moment until it can play, then goes straight to where you are. Phones are
     only ever put right by a jump. Flying in 3D, your view is sent twenty times a second and played back a
     moment behind, in between, so it moves as smoothly there as here.
-  - *Cached as for you.* What is shown (a board's videos, an asset's versions, the timeline's shots) is
+  - *Cached as for you.* What is shown (a board's videos, an asset's versions, an animatic's shots and sounds) is
     fetched ahead on their computer from the piece open on, and a ring in their corner says how much is
     there. The 3D view is made ready as soon as a project with a model is shown; should you turn to 3D
     before it is, they see "Loading the venue in 3D" and how much has come, over everything.
@@ -643,8 +631,8 @@ filed in it.
     page is a moment's pause for those watching; should you be gone for more than a few seconds, they
     are told you stepped away. Another tab of yours left open says nothing to anyone.
   - *What the link can load* is only what has been shown since you started: the boards (as a read-only
-    link has them), the versions of the assets, sets and shots opened, the shots of the timeline played,
-    and the project's model of its venue. Never the file a video was made from, and nothing once you stop.
+    link has them), the versions of the assets, sets and shots opened, the shots and sounds of the
+    animatics played, and the project's model of its venue. Never the file a video was made from, and nothing once you stop.
   - *The team sees who is presenting.* Where you are in a project, the line at the top says
     "Anna is presenting · Watch" while somebody else is, a way to watch them in a new tab.
   - A browser that will not play sound unasked plays without, and the sound button says so; a click
@@ -705,7 +693,7 @@ filed in it.
   catalogue or a shot's page and press Add to playlist, or use Add to playlist… in a version's menu. A
   playlist's page has Play and its versions in order: drag one to where it should go, take some off
   (Take off, with the selection; or from a version's menu, and Undo puts them back), or open one, which
-  opens the playlist on it. Play opens them in the player, docked as the timeline is: one version at a
+  opens the playlist on it. Play opens them in the player, docked: one version at a
   time, as an asset's versions are, with the strip down the left to move between them (nothing plays on
   into the next, and there is no timeline across them), each with its own comments. In a project with a
   3D model of its venue the player has the 2D / 3D switch here too, each version shown on the model in the
@@ -755,7 +743,7 @@ filed in it.
   sidebar makes way for it: on an animatic's page it is a drawer, opened with the button at the left of the
   bar. The library and the comments are made wider or narrower at their inner edges, and the line above the
   timeline gives it more room or less. All of it is kept by this browser. The ring in the bar says how much of
-  what the animatic plays is cached on this computer, and each clip says so at the end of its band: a tick
+  what the animatic plays is cached on this computer, and each clip says so at the end of its name: a tick
   once it is, a ring filling while it comes, a cloud while it plays from the server.
   - *Nothing moves by itself.* A clip keeps the length it was cut to. A newer version that is longer plays
     as much of it as the clip is long; one that is shorter leaves the clip short: it ends where the version
@@ -809,7 +797,7 @@ filed in it.
     drag along; T again brings the timeline back. Which it was is kept by this browser. Every change is saved a moment after it is
     made; one made on an older save than somebody else's is not saved, theirs is shown, and Undo brings
     back yours.
-  - *Comments* are about the clip on top under the playhead, on the version it plays, as on the Timeline:
+  - *Comments* are about the clip on top under the playhead, on the version it plays, as in the player:
     they are that version's, so they are there in the catalogue and on every board it is on. A thread
     about a moment goes there when clicked.
   - *On the venue, in 3D.* In a project with a model of its venue, the 3D switch in the bar (or 3, and 2
@@ -952,8 +940,7 @@ highest number each task of each entity has reached). `POST /api/projects/<folde
 "artists": { "add" | "remove" | "set": [...] }, "cc": { ... } }` to change many at once. `GET /api/people`
 lists the names the app knows.
 `GET /api/projects/<folder>/activity` what happened in the project in the last two weeks (versions
-filed and comments, newest first), `GET /api/projects/<folder>/timeline?task=` lists the shots in order with their newest version
-(and `.../timeline/edit?task=&seq=&empty=&view=` lays them out as an edit, as an animatic's `GET` gives one, for the Timeline's page),
+filed and comments, newest first),
 `GET /api/projects/<folder>/versions?before=` the project's versions newest first, 300 a page, each with
 the boards it is on (when
 `more` is true, its `next` is what to give as `before` for the following page; a time in milliseconds
@@ -964,7 +951,7 @@ page, `facets` (what there is to filter by). `PATCH /api/projects/<folder>/versi
 `{ "edits": [{ "id", "entity", "task", "number", "artist", "hidden" }] }`, all of them or none; and
 `POST /api/projects/<folder>/place` takes `{ "board", "versions": [...], "layout" }` to put versions on
 one of the project's boards (`"layout": "sequences"` for a column per sequence). An animatic is
-`GET /api/projects/<folder>/animatics` and `POST` with `{ "name", "doc" }`, `{ "name", "from": "timeline", "seq" }`,
+`GET /api/projects/<folder>/animatics` and `POST` with `{ "name", "doc" }`, `{ "name", "from": "shots" }` (every shot with something filed, in order),
 `{ "name", "shots": [...] }` (shots, or versions standing for their shots) or `{ "name", "copy": <id> }`, each
 with a `"folderId"` (a folder of the project's reviews) if it is to be kept in one, as a project's playlist takes;
 `GET /api/animatics/<id>` gives its `doc` (rate, shape, task, view, tracks and clips, every position in
@@ -1052,9 +1039,9 @@ public/board.js    The canvas: rendering, input, sync, following
 public/present.js  Presenting a project: the link, the pill, and saying what is shown as you go
 public/watch.js    The page a presentation's link opens: what the presenter shows, followed, and nothing else (watch.html)
 public/snap.js     Smart snapping's geometry: edges, centres, equal gaps (tested on its own)
-public/cuttrack.js A run's close-up track (as somebody watching a presented timeline sees it), and the frames every track draws
+public/cuttrack.js A run's close-up track, and the frames every track draws
 public/cut.js      An animatic's arithmetic: what shows and is heard at each frame, and its changes (tested on its own)
-public/animatic.js An animatic's page: its player, its timeline, the shots to put on it and their comments; the Timeline too
+public/animatic.js An animatic's page: its player, its timeline, the shots to put on it and their comments; watched too
 public/viewer.js   The player: one piece at a time, its strip, timeline, comments and drawings; used by boards and the catalogue
 public/ink.js      Drawing: pen strokes, their outlines and colours; used by boards and the player
 public/ingest.js   Bringing media in: review copies of video, originals, timeline strips, stills; used by boards and the catalogue

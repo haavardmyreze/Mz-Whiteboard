@@ -30,10 +30,14 @@ left open takes it in within a few seconds, and the next play is the updated edi
 - **Added to from elsewhere.** "Add to animatic…" is in a shot's menu and a shot version's menu, and "Add to
   animatic" is beside "Add to playlist" where versions are picked and in the catalogue's selection bar: the
   shots go at the end of an animatic's V1, one after another.
-- **Uses what the Timeline built.** The video cache (`media.js`), the frames the Timeline's close-up takes from
-  the shots (`cuttrack.js`, shared through `WBCutTrack.frames`), the time formats (seconds, frames, timecode)
-  and the comment rooms of the shots (`entityRoom` in `viewer.js`). Its player is its own: the Timeline's shows
-  one piece at a time, and an edit with tracks and dissolves shows two or more at once.
+- **Uses what the player built.** The video cache (`media.js`), the frames taken from the shots (`cuttrack.js`,
+  shared through `WBCutTrack.frames`), the time formats (seconds, frames, timecode) and the comment rooms of the
+  shots (`entityRoom` in `viewer.js`). Its player is its own: the player shows one piece at a time, and an edit
+  with tracks and dissolves shows two or more at once.
+- **Presented, it is watched.** Somebody presenting a project (`present.js`) can show an animatic: those watching
+  (`watch.js`) get the same page, `watched`, its edit from the link (`GET /api/watch/<token>/animatic/<id>`),
+  read-only, its playhead, playing and venue following the presenter's (the moment told is the edit's, and the
+  piece the version on screen, which says which shot's comments they read).
 
 ## The edit, as it is kept
 
@@ -147,7 +151,7 @@ the edit on it:
   keeps a texture at the size it first saw, and a canvas given at a browser's own 300 by 150 left the screens
   black until 3D was turned off and on again.
 - **Which view of each shot.** On the venue, each clip shows the view the project puts on its model (its main
-  one unless it says), as the Timeline does; the settings button offers no view there.
+  one unless it says), as the player does; the settings button offers no view there.
 - **Its shape.** A new animatic starts at the shape most of the project's shots are (usualShape in server.js),
   so in a project with a venue, the unwrapped picture its screens show, and the canvas fills their UVs. Another
   shape is fitted into it on black.
@@ -172,7 +176,7 @@ switch), as the player's controls are over its piece; the project's shots are do
 the shot on screen down the right. Under them is the timeline's bar (`an-bar`): its tools and snapping on the
 left, playing in the middle (the time, a frame back, play, a frame on, loop), and how the timeline is drawn on
 the right (compact tracks, the strip, all of it). Then the timeline: track heads on the left, a ruler, and the
-tracks drawn on one canvas on the dark bed the Timeline's close-up has, in both themes.
+tracks drawn on one canvas on a dark bed, in both themes.
 
 - **The library** lists the project's shots, by sequence, and the sound files brought in (`doc.sounds`, kept by
   the server with every sound on a track among them). A shot or a sound is carried onto the timeline with the
@@ -224,7 +228,7 @@ tracks drawn on one canvas on the dark bed the Timeline's close-up has, in both 
 
 ## Comments
 
-What is said is about the clip on top under the playhead, on the version it plays, as on the Timeline: so it is
+What is said is about the clip on top under the playhead, on the version it plays, as in the player: so it is
 there in the catalogue and on every board the version is on. The page joins the room of the shot on screen a
 moment after it comes on, lists that version's threads (each with the moment it is about; a click goes there),
 and writes, replies, resolves and deletes through it. Nothing can be said about a slate or a sound.
@@ -254,7 +258,6 @@ playback system, which carries the app's "always the newest" over to it. Which f
 
 ## Later
 
-- **Presenting it**, as the Timeline is presented: those watching follow the edit, its playhead and its sound.
 - **Holding a clip to a version**, for comparing the edit as it was with as it is.
 - **A black or a title card** to put on any track: a dip to black over a stack of tracks, a slate between scenes.
 - **Editing together, live**, if two people working on one edit at once becomes common.

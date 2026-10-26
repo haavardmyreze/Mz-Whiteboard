@@ -889,7 +889,7 @@ function cleanProjectSettings(asked, was = {}) {
     out.views = names.length > 1 ? names : false;
   }
   const seqName = (v) => typeof v === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(v) && v.length <= 80;
-  // The order its sequences go in (in the timeline, the catalogue, wherever they are listed), first to last.
+  // The order its sequences go in (in the catalogue, a new animatic, wherever they are listed), first to last.
   if (Array.isArray(asked.seqs)) {
     const seqs = [...new Set(asked.seqs.filter(seqName))].slice(0, 500);
     if (seqs.length) out.seqs = seqs;
@@ -1494,6 +1494,15 @@ function cleanAnimatic(asked, project) {
   };
 }
 
+// Each of the project's shots in order, sequence by sequence, with its newest version (of `task`, or of any).
+function shotsInOrder(projectId, task) {
+  const p = folders.get(projectId);
+  const inOrder = naming.shotOrder(p && p.settings && p.settings.seqs);
+  return store.entities(projectId).filter((e) => e.tier === 'shot').sort((a, b) => inOrder(a.name, b.name)).map((e) => {
+    const v = task ? store.newestOfTask(e.id, naming.tokenize(task) || null) : e.newest;
+    return { e, v };
+  });
+}
 // The newest version of each of some shots, as an animatic of `task` plays them: { shot id: { id, name, seq,
 // version: { id, task, number, label, kind, look } or null } }. The look is the version's whole one, as the
 // player needs it (its phone copy, its colour strip, its views).
@@ -1633,8 +1642,8 @@ async function handleCatalogue(req, res, parts) {
     // GET /api/projects/:id/animatics                  its animatics, the one changed last first
     // POST /api/projects/:id/animatics { name, doc }    a new one, as given (or empty); each of these takes a
     //                                                   `folderId` too, a folder of the project's reviews
-    //   { name, from: 'timeline', seq }                 the shots of the timeline (of one sequence), each filed one
-    //                                                   after another on V1, as long as its newest version
+    //   { name, from: 'shots' }                         every shot with something filed, in order, one after
+    //                                                   another on V1, each as long as its newest version
     //   { name, shots: [ids] }                          these shots (or the shots of these versions), the same way
     //   { name, copy: id }                              another of its animatics, as it is
     if (parts.length === 4 && parts[3] === 'animatics') {
@@ -1648,9 +1657,9 @@ async function handleCatalogue(req, res, parts) {
         const from = store.animatic(body.copy);
         if (!from || from.projectId !== project.id) return sendJson(res, 404, { error: 'Animatic not found' });
         doc = cleanAnimatic(from.doc, project);
-      } else if (body.from === 'timeline' || Array.isArray(body.shots)) {
-        const ids = body.from === 'timeline'
-          ? timelineShots(project.id, doc.task).filter(({ e, v }) => v && (!body.seq || naming.seqOf(e.name) === body.seq)).map(({ e }) => e.id)
+      } else if (body.from === 'shots' || Array.isArray(body.shots)) {
+        const ids = body.from === 'shots'
+          ? shotsInOrder(project.id, doc.task).filter(({ v }) => v).map(({ e }) => e.id)
           : body.shots.slice(0, MAX_CLIPS).filter((id) => typeof id === 'string');
         doc = cleanAnimatic(appendShots(doc, ids), project);
       }
@@ -1870,38 +1879,6 @@ async function handleCatalogue(req, res, parts) {
         ...notes.map((n) => noteLine(n, about(n.entityId), label)),
       ].sort((a, b) => b.at - a.at).slice(0, 600);
       return sendJson(res, 200, { items });
-    }
-    // GET /api/projects/:id/timeline?task=   every shot in order, by sequence, with its newest version (of
-    // that task, or of any), what the timeline view lays out and plays through.
-    if (parts.length === 4 && parts[3] === 'timeline' && req.method === 'GET') {
-      const task = new URL(req.url, 'http://x').searchParams.get('task');
-      const inOrder = naming.shotOrder(project.settings && project.settings.seqs);
-      const shots = store.entities(project.id).filter((e) => e.tier === 'shot').sort((a, b) => inOrder(a.name, b.name));
-      return sendJson(res, 200, {
-        tasks: store.projectTasks(project.id),
-        views: store.projectViews(project.id),
-        shots: shots.map((e) => {
-          const v = task ? store.newestOfTask(e.id, naming.tokenize(task) || null) : e.newest;
-          return {
-            id: e.id, name: e.name, seq: naming.seqOf(e.name), artists: e.artists,
-            version: v && { ...v, label: naming.label(e.name, v.task, v.number) },
-          };
-        }),
-      });
-    }
-    // GET /api/projects/:id/timeline/edit?task=&seq=&empty=&view=   the timeline as an edit, as an animatic's page
-    // plays one (and as its GET gives it): every shot in order, of `seq` or all, one after another on V1, each as
-    // long as its newest version (of `task`, or of any). A shot with nothing filed is held as a still is, its slate,
-    // unless `empty=0` leaves it out. Each clip's id is its shot's, so the same timeline asked again is the same edit.
-    if (parts.length === 5 && parts[3] === 'timeline' && parts[4] === 'edit' && req.method === 'GET') {
-      const sp = new URL(req.url, 'http://x').searchParams;
-      const base = cleanAnimatic({ fps: usualRate(project), ...usualShape(project), task: sp.get('task') || '', view: sp.get('view') || '' }, project);
-      const seq = sp.get('seq') || '';
-      const ids = timelineShots(project.id, base.task)
-        .filter(({ e, v }) => (v || sp.get('empty') !== '0') && (!seq || naming.seqOf(e.name) === seq)).map(({ e }) => e.id);
-      const edit = appendShots(base, ids);
-      const doc = cleanAnimatic({ ...edit, clips: edit.clips.map((c) => ({ ...c, id: c.shot })) }, project);
-      return sendJson(res, 200, { animatic: { name: 'Timeline' }, projectId: project.id, doc, rev: 0, shots: animaticShots(ids, doc.task) });
     }
     // PATCH { ids, tier, artists: { add, remove, set }, cc: { add, remove, set }, names, tiers }: many at once. What is not
     // said of them is left as each has it; all or none are changed.
@@ -3927,20 +3904,22 @@ async function handlePhoneCopy(req, res, rest) {
 //
 // Somebody on the team presents a project: whoever opens its link (/p/<token>) sees what they show, as
 // they show it, and can do nothing else: no going elsewhere, no looking about. One board, then an asset's
-// versions, then the timeline: the link follows them through all of it. Each person has one link per
+// versions, then an animatic: the link follows them through all of it. Each person has one link per
 // project, kept, so it can be sent ahead of every review; it is live only while they present.
 //
 // The presenter's pages (present.js) keep a connection here while they present (`hosts`), each page in
-// turn, and say what they show (`scene`): a board, an asset, set or shot's versions in the player, the
-// timeline, or nothing that can be shown (a list of the catalogue, say: `idle`). With it goes what the
-// player is doing (`p`: the piece open, its moment, the thread read, the zoom, 3D) and the laser. The people
+// turn, and say what they show (`scene`): a board, an asset, set or shot's versions in the player, an
+// animatic, or nothing that can be shown (a list of the catalogue, say: `idle`). With it goes what the
+// player is doing (`p`: the piece open, its moment, the thread read, the zoom, 3D; in an animatic the moment
+// is the edit's, and the piece the version on screen) and the laser. The people
 // watching (`watchers`) are told all of it. A board is watched as a board is through a read-only link:
 // its page, in a frame of the watching page, joined through this link (see onConnect), following the
 // presenter's own place on it (their peer there carries `lead`).
 //
 // What the people watching can load is what has been shown since the link was made live (`shown`): the
 // boards' files as a read-only link has them, the versions of the assets, sets and shots opened, the
-// shots of a timeline played, and the project's model of its venue. Never a file a video was made from.
+// versions and sound files of an animatic played, and the project's model of its venue. Never a file a video
+// was made from.
 
 const PRESENT_ACCESS = ['view', 'comments'];
 const WATCH_COOKIE = 'wb_watch';
@@ -3967,7 +3946,7 @@ function presentationRuntime(record) {
     scene: null,
     p: {},
     watchers: new Set(), // { ws, name, color, cache }
-    shown: [],           // scenes shown since it was made live, as { k, id, task }
+    shown: [],           // scenes shown since it was made live, as { k, id }
     files: null,         // what may be loaded through it, worked out from `shown` when asked (see presentedFiles)
     filesAt: 0,
     notesOf: null,       // the entity whose notes the people watching are shown
@@ -4072,11 +4051,10 @@ function cleanScene(pres, user, s) {
     if (!e || e.projectId !== pres.projectId) return idle;
     return { k: 'entity', entity: e.id, view: token(s.view) };
   }
-  if (s.k === 'run') {
-    return {
-      k: 'run', seq: typeof s.seq === 'string' ? s.seq.slice(0, 80) : '', task: typeof s.task === 'string' ? naming.tokenize(s.task) || '' : '',
-      empty: s.empty !== false, view: token(s.view),
-    };
+  if (s.k === 'animatic') {
+    const a = typeof s.animatic === 'string' && store.animatic(s.animatic);
+    if (!a || a.projectId !== pres.projectId) return idle;
+    return { k: 'animatic', animatic: a.id };
   }
   return idle;
 }
@@ -4106,14 +4084,14 @@ function cleanPlayer(p) {
   return out;
 }
 
-const shownKey = (s) => `${s.k}:${s.id || ''}:${s.task || ''}`;
+const shownKey = (s) => `${s.k}:${s.id || ''}`;
 
-// The entity whose notes go with what is shown: the one open, or on the timeline, the shot on screen.
+// The entity whose notes go with what is shown: the one open, or in an animatic, the shot on screen.
 function notesEntity(pres) {
   const s = pres.scene;
   if (!s || pres.access !== 'comments') return null;
   if (s.k === 'entity') return s.entity;
-  if (s.k !== 'run' || typeof pres.p.f !== 'string') return null;
+  if (s.k !== 'animatic' || typeof pres.p.f !== 'string') return null;
   const v = store.version(pres.p.f);
   return v && v.entityId;
 }
@@ -4135,15 +4113,6 @@ function retellPresentations(versionIds) {
   }
 }
 
-// The newest version of each of the project's shots, as the timeline plays them (of `task`, or of any).
-function timelineShots(projectId, task) {
-  const p = folders.get(projectId);
-  const inOrder = naming.shotOrder(p && p.settings && p.settings.seqs);
-  return store.entities(projectId).filter((e) => e.tier === 'shot').sort((a, b) => inOrder(a.name, b.name)).map((e) => {
-    const v = task ? store.newestOfTask(e.id, naming.tokenize(task) || null) : e.newest;
-    return { e, v };
-  });
-}
 
 // The files that may be loaded through the link: those of what has been shown. Worked out again every few
 // seconds, so a piece put on a board, or a version filed, while it is being shown can be loaded too.
@@ -4178,12 +4147,13 @@ function presentedFiles(pres) {
         addLook(v.look);
         add(v.thumb);
       }
-    } else if (s.k === 'run') {
-      for (const { v } of timelineShots(pres.projectId, s.task)) {
-        if (!v) continue;
-        addLook(v.look);
-        add(v.thumb);
+    } else if (s.k === 'animatic') {
+      const a = store.animatic(s.id);
+      if (!a) continue;
+      for (const shot of Object.values(animaticShots(a.doc.clips.filter((c) => c.shot).map((c) => c.shot), a.doc.task))) {
+        if (shot.version) addLook(shot.version.look);
       }
+      for (const c of a.doc.clips) if (c.media) add(c.media);
     }
   }
   pres.files = out;
@@ -4196,9 +4166,9 @@ function watchedFile(req, name) {
   const pres = presentationFor(parseCookies(req.headers.cookie)[WATCH_COOKIE]);
   return !!pres && pres.live && presentedFiles(pres).has(name);
 }
-const wasShown = (pres, k, id, task = '') => pres.live && pres.shown.some((s) => shownKey(s) === shownKey({ k, id, task }));
+const wasShown = (pres, k, id) => pres.live && pres.shown.some((s) => shownKey(s) === shownKey({ k, id }));
 
-// GET /api/watch/<token>[/entity/<id> | /timeline?task=]: what the link's page needs, without sign-in.
+// GET /api/watch/<token>[/entity/<id> | /animatic/<id>]: what the link's page needs, without sign-in.
 // What it is (whose, of what), and only for what is being shown or has been, its pieces.
 function handleWatchApi(req, res, url, token, rest) {
   const pres = presentationFor(token);
@@ -4219,13 +4189,13 @@ function handleWatchApi(req, res, url, token, rest) {
       versions: store.versionsOf(e.id).map((v) => versionOut(v, e)), notes: [],
     });
   }
-  if (rest === 'timeline') {
-    const task = url.searchParams.get('task') || '';
-    if (!wasShown(pres, 'run', null, naming.tokenize(task) || '')) return sendJson(res, 404, { error: 'Not shown' });
-    return sendJson(res, 200, {
-      project: projectOut, tasks: store.projectTasks(project.id), views: store.projectViews(project.id),
-      shots: timelineShots(project.id, task).map(({ e, v }) => ({ id: e.id, name: e.name, seq: naming.seqOf(e.name), version: v && versionOut(v, e) })),
-    });
+  // An animatic as its page plays it (as GET /api/animatics/:id gives it), to be watched.
+  const animatic = /^animatic\/([\w-]{4,40})$/.exec(rest);
+  if (animatic) {
+    const a = store.animatic(animatic[1]);
+    if (!a || a.projectId !== pres.projectId || !wasShown(pres, 'animatic', a.id)) return sendJson(res, 404, { error: 'Not shown' });
+    const { animatic: card, ...edit } = animaticOut(a);
+    return sendJson(res, 200, { ...edit, animatic: { id: card.id, name: card.name }, project: projectOut });
   }
   return sendJson(res, 404, { error: 'Not found' });
 }
@@ -4318,7 +4288,7 @@ function presentHost(ws, pres, user) {
       pres.leader = ws;
       const scene = cleanScene(pres, user, msg.scene);
       const p = msg.p && typeof msg.p === 'object' ? cleanPlayer(msg.p) : {};
-      const shown = scene.k === 'idle' ? null : { k: scene.k, id: scene.board || scene.entity || null, task: scene.task || '' };
+      const shown = scene.k === 'idle' ? null : { k: scene.k, id: scene.board || scene.entity || scene.animatic || null };
       if (shown && !pres.shown.some((s) => shownKey(s) === shownKey(shown))) {
         pres.shown.push(shown);
         if (pres.shown.length > SHOWN_KEPT) pres.shown.shift();

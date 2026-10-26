@@ -92,8 +92,6 @@
   function currentView() {
     const an = /^#\/f\/[\w-]+\/animatic\/([\w-]+)/.exec(location.hash);
     if (an) return { page: 'animatic', animatic: an[1], entity: null };
-    const tl = /^#\/f\/[\w-]+\/timeline(?:\/s\/([\w-]+))?/.exec(location.hash);
-    if (tl) return { page: 'timeline', entity: null, seq: tl[1] || null };
     const rv = /^#\/f\/[\w-]+\/reviews(?:\/([\w-]+))?/.exec(location.hash);
     if (rv) return { page: 'reviews', playlist: rv[1] || null, entity: null };
     if (/^#\/f\/[\w-]+\/versions/.test(location.hash)) return { page: 'versions', entity: null };
@@ -692,7 +690,7 @@
       {
         id: 'sequences', label: 'Sequences', icon: 'film', hint: 'How the shots are put together',
         rows: [seqNames.length > 1
-          ? field('Order', 'First to last, as the timeline plays them and every list shows them', seqList, seqReset)
+          ? field('Order', 'First to last, as every list shows them and a new animatic puts them', seqList, seqReset)
           : el('p', { class: 'ps-empty', text: 'Once the project has two sequences or more, their order is set here.' })],
       },
       {
@@ -955,7 +953,6 @@
     if (rt.kind === 'space') return `w:${rt.space}`;
     const f = folderById(rt.id);
     const v = f && f.project ? currentView() : { page: 'boards' };
-    if (v.page === 'timeline') return `tl:${rt.id}`;
     if (v.page === 'animatic') return `an:${rt.id}:${v.animatic}`;
     if (v.page === 'reviews') return v.playlist ? `pl:${rt.id}:${v.playlist}` : `rv:${rt.id}`;
     if (v.page === 'versions') return `vl:${rt.id}`;
@@ -1068,7 +1065,6 @@
         ...sideRow({ key: `rv:${f.id}`, depth: depth + 1, icon: ICON_BOARDS, label: 'Reviews', href: WB.href.reviews(f.id), count: top, drop, hereK, kids: top ? () => reviewRows(f.id, depth + 2) : null }),
         ...sideRow({ key: `c:${f.id}`, depth: depth + 1, icon: ICON_CAT, label: 'Catalogue', href: WB.href.catalogue(f.id), kids: tierRows, hereK }),
         ...sideRow({ key: `vl:${f.id}`, depth: depth + 1, icon: ICON_LIST, label: 'Versions', href: WB.href.versions(f.id), hereK }),
-        ...sideRow({ key: `tl:${f.id}`, depth: depth + 1, icon: ICON_FILM, label: 'Timeline', href: WB.href.timeline(f.id), hereK }),
       ];
     };
     return sideRow({ key: `f:${f.id}`, depth, icon: PROJECT_SM, label: f.name, href: WB.href.folder(f.id), kids, drop, hereK, cls: 'project' });
@@ -1118,7 +1114,7 @@
       if (!project) return null;
       if (p.kind === 'entity') return { key: `pin:e:${p.id}`, icon: ICON_CAT, label: p.name, href: WB.href.catalogue(project.id, { entity: p.id }), title: project.name };
       if (p.kind === 'place') {
-        const icon = { sequence: ICON_FILM, timeline: ICON_FILM, versions: ICON_LIST, playlists: ICON_PLAYLIST, playlist: ICON_PLAYLIST, animatic: ICON_ANIMATIC }[p.what] || ICON_CAT;
+        const icon = { sequence: ICON_FILM, versions: ICON_LIST, playlists: ICON_PLAYLIST, playlist: ICON_PLAYLIST, animatic: ICON_ANIMATIC }[p.what] || ICON_CAT;
         const label = ['sequence', 'tier', 'playlist', 'animatic'].includes(p.what) ? p.name : `${project.name} ${p.name.toLowerCase()}`;
         return { key: `pin:p:${p.id}`, icon, label, href: p.href, title: project.name };
       }
@@ -1184,7 +1180,6 @@
     let settingsOf = null; // a project's home has the way to its settings
     let playlistHere = null; // a playlist's page has its menu beside its title
     let animaticHere = null; // and so has an animatic's
-    let timelineHere = null; // and the timeline's
     const onLoose = currentLoose();
     if (rt.kind === 'space') parts.push([spaceName(rt.space), spaceHref(rt.space), null, rt.space]);
     else {
@@ -1217,11 +1212,7 @@
             parts.push([name, WB.href.catalogue(f.id, { entity: v.entity })]);
             pin = e || (shownEntity && shownEntity.id === v.entity) ? { kind: 'entity', id: v.entity, name, projectId: f.id, tier: (e || shownEntity).tier, thumb: (e && e.thumb) || null } : null;
           }
-        } else if (v.page === 'timeline') {
-          parts.push(['Timeline', WB.href.timeline(f.id)]);
-          timelineHere = f;
-        }
-        else if (v.page === 'animatic') {
+        } else if (v.page === 'animatic') {
           parts.push(['Reviews', WB.href.reviews(f.id), f.id, ws]);
           const a = animaticNamed(f.id, v.animatic);
           parts.push(...keptIn(a));
@@ -1237,8 +1228,8 @@
           }
         }
         else if (v.page === 'versions') parts.push(['Versions', WB.href.versions(f.id)]);
-        // The star pins what is here, not the project around it: a sequence, a tier, the catalogue,
-        // the timeline or the versions are pinned as that place (an asset, set or shot as itself).
+        // The star pins what is here, not the project around it: a sequence, a tier, the catalogue
+        // or the versions are pinned as that place (an asset, set or shot as itself).
         if (v.page !== 'home' && !listsBoards(v) && !v.entity) {
           const [name, href] = parts[parts.length - 1];
           const what = v.seq ? 'sequence' : v.tier ? 'tier' : v.playlist ? 'playlist' : v.page;
@@ -1263,9 +1254,9 @@
     const heading = el('span', { class: 'page-title-text', text: title, title });
     if (titleFolder !== undefined) dropTarget(heading, titleFolder, titleWs);
     $('pagetitle').replaceChildren(heading);
-    // Lists are shown one of three ways, and only the timeline has none.
-    // A project's home and its timeline are not lists: nothing there is shown more than one way.
-    layoutSeg.hidden = !!(rt.kind === 'folder' && folderById(rt.id)?.project && ['timeline', 'home', 'animatic'].includes(currentView().page));
+    // Lists are shown one of three ways. A project's home and an animatic are not lists: nothing there is shown
+    // more than one way.
+    layoutSeg.hidden = !!(rt.kind === 'folder' && folderById(rt.id)?.project && ['home', 'animatic'].includes(currentView().page));
     const pinned = pin && isPinned(pin.kind, pin.id);
     const tools = [pin && el('button', {
         type: 'button', class: `iconbtn crumb-pin${pinned ? ' on' : ''}`, html: ICON_STAR,
@@ -1275,13 +1266,11 @@
       settingsOf && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('settings', 16), title: 'Project settings', 'aria-label': 'Project settings', onclick: () => projectSettings(settingsOf) }),
       playlistHere && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('more', 16), title: 'Rename or delete the playlist', 'aria-label': 'Playlist menu', 'aria-haspopup': 'menu', onclick: (e) => openMenu(e.currentTarget, playlistHere.loose ? loosePlaylistMenu(playlistHere.loose) : playlistMenu(playlistHere.project, playlistHere.playlist)) }),
       animaticHere && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('more', 16), title: 'Rename, copy, set up, download or delete the animatic', 'aria-label': 'Animatic menu', 'aria-haspopup': 'menu', onclick: (e) => openMenu(e.currentTarget, animaticMenu(animaticHere.project, animaticHere.animatic, { here: true })) }),
-      timelineHere && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('more', 16), title: 'Make an animatic of the timeline', 'aria-label': 'Timeline menu', 'aria-haspopup': 'menu', onclick: (e) => openMenu(e.currentTarget, [['Make an animatic of it…', () => animaticOfTimeline(timelineHere)]]) }),
       ...presentingHere(rt),
     ].filter(Boolean);
-    // An animatic, and the timeline, want all of the window, as a board does: where it is goes in the bar, after
-    // the mark (which stands for the workspace), its name last with its pin and menu, and the page has no
-    // heading of its own.
-    const inBar = !!animaticHere || (rt.kind === 'folder' && folderById(rt.id)?.project && ['animatic', 'timeline'].includes(currentView().page));
+    // An animatic wants all of the window, as a board does: where it is goes in the bar, after the mark (which
+    // stands for the workspace), its name last with its pin and menu, and the page has no heading of its own.
+    const inBar = !!animaticHere || (rt.kind === 'folder' && folderById(rt.id)?.project && currentView().page === 'animatic');
     $('barpath').hidden = !inBar;
     if (inBar) {
       const slash = () => el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' });
@@ -1338,10 +1327,9 @@
     pageSrcs.push({ src, name });
   }
 
-  // The ring in the bar: how much of what you are looking at (the timeline, an animatic, or the page's cards) is
-  // cached.
+  // The ring in the bar: how much of what you are looking at (an animatic, or the page's cards) is cached.
   let pageScope = null;
-  let cutScope = null; // what the animatic or the timeline open plays
+  let cutScope = null; // what the animatic open plays
   const cacheRing = (() => {
     const button = el('button', { id: 'kept', class: 'kept-ring', hidden: true });
     document.querySelector('.home-head .bellwrap').before(button);
@@ -2059,8 +2047,7 @@
       pageScope = null;
       cacheRing.paint();
     }
-    // An animatic's page, or the timeline's, lets go of its player and its edit (saving what is not saved yet) once
-    // you go elsewhere.
+    // An animatic's page lets go of its player and its edit (saving what is not saved yet) once you go elsewhere.
     if (cutPage && !(rt.kind === 'folder' && rt.id === cutPage.project.id && cutKey(currentView()) === cutPage.key)) closeAnimatic();
     if (vpick.project && (rt.kind !== 'folder' || rt.id !== vpick.project || !(currentView().page === 'versions' || currentView().entity || currentView().playlist))) dropVersionPick();
     if (picking.on && (rt.kind !== 'folder' || rt.id !== picking.project || currentView().page !== 'catalogue' || currentView().entity)) {
@@ -2100,13 +2087,12 @@
     $('q').placeholder = {
       catalogue: view.entity ? 'Search the catalogue' : 'Search the catalogue',
       versions: 'Search versions, or who filed them',
-      timeline: 'Search is not used on the timeline',
       animatic: 'Search is not used in an animatic',
       home: 'Search the catalogue',
       reviews: "Search this project's reviews",
       boards: reviewsOfHere ? 'Search this folder’s reviews' : 'Search boards and folders',
     }[view.page] || 'Search boards and folders';
-    $('q').disabled = view.page === 'timeline' || view.page === 'animatic';
+    $('q').disabled = view.page === 'animatic';
     const makesBoards = rt.kind !== 'folder' || !inProjectHere || view.page === 'reviews';
     // Present, in a project (and wherever you are while presenting, to get to the link and to stop).
     if (presentBtn) presentBtn.hidden = !(projectHere() || WBPresent.token());
@@ -2176,7 +2162,7 @@
   let shownEntity = null; // the asset, set or shot whose page is showing, for the crumbs before its catalogue is in
   async function renderProject(project, view) {
     // A project with a model of its venue: the player's 3D view is made ready as the project opens, so it is
-    // there at once in the catalogue's player and on the timeline.
+    // there at once in the catalogue's player and in an animatic.
     const model = project.settings && project.settings.preview3d;
     if (model && model.model) thePlayer().prepare3d({ ...model, key: project.id });
     const sig = `${project.id}|${view.page}|${view.entity}|${view.playlist || ''}|${view.animatic || ''}`;
@@ -2186,16 +2172,6 @@
     if (view.page === 'reviews') return playlistPage(project, view.playlist, fresh, sig);
     if (view.page === 'animatic') return animaticPage(project, view.animatic);
     if (view.page === 'home') return projectHome(project, fresh, sig);
-    if (view.page === 'timeline') {
-      // Opened for one sequence, it plays that one: it is chosen as if picked in its bar, and the address goes
-      // back to the timeline's own, so the sequence can be changed there as ever.
-      if (view.seq) {
-        store(`wb:tl:seq:${project.id}`, view.seq);
-        history.replaceState(null, '', WB.href.timeline(project.id));
-        if (cutPage && cutPage.key === 'tl') closeAnimatic(false);
-      }
-      return timelinePage(project);
-    }
     // What is being brought in shows above the catalogue, on its page and on each entity's.
     const tray = importer(project).tray;
     if (fresh && (view.entity || !catalogues.has(project.id))) $('content').replaceChildren(el('p', { class: 'home-empty', text: 'Loading…' }));
@@ -2388,13 +2364,12 @@
 
   // Above the catalogue: the way to bring files in, first and in ink (or drop them anywhere on the page).
   // Whatever a file's name says files it; the rest are asked about. Then setting up what the project has,
-  // and, quieter, selecting and the timeline (of the sequence `seq` alone, on a sequence's page).
-  function catTools(project, seq) {
+  // and, quieter, selecting.
+  function catTools(project) {
     return el('div', { class: 'cat-tools' },
       el('button', { type: 'button', class: 'btn primary', html: `${ICON_IMPORT}<span>Import</span>`, title: 'Bring images and videos into the catalogue. Or drop them anywhere on the page', onclick: () => importer(project).pick() }),
       el('button', { type: 'button', class: 'btn', html: `${ICON_PLUS}<span>Add<span class="cat-long"> assets, sets &amp; shots</span></span>`, title: 'Set up what the project has, before anything is filed of it', onclick: () => addEntities(project) }),
-      el('button', { type: 'button', class: `btn ghost pick-toggle${pickingIn(project) ? ' on' : ''}`, html: `${ICON_CHECKS}<span>Select</span>`, title: 'Select assets, sets and shots to change them together', onclick: () => setPicking(project, !pickingIn(project)) }),
-      el('a', { class: 'btn ghost', href: WB.href.timeline(project.id, { seq }), html: `${ICON_PLAY}<span>Timeline</span>`, title: seq ? `Every shot of ${seq} in order, played through` : 'Every shot in order, played through' }));
+      el('button', { type: 'button', class: `btn ghost pick-toggle${pickingIn(project) ? ' on' : ''}`, html: `${ICON_CHECKS}<span>Select</span>`, title: 'Select assets, sets and shots to change them together', onclick: () => setPicking(project, !pickingIn(project)) }));
   }
 
   // Changing many at once: who works on them and who is cc'd (added, taken off, or set outright), and
@@ -2821,7 +2796,7 @@
         !q && el('p', { text: 'Drop images and videos here, or import them. On a board, select some and file them as versions (Shift+V).' })));
     }
     // As a table, every group under one row of headings.
-    return [catTools(project, view.seq), ...(WB.layout() === 'table' && list.length ? [objectTable('entity', out)] : out)];
+    return [catTools(project), ...(WB.layout() === 'table' && list.length ? [objectTable('entity', out)] : out)];
   }
 
   // A version opens in the player (viewer.js), the same one a board opens its media in: with every other
@@ -2833,7 +2808,7 @@
     thePlayer();
     try {
       const project = folderById(currentFolder());
-      // Docked, as the timeline is: the sidebar and the bar stay, and going elsewhere from them closes it.
+      // Docked: the sidebar and the bar stay, and going elsewhere from them closes it.
       await WBViewer.openEntity(player, entityId, { version: versionId, me, dock: true, title: project ? project.name : null, onClose: () => { lookingAt = null; shownProject = ''; render(); } });
       lookingAt = entityId;
     } catch (err) {
@@ -3252,7 +3227,7 @@
     });
     if (!made) return null;
     try {
-      const a = await api('POST', `/api/projects/${project.id}/animatics`, { name: made.name, ...(made.fill && { from: 'timeline' }), ...(shots && { shots }), folderId: reviewFolderHere(project), by: me.name });
+      const a = await api('POST', `/api/projects/${project.id}/animatics`, { name: made.name, ...(made.fill && { from: 'shots' }), ...(shots && { shots }), folderId: reviewFolderHere(project), by: me.name });
       animaticsChanged(project);
       if (!shots) location.hash = WB.href.animatic(project.id, a.animatic.id);
       return a.animatic;
@@ -3260,14 +3235,6 @@
       fail(err);
       return null;
     }
-  }
-
-  // An animatic of what the timeline plays now: its shots with something filed, in its order.
-  async function animaticOfTimeline(project) {
-    const ids = cutPage && cutPage.key === 'tl' ? cutPage.ctl.filedShots() : [];
-    if (!ids.length) return void WB.toast('Nothing filed is on the timeline yet.');
-    const a = await newAnimatic(project, ids);
-    if (a) location.hash = WB.href.animatic(project.id, a.id);
   }
 
   async function renameAnimatic(project, a) {
@@ -3343,9 +3310,9 @@
   }
 
   // An animatic's page: the editor, opened once and left be as the rest of the page is brought up to date.
-  // The timeline's is the same page, watched rather than edited (animatic.js, `timeline`). `cutKey` says
-  // which of them a view is, as `cutPage.key` says which is open.
-  const cutKey = (v) => (v.page === 'animatic' ? `an:${v.animatic}` : v.page === 'timeline' ? 'tl' : null);
+  // `cutKey` says which animatic a view is, as `cutPage.key` says which is open. Somebody presenting it is
+  // followed through it as through the player (present.js hears what it tells).
+  const cutKey = (v) => (v.page === 'animatic' ? `an:${v.animatic}` : null);
   function animaticPage(project, aid) {
     if (cutPage && cutPage.key === `an:${aid}` && $('content').contains(cutPage.node)) return;
     closeAnimatic();
@@ -3367,22 +3334,7 @@
         location.hash = WB.href.reviews(project.id);
       },
     });
-    cutPage = { key: `an:${aid}`, id: aid, project, ctl, node: $('content').firstElementChild };
-  }
-  // A project's timeline: every shot in order, each its newest version, on the animatic's page. Somebody
-  // presenting it is followed through it as through the player (present.js hears what it tells).
-  function timelinePage(project) {
-    if (cutPage && cutPage.key === 'tl' && cutPage.project.id === project.id && $('content').contains(cutPage.node)) return;
-    closeAnimatic();
-    if (!catalogues.has(project.id)) loadCatalogue(project.id);
-    const ctl = WBAnimatic.open($('content'), {
-      project, timeline: true, me,
-      onScope: (scope) => {
-        cutScope = scope;
-        cacheRing.paint();
-      },
-    });
-    cutPage = { key: 'tl', project, ctl, node: $('content').firstElementChild, unhear: ctl.presenter.watch(WBPresent.heard) };
+    cutPage = { key: `an:${aid}`, id: aid, project, ctl, node: $('content').firstElementChild, unhear: ctl.presenter.watch(WBPresent.heard) };
     WBPresent.report();
   }
   // `changed`: what it now says (its length, its stills) is fetched for the lists.
@@ -3392,14 +3344,14 @@
     cutPage = null;
     if (unhear) unhear();
     ctl.close();
-    if (changed && key !== 'tl') setTimeout(() => loadCatalogue(project.id, true), 600);
+    if (changed) setTimeout(() => loadCatalogue(project.id, true), 600);
   }
 
   // ------------------------------------------------------------- a project's playlists
   //
   // Some of a project's versions in the order a review goes through them, as in ShotGrid: made from what is
   // picked anywhere versions are listed (Add to playlist), put in order by dragging, and played through
-  // one after another in the player, each with its own comments, as the timeline plays its shots.
+  // one after another in the player, each with its own comments.
 
   const playlistData = new Map(); // playlist id -> { playlist, versions } as last fetched
 
@@ -3680,11 +3632,11 @@
     }
   }
 
-  // The playlist in the player, docked as the timeline is, opened on `startId`: its versions one at a time,
+  // The playlist in the player, docked, opened on `startId`: its versions one at a time,
   // each as filed with its own comments, to move between with the strip down the left or the arrows. It is
   // not an edit: nothing plays on into the next. Going elsewhere closes it.
   async function playPlaylist(project, data, startId) {
-    // On the venue (a project with a model of it, as in the timeline) each is shown in the view the project
+    // On the venue (a project with a model of it, as in an animatic) each is shown in the view the project
     // puts on its model; otherwise as filed.
     const preview3d = project.settings && project.settings.preview3d;
     let in3d = false;
@@ -4583,10 +4535,11 @@
   });
   window.addEventListener('hashchange', render);
   // ---- presenting the project you are in (present.js): whoever has its link sees what you open in the
-  // player, the catalogue's versions or the timeline, as you show it; the lists in between they are not shown.
+  // player, the catalogue's versions or an animatic, as you show it; the lists in between they are not shown.
   if (WB.info().canShare) {
-    // The player tells what it shows, and so does the timeline's page while it is open.
-    WBPresent.init({ me: () => me, viewer: () => (cutPage && cutPage.key === 'tl' && cutPage.ctl.presenter.isOpen() ? cutPage.ctl.presenter : thePlayer()), player: thePlayer, project: projectHere, page: () => ({ k: 'idle' }) });
+    // The player tells what it shows, and so does an animatic's page while it is open (and the player is not
+    // open over it).
+    WBPresent.init({ me: () => me, viewer: () => (cutPage && cutPage.ctl.presenter.isOpen() && !thePlayer().isOpen() ? cutPage.ctl.presenter : thePlayer()), player: thePlayer, project: projectHere, page: () => ({ k: 'idle' }) });
     presentBtn = WBPresent.button();
     presentBtn.hidden = true;
     $('presentslot').replaceWith(presentBtn);

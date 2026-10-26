@@ -645,7 +645,6 @@ const WB = (() => {
     animatic: (id, animatic) => `#/f/${id}/animatic/${animatic}`,
     catalogue: (id, { tier, seq, entity } = {}) => `#/f/${id}/catalogue${entity ? `/${entity}` : seq ? `/s/${encodeURIComponent(seq)}` : tier ? `/t/${tier}` : ''}`,
     versions: (id) => `#/f/${id}/versions`,
-    timeline: (id, { seq } = {}) => `#/f/${id}/timeline${seq ? `/s/${encodeURIComponent(seq)}` : ''}`,
     board: (id) => `/b/${id}`,
     abs: (h) => (h.startsWith('#') ? `/${h}` : h),
   };

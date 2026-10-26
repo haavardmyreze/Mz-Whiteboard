@@ -1231,13 +1231,14 @@ body.focus .video .vbar, body.focus .video .vplay { display: none; }
 /* What is open is the page, not something on it, so nobody's selection is drawn around it. */
 body.focus .item:is(.image, .video).peersel { outline: none; }
 
-/* The strip: small, quiet, and numbered the way the bar above counts them. */
-.v-film { left: 0; top: var(--bar); bottom: 0; z-index: 30; display: flex; flex-direction: column; gap: 6px; width: var(--film); padding: 10px 8px 10px 4px; border-width: 0 1px 0 0; border-radius: 0; box-shadow: none; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+/* The strip: small, quiet, and numbered the way the bar above counts them. It and the comments are on the
+   page's own black, a hairline from the picture, so the picture is the brightest thing there. */
+.v-film { left: 0; top: var(--bar); bottom: 0; z-index: 30; display: flex; flex-direction: column; gap: 6px; width: var(--film); padding: 10px 8px 10px 4px; border-width: 0 1px 0 0; border-radius: 0; background: var(--bg); box-shadow: none; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
 .v-film::-webkit-scrollbar { display: none; }
 .v-film[hidden] { display: none; }
 .fs-item { flex: none; display: flex; align-items: flex-start; gap: 4px; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
 .fs-num { flex: none; width: 16px; padding-top: 1px; font-size: var(--fs-micro); font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: 0; text-align: right; }
-.fs-thumb { position: relative; flex: 1; min-width: 0; display: block; overflow: hidden; border-radius: var(--r-1); background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); opacity: 0.7; transition: opacity 0.12s, box-shadow 0.12s; }
+.fs-thumb { position: relative; flex: 1; min-width: 0; display: block; overflow: hidden; background: var(--thumb-bg); box-shadow: 0 0 0 1px var(--line); opacity: 0.7; transition: opacity 0.12s, box-shadow 0.12s; }
 .fs-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
 .fs-item:hover .fs-thumb { opacity: 1; box-shadow: 0 0 0 1px var(--line-strong); }
 .fs-item.current .fs-thumb { opacity: 1; box-shadow: 0 0 0 2px var(--accent); }
@@ -1253,7 +1254,7 @@ body.focus .item:is(.image, .video).peersel { outline: none; }
 /* With the strip there, it is where they are chosen: the bar has them only on a narrow window. */
 @media (min-width: 700px) { .v-files { display: none; } }
 /* Put away and brought back by a tab on its edge, and made wider by that edge. */
-.v-fstab { position: fixed; z-index: 31; left: var(--film); top: calc(50% + var(--bar) / 2); transform: translateY(-50%); display: none; place-items: center; width: 30px; height: 68px; padding: 0; border: 1px solid var(--line); border-left: 0; border-radius: 0 var(--r-3) var(--r-3) 0; background: var(--surface-1); color: var(--muted); cursor: pointer; transition: background 0.12s var(--ease), color 0.12s var(--ease); }
+.v-fstab { position: fixed; z-index: 31; left: var(--film); top: calc(50% + var(--bar) / 2); transform: translateY(-50%); display: none; place-items: center; width: 30px; height: 68px; padding: 0; border: 1px solid var(--line); border-left: 0; border-radius: 0 var(--r-3) var(--r-3) 0; background: var(--bg); color: var(--muted); cursor: pointer; transition: background 0.12s var(--ease), color 0.12s var(--ease); }
 body.focus .v-fstab { display: grid; }
 .v-fstab:hover { background: var(--surface-2); color: var(--text); }
 .v-fstab svg { width: 16px; height: 16px; }
@@ -1282,6 +1283,8 @@ body.focus:not(.film-off) .fs-grip { display: block; }
 /* The timeline: the transport, the time, and a track with a mark for every comment. */
 .v-timeline { left: calc(var(--film) + 12px); right: calc(var(--side) + 12px); bottom: 12px; z-index: 30; display: flex; align-items: center; gap: 2px; height: 48px; padding: 0 8px 0 6px; }
 .v-timeline[hidden] { display: none; }
+/* Over an open piece it is of the page's black too, floating a little off the bottom. */
+body.focus .v-timeline { background: var(--bg); }
 .v-timeline .iconbtn { flex: none; }
 .v-timeline .iconbtn svg { width: 16px; height: 16px; }
 .v-timeline .tl-loop { color: var(--muted); }
@@ -1487,7 +1490,7 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
 .v-panel[hidden], #threadpanel[hidden] { display: none; }
 /* The way to the comments is a tab on the side of the viewer, on the edge the panel comes out from:
    where the comments are, and nowhere near the top of the screen. */
-.v-cptab { position: fixed; z-index: 41; right: var(--side); top: calc(50% + var(--bar) / 2); transform: translateY(-50%); display: none; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 30px; min-height: 68px; padding: 10px 0; border: 1px solid var(--line); border-right: 0; border-radius: var(--r-3) 0 0 var(--r-3); background: var(--surface-1); box-shadow: var(--shadow-1); color: var(--text-2); cursor: pointer; transition: background 0.12s var(--ease), color 0.12s var(--ease); }
+.v-cptab { position: fixed; z-index: 41; right: var(--side); top: calc(50% + var(--bar) / 2); transform: translateY(-50%); display: none; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 30px; min-height: 68px; padding: 10px 0; border: 1px solid var(--line); border-right: 0; border-radius: var(--r-3) 0 0 var(--r-3); background: var(--bg); box-shadow: var(--shadow-1); color: var(--text-2); cursor: pointer; transition: background 0.12s var(--ease), color 0.12s var(--ease); }
 body.focus .v-cptab { display: flex; }
 .v-cptab:hover { background: var(--surface-2); color: var(--text); }
 .v-cptab-icon { display: grid; }
@@ -1497,7 +1500,7 @@ body.focus .v-cptab { display: flex; }
 .v-cptab[aria-expanded="true"] .count { display: none; }
 body.focus .v-panel { animation: cp-slide 0.16s var(--ease); }
 @keyframes cp-slide { from { transform: translateX(16px); opacity: 0; } }
-body.focus .v-panel { right: 0; bottom: 0; top: var(--bar); width: var(--side); max-height: none; border-width: 0 0 0 1px; border-radius: 0; box-shadow: none; }
+body.focus .v-panel { right: 0; bottom: 0; top: var(--bar); width: var(--side); max-height: none; border-width: 0 0 0 1px; border-radius: 0; background: var(--bg); box-shadow: none; }
 /* Its inner edge is taken hold of to make it wider or narrower. */
 .cp-grip { position: absolute; left: 0; top: 0; bottom: 0; z-index: 2; width: 8px; cursor: ew-resize; touch-action: none; }
 .cp-grip::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--accent); opacity: 0; transition: opacity 0.12s var(--ease); }
@@ -1505,7 +1508,7 @@ body.focus .v-panel { right: 0; bottom: 0; top: var(--bar); width: var(--side); 
 .cp-grip:focus-visible { outline: none; }
 .cp-head { flex: none; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 8px 0 16px; }
 .cp-head h2 { margin: 0; font-size: var(--fs-lg); font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; }
-.cp-opts { flex: none; display: flex; gap: 16px; padding: 4px 16px 12px; border-bottom: 1px solid var(--line); }
+.cp-opts { flex: none; display: flex; gap: 16px; padding: 4px 16px 12px; }
 .cp-show { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: var(--fs-sm); cursor: pointer; }
 .cp-show:hover { color: var(--text); }
 .cp-show input { -webkit-appearance: none; appearance: none; display: grid; place-content: center; width: 14px; height: 14px; margin: 0; border: 1px solid var(--line-strong); border-radius: var(--r-1); background: transparent; cursor: pointer; transition: background 0.12s, border-color 0.12s; }
@@ -1574,7 +1577,7 @@ body.focus .v-panel { right: 0; bottom: 0; top: var(--bar); width: var(--side); 
 .tchip.off { background: var(--surface-3); color: var(--muted); text-decoration: line-through; }
 
 .cp-reply { display: flex; align-items: flex-end; gap: 6px; padding: 0 0 8px 28px; }
-.cp-foot { flex: none; border-top: 1px solid var(--line); }
+.cp-foot { flex: none; }
 .cp-foot[hidden] { display: none; }
 .cp-hint { margin: 0; padding: 12px 16px; color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; }
 .cp-compose { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
@@ -2365,16 +2368,16 @@ button.imp-row:hover { background: var(--hover); }
 .viewer.run .v-film, .viewer.run .v-fstab, .viewer.run .fs-grip { display: none !important; }
 .viewer.run .v-timeline { left: 12px; height: 70px; }
 .tl-run { display: none; }
-.viewer.run .tl-run { display: block; position: absolute; left: 0; right: 0; top: 4px; bottom: 4px; overflow: hidden; border-radius: var(--r-1); background: #0c0c0c; }
+.viewer.run .tl-run { display: block; position: absolute; left: 0; right: 0; top: 4px; bottom: 4px; overflow: hidden; border-radius: var(--r-1); background: #090909; }
 .viewer.run .tl-track .tl-rail, .viewer.run .tl-track .tl-wave { display: none !important; }
 /* The whole run: the sequences along the top as bands, each shaded from the next and named where there
    is room; under them the shots, as their stills, a dark line at every cut. With hundreds of shots it
    reads as a strip of picture under a row of sequence names, never as a crowd of clipped labels. */
 .tl-seqs { position: absolute; left: 0; right: 0; top: 0; height: 15px; }
 .tl-run.one-seq .tl-seqs { display: none; }
-.tl-seq { position: absolute; top: 0; bottom: 0; box-sizing: border-box; overflow: hidden; container-type: inline-size; border-left: 1px solid #0c0c0c; background: #262626; font-style: normal; }
-.tl-seq.odd { background: #1d1d1d; }
-.tl-seq.at { background: #3a3a3a; }
+.tl-seq { position: absolute; top: 0; bottom: 0; box-sizing: border-box; overflow: hidden; container-type: inline-size; border-left: 1px solid #090909; background: #1a1a1a; font-style: normal; }
+.tl-seq.odd { background: #141414; }
+.tl-seq.at { background: #2e2e2e; }
 .tl-seq b { display: block; padding: 0 5px; overflow: hidden; color: #a8a8a8; font-size: var(--fs-micro); font-weight: 600; line-height: 15px; text-overflow: ellipsis; white-space: nowrap; }
 .tl-seq.at b { color: #fff; }
 /* Named only where the whole name fits, or most of it: a name cut to two letters says nothing. */
@@ -2382,16 +2385,16 @@ button.imp-row:hover { background: var(--hover); }
 .tl-clips { position: absolute; left: 0; right: 0; top: 16px; bottom: 0; }
 .tl-run.one-seq .tl-clips { top: 0; }
 .tl-clip { position: absolute; top: 0; bottom: 0; display: flex; flex-direction: column; box-sizing: border-box; container-type: inline-size; font-style: normal; border-left: 1px solid #000; background: #161616; }
-/* The stills, one after another at their own shape, as an editor shows a clip. */
-.tl-clippic { position: relative; flex: 1; min-height: 0; background-color: #222; background-position: left center; background-repeat: repeat-x; background-size: auto 100%; }
+/* The stills, one after another at their own shape, as an editor shows a clip, the whole height of it. */
+.tl-clippic { position: absolute; inset: 0; background-color: #181818; background-position: left center; background-repeat: repeat-x; background-size: auto 100%; }
 .tl-clip::after { content: ""; position: absolute; inset: 0; background: rgba(0, 0, 0, 0.28); pointer-events: none; }
 .tl-clip.at::after { background: transparent; box-shadow: inset 0 0 0 2px var(--accent); }
 .tl-clip.seq-start { border-left: 2px solid rgba(255, 255, 255, 0.7); }
 .tl-clip:first-child { border-left: 0; }
 .tl-clip.empty .tl-clippic { background: repeating-linear-gradient(135deg, #1b1b1b 0 5px, #121212 5px 10px); }
-/* A clip wide enough says which shot it is (and, given room, which version), on a plain band along its
+/* A clip wide enough says which shot it is (and, given room, which version), over a shade deepening to its
    foot; a narrow one is its picture alone, and says so when pointed at. */
-.tl-clipname { flex: none; display: none; gap: 4px; height: 15px; padding: 0 5px; overflow: hidden; background: #161616; color: #f2f2f2; font-size: var(--fs-micro); line-height: 15px; white-space: nowrap; pointer-events: none; }
+.tl-clipname { position: absolute; z-index: 1; left: 0; right: 0; bottom: 0; display: none; gap: 4px; height: 20px; padding: 5px 5px 0; overflow: hidden; background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.72)); color: #f2f2f2; font-size: var(--fs-micro); line-height: 15px; white-space: nowrap; pointer-events: none; }
 @container (min-width: 64px) { .tl-clipname { display: flex; } }
 .tl-clipname b { flex: none; font-weight: 600; }
 .tl-clipname span { overflow: hidden; color: rgba(255, 255, 255, 0.7); text-overflow: ellipsis; }
@@ -3074,7 +3077,8 @@ body.spectating #topbar .brand { pointer-events: none; }
    (#barpath), and the page has no heading. The edit plays in the middle under a bar of how it is seen, the shots
    to put on it are down its left and what is said about the shot on screen down its right; under them the
    timeline's bar (its tools, playing, how it is drawn), and the timeline. The timeline is drawn (animatic.js) on
-   the dark bed the Timeline's close-up has, in both themes. */
+   the dark bed the Timeline's close-up has, in both themes. The panels are the page's own black, told apart by a
+   hairline where they meet and by nothing more, so the picture and the clips are what is bright. */
 body.an-on main { display: flex; flex-direction: column; height: calc(100dvh - var(--bar)); padding: 0; }
 body.an-on .page-head, body.an-on .home-head .search, body.an-on .search-toggle, body.an-on .wm-by { display: none; }
 .bar-path { flex: 0 1 auto; display: flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
@@ -3089,12 +3093,12 @@ body.an-on .side { position: fixed; z-index: 30; top: var(--bar); bottom: 0; lef
 body.an-on.side-open .side { transform: none; }
 body.an-on.side-open .side-scrim { display: block; position: fixed; z-index: 29; inset: var(--bar) 0 0 0; background: var(--backdrop); }
 body.an-on #content { flex: 1; min-height: 0; }
-.an { display: flex; flex-direction: column; height: 100%; overflow: hidden; background: var(--surface-1); }
+.an { display: flex; flex-direction: column; height: 100%; overflow: hidden; background: var(--bg); }
 .an-top { flex: 1 1 auto; display: flex; min-height: 160px; }
 
 .an-bin { position: relative; flex: none; display: flex; flex-direction: column; width: 232px; border-right: 1px solid var(--line); }
 .an-bin[hidden] { display: none; }
-.an-bin-head { display: flex; align-items: center; gap: 4px; padding: 8px; border-bottom: 1px solid var(--line); }
+.an-bin-head { display: flex; align-items: center; gap: 4px; padding: 8px; }
 .an-bin-hide { flex: none; width: var(--h-sm); height: var(--h-sm); color: var(--muted); }
 .an-bin-hide svg { width: 14px; height: 14px; }
 .an-bin-head2 { padding: 12px 12px 2px; color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; }
@@ -3130,7 +3134,7 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 .an-edge.left { left: -4px; }
 .an-edge:hover, .an-edge.held { background: linear-gradient(to right, transparent 3px, var(--accent) 3px, var(--accent) 4px, transparent 4px); }
 .an-bin-note { margin: 0; padding: 16px 12px; color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; }
-.an-bin-foot { padding: 8px; border-top: 1px solid var(--line); }
+.an-bin-foot { padding: 8px; }
 .an-bin-foot .btn { width: 100%; }
 
 /* A quiet action in a line of text: Add all, Reply, Resolve. */
@@ -3140,7 +3144,7 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 
 .an-view { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 /* Over the picture, as over the player's: the panels' switches at its ends, the shot on screen, how it is seen. */
-.an-vbar { flex: none; display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 4px; border-bottom: 1px solid var(--line); }
+.an-vbar { flex: none; display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 4px; }
 .an-vbar .iconbtn { flex: none; }
 .an-vbar .iconbtn svg { width: 16px; height: 16px; }
 .an-vbar .iconbtn.off { color: var(--muted); }
@@ -3156,7 +3160,7 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 
 .an-notes { position: relative; flex: none; display: flex; flex-direction: column; width: 288px; border-left: 1px solid var(--line); }
 .an-notes[hidden] { display: none; }
-.an-notes-head { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.an-notes-head { padding: 10px 12px; }
 .an-notes-title { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: var(--fs-ui); }
 .an-notes-title b { font-weight: 600; }
 .an-notes-title span { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
@@ -3173,7 +3177,7 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 .an-note-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
 .an-note-when { margin-left: auto; font-variant-numeric: tabular-nums; }
 .an-thread-acts { display: flex; gap: 4px; margin: 4px -4px 0; }
-.an-note-compose { padding: 8px; border-top: 1px solid var(--line); }
+.an-note-compose { padding: 8px; }
 .an-note-box { display: block; width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: var(--fs-ui); resize: none; }
 .an-note-box:focus { border-color: var(--accent); outline: none; }
 .an-note-box:disabled { opacity: 0.5; }
@@ -3205,22 +3209,21 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 
 .an-grip { flex: none; height: 5px; margin-top: -3px; cursor: ns-resize; touch-action: none; }
 .an-grip:hover { background: var(--line-strong); }
-.an-tl { flex: none; display: flex; height: 260px; min-height: 120px; border-top: 1px solid var(--line); }
+.an-tl { flex: none; display: flex; height: 260px; min-height: 120px; }
 /* The Timeline's one track, with room under it to scroll along. */
 .an-timeline .an-tl { height: 120px; }
-.an-heads { position: relative; flex: none; width: 152px; overflow: hidden; border-right: 1px solid var(--line); }
+.an-heads { position: relative; flex: none; width: 152px; overflow: hidden; }
 .an-heads-in { will-change: transform; }
 .an-head-ruler { position: relative; z-index: 1; display: flex; align-items: center; justify-content: flex-end; gap: 2px; height: 24px; padding: 0 4px; border-bottom: 1px solid var(--line); background: var(--bg); }
 .an-zoom { width: 20px; height: 20px; font-size: var(--fs-ui); font-weight: 600; }
 .an-head-ruler .an-add { width: 20px; height: 20px; margin-right: auto; }
 .an-head-ruler .an-add svg { width: 14px; height: 14px; }
-.an-head { display: flex; align-items: center; gap: 0; padding: 0 2px 0 10px; border-bottom: 1px solid var(--line); }
+.an-head { display: flex; align-items: center; gap: 0; padding: 0 2px 0 10px; }
 .an-head-name { flex: 1; min-width: 0; overflow: hidden; color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .an-head .iconbtn { flex: none; width: 26px; height: 26px; }
 .an-head .iconbtn svg { width: 14px; height: 14px; }
 .an-head .iconbtn.off { color: var(--muted); }
 .an-head.muted.audio .an-head-name, .an-head.hidden-track .an-head-name { color: var(--muted); }
-.an-head-gap { border-bottom: 1px solid var(--line-strong); }
 /* Compact tracks: thin, a clip its band alone, and their heads' buttons made to fit. */
 .an-tl.compact .an-head .iconbtn { width: 24px; height: 24px; }
 /* A clip's label, in its menu: the painter's colours, and none. */

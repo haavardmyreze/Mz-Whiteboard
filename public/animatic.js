@@ -20,10 +20,10 @@ const WBAnimatic = (() => {
   const ICON = WB.iconSet(18);
 
   const RULER = 24;                     // the ruler along the top of the timeline
-  // A track's height: as usual, or compact (as an editor's thin tracks), when a clip is its band alone.
+  // A track's height: as usual, or compact (as an editor's thin tracks), when a clip's name is over the middle of it.
   const LANES = { normal: { video: 56, audio: 40 }, compact: { video: 32, audio: 28 } };
-  const BAND = 15;                      // the band along the top of a clip, with its name
-  const SPLIT = 8;                      // between the video tracks and the sound tracks
+  const LINE = 3;                       // the line of a clip's label colour along its top
+  const SPLIT = 8;                     // between the video tracks and the sound tracks
   const EDGE = 6;                       // how near its edge a press takes hold of a clip's edge
   const SNAP_PX = 8;                    // how near a place an edge lines up with it
   const AHEAD = 1.5;                    // seconds: clips about to start are made ready this far ahead
@@ -33,12 +33,11 @@ const WBAnimatic = (() => {
   const SAVE_AFTER = 500;
   const PULL_EVERY = 15000;
   const AUDIO_EXT = /\.(wav|mp3|m4a|aac|ogg|oga|opus|flac)$/i;
-  // The timeline is a dark bed in both themes, as the Timeline's close-up is, so pictures read the same on it.
-  const BED = '#0c0c0c';
-  const LANE_BG = ['#121212', '#151515'];
-  const CLIP_BG = '#1a1a1a';
-  const BAND_BG = '#2e2e2e';
-  const BAND_ON = '#e6e6e6';
+  // The timeline is a dark bed in both themes, as the Timeline's close-up is, so pictures read the same on it: the
+  // page's own black (style.css --bg), the tracks a shade over it, and a clip its pictures.
+  const BED = '#090909';
+  const LANE_BG = '#101010';
+  const CLIP_BG = '#181818';
   const TEXT = '#f2f2f2';
   const QUIET = 'rgba(255, 255, 255, 0.6)';
   const FONT = (w, px) => `${w} ${px}px Inter, system-ui, sans-serif`;
@@ -1260,11 +1259,11 @@ const WBAnimatic = (() => {
       const accent = cssVar('--accent') || '#5ba0fa';
       accentNow = accent;
       const end = endFrame();
-      // The tracks, in turn a shade apart; past the end of the edit, darker.
-      rows.forEach((r, i) => {
+      // The tracks, a shade over the bed; past the end of the edit, darker.
+      rows.forEach((r) => {
         const y = yOf(r);
         if (y > H || y + r.h < RULER) return;
-        ctx.fillStyle = LANE_BG[i % 2];
+        ctx.fillStyle = LANE_BG;
         ctx.fillRect(0, y, W, r.h);
         if ((r.track.mute && r.track.kind === 'audio') || r.track.hide) {
           ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
@@ -1296,13 +1295,13 @@ const WBAnimatic = (() => {
         const h = r.h - 4;
         ctx.save();
         ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
-        ctx.fillRect(xa, y + BAND, xb - xa, h - BAND);
+        ctx.fillRect(xa, y, xb - xa, h);
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
         ctx.lineWidth = 1.25;
         ctx.beginPath();
         ctx.moveTo(xa, y + h);
-        ctx.lineTo(xb, y + BAND);
-        ctx.moveTo(xa, y + BAND);
+        ctx.lineTo(xb, y);
+        ctx.moveTo(xa, y);
         ctx.lineTo(xb, y + h);
         ctx.stroke();
         ctx.restore();
@@ -1364,40 +1363,45 @@ const WBAnimatic = (() => {
       FR.ask(want.slice(0, 200));
     }
 
-    // A mark on the ruler, as times are shown everywhere; in minutes and seconds, marks closer than a second
+    // A mark on the ruler, as times are shown everywhere. In minutes and seconds a mark a whole number of
+    // seconds in says just that (0:30, not 0:29 and a frame, at 29.97 a second); marks closer than a second
     // say their frame too, or they would all say the same second.
     function rulerLabel(f, step) {
       const base = Math.round(doc.fps);
-      if (V.timeMode() !== 'time' || step % base === 0) return fmt(f);
-      return `${V.fmtTime(f / doc.fps)}:${String(f % base).padStart(2, '0')}`;
+      if (V.timeMode() !== 'time') return fmt(Math.round(f));
+      if (step >= doc.fps - 1e-6) return V.fmtTime(Math.round(f / doc.fps));
+      return `${V.fmtTime(f / doc.fps)}:${String(Math.round(f) % base).padStart(2, '0')}`;
     }
     function drawRuler(ctx) {
-      ctx.fillStyle = '#161616';
+      ctx.fillStyle = BED;
       ctx.fillRect(0, 0, W, RULER);
       ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
       ctx.fillRect(0, RULER - 1, W, 1);
       const fps = doc.fps;
-      // A labelled mark at least seventy pixels apart, at a step an editor would count in.
-      const steps = [1, 2, 5, 10, Math.round(fps / 2), Math.round(fps), 2 * fps, 5 * fps, 10 * fps, 15 * fps, 30 * fps, 60 * fps, 120 * fps, 300 * fps, 600 * fps, 1800 * fps];
+      // A labelled mark at least seventy pixels apart, at a step an editor would count in. A second is the
+      // clock's in minutes and seconds (so 29.97 frames), and a timecode's own (30) where it counts frames.
+      const sec = V.timeMode() === 'time' ? fps : Math.round(fps);
+      const steps = [1, 2, 5, 10, Math.round(fps / 2), ...[1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800].map((n) => n * sec)];
       const big = steps.find((s) => s * ppf >= 70) || steps[steps.length - 1];
-      const small = steps.slice().reverse().find((s) => s < big && s * ppf >= 8 && big % s < 1e-6) || null;
-      const f0 = Math.max(0, Math.floor(fAt(0) / big) * big);
+      const whole = (a, b) => Math.abs(a / b - Math.round(a / b)) < 1e-6;
+      const small = steps.slice().reverse().find((s) => s < big && s * ppf >= 8 && whole(big, s)) || null;
       const f1 = fAt(W);
       ctx.font = FONT(500, 10);
       ctx.textBaseline = 'alphabetic';
       if (small) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
-        for (let f = Math.floor(fAt(0) / small) * small; f <= f1; f += small) {
-          if (f < 0) continue;
-          ctx.fillRect(Math.round(xOf(f)), RULER - 5, 1, 4);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
+        for (let k = Math.max(0, Math.floor(fAt(0) / small)); k * small <= f1; k++) {
+          ctx.fillRect(Math.round(xOf(k * small)), RULER - 5, 1, 4);
         }
       }
-      for (let f = f0; f <= f1; f += big) {
+      // Counted along, not added up, so the marks do not drift off the frames they say.
+      for (let k = Math.max(0, Math.floor(fAt(0) / big)); k * big <= f1; k++) {
+        const f = k * big;
         const x = Math.round(xOf(f));
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
         ctx.fillRect(x, RULER - 10, 1, 9);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.62)';
-        ctx.fillText(rulerLabel(Math.round(f), big), x + 4, 12);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.fillText(rulerLabel(f, big), x + 4, 12);
       }
     }
 
@@ -1421,24 +1425,27 @@ const WBAnimatic = (() => {
       ctx.globalAlpha = faded ? 0.35 : lifted ? 0.85 : 1;
       const left = Math.max(x0, -2);
       const right = Math.min(xf, W + 2);
-      // What its source fills: its pictures, or its sound, under a band with its name.
+      // What its source fills: its pictures edge to edge, or its sound's shape, with its name over the foot of it
+      // (compact, over the middle), and its label's colour as a line along its top. Between one clip and the next
+      // the bed shows through, a dark seam, as a splice.
       if (right > left) {
+        const seam = xf - x0 > 4 ? 1 : 0;
         ctx.save();
         ctx.beginPath();
-        ctx.rect(x0 + 0.5, y, xf - x0 - 1, h);
+        ctx.rect(x0 + seam, y, xf - x0 - 2 * seam, h);
         ctx.clip();
         ctx.fillStyle = CLIP_BG;
         ctx.fillRect(left, y, right - left, h);
-        // Compact, a clip is its band alone (a sound's shape faint behind its name).
-        const bandH = compact ? h : BAND;
-        if (!compact && c.media) drawWave(ctx, c, x0, y + BAND, h - BAND, left, right);
-        else if (!compact) drawPictures(ctx, c, length, x0, y + BAND, h - BAND, left, right, want);
-        ctx.fillStyle = bandColour(c, on);
-        ctx.fillRect(left, y, right - left, bandH);
-        if (compact && c.media) drawWave(ctx, c, x0, y, h, left, right, 0.22);
+        if (c.media) drawWave(ctx, c, x0, y, h, left, right, compact ? 0.22 : 0.4);
+        else drawPictures(ctx, c, length, x0, y, h, left, right, want);
         drawFades(ctx, c, x0, xf, y, h);
-        const room = drawCache(ctx, c, xf, y, bandH);
-        drawLabel(ctx, c, x0, xf - room, y, on, bandH);
+        drawVeil(ctx, c, left, right, y, h);
+        if (c.label) {
+          ctx.fillStyle = WBInk.tone(c.label, 0.62, 0.135, [0.3, 0.5]);
+          ctx.fillRect(left, y, right - left, LINE);
+        }
+        const room = drawCache(ctx, c, xf, y, h);
+        drawLabel(ctx, c, x0, xf - room, y, h);
         ctx.restore();
       }
       // What a short version leaves of it: its outline only, and how short it came up.
@@ -1464,9 +1471,9 @@ const WBAnimatic = (() => {
           if (k <= 0) continue;
           const x = xOf(c.start + k);
           if (x < 0 || x > W) continue;
-          ctx.fillRect(Math.round(x), y + BAND, 1, h - BAND);
+          ctx.fillRect(Math.round(x), y + LINE, 1, h - LINE);
           ctx.beginPath();
-          ctx.arc(Math.round(x) + 0.5, y + BAND + 4, 2.5, 0, Math.PI * 2);
+          ctx.arc(Math.round(x) + 0.5, y + LINE + 4, 2.5, 0, Math.PI * 2);
           ctx.fill();
         }
       }
@@ -1475,7 +1482,7 @@ const WBAnimatic = (() => {
         ctx.lineWidth = 2;
         ctx.strokeRect(x0 + 1, y + 1, Math.max(2, x1 - x0 - 2), h - 2);
       }
-      // The handles that draw out its fades, on what is picked or under the pointer, just under its band.
+      // The handles that draw out its fades, on what is picked or under the pointer, along its top.
       if ((on || (hover && hover.clip === c.id)) && !lifted && xf - x0 > 28) {
         const [hx0, hx1] = fadeHandles(c, x0, xf);
         ctx.fillStyle = '#ffffff';
@@ -1541,8 +1548,6 @@ const WBAnimatic = (() => {
           }
         }
         if (pic) FR.drawCover(ctx, pic, x, y, tileW, h);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-        ctx.fillRect(x + tileW - 1, y, 1, h);
       }
     }
 
@@ -1566,11 +1571,9 @@ const WBAnimatic = (() => {
       }
     }
 
-    function drawFades(ctx, c, x0, xf, y0, h0) {
+    // Its slopes, over the whole height of it.
+    function drawFades(ctx, c, x0, xf, y, h) {
       const d = C.dissolveOf(doc, c);
-      // Its slopes run under its band; compact, where the band is all of it, over the whole of it.
-      const y = compact ? y0 - BAND : y0;
-      const h = compact ? h0 + BAND : h0;
       ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
       ctx.lineWidth = 1;
@@ -1578,52 +1581,61 @@ const WBAnimatic = (() => {
       if (fin > 0) {
         const xa = x0 + fin * ppf;
         ctx.beginPath();
-        ctx.moveTo(x0, y + BAND);
-        ctx.lineTo(xa, y + BAND);
+        ctx.moveTo(x0, y);
+        ctx.lineTo(xa, y);
         ctx.lineTo(x0, y + h);
         ctx.closePath();
         ctx.fill();
         ctx.beginPath();
         ctx.moveTo(x0, y + h);
-        ctx.lineTo(xa, y + BAND);
+        ctx.lineTo(xa, y);
         ctx.stroke();
       }
       const fout = c.fadeOut || 0;
       if (fout > 0 && !(C.after(doc, c) && C.dissolveOf(doc, C.after(doc, c)))) {
         const xa = xf - fout * ppf;
         ctx.beginPath();
-        ctx.moveTo(xf, y + BAND);
-        ctx.lineTo(xa, y + BAND);
+        ctx.moveTo(xf, y);
+        ctx.lineTo(xa, y);
         ctx.lineTo(xf, y + h);
         ctx.closePath();
         ctx.fill();
         ctx.beginPath();
-        ctx.moveTo(xa, y + BAND);
+        ctx.moveTo(xa, y);
         ctx.lineTo(xf, y + h);
         ctx.stroke();
       }
     }
 
-    // A clip's band: its label's colour (a board's painter's colours, set as a block's on the dark theme, as the
-    // timeline's bed is dark in both), lighter when it is picked; without one, grey, and near white picked.
-    function bandColour(c, on) {
-      if (c.label) return on ? WBInk.tone(c.label, 0.82, 0.08, [0.8, 0.88]) : WBInk.tone(c.label, 0.53, 0.135, [0.27, 0.46]);
-      return on ? BAND_ON : BAND_BG;
+    // What its name is read against: a shade deepening to the foot of it, under the line of its name; compact,
+    // where the name runs over the middle, a veil over all of a picture (a sound's shape is faint enough).
+    function drawVeil(ctx, c, left, right, y, h) {
+      if (compact) {
+        if (c.media) return;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+        ctx.fillRect(left, y, right - left, h);
+        return;
+      }
+      const g = ctx.createLinearGradient(0, y + h - 26, 0, y + h);
+      g.addColorStop(0, 'rgba(0, 0, 0, 0)');
+      g.addColorStop(1, 'rgba(0, 0, 0, 0.72)');
+      ctx.fillStyle = g;
+      ctx.fillRect(left, y + h - 26, right - left, 26);
     }
-    // Where a clip's fade handles sit: just under its band, or compact, along its top.
-    const handleY = (top) => (compact ? top + 2.5 : top + BAND + 2.5);
-    // Whether a clip's file is kept on this computer, as a card says it, at the end of its band: a tick once it is,
-    // a ring filling while it comes, a cloud while it plays from the server. How much room it took.
-    function drawCache(ctx, c, xf, y, bandH) {
+    // Where a clip's fade handles sit: along its top, under its label's line.
+    const handleY = (top) => top + LINE + 1.5;
+    // The line its name is set on: along the foot of it, or compact, through the middle.
+    const nameLine = (y, h) => (compact ? Math.round(y + h / 2 + 4) : y + h - 6);
+    // Whether a clip's file is kept on this computer, as a card says it, at the end of its name's line: a tick once
+    // it is, a ring filling while it comes, a cloud while it plays from the server. How much room it took.
+    function drawCache(ctx, c, xf, y, h) {
       const st = cacheOf(c);
       const x0 = xOf(c.start);
       if (st.state === 'none' || xf - x0 < 56) return 0;
-      const on = sel.has(c.id);
       const cx = Math.min(xf, W) - 10;
-      const cy = y + bandH / 2;
-      const ink = on ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255, 255, 255, 0.6)';
+      const cy = nameLine(y, h) - 3.5;
       ctx.save();
-      ctx.strokeStyle = ink;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
       ctx.lineWidth = 1.3;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -1654,23 +1666,34 @@ const WBAnimatic = (() => {
       return 18;
     }
 
-    function drawLabel(ctx, c, x0, xf, y, on, bandH = BAND) {
+    // Its name, then its version more quietly. Where there is not room for both the version goes, then the name
+    // ends early (chap03-00…), and on a clip too thin to read, there is no name at all.
+    function drawLabel(ctx, c, x0, xf, y, h) {
       const p = c.shot ? shots[c.shot] : null;
-      const name = p ? p.name : c.name || 'Sound';
-      const rest = p ? (p.version ? versionPart(p.version.label, p.name) : 'nothing filed') : '';
-      ctx.font = FONT(600, 11);
-      const nw = ctx.measureText(name).width;
+      let name = p ? p.name : c.name || 'Sound';
+      let rest = p ? (p.version ? versionPart(p.version.label, p.name) : 'nothing filed') : '';
+      const room = xf - Math.max(x0, 0) - 12;
+      if (room < 24) return;
       ctx.font = FONT(400, 11);
-      const rw = rest ? ctx.measureText(rest).width + 6 : 0;
+      let rw = rest ? ctx.measureText(rest).width + 6 : 0;
+      ctx.font = FONT(500, 11);
+      let nw = ctx.measureText(name).width;
+      if (nw + rw > room) {
+        rest = '';
+        rw = 0;
+      }
+      if (nw > room) {
+        while (name.length > 1 && ctx.measureText(`${name}…`).width > room) name = name.slice(0, -1);
+        name += '…';
+        nw = ctx.measureText(name).width;
+      }
       // Held at the left of the timeline while the rest of the clip is still in sight.
       const tx = clamp(Math.max(x0, 0) + 6, x0 + 6, Math.max(x0 + 6, xf - nw - rw - 6));
-      const base = bandH === BAND ? y + BAND - 4 : Math.round(y + bandH / 2 + 4);
-      if (xf - x0 < 16) return;
-      ctx.fillStyle = on ? '#111' : TEXT;
-      ctx.font = FONT(600, 11);
+      const base = nameLine(y, h);
+      ctx.fillStyle = TEXT;
       ctx.fillText(name, tx, base);
       if (rest) {
-        ctx.fillStyle = on ? 'rgba(0, 0, 0, 0.6)' : QUIET;
+        ctx.fillStyle = QUIET;
         ctx.font = FONT(400, 11);
         ctx.fillText(rest, tx + nw + 6, base);
       }

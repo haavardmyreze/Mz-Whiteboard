@@ -6,8 +6,8 @@
 // to where it was clicked; the wheel moves along it. It is always at the same scale, whatever the length
 // of the run: a few seconds each side of the playhead. It can be drawn out to show up to three times as
 // much (the buttons in its corner, or the wheel with Ctrl or Cmd), and that too is so many pixels a second,
-// never a share of the run. Along its top each shot has a plain band with its name and version, so the
-// frames under it are never written over, and every cut is a gap down the whole height.
+// never a share of the run. Each shot is its frames, the whole height, with its name and version over a
+// shade at the foot of them, and every cut is a gap down the whole height.
 //
 // Frames are taken from the shots themselves, here in the browser, as they come into view: the nearest
 // to the playhead first, one at a time, from a copy of the video kept on this computer when there is one
@@ -18,7 +18,6 @@ const WBCutTrack = (() => {
   const { el, clamp } = WB;
   const PPS = 60; // px a second, close in: some fourteen seconds across a laptop's screen, six across a phone's
   const ZOOMS = [1, 1.5, 2, 3]; // how far it can be drawn out: up to three times as much in the same width
-  const HEAD = 19; // the band along the top with each shot's name
   const GAP = 3; // the cut between two shots
   const FRAME_W = 160; // a frame taken is this wide
   const KEEP = 500; // frames held, the least lately drawn going first
@@ -208,13 +207,13 @@ const WBCutTrack = (() => {
       if (!live || !W || !H) return;
       const ctx = canvas.getContext('2d');
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = '#0c0c0c';
+      ctx.fillStyle = '#090909';
       ctx.fillRect(0, 0, W, H);
       const from = atOf(0);
       const to = atOf(W);
-      // Each shot: a band along the top with its name, and its frames under the band.
-      const tileY = HEAD + 1;
-      const tileH = H - tileY;
+      // Each shot: its frames the whole height, with its name over the foot of them.
+      const tileY = 0;
+      const tileH = H;
       const want = [];
       const at = clips.find((c) => t >= c.start && t < c.start + c.dur) || clips[clips.length - 1];
       clips.forEach((c, i) => {
@@ -229,11 +228,7 @@ const WBCutTrack = (() => {
         ctx.beginPath();
         ctx.rect(x0, 0, x1 - x0, H);
         ctx.clip();
-        // The band: shots shaded in turn, so neighbours never run together, and the one at the playhead
-        // light, in ink, as the tool in hand is.
-        ctx.fillStyle = here ? '#e6e6e6' : i % 2 ? '#2b2b2b' : '#333';
-        ctx.fillRect(x0, 0, x1 - x0, HEAD);
-        ctx.fillStyle = '#1a1a1a';
+        ctx.fillStyle = '#181818';
         ctx.fillRect(x0, tileY, x1 - x0, tileH);
         if (p.empty) {
           // Nothing filed: a slate's stripes.
@@ -276,39 +271,53 @@ const WBCutTrack = (() => {
               }
             }
             if (pic) drawCover(ctx, pic, x, tileY, tileW, tileH);
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-            ctx.fillRect(x + tileW - 1, tileY, 1, tileH);
           }
         }
-        // In the band: where a sequence begins, its name; then the shot's, and its version. Held at the left
-        // of the track while the rest of the shot is still going by.
+        // The shots either side of the playhead a little quieter, as on the whole-run track, so the one at it
+        // stands clear; and a shade deepening to the foot, to read the name on.
+        const left = Math.max(x0, 0);
+        const right = Math.min(x1, W);
+        if (!here) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+          ctx.fillRect(left, 0, right - left, H);
+        }
+        const veil = ctx.createLinearGradient(0, H - 28, 0, H);
+        veil.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        veil.addColorStop(1, 'rgba(0, 0, 0, 0.72)');
+        ctx.fillStyle = veil;
+        ctx.fillRect(left, H - 28, right - left, 28);
+        // At its foot: where a sequence begins, its name; then the shot's, and its version, which goes first
+        // where there is not room for both. Held at the left of the track while the rest of the shot is still
+        // going by.
         const seq = c.seqStart ? String(p.seq || '') : '';
         const name = p.name || '';
-        const ver = p.empty ? 'nothing filed' : versionOf(p);
+        let ver = p.empty ? 'nothing filed' : versionOf(p);
         ctx.font = '600 10px Inter, system-ui, sans-serif';
         const sw = seq ? ctx.measureText(seq).width + 8 : 0;
-        ctx.font = '600 11px Inter, system-ui, sans-serif';
+        ctx.font = '500 11px Inter, system-ui, sans-serif';
         const nw = ctx.measureText(name).width;
         ctx.font = '400 11px Inter, system-ui, sans-serif';
-        const vw = ver ? ctx.measureText(ver).width + 6 : 0;
+        let vw = ver ? ctx.measureText(ver).width + 6 : 0;
+        if ((sw ? sw + 6 : 0) + nw + vw > x1 - x0 - 12) {
+          ver = '';
+          vw = 0;
+        }
         const textW = (sw ? sw + 6 : 0) + nw + vw;
         let tx = clamp(Math.max(x0, 0) + 6, x0 + 6, Math.max(x0 + 6, x1 - textW - 6));
-        const ink = here ? '#111' : '#f2f2f2';
-        const quiet = here ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255, 255, 255, 0.6)';
-        const baseline = HEAD / 2 + 4;
+        const baseline = H - 6;
         if (seq) {
-          ctx.fillStyle = here ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.9)';
-          roundRect(ctx, tx, 3, sw, HEAD - 6, 3);
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+          roundRect(ctx, tx, baseline - 11, sw, 14, 3);
           ctx.fillStyle = '#111';
           ctx.font = '600 10px Inter, system-ui, sans-serif';
           ctx.fillText(seq, tx + 4, baseline - 0.5);
           tx += sw + 6;
         }
-        ctx.fillStyle = ink;
-        ctx.font = '600 11px Inter, system-ui, sans-serif';
+        ctx.fillStyle = '#f2f2f2';
+        ctx.font = '500 11px Inter, system-ui, sans-serif';
         ctx.fillText(name, tx, baseline);
         if (ver) {
-          ctx.fillStyle = quiet;
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
           ctx.font = '400 11px Inter, system-ui, sans-serif';
           ctx.fillText(ver, tx + nw + 6, baseline);
         }

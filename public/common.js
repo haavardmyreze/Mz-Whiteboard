@@ -291,6 +291,49 @@ const WB = (() => {
     return seg;
   }
 
+  // Tabs for a settings dialog: a list of them, one pane showing at a time. Each tab is { id, label, icon,
+  // hint, rows }: its pane opens with its name and what it sets, then its rows. The arrow keys move along
+  // the list. Which was looked at last is kept for each kind of dialog (`kind`) while the page is open.
+  const settingsTab = {};
+  function settingTabs(kind, list) {
+    const nav = el('div', { class: 'ps-tabs', role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': 'Settings' });
+    const panes = el('div', { class: 'ps-panes' });
+    const items = list.map((t) => {
+      const id = uid();
+      const tab = el('button', {
+        type: 'button', class: 'ps-tab', role: 'tab', id: `pt-${id}`, 'aria-controls': `pp-${id}`,
+        html: `${WB.icon(t.icon, 16)}<span>${t.label}</span>`, onclick: () => show(t.id),
+      });
+      const pane = el('section', { class: 'ps-pane', role: 'tabpanel', id: `pp-${id}`, 'aria-labelledby': tab.id },
+        el('div', { class: 'ps-pane-head' }, el('h3', { text: t.label }), el('p', { text: t.hint })),
+        ...t.rows);
+      return { id: t.id, tab, pane };
+    });
+    function show(id) {
+      const on = items.find((x) => x.id === id) || items[0];
+      settingsTab[kind] = on.id;
+      for (const x of items) {
+        const here = x === on;
+        x.tab.classList.toggle('on', here);
+        x.tab.setAttribute('aria-selected', String(here));
+        x.tab.tabIndex = here ? 0 : -1;
+        x.pane.hidden = !here;
+      }
+      return on;
+    }
+    nav.addEventListener('keydown', (e) => {
+      const by = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+      if (!by) return;
+      e.preventDefault();
+      const at = items.findIndex((x) => x.id === settingsTab[kind]);
+      show(items[(at + by + items.length) % items.length].id).tab.focus();
+    });
+    nav.append(...items.map((x) => x.tab));
+    panes.append(...items.map((x) => x.pane));
+    show(settingsTab[kind]);
+    return { nav, panes, show };
+  }
+
   // Videos kept on this computer: media.js, which sets WB.media.
 
   // What /api/me said (after identity() or askName() has run): whether read-only links, a public address and sign-out exist here.
@@ -534,6 +577,18 @@ const WB = (() => {
   // Somewhere text goes. A slider or a tick box is not: clicking one must not take the keyboard away.
   const isTyping = (t) => !!t && (t.isContentEditable || /^(TEXTAREA|SELECT)$/.test(t.tagName)
     || (t.tagName === 'INPUT' && !/^(range|checkbox|radio|button|submit)$/.test(t.type)));
+  // A control clicked a moment ago (a dropdown, a button, a link, a slider) still has the keyboard. Space
+  // plays in the player and the animatic even then: the control lets go and the page takes the key. Only
+  // somewhere text is typed, a dialog or a menu keeps Space.
+  const heldControl = (t) => t instanceof Element
+    && t.matches('select, button, a[href], [tabindex], input[type="checkbox"], input[type="radio"], input[type="range"]')
+    && !t.closest('dialog, .wb-menu, .notices, [role="menu"], [role="dialog"]');
+  // A key the page takes for itself would make the browser ring the control that has the keyboard in
+  // blue, so whatever has it lets go (somewhere text is typed keeps it).
+  function letGo() {
+    const held = document.activeElement;
+    if (held && held !== document.body && !isTyping(held)) held.blur();
+  }
 
   // A size on disk: megabytes below a gigabyte (with a decimal under ten), gigabytes above.
   function bytes(n) {
@@ -645,6 +700,7 @@ const WB = (() => {
     animatic: (id, animatic) => `#/f/${id}/animatic/${animatic}`,
     catalogue: (id, { tier, seq, entity } = {}) => `#/f/${id}/catalogue${entity ? `/${entity}` : seq ? `/s/${encodeURIComponent(seq)}` : tier ? `/t/${tier}` : ''}`,
     versions: (id) => `#/f/${id}/versions`,
+    activity: (id) => `#/f/${id}/activity`,
     board: (id) => `/b/${id}`,
     abs: (h) => (h.startsWith('#') ? `/${h}` : h),
   };
@@ -670,7 +726,7 @@ const WB = (() => {
   }
 
   return {
-    el, store, remember, combo, rank, user, dialog, askName, info, shareBases, offline, waiting, playable, usesPhoneCopies, watchServer, initials, ago, api, theme, setTheme, themeButton, keys, layout, setLayout, layoutSwitch,
-    media: null, colors: USER_COLORS, saveUser, signOut, clamp, uid, hexOk, isTyping, bytes, plural, avatar, menu, closeMenus, toast, href, KEYS,
+    el, store, remember, combo, rank, user, dialog, askName, info, shareBases, offline, waiting, playable, usesPhoneCopies, watchServer, initials, ago, api, theme, setTheme, themeButton, keys, layout, setLayout, layoutSwitch, settingTabs,
+    media: null, colors: USER_COLORS, saveUser, signOut, clamp, uid, hexOk, isTyping, heldControl, letGo, bytes, plural, avatar, menu, closeMenus, toast, href, KEYS,
   };
 })();

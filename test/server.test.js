@@ -1445,11 +1445,58 @@ test('a project is a folder with a catalogue: not inside another project, and no
   assert.ok(cat.tasks.includes('anim'));
   assert.equal((await call('GET', `/api/projects/${inside.id}`)).status, 404);
 
-  // a project is not deleted, and one with a catalogue stays a project
-  assert.equal((await call('DELETE', `/api/folders/${kilo.id}`)).status, 409);
+  // one with a catalogue stays a project
   assert.equal((await call('PATCH', `/api/folders/${kilo.id}`, { project: false })).status, 409);
   assert.equal((await call('PATCH', `/api/folders/${other.id}`, { project: false })).status, 200);
   assert.equal((await call('DELETE', `/api/folders/${inside.id}`)).status, 200);
+
+  // only an admin deletes a project (with no sign-in, on the machine that runs the server), and it goes
+  // whole: its folders, boards, catalogue and playlists
+  const reviews = (await call('POST', '/api/folders', { name: 'Dailies', parentId: kilo.id })).body;
+  const board = (await call('POST', '/api/boards', { name: 'Standup', folderId: reviews.id })).body;
+  const list = (await call('POST', `/api/projects/${kilo.id}/playlists`, { name: 'Client' })).body;
+  const far = await fetch(`${s.base}/api/folders/${kilo.id}`, { method: 'DELETE', headers: { 'X-Forwarded-For': '203.0.113.9' } });
+  assert.equal(far.status, 403);
+  assert.equal((await call('DELETE', `/api/folders/${kilo.id}`)).status, 200);
+  const library = (await call('GET', '/api/library')).body;
+  assert.ok(!library.folders.some((f) => f.id === kilo.id || f.id === reviews.id));
+  assert.ok(library.folders.some((f) => f.id === around.id));
+  assert.equal((await call('GET', `/api/projects/${kilo.id}`)).status, 404);
+  assert.equal((await call('GET', `/api/boards/${board.id}`)).status, 404);
+  assert.equal((await call('GET', `/api/entities/${robot.body.id}`)).status, 404);
+  assert.equal((await call('GET', `/api/playlists/${list.id}`)).status, 404);
+});
+
+test('a project says who has what of it; only an admin is given the people to choose from', async (t) => {
+  const s = start(4870);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const call = async (method, url, body, headers = {}) => {
+    const res = await fetch(s.base + url, { method, headers: { ...json, ...headers }, body: body && JSON.stringify(body) });
+    return { status: res.status, body: await res.json() };
+  };
+  const kilo = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
+  await call('PATCH', `/api/folders/${kilo.id}`, { project: true });
+  const dailies = (await call('POST', '/api/folders', { name: 'Dailies', parentId: kilo.id })).body;
+  const elsewhere = (await call('POST', '/api/folders', { name: 'Elsewhere' })).body;
+  await call('POST', '/api/admin/users', { email: 'ben@x.com', name: 'Ben' });
+  await call('POST', '/api/admin/grants', { target: { type: 'folder', id: kilo.id }, principal: { type: 'user', id: 'ben@x.com' }, role: 'editor' });
+  await call('POST', '/api/admin/grants', { target: { type: 'folder', id: dailies.id }, principal: { type: 'user', id: 'ben@x.com' }, role: 'viewer' });
+  await call('POST', '/api/admin/grants', { target: { type: 'folder', id: elsewhere.id }, principal: { type: 'user', id: 'ben@x.com' }, role: 'manager' });
+
+  const here = (await call('GET', `/api/folders/${kilo.id}/sharing`)).body;
+  assert.equal(here.canEdit, true);
+  assert.equal(here.shared, true);
+  assert.deepEqual(here.grants.map((g) => [g.principal.name, g.role, g.target.name]), [['Ben', 'editor', null], ['Ben', 'viewer', 'Dailies']]);
+  assert.deepEqual(here.users.map((u) => u.email), ['ben@x.com']);
+  // from anywhere else it is read, not changed: no people to choose from
+  const far = (await call('GET', `/api/folders/${kilo.id}/sharing`, null, { 'X-Forwarded-For': '203.0.113.9' })).body;
+  assert.equal(far.canEdit, false);
+  assert.equal(far.grants.length, 2);
+  assert.equal(far.users, undefined);
+  // only a project has it
+  assert.equal((await call('GET', `/api/folders/${elsewhere.id}/sharing`)).status, 404);
 });
 
 test('media filed as a version takes its notes along, and they show on every board the version is on', async (t) => {
@@ -1778,9 +1825,67 @@ test('an animatic of every filed shot has them in order with their newest versio
   assert.equal(k10.newest.id, comp.id);
   assert.equal(k10.newest.look.type, 'video');
   assert.equal(cat.entities.find((e) => e.name === 'char-robot').newest, null);
-  // the project's home: what was filed in it lately, newest first
+  // its activity: what was filed and made in it, newest first
   const act = (await call('GET', `/api/projects/${project.id}/activity`)).body;
-  assert.deepEqual(act.items.map((x) => [x.kind, x.version.label, x.entity.project]), [['version', 'kilo-0020 anim v1', 'Kilo'], ['version', 'kilo-0010 comp v1', 'Kilo'], ['version', 'kilo-0010 anim v1', 'Kilo']]);
+  assert.deepEqual(act.items.map((x) => [x.kind, x.kind === 'version' ? x.version.label : x.animatic.name]), [['animatic', 'All'], ['version', 'kilo-0020 anim v1'], ['version', 'kilo-0010 comp v1'], ['version', 'kilo-0010 anim v1']]);
+  assert.equal(act.items[1].entity.project, 'Kilo');
+  assert.equal(act.more, false);
+});
+
+test("a project's activity goes back to its start a page at a time, and For you keeps what is somebody's", async (t) => {
+  const DAY = 864e5;
+  const now = Date.now();
+  const s = start(4871, {}, (data) => {
+    const store = openStore(data);
+    store.saveFolders([{ id: 'kiloproj1', name: 'Kilo', workspace: 'myreze', createdAt: 1, project: true }]);
+    const robot = store.addEntity({ id: 'entrobot1', projectId: 'kiloproj1', tier: 'asset', name: 'char-robot' });
+    const shot = store.addEntity({ id: 'entshot01', projectId: 'kiloproj1', tier: 'shot', name: 'kilo-0010' });
+    store.setEntity(robot.id, { artists: ['Anna'] });
+    store.setEntity(shot.id, { cc: ['Anna'] });
+    const look = { type: 'image', src: '/uploads/a.png' };
+    // a year of it: two hundred and fifty versions of the shot filed by Ben, many at the same moment
+    for (let i = 0; i < 250; i++) store.addVersion({ id: `shotv${String(i).padStart(4, '0')}`, entityId: shot.id, kind: 'image', look, by: 'Ben', at: now - 365 * DAY + Math.floor(i / 50) * DAY });
+    const annas = store.addVersion({ id: 'annav0001', entityId: robot.id, kind: 'image', look, by: 'Anna', at: now - 3 * DAY });
+    store.addVersion({ id: 'robotv002', entityId: robot.id, kind: 'image', look, by: 'Ben', at: now - 2 * DAY });
+    store.addNote({ id: 'note00001', boardId: '', itemId: annas.id, versionId: annas.id, data: { name: 'Ben', text: 'Lovely' }, by: 'Ben', at: now - DAY });
+    store.addNote({ id: 'note00002', boardId: '', itemId: 'shotv0249', versionId: 'shotv0249', data: { name: 'Anna', text: 'Tighter?' }, by: 'Anna', at: now - DAY + 1 });
+    store.addNote({ id: 'note00003', boardId: '', itemId: 'shotv0249', versionId: 'shotv0249', re: 'note00002', data: { name: 'Carl', text: 'On it' }, by: 'Carl', at: now - DAY + 2 });
+    store.addNote({ id: 'note00004', boardId: '', itemId: 'shotv0000', versionId: 'shotv0000', data: { name: 'Carl', text: 'Ask @Anna' }, by: 'Carl', at: now - DAY + 3 });
+    store.close();
+  });
+  t.after(s.stop);
+  await s.ready;
+  const get = async (q) => (await (await fetch(`${s.base}/api/projects/kiloproj1/activity?${q}`)).json());
+
+  // every line once, in order, however the pages fall
+  const seen = [];
+  let page = await get('limit=37');
+  for (;;) {
+    seen.push(...page.items);
+    if (!page.more) break;
+    page = await get(`limit=37&before=${page.next}`);
+  }
+  assert.equal(seen.length, 256);
+  assert.equal(new Set(seen.map((x) => x.id)).size, 256);
+  assert.ok(seen.every((x, i) => !i || seen[i - 1].at >= x.at));
+  assert.equal(seen[0].id, 'note00004');
+  // as far back as asked
+  assert.equal((await get(`since=${now - 7 * DAY}&limit=600`)).items.length, 6);
+  assert.equal((await get('before=nonsense')).items, undefined);
+
+  // for Anna, page by page: Carl's mention of her, his reply in her thread, Ben's comment on her version, Ben's
+  // version of what she makes, and every version of the shot she is cc'd on; never what she did herself
+  const mine = [];
+  page = await get('for=me&name=Anna&limit=2');
+  for (;;) {
+    mine.push(...page.items);
+    if (!page.more) break;
+    page = await get(`for=me&name=Anna&limit=2&before=${page.next}`);
+  }
+  assert.deepEqual(mine.slice(0, 4).map((x) => [x.id, x.why]), [['note00004', 'mention'], ['note00003', 'reply'], ['note00001', 'work'], ['robotv002', 'artist']]);
+  assert.equal(mine.length, 4 + 250);
+  assert.ok(mine.slice(4).every((x) => x.why === 'cc'));
+  assert.deepEqual((await get('for=me')).items, []);
 });
 
 test('a file brought in can ask for its version number, and the catalogue says what the next one is', async (t) => {

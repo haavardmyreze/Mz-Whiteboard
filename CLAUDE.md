@@ -29,8 +29,8 @@ seen, and it should look made by hand, not from a template. The system is writte
   panel or a section, 20, 28. 10px only for counts in badges and numbers on thumbnails. Weights 400,
   500, 600 (700 only for headings on the board). Large type is tightened little (at most -0.02em):
   Inter's display cut already tightens it. Names and codes are shown as written (chap01, not CHAP01);
-  uppercase is kept to the sidebar's group headings and the small section labels in Your account. Rift
-  is the launch type and only has the letters of the wordmark: never use it for other text.
+  uppercase is kept to the sidebar's group headings. Rift is the launch type and only has the letters
+  of the wordmark: never use it for other text.
 - **Colour.** The greys carry no hue, in either theme. Ink (near-white on dark, near-black on light) is
   the main action, the tool in hand and a switch that is on; a toggle that is on is pressed in grey.
   Blue means "this one": what is selected or focused, the playhead, what is new. Red is going live and

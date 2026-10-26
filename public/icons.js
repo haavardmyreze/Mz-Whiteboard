@@ -24,7 +24,6 @@
     comment: '<path d="M4 5h16v11H11l-5 4v-4H4z"/>',
     // An animatic's tracks drawn thin, as an editor's compact tracks.
     compact: '<rect x="3" y="4.5" width="18" height="3.5" rx="1"/><rect x="3" y="10.25" width="18" height="3.5" rx="1"/><rect x="3" y="16" width="18" height="3.5" rx="1"/>',
-    disk: '<path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
     dot: '<circle cx="12" cy="12" r="2" fill="currentColor"/>',
     download: '<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
     dup: '<rect x="8" y="8" width="12" height="12"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
@@ -78,12 +77,17 @@
     search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4-4"/>',
     select: '<path d="M5 3l5.5 16 2.5-6.5L19.5 10z"/>',
     set: '<path d="M3 20h18M5 20V9.5L12 5l7 4.5V20"/><path d="M9.5 20v-5h5v5"/>',
+    // A choice of one among several: what a player or an edit shows (which task, which view).
+    pick: '<circle cx="6" cy="7" r="2"/><circle cx="6" cy="17" r="2" fill="currentColor"/><path d="M11 7h9M11 17h9"/>',
     settings: '<path d="M4 7h9M19 7h1M4 17h3M13 17h7"/><circle cx="16" cy="7" r="2.5"/><circle cx="10" cy="17" r="2.5"/>',
     shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/>',
+    // A ball lit from one side: how the venue is drawn (its light and shade).
+    shade: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/>',
     snap: '<path d="M6 3v8a6 6 0 0 0 12 0V3h-4v8a2 2 0 0 1-4 0V3z"/><path d="M6 7h4M14 7h4"/>',
     sparkle: '<path d="M10 3.5l1.6 4.4a3 3 0 0 0 1.8 1.8l4.4 1.6-4.4 1.6a3 3 0 0 0-1.8 1.8L10 19.1l-1.6-4.4a3 3 0 0 0-1.8-1.8L2.2 11.3l4.4-1.6a3 3 0 0 0 1.8-1.8z"/><path d="M18 3v4M16 5h4M19 16v3M17.5 17.5h3"/>',
     sound: '<path d="M4 9v6h4l5 4V5L8 9zM17 8a5 5 0 0 1 0 8"/>',
-    stack: '<path d="M12 3l9 4.5-9 4.5-9-4.5z"/><path d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5"/>',
+    // Prints one on another: the versions of a piece.
+    stack: '<rect x="3.5" y="9" width="11.5" height="11.5"/><path d="M7 6h11v11M10.5 3H21v10.5"/>',
     // A picture over a thin strip: the animatic's timeline as a strip, for watching.
     strip: '<rect x="3" y="4" width="18" height="11" rx="1.5"/><path d="M3 19.5h18" stroke-width="2.4"/>',
     star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9z"/>',

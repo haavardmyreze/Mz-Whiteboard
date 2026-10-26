@@ -86,15 +86,16 @@
   }
 
   // In a project folder: which of its pages is open, its home, its reviews (#/f/<id>/reviews: its boards,
-  // playlists and animatics, and a playlist among them, …/reviews/<playlist id>), an animatic (…/animatic/<id>)
-  // or catalogue, and in the catalogue the tier (#/f/<id>/catalogue/t/shot), the sequence (…/s/kilo) or the
-  // entity (…/<entity id>) being looked at.
+  // playlists and animatics, and a playlist among them, …/reviews/<playlist id>), an animatic (…/animatic/<id>),
+  // its versions (…/versions), its activity (…/activity) or catalogue, and in the catalogue the tier
+  // (#/f/<id>/catalogue/t/shot), the sequence (…/s/kilo) or the entity (…/<entity id>) being looked at.
   function currentView() {
     const an = /^#\/f\/[\w-]+\/animatic\/([\w-]+)/.exec(location.hash);
     if (an) return { page: 'animatic', animatic: an[1], entity: null };
     const rv = /^#\/f\/[\w-]+\/reviews(?:\/([\w-]+))?/.exec(location.hash);
     if (rv) return { page: 'reviews', playlist: rv[1] || null, entity: null };
     if (/^#\/f\/[\w-]+\/versions/.test(location.hash)) return { page: 'versions', entity: null };
+    if (/^#\/f\/[\w-]+\/activity/.test(location.hash)) return { page: 'activity', entity: null };
     const m = /^#\/f\/[\w-]+\/(catalogue)(?:\/(?:(t|s)\/([\w-]+)|([\w-]+)))?/.exec(location.hash);
     // A project's own root is its home page.
     if (!m) return { page: 'home', entity: null };
@@ -518,6 +519,24 @@
     refresh();
   }
 
+  // A project goes whole, and for good: only an admin can, and only having typed its name.
+  async function removeProject(project) {
+    const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`).catch(() => null);
+    const filed = cat && cat.entities ? cat.entities.length : 0;
+    const typed = await WB.dialog({
+      title: `Delete the project “${project.name}”?`,
+      text: `Its catalogue${filed ? ` (${plural(filed, 'asset, set or shot', 'assets, sets and shots')})` : ''}, every version and every comment on them, its playlists and animatics go for good, for everyone. Its boards and folders are deleted with it. Type its name to delete it.`,
+      value: '', placeholder: project.name, ok: 'Delete project', danger: true,
+    });
+    if (typed === null) return;
+    if (typed !== project.name) return WB.toast('The name typed is not the project’s, so nothing was deleted', { ms: 5000 });
+    await api('DELETE', `/api/folders/${project.id}`);
+    catalogues.delete(project.id);
+    if (currentFolder() && isWithin(currentFolder(), project.id)) location.hash = project.parentId ? WB.href.folder(project.parentId) : WB.href.space(project.workspace);
+    await refresh();
+    WB.toast(`“${project.name}” is deleted`);
+  }
+
   // ------------------------------------------------------------- rendering
 
   const { plural } = WB;
@@ -530,7 +549,7 @@
     if (on) {
       const sure = await WB.dialog({
         title: `Make “${folder.name}” a project?`,
-        text: 'A project keeps a catalogue: its assets, sets and shots, and every version filed of them, from its boards or dropped straight into it. A project cannot be deleted, and stays one once something is filed in it.',
+        text: 'A project keeps a catalogue: its assets, sets and shots, and every version filed of them, from its boards or dropped straight into it. It stays one once something is filed in it, and only an admin can delete it.',
         ok: 'Make it a project',
       });
       if (!sure) return;
@@ -575,6 +594,33 @@
     };
     let rulesRow = null;
     let model = was ? { url: was.model, name: was.name || 'Model' } : null;
+    // Its banner: the picture over the title of its home page.
+    let banner = (project.settings && project.settings.banner) || null;
+    const bannerShow = el('div', { class: 'ps-banner' });
+    const bannerPick = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/avif', hidden: true });
+    const bannerChoose = el('button', { type: 'button', class: 'btn small', onclick: () => bannerPick.click() });
+    const bannerRemove = el('button', { type: 'button', class: 'btn small ghost', text: 'Remove', onclick: () => { banner = null; paintBanner(); } });
+    const paintBanner = (saying) => {
+      bannerShow.replaceChildren(banner && !saying ? el('img', { src: banner, alt: '' }) : el('span', { text: saying || 'No banner' }));
+      bannerShow.classList.toggle('none', !banner || !!saying);
+      bannerChoose.textContent = banner ? 'Replace…' : 'Choose a picture…';
+      bannerRemove.hidden = !banner;
+    };
+    bannerPick.addEventListener('change', async () => {
+      const f = bannerPick.files[0];
+      bannerPick.value = '';
+      if (!f) return;
+      save.disabled = bannerChoose.disabled = true;
+      try {
+        const up = await WBIngest.upload(await bannerFile(f), '.jpg', (k) => paintBanner(`Uploading ${f.name}… ${Math.round(k * 100)}%`));
+        banner = up.url;
+      } catch (err) {
+        WB.toast(`${f.name} could not be used: ${err.message}`, { ms: 6000 });
+      }
+      save.disabled = bannerChoose.disabled = false;
+      paintBanner();
+    });
+    paintBanner();
     const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`).catch(() => null);
     // The order of its sequences, first to last: as set, then any it has that the order does not name yet,
     // by name. Moved with the arrows beside each; By name puts them back in the order their names sort.
@@ -612,6 +658,8 @@
     const camera = el('select', { 'aria-label': 'The camera the 3D view opens through' });
     let cameras = [];
     let cameraRow = null;
+    // Its lens, in degrees across the frame: left empty, the camera's own from the model.
+    const fov = el('input', { type: 'number', class: 'ps-num', min: '10', max: '150', step: '1', value: was && was.fov ? String(was.fov) : '', placeholder: 'Model', 'aria-label': 'Field of view, in degrees across' });
     const paintCameras = () => {
       const chosen = camera.value || (was && was.camera) || '';
       const pick = cameras.includes(chosen) ? chosen : cameras.find((c) => c.toLowerCase() === 'main') || cameras[0] || '';
@@ -643,7 +691,7 @@
       choose.textContent = model ? 'Replace…' : 'Choose a .glb…';
       remove.hidden = !model;
       // What goes with a model, only once there is one.
-      surfaceRow.hidden = !model;
+      surfaceRow.hidden = fovRow.hidden = !model;
       paintCameras();
       paintViews();
     };
@@ -672,12 +720,17 @@
     viewsRow = field('Views', 'The main one first: a file of it is a version, the others go with one', viewNames);
     const surfaceRow = field('Screen material', 'What the screens are called in the model', screen);
     cameraRow = field('Main camera', 'Where the work is judged from: the 3D view opens through it', camera);
+    const fovRow = row('Field of view', "The main camera's, in degrees across. Empty, the model's own", fov, el('span', { class: 'ps-unit', text: '°' }));
     pictureRow = field('On the screens', 'Which view of a version is shown', view);
     rulesRow = field('Learned file names', 'Names from elsewhere, read this way when filing. Forget one with its ×', ruleList);
     paintRules();
     // The settings go in tabs, one to each part of the project they set, listed down the side (across the
     // top on a phone) so more can come. The dialog opens on the tab last looked at.
-    const tabs = settingTabs([
+    const tabs = WB.settingTabs('project', [
+      {
+        id: 'home', label: 'Home', icon: 'home', hint: 'How its home page looks',
+        rows: [field('Banner', 'A picture across the top of its home, over its title. A wide one fits best', el('div', { class: 'ps-banner-box' }, bannerShow, el('div', { class: 'ps-banner-acts' }, bannerChoose, bannerRemove, bannerPick)))],
+      },
       {
         id: 'versions', label: 'Versions', icon: 'stack', hint: 'How versions are counted, shown and read from file names',
         rows: [
@@ -699,8 +752,13 @@
           field('Venue model', 'A .glb with its screens and cameras: the player gets a 2D / 3D switch', el('div', { class: 'ps-model' }, el('span', { class: 'ps-model-icon', html: icon('cube', 16) }), file, choose, remove, picker)),
           surfaceRow,
           cameraRow,
+          fovRow,
           pictureRow,
         ],
+      },
+      {
+        id: 'sharing', label: 'Sharing', icon: 'people', hint: 'Who has what of the project, and the links to it',
+        rows: [sharingPane(project)],
       },
     ]);
     const dlg = el('dialog', { class: 'dlg ps-dlg' },
@@ -716,7 +774,7 @@
           }
           save.disabled = true;
           try {
-            await api('PATCH', `/api/folders/${project.id}`, { settings: { tasks: byTask.checked, views: byView.checked ? named() : false, rules, seqs, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value, camera: camera.value } : null } });
+            await api('PATCH', `/api/folders/${project.id}`, { settings: { banner, tasks: byTask.checked, views: byView.checked ? named() : false, rules, seqs, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value, camera: camera.value, fov: Number(fov.value) || 0 } : null } });
             catalogues.delete(project.id);
             await refresh();
             dlg.close();
@@ -737,47 +795,90 @@
     dlg.showModal();
   }
 
-  // Tabs for a settings dialog: a list of them, one pane showing at a time. Each tab is { id, label, icon,
-  // hint, rows }: its pane opens with its name and what it sets, then its rows. The arrow keys move along
-  // the list. Which was looked at last is kept while the page is open.
-  let settingsTab = 'versions';
-  function settingTabs(list) {
-    const nav = el('div', { class: 'ps-tabs', role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': 'Settings' });
-    const panes = el('div', { class: 'ps-panes' });
-    const items = list.map((t) => {
-      const uid = WB.uid();
-      const tab = el('button', {
-        type: 'button', class: 'ps-tab', role: 'tab', id: `pt-${uid}`, 'aria-controls': `pp-${uid}`,
-        html: `${icon(t.icon, 16)}<span>${t.label}</span>`, onclick: () => show(t.id),
-      });
-      const pane = el('section', { class: 'ps-pane', role: 'tabpanel', id: `pp-${uid}`, 'aria-labelledby': tab.id },
-        el('div', { class: 'ps-pane-head' }, el('h3', { text: t.label }), el('p', { text: t.hint })),
-        ...t.rows);
-      return { id: t.id, tab, pane };
-    });
-    function show(id) {
-      const on = items.find((x) => x.id === id) || items[0];
-      settingsTab = on.id;
-      for (const x of items) {
-        const here = x === on;
-        x.tab.classList.toggle('on', here);
-        x.tab.setAttribute('aria-selected', String(here));
-        x.tab.tabIndex = here ? 0 : -1;
-        x.pane.hidden = !here;
+  // A project's Sharing tab: the permissions given on it and on what is in it (people and groups, each with
+  // a role, as the admin area sets them; recorded, not yet enforced), the boards in it open to anyone with
+  // their link, and the links to watch it presented. An admin gives and takes away permissions here, at
+  // once; anyone else sees it all, greyed, with their controls out of reach.
+  function sharingPane(project) {
+    const box = el('div', { class: 'ps-share' }, el('p', { class: 'ps-empty', text: 'Loading…' }));
+    const ROLE = { viewer: 'Can view', commenter: 'Can comment', editor: 'Can edit', manager: 'Manages' };
+    const field = (label, hint, ...kids) => el('div', { class: 'ps-field' }, el('div', { class: 'ps-field-head' }, el('div', { class: 'ps-label' }, el('b', { text: label }), hint && el('span', { text: hint }))), ...kids);
+    const until = (at) => (at ? `until ${new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` : '');
+    async function paint() {
+      let s;
+      try {
+        s = await api('GET', `/api/folders/${project.id}/sharing`);
+      } catch (err) {
+        box.replaceChildren(el('p', { class: 'ps-empty', text: err.message }));
+        return;
       }
-      return on;
+      const locked = !s.canEdit;
+      box.classList.toggle('locked', locked);
+      const change = async (method, path, body) => {
+        try {
+          await api(method, path, body);
+        } catch (err) {
+          WB.toast(err.message, { ms: 6000 });
+        }
+        paint();
+      };
+      const grantRow = (g) => el('li', { class: 'ps-grant' },
+        el('span', { class: 'ps-grant-ic', html: icon(g.principal.type === 'group' ? 'people' : 'person', 16) }),
+        el('span', { class: 'ps-grant-who', title: g.principal.type === 'group' ? g.principal.members.join(', ') || 'Nobody in it yet' : g.principal.email },
+          el('b', { text: g.principal.name }),
+          el('span', { text: [g.principal.type === 'group' && plural(g.principal.members.length, 'person', 'people'), g.target.name && `on ${g.target.name}`].filter(Boolean).join(' · ') })),
+        el('span', { class: 'ps-grant-role', text: ROLE[g.role] || g.role }),
+        el('button', {
+          type: 'button', class: 'iconbtn mini', html: icon('close', 12), disabled: locked,
+          title: `Take ${g.principal.name}’s permission away`, 'aria-label': `Take ${g.principal.name}’s permission away`,
+          onclick: () => change('DELETE', `/api/admin/grants/${g.id}`),
+        }));
+      // Giving one: who (a person or a group), and what they may do with the whole project.
+      const who = el('select', { 'aria-label': 'Person or group', disabled: locked },
+        el('option', { value: '', text: 'Person or group…' }),
+        (s.users || []).length > 0 && el('optgroup', { label: 'People' }, ...s.users.map((u) => el('option', { value: `user:${u.email}`, text: u.name ? `${u.name} (${u.email})` : u.email }))),
+        (s.groups || []).length > 0 && el('optgroup', { label: 'Groups' }, ...s.groups.map((g) => el('option', { value: `group:${g.id}`, text: `${g.name} (${plural(g.members, 'person', 'people')})` }))));
+      const role = el('select', { 'aria-label': 'Role', disabled: locked }, ...s.roles.map((r) => el('option', { value: r, text: ROLE[r] || r })));
+      const add = el('button', {
+        type: 'button', class: 'btn small', text: 'Give', disabled: true,
+        onclick: () => {
+          const [type, ...id] = who.value.split(':');
+          change('POST', '/api/admin/grants', { target: { type: 'folder', id: project.id }, principal: { type, id: id.join(':') }, role: role.value });
+        },
+      });
+      who.addEventListener('change', () => { add.disabled = locked || !who.value; });
+      box.replaceChildren(...[
+        locked && el('p', { class: 'ps-lock' }, el('span', { html: icon('lock', 14) }), el('span', { text: 'Only an admin can change who has access.' })),
+        s.shared
+          ? field('People and groups', 'Their permissions on the project and on what is in it. Recorded, not yet enforced: everyone signed in sees the whole Myreze workspace',
+            s.grants.length ? el('ul', { class: 'ps-grants' }, ...s.grants.map(grantRow)) : el('p', { class: 'ps-empty', text: 'Nobody has been given a permission on it yet.' }),
+            el('div', { class: 'ps-give' }, who, role, add),
+            s.canEdit && !(s.users || []).length && !(s.groups || []).length && el('p', { class: 'ps-empty' }, 'Nobody to choose yet: add people and groups in the ', el('a', { href: '/admin', text: 'admin area' }), '.'))
+          : el('p', { class: 'ps-empty', text: 'The project is in a personal workspace: only its owner sees it.' }),
+        s.links.length > 0 && field('Links', 'Boards in it that anyone holding their link can open',
+          el('ul', { class: 'ps-grants' }, ...s.links.map((l) => el('li', { class: 'ps-grant' },
+            el('span', { class: 'ps-grant-ic', html: icon('link', 16) }),
+            el('a', { class: 'ps-grant-who', href: WB.href.board(l.id) }, el('b', { text: l.name }), el('span', { text: until(l.expiresAt) })),
+            el('span', { class: 'ps-grant-role', text: { view: 'Can view', comments: 'Can read comments', comment: 'Can comment' }[l.access] || l.access }))))),
+        s.presenting.length > 0 && field('Presenting', 'Links to watch somebody present it',
+          el('ul', { class: 'ps-grants' }, ...s.presenting.map((p) => el('li', { class: 'ps-grant' },
+            el('span', { class: 'ps-grant-ic', html: icon('playSolid', 16) }),
+            el('span', { class: 'ps-grant-who' }, el('b', { text: p.name || 'Somebody' }), el('span', { text: until(p.expiresAt) })),
+            el('span', { class: 'ps-grant-role', text: p.live ? 'Presenting now' : '' }))))),
+      ].filter(Boolean));
     }
-    nav.addEventListener('keydown', (e) => {
-      const by = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
-      if (!by) return;
-      e.preventDefault();
-      const at = items.findIndex((x) => x.id === settingsTab);
-      show(items[(at + by + items.length) % items.length].id).tab.focus();
-    });
-    nav.append(...items.map((x) => x.tab));
-    panes.append(...items.map((x) => x.pane));
-    show(settingsTab);
-    return { nav, panes, show };
+    paint();
+    return box;
+  }
+
+  // A picture chosen as a banner, made the size a banner is shown at: at most 2400 pixels across, as a JPEG.
+  async function bannerFile(file) {
+    const bitmap = await createImageBitmap(file);
+    const k = Math.min(1, 2400 / bitmap.width);
+    const canvas = el('canvas', { width: String(Math.round(bitmap.width * k)), height: String(Math.round(bitmap.height * k)) });
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('It could not be read as a picture'))), 'image/jpeg', 0.88));
   }
 
   // The names of the cameras in a .glb (a File, or the address of one), read from the JSON at its start
@@ -824,6 +925,7 @@
         folder.project && ['Project settings…', () => projectSettings(folder)],
         folder.project && ['Make it a plain folder', () => setProject(folder, false)],
         !folder.project && ['Delete folder', () => removeFolder(folder), true],
+        folder.project && WB.info().admin && ['Delete project…', () => removeProject(folder), true],
       ].filter(Boolean),
       setup: (node) => {
         draggable(node, 'folder', folder.id);
@@ -931,6 +1033,7 @@
   const ICON_BOARDS = icon('boards', 16);
   const ICON_CAT = icon('catalogue', 16);
   const ICON_LIST = icon('list', 16);
+  const ICON_ACTIVITY = icon('activity', 16);
   const ICON_FILM = icon('film', 16);
   const ICON_PLAYLIST = icon('playlist', 16);
   const ICON_ANIMATIC = icon('animatic', 16);
@@ -956,6 +1059,7 @@
     if (v.page === 'animatic') return `an:${rt.id}:${v.animatic}`;
     if (v.page === 'reviews') return v.playlist ? `pl:${rt.id}:${v.playlist}` : `rv:${rt.id}`;
     if (v.page === 'versions') return `vl:${rt.id}`;
+    if (v.page === 'activity') return `ac:${rt.id}`;
     if (v.page === 'boards') return `f:${rt.id}`;
     if (v.page !== 'catalogue') return `f:${rt.id}`;
     if (v.seq) return `s:${rt.id}:${v.seq}`;
@@ -1065,6 +1169,7 @@
         ...sideRow({ key: `rv:${f.id}`, depth: depth + 1, icon: ICON_BOARDS, label: 'Reviews', href: WB.href.reviews(f.id), count: top, drop, hereK, kids: top ? () => reviewRows(f.id, depth + 2) : null }),
         ...sideRow({ key: `c:${f.id}`, depth: depth + 1, icon: ICON_CAT, label: 'Catalogue', href: WB.href.catalogue(f.id), kids: tierRows, hereK }),
         ...sideRow({ key: `vl:${f.id}`, depth: depth + 1, icon: ICON_LIST, label: 'Versions', href: WB.href.versions(f.id), hereK }),
+        ...sideRow({ key: `ac:${f.id}`, depth: depth + 1, icon: ICON_ACTIVITY, label: 'Activity', href: WB.href.activity(f.id), hereK }),
       ];
     };
     return sideRow({ key: `f:${f.id}`, depth, icon: PROJECT_SM, label: f.name, href: WB.href.folder(f.id), kids, drop, hereK, cls: 'project' });
@@ -1114,7 +1219,7 @@
       if (!project) return null;
       if (p.kind === 'entity') return { key: `pin:e:${p.id}`, icon: ICON_CAT, label: p.name, href: WB.href.catalogue(project.id, { entity: p.id }), title: project.name };
       if (p.kind === 'place') {
-        const icon = { sequence: ICON_FILM, versions: ICON_LIST, playlists: ICON_PLAYLIST, playlist: ICON_PLAYLIST, animatic: ICON_ANIMATIC }[p.what] || ICON_CAT;
+        const icon = { sequence: ICON_FILM, versions: ICON_LIST, activity: ICON_ACTIVITY, playlists: ICON_PLAYLIST, playlist: ICON_PLAYLIST, animatic: ICON_ANIMATIC }[p.what] || ICON_CAT;
         const label = ['sequence', 'tier', 'playlist', 'animatic'].includes(p.what) ? p.name : `${project.name} ${p.name.toLowerCase()}`;
         return { key: `pin:p:${p.id}`, icon, label, href: p.href, title: project.name };
       }
@@ -1228,6 +1333,7 @@
           }
         }
         else if (v.page === 'versions') parts.push(['Versions', WB.href.versions(f.id)]);
+        else if (v.page === 'activity') parts.push(['Activity', WB.href.activity(f.id)]);
         // The star pins what is here, not the project around it: a sequence, a tier, the catalogue
         // or the versions are pinned as that place (an asset, set or shot as itself).
         if (v.page !== 'home' && !listsBoards(v) && !v.entity) {
@@ -1254,10 +1360,18 @@
     const heading = el('span', { class: 'page-title-text', text: title, title });
     if (titleFolder !== undefined) dropTarget(heading, titleFolder, titleWs);
     $('pagetitle').replaceChildren(heading);
-    // Lists are shown one of three ways. A project's home and an animatic are not lists: nothing there is shown
-    // more than one way.
-    layoutSeg.hidden = !!(rt.kind === 'folder' && folderById(rt.id)?.project && ['home', 'animatic'].includes(currentView().page));
+    // A project's home has its banner over its title, if it has one.
+    const here = rt.kind === 'folder' ? folderById(rt.id) : null;
+    const banner = here && here.project && currentView().page === 'home' ? here.settings && here.settings.banner : null;
+    const shownBanner = $('pagebanner').firstChild;
+    if (!banner) $('pagebanner').replaceChildren();
+    else if (!shownBanner || shownBanner.getAttribute('src') !== banner) $('pagebanner').replaceChildren(el('img', { src: banner, alt: '', draggable: 'false' }));
+    $('pagebanner').hidden = !banner;
+    // Lists are shown one of three ways. A project's home, its activity and an animatic are not lists: nothing
+    // there is shown more than one way.
+    layoutSeg.hidden = !!(rt.kind === 'folder' && folderById(rt.id)?.project && ['home', 'animatic', 'activity'].includes(currentView().page));
     const pinned = pin && isPinned(pin.kind, pin.id);
+    const onActivity = rt.kind === 'folder' && !!folderById(rt.id)?.project && currentView().page === 'activity';
     const tools = [pin && el('button', {
         type: 'button', class: `iconbtn crumb-pin${pinned ? ' on' : ''}`, html: ICON_STAR,
         title: pinned ? 'Pinned to the sidebar. Click to unpin' : 'Pin to sidebar', 'aria-pressed': String(!!pinned),
@@ -1266,6 +1380,11 @@
       settingsOf && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('settings', 16), title: 'Project settings', 'aria-label': 'Project settings', onclick: () => projectSettings(settingsOf) }),
       playlistHere && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('more', 16), title: 'Rename or delete the playlist', 'aria-label': 'Playlist menu', 'aria-haspopup': 'menu', onclick: (e) => openMenu(e.currentTarget, playlistHere.loose ? loosePlaylistMenu(playlistHere.loose) : playlistMenu(playlistHere.project, playlistHere.playlist)) }),
       animaticHere && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('more', 16), title: 'Rename, copy, set up, download or delete the animatic', 'aria-label': 'Animatic menu', 'aria-haspopup': 'menu', onclick: (e) => openMenu(e.currentTarget, animaticMenu(animaticHere.project, animaticHere.animatic, { here: true })) }),
+      onActivity && el('button', {
+        type: 'button', class: `btn small ghost pa-foryou${forYou ? ' active' : ''}`, 'aria-pressed': String(forYou), text: 'For you',
+        title: forYou ? 'Only what is for you: comments on your work, replies to you, what is filed of what you make or are cc’d on. Click for everything' : 'Everything in the project. Click for only what is for you',
+        onclick: () => { forYou = !forYou; render(); },
+      }),
       ...presentingHere(rt),
     ].filter(Boolean);
     // An animatic wants all of the window, as a board does: where it is goes in the bar, after the mark (which
@@ -2035,7 +2154,7 @@
       // Somewhere new: a search typed for the last page does not carry over to this one.
       if (renderedFor !== null && !searching) $('q').value = '';
       renderedFor = location.hash;
-      // Going elsewhere from the sidebar or the bar closes a player docked beside them.
+      // Going elsewhere (back, or a link) closes the player.
       if (lookingAt && player && player.isOpen()) {
         lookingAt = null;
         player.close();
@@ -2169,6 +2288,7 @@
     const fresh = shownProject !== sig;
     shownProject = sig;
     if (view.page === 'versions') return versionsPage(project, fresh, sig);
+    if (view.page === 'activity') return activityPage(project, fresh, sig);
     if (view.page === 'reviews') return playlistPage(project, view.playlist, fresh, sig);
     if (view.page === 'animatic') return animaticPage(project, view.animatic);
     if (view.page === 'home') return projectHome(project, fresh, sig);
@@ -2221,7 +2341,8 @@
     if (!fresh && !stale && catalogues.has(project.id)) return;
     const [cat, activity] = await Promise.all([
       api('GET', `/api/projects/${project.id}`).catch(() => null),
-      stale ? api('GET', `/api/projects/${project.id}/activity`).catch(() => null) : null,
+      // Two weeks of it: this one beside the one before.
+      stale ? api('GET', `/api/projects/${project.id}/activity?since=${Date.now() - 2 * WEEK}&limit=600`).catch(() => null) : null,
     ]);
     if (cat) catalogues.set(project.id, cat);
     if (activity) activities.set(project.id, { items: activity.items, at: Date.now() });
@@ -2340,6 +2461,93 @@
         WB.avatar(p.name),
         el('span', { class: 'ph-who' }, el('b', { text: p.name }), p.on.size > 0 && el('span', { text: `on ${on(p)}` })),
         p.week > 0 && el('span', { class: 'ph-week', text: `${p.week} this week`, title: `${plural(p.week, 'version')} filed in the last seven days` })))));
+  }
+
+  // ------------------------------------------------------------- a project's activity
+  //
+  // Everything that happened in the project, newest first and a day at a time, from its start: versions
+  // filed, comments on them, playlists and animatics made. A page at a time; "Show earlier" goes further
+  // back. For you, on unless turned off beside the title, keeps what is somebody's (see activityFor in
+  // server.js), each line saying why.
+  let forYou = true;
+  const activityLists = new Map(); // `${project id}|${for you}` -> { items, more, next }, as far back as shown
+  const activityQuery = (project, before = null) => `/api/projects/${project.id}/activity?limit=50${forYou ? `&for=me&name=${encodeURIComponent(me.name || '')}` : ''}${before ? `&before=${before}` : ''}`;
+  async function activityPage(project, fresh, sig) {
+    const key = `${project.id}|${forYou}`;
+    const show = () => {
+      if (shownProject === sig && `${project.id}|${forYou}` === key) $('content').replaceChildren(...activityView(project, sig));
+    };
+    const had = activityLists.get(key);
+    if (had) show();
+    else $('content').replaceChildren(el('p', { class: 'home-quiet', text: 'Loading…' }));
+    if (had && !fresh) return;
+    try {
+      // Coming back to it, it starts again from what is newest.
+      activityLists.set(key, await api('GET', activityQuery(project)));
+      show();
+    } catch (err) {
+      pageFailed(sig, err);
+    }
+  }
+  const WHY = { mention: 'Mentions you', reply: 'Replies to you', work: 'On your work', artist: 'You make it', cc: 'You are cc’d on it' };
+  function activityView(project, sig) {
+    const list = activityLists.get(`${project.id}|${forYou}`);
+    if (!list.items.length) {
+      return [el('div', { class: 'home-empty' }, el('p', {
+        text: forYou ? 'Nothing for you yet. Comments on your work, replies to you and what is filed of what you make or are cc’d on come here.' : 'Nothing has happened in this project yet.',
+      }))];
+    }
+    const today = new Date().toDateString();
+    const yesterday = new Date(Date.now() - 864e5).toDateString();
+    const thisYear = new Date().getFullYear();
+    const dayOf = (at) => {
+      const d = new Date(at);
+      if (d.toDateString() === today) return 'Today';
+      if (d.toDateString() === yesterday) return 'Yesterday';
+      return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', ...(d.getFullYear() !== thisYear && { year: 'numeric' }) });
+    };
+    const days = new Map();
+    for (const x of list.items) (days.get(dayOf(x.at)) || days.set(dayOf(x.at), []).get(dayOf(x.at))).push(x);
+    const more = list.more && el('button', {
+      type: 'button', class: 'btn pa-more', text: 'Show earlier',
+      onclick: async (e) => {
+        e.currentTarget.disabled = true;
+        try {
+          const next = await api('GET', activityQuery(project, list.next));
+          list.items.push(...next.items);
+          Object.assign(list, { more: next.more, next: next.next });
+        } catch (err) {
+          WB.toast(err.message, { ms: 5000 });
+        }
+        if (shownProject === sig) $('content').replaceChildren(...activityView(project, sig));
+      },
+    });
+    return [...[...days].map(([day, lines]) => el('section', { class: 'pa-day' }, label(day), el('ol', { class: 'pa-list' }, lines.map((x) => activityLine(project, x))))), more];
+  }
+  // A line: who did what, to which, when; a comment's words under it, and a version's still beside it. A version
+  // or a comment opens in the player, a playlist or an animatic on its page.
+  function activityLine(project, x) {
+    const thing = (text) => el('span', { class: 'pa-thing', text });
+    const what = {
+      version: () => ['filed ', thing(x.version.label || x.entity.name)],
+      note: () => [x.note.reply ? 'replied on ' : 'commented on ', thing(x.version.label || x.entity.name)],
+      playlist: () => ['made the playlist ', thing(x.playlist.name)],
+      animatic: () => ['made the animatic ', thing(x.animatic.name)],
+    }[x.kind]();
+    const at = new Date(x.at);
+    const body = [
+      WB.avatar(x.by || '?', x.color),
+      el('div', { class: 'pa-body' },
+        el('p', { class: 'pa-what' }, el('b', { text: x.by || 'Somebody' }), ' ', ...what),
+        x.kind === 'note' && x.note.text && el('p', { class: 'pa-quote', text: x.note.text }),
+        x.why && el('span', { class: 'pa-why', text: WHY[x.why] })),
+      x.kind === 'version' && x.version.thumb && el('img', { class: 'pa-pic', src: x.version.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
+      el('time', { class: 'pa-time', datetime: at.toISOString(), title: at.toLocaleString(), text: at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) }),
+    ];
+    const row = x.kind === 'playlist' ? el('a', { class: 'pa-row', href: WB.href.reviews(project.id, x.playlist.id) }, ...body)
+      : x.kind === 'animatic' ? el('a', { class: 'pa-row', href: WB.href.animatic(project.id, x.animatic.id) }, ...body)
+        : el('button', { type: 'button', class: 'pa-row', onclick: () => lookAt(x.entity.id, x.version.id) }, ...body);
+    return el('li', {}, row);
   }
 
   // What is waiting: set up with nothing filed, and filed but quiet for two weeks or more.
@@ -2802,14 +3010,14 @@
   // A version opens in the player (viewer.js), the same one a board opens its media in: with every other
   // version of the same thing beside it, and what has been said about them, live.
   let player = null;
-  let lookingAt = null; // the asset, set or shot open in the (docked) player
+  let lookingAt = null; // the asset, set or shot open in the player
   const thePlayer = () => player || (player = WBViewer.create({ me: () => me, title: () => '', media: () => [], notes: () => [], add() {}, set() {}, remove() {} }));
   async function lookAt(entityId, versionId) {
     thePlayer();
     try {
       const project = folderById(currentFolder());
-      // Docked: the sidebar and the bar stay, and going elsewhere from them closes it.
-      await WBViewer.openEntity(player, entityId, { version: versionId, me, dock: true, title: project ? project.name : null, onClose: () => { lookingAt = null; shownProject = ''; render(); } });
+      // Over the whole window, as a board or an animatic is: Done or Esc comes back here.
+      await WBViewer.openEntity(player, entityId, { version: versionId, me, title: project ? project.name : null, onClose: () => { lookingAt = null; shownProject = ''; render(); } });
       lookingAt = entityId;
     } catch (err) {
       fail(err);
@@ -3632,7 +3840,7 @@
     }
   }
 
-  // The playlist in the player, docked, opened on `startId`: its versions one at a time,
+  // The playlist in the player, over the whole window, opened on `startId`: its versions one at a time,
   // each as filed with its own comments, to move between with the strip down the left or the arrows. It is
   // not an edit: nothing plays on into the next. Going elsewhere closes it.
   async function playPlaylist(project, data, startId) {
@@ -3647,7 +3855,7 @@
     thePlayer();
     try {
       await WBViewer.openPlaylist(player, {
-        load, me, dock: true, at: startId,
+        load, me, at: startId,
         ...(preview3d && preview3d.model && { view3d: { ...preview3d, key: project.id } }),
         title: () => [project.name, data.playlist.name].filter(Boolean).join(' · '),
         onClose: () => { lookingAt = null; },

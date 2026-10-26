@@ -360,8 +360,9 @@ Whoever has a board or a catalogue page open that they can no longer see after a
 A folder can be made a project (the `...` menu on its card: "Make it a project"). A project keeps a
 catalogue of what the team makes for it, its **assets, sets and shots**, and every **version** of them,
 while its boards stay what they are: playlists for one review each, a standup, a client call. A
-project cannot sit inside another one, cannot be deleted, and stays a project once something is
-filed in it.
+project cannot sit inside another one, and stays a project once something is filed in it. Only an admin
+can delete one ("Delete project…" in its menu, having typed its name): its folders and boards go with it,
+and its catalogue, every version and comment on them, its playlists and animatics are gone for good.
 
 - **Filing a version.** On a board in a project, select images or videos and press Shift+V (or the
   button in the floating toolbar). Each piece has its own row: which asset, set or shot it is, and the
@@ -452,7 +453,7 @@ filed in it.
   already made on it along. People holding a link to a board see only the notes made on that board;
   the team sees them all.
 - **A project's home.** Clicking a project opens its home page, not its boards: the big picture of
-  it, how far along it is and who is on it. Its versions, boards and playlists are not there; each has
+  it, how far along it is and who is on it, under its banner if its settings give it one. Its versions, boards and playlists are not there; each has
   its own page in the sidebar. Under its title, this week as one line of figures: versions filed and
   comments written (each beside the week before), and how many assets, sets and shots moved on. Then each
   part of the project in turn (its assets, its sets, and its shots a row to each sequence, in order),
@@ -462,6 +463,14 @@ filed in it.
   people: everyone who works on any of it, with what they are on and how many versions each filed this
   week; and what is waiting (set up with nothing filed, or quiet for two weeks or more). Searching from
   the home looks through the catalogue. Its reviews are at `#/f/<project>/reviews`.
+- **Its activity.** Activity, in the sidebar under the project (`#/f/<project>/activity`), is everything
+  that happened in it from its start, newest first and a day at a time: versions filed (with their still),
+  comments and replies (with their words), playlists and animatics made. Fifty at a time; Show earlier goes
+  further back. A version or a comment opens in the player, a playlist or an animatic on its page. For you,
+  beside the title and on until turned off, keeps what is yours, each saying why: comments that @mention
+  you, replies in a thread you wrote in, comments on a version you filed or that names you its artist,
+  playlists of your work, and every version filed and comment written on what you make or are cc'd on.
+  What you did yourself is never for you.
 - **The catalogue page.** A project has its Reviews and its Catalogue, both in the sidebar. The catalogue
   is laid out like the project on disk: assets, sets, and shots by sequence, each with its newest
   still. As cards, the catalogue is one grid, as a clip launcher lays out its layers: every asset, set
@@ -503,8 +512,11 @@ filed in it.
   row moves while it comes in; a row that did not come in has "Try again".
 - **Project settings.** The settings button beside the star on the project's home, or Project settings
   in its menu, opens them as one dialog in tabs, listed down its side (across the top on a phone) so more
-  can come: Versions (Count by task, Several views of each version and their names, the file names it has
-  learned), Sequences (their order) and 3D (the venue model and what goes with it). Each tab's pane opens
+  can come: Home (its banner: a picture across the top of its home, over its title), Versions (Count by task, Several views of each version and their names, the file names it has
+  learned), Sequences (their order), 3D (the venue model and what goes with it) and Sharing: who has what
+  of the project (the people and groups given a role on it or on what is in it, as in the admin area,
+  recorded and not yet enforced), the boards in it open to anyone with their link, and the links to watch
+  it presented. An admin gives and takes away a role there, at once; anyone else sees it greyed. Each tab's pane opens
   with its name and what it sets, and keeps one height, so the dialog does not jump from tab to tab; the
   arrow keys move along the tabs, and the dialog opens on the one last looked at. A switch or a button
   sits beside what it sets; a field or a list goes under its name, the width of the pane.
@@ -514,7 +526,8 @@ filed in it.
   player's bar, in the catalogue and in an animatic. In 3D the picture plays on the model's screens
   (through their own UVs), seen through the model's main camera, letterboxed at that camera's frame (Main
   camera in the settings lists the cameras in the file to choose from; without a choice, the one named
-  `main`, or else the first);
+  `main`, or else the first; its field of view is the camera's own, unless the settings give one in degrees
+  across);
   the timeline, comments, strip and sidebar are as ever, since it is the same video drawn another way. Any
   move of the view leaves the main camera: a drag (with both buttons held, it slides the camera along the
   view's plane: sideways, up and down), the wheel, W A S D (along the view, wherever it points) or Q and E
@@ -531,7 +544,8 @@ filed in it.
   (turning the player to 3D if need be); a drawing shows only from there. Such a comment says
   "Drawing in 3D", or "In 3D" with no drawing. The player opens as it was last left in this tab, project by
   project: in 3D, where the view was (flying, on a camera of the model's or on a comment's frame), whatever
-  piece it opens on, or in 2D. The settings button beside the 3D switch says how the venue is drawn,
+  piece it opens on, or in 2D. What only the venue has comes in 3D at the far end of the player's controls
+  from the switch, so nothing there in 2D moves: the half-lit ball says how the venue is drawn,
   kept by the browser: Room light (from dark to twice as lit; the screens stay as they are), Ambient
   occlusion and how far it reaches, Cavity (a little dark in creases, as in Blender), and Screen light:
   the picture on the screens lighting the room as it plays, at a strength (no shadows: see
@@ -693,7 +707,7 @@ filed in it.
   catalogue or a shot's page and press Add to playlist, or use Add to playlist… in a version's menu. A
   playlist's page has Play and its versions in order: drag one to where it should go, take some off
   (Take off, with the selection; or from a version's menu, and Undo puts them back), or open one, which
-  opens the playlist on it. Play opens them in the player, docked: one version at a
+  opens the playlist on it. Play opens them in the player, over the whole window: one version at a
   time, as an asset's versions are, with the strip down the left to move between them (nothing plays on
   into the next, and there is no timeline across them), each with its own comments. In a project with a
   3D model of its venue the player has the 2D / 3D switch here too, each version shown on the model in the
@@ -714,7 +728,7 @@ filed in it.
   is brought in as a file dropped on a board is (a video gets its review copy, strip, stills and frame
   rate), one at a time in the order chosen, and becomes the playlist's next version: v1, v2, v3, as in a
   review tool, so a small piece of work such as one edit of a video is kept as one playlist that each new
-  cut is added to. Play opens the newest in the player, docked as a project's playlist is, with the others
+  cut is added to. Play opens the newest in the player, as a project's playlist is, with the others
   in the strip beside it; comments, replies, drawings and @mentions are made there as on a project's
   versions, each belonging to its version and live for everyone who has the playlist open. Versions can be
   dragged into another order or taken off (Undo puts them back, and a number taken off is not given out
@@ -805,9 +819,9 @@ filed in it.
     clips showing are laid over one
     another, fades and dissolves and all, and the venue's screens show them, each shot in the view the
     project puts on its model. Everything else goes on as in 2D: playing, scrubbing, the timeline, the
-    sound. The model's cameras are beside the switch (the main one, the others under the arrow, and V goes
-    on to the next), W A S D Q E and a drag fly about, and the settings button beside it is how the venue
-    is drawn, the same settings as the player's. A comment begun on the venue holds the view where it is
+    sound. The model's cameras come in 3D, before what the edit plays (the main one, the others under the
+    arrow, and V goes on to the next), W A S D Q E and a drag fly about, and the half-lit ball beside them
+    is how the venue is drawn, the same settings as the player's. A comment begun on the venue holds the view where it is
     and keeps it, so it is seen from there, here and in the player. It opens on the venue if it was last
     seen that way (in this tab, here or in the player). A new animatic starts at the shape most of the
     project's shots are, so in a project with a venue, at the shape of the picture its screens show.
@@ -939,8 +953,12 @@ highest number each task of each entity has reached). `POST /api/projects/<folde
 `artists` and `cc`, and `PATCH /api/projects/<folder>/entities` takes `{ "ids": [...], "tier",
 "artists": { "add" | "remove" | "set": [...] }, "cc": { ... } }` to change many at once. `GET /api/people`
 lists the names the app knows.
-`GET /api/projects/<folder>/activity` what happened in the project in the last two weeks (versions
-filed and comments, newest first),
+`GET /api/projects/<folder>/activity` what happened in the project from its start, newest first (versions
+filed, comments, playlists and animatics made), `limit` lines a page (50, at most 600), `before` the `next`
+of the page before when `more` is true, `since` a time to go back no further than, and `for=me` only what
+is for whoever asks (`name` without sign-in), each line with its `why`,
+`GET /api/folders/<project>/sharing` who has what of a project (its permissions, the boards in it open by
+link, the links to watch it presented; an admin is given the people and groups to choose from too),
 `GET /api/projects/<folder>/versions?before=` the project's versions newest first, 300 a page, each with
 the boards it is on (when
 `more` is true, its `next` is what to give as `before` for the following page; a time in milliseconds
@@ -1049,7 +1067,7 @@ public/filing.js   Filing pieces as versions: the same line of parts, suggestion
 public/claude.js   Asking Claude: the box, what it said, and the mark on what it filled in
 public/media.js    The video cache on this computer, with sw.js (the service worker that plays from it)
 public/home.js     Workspaces and folders of boards, and a project's pages
-public/account.js  Your account dialog: name, colour, theme, layout, the video cache, sign out
+public/account.js  Your account dialog, in tabs: name, colour, theme, layout, the video cache, sign out
 public/notices.js  The bell: notifications in the bar
 public/naming.js   How names are written and file names read (shared with the server)
 public/common.js   Shared helpers: elements, menus, toasts, links, dialogs

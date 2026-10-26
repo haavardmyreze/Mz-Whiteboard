@@ -108,8 +108,8 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   let room = null; // the model in the scene
   let modelUrl = '';
   let screenName = 'screen';
-  let main = { cam: true, name: '', position: new THREE.Vector3(0, 1.6, 6), quaternion: new THREE.Quaternion(), fov: 50, aspect: 16 / 9 };
-  let cams = [main]; // the model's cameras: { cam, name, position, quaternion, fov, aspect }
+  let main = { cam: true, name: '', position: new THREE.Vector3(0, 1.6, 6), quaternion: new THREE.Quaternion(), fov: 50, own: 50, aspect: 16 / 9 };
+  let cams = [main]; // the model's cameras: { cam, name, position, quaternion, fov, own (its fov as the model has it), aspect }
   // The frame held, or come back to: a camera of `cams`, or a comment's (no `cam`; its `fov` is worked out
   // from `keep`, the lens over the whole canvas, once the player has laid out its frame).
   let fixed = main;
@@ -121,20 +121,26 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
 
   // ---- the model
 
-  // The model's main camera: the one the project names, else one named main, else its first.
-  const mainOf = (list, chosen) => (chosen && list.find((c) => c.name === chosen)) || list.find((c) => c.name.toLowerCase() === 'main') || list[0];
+  // The model's main camera: the one the project names, else one named main, else its first. Its lens is the
+  // one the project sets (`lens`, degrees across its frame), or else the model's own; the others keep theirs.
+  const mainOf = (list, chosen, lens) => {
+    for (const c of list) c.fov = c.own;
+    const m = (chosen && list.find((c) => c.name === chosen)) || list.find((c) => c.name.toLowerCase() === 'main') || list[0];
+    if (lens) m.fov = fovOf(tanHalf(lens) / m.aspect);
+    return m;
+  };
 
-  async function load({ model, screen = 'screen', camera: chosen = '' }) {
+  async function load({ model, screen = 'screen', camera: chosen = '', fov: lens = 0 }) {
     screenName = (screen || 'screen').toLowerCase();
     if (model === modelUrl && room) {
-      main = mainOf(cams, chosen);
+      main = mainOf(cams, chosen, lens);
       if (fixed && fixed.cam) fixed = main;
       applyScreens();
       return survey();
     }
     const gltf = await loadModel(model);
     // Put up by another call while this one waited for it: as it is, with the view left where it is.
-    if (model === modelUrl && room) return load({ model, screen, camera: chosen });
+    if (model === modelUrl && room) return load({ model, screen, camera: chosen, fov: lens });
     if (room) scene.remove(room);
     room = gltf.scene.clone(true);
     // Its materials are this view's own: the screens' light is put into them (see litByScreens).
@@ -155,7 +161,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       o.getWorldPosition(position);
       o.getWorldQuaternion(quaternion);
       const name = o.name || o.parent?.name || `Camera ${cams.length + 1}`;
-      cams.push({ cam: true, name, position, quaternion, fov: o.fov, aspect: shapeOf.get(o.name) || shapeOf.get(o.parent?.name) || 16 / 9 });
+      cams.push({ cam: true, name, position, quaternion, fov: o.fov, own: o.fov, aspect: shapeOf.get(o.name) || shapeOf.get(o.parent?.name) || 16 / 9 });
     });
     const box = new THREE.Box3().setFromObject(room);
     const size = box.getSize(new THREE.Vector3());
@@ -165,9 +171,9 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       const look = new THREE.PerspectiveCamera();
       look.position.set(centre.x, centre.y + size.y * 0.1, box.max.z + Math.max(size.x, size.y) * 0.6);
       look.lookAt(centre);
-      cams.push({ cam: true, name: '', position: look.position.clone(), quaternion: look.quaternion.clone(), fov: 50, aspect: 16 / 9 });
+      cams.push({ cam: true, name: '', position: look.position.clone(), quaternion: look.quaternion.clone(), fov: 50, own: 50, aspect: 16 / 9 });
     }
-    main = mainOf(cams, chosen);
+    main = mainOf(cams, chosen, lens);
     fixed = main;
     speed = Math.max(1, size.length() / 12);
     applyScreens();

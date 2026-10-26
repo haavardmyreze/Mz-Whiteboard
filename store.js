@@ -497,6 +497,19 @@ function openStore(dataDir) {
   const unmark = db.prepare('UPDATE boards SET deleted_at = NULL, folder_id = NULL WHERE id = ? AND deleted_at IS NOT NULL');
   const restoreBoard = (id) => unmark.run(id).changes > 0;
 
+  // ---- a project deleted (by an admin): its catalogue goes with it, every version and what was said about
+  // them, its playlists, animatics and links to present it. Its boards are deleted as boards are (server.js).
+  const dropProject = [
+    'DELETE FROM notes WHERE version_id IN (SELECT v.id FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ?)',
+    'DELETE FROM versions WHERE entity_id IN (SELECT id FROM entities WHERE project_id = ?)',
+    'DELETE FROM entity_people WHERE entity_id IN (SELECT id FROM entities WHERE project_id = ?)',
+    'DELETE FROM entities WHERE project_id = ?',
+    'DELETE FROM playlists WHERE project_id = ?',
+    'DELETE FROM animatics WHERE project_id = ?',
+    'DELETE FROM presentations WHERE project_id = ?',
+  ].map((q) => db.prepare(q));
+  const deleteProject = (id) => transaction(() => { for (const q of dropProject) q.run(id); });
+
   // ---- links to watch a project being presented
 
   const presentationOf = (r) => ({ token: r.token, projectId: r.project_id, owner: r.owner, ownerName: r.owner_name, access: r.access, expiresAt: r.expires_at, createdAt: r.created_at });
@@ -917,18 +930,27 @@ function openStore(dataDir) {
     });
     return { ok: true, entity: entity(id) };
   }
-  // What happened lately to some entities: versions filed and notes written, newest first.
-  function happenings(entityIds, since, limit = 80) {
-    if (!entityIds.length) return { versions: [], notes: [] };
-    const ids = entityIds.map(() => '?').join(', ');
-    const versions = db.prepare(`SELECT * FROM versions WHERE entity_id IN (${ids}) AND deleted_at IS NULL AND created_at >= ? ORDER BY created_at DESC LIMIT ?`)
-      .all(...entityIds, since, limit).map(versionOf);
-    const notes = db.prepare(`SELECT n.*, v.entity_id AS entity_id, b.name AS board_name, b.workspace AS board_workspace FROM notes n JOIN versions v ON v.id = n.version_id
-      LEFT JOIN boards b ON b.id = n.board_id
-      WHERE v.entity_id IN (${ids}) AND v.deleted_at IS NULL AND n.deleted_at IS NULL AND n.created_at >= ? ORDER BY n.created_at DESC LIMIT ?`)
-      .all(...entityIds, since, limit).map((row) => ({ ...noteOf(row), entityId: row.entity_id, boardName: row.board_name, boardWorkspace: row.board_workspace }));
-    return { versions, notes };
+  // What happened in a project, newest first, from `upTo` (a time) back to `since`:
+  // versions filed and notes written on them, at most `limit` of each. Each note says whose work its
+  // version is (who filed it, and the artist it names). The server makes the pages of its Activity of these.
+  // Those made at `upTo` itself are only the ones whose id is below `versionBelow` or `noteBelow` (none unless
+  // said), so that a page ending among many made at one moment goes on from the one it ended at.
+  const readFiled = db.prepare(`SELECT v.* FROM versions v JOIN entities e ON e.id = v.entity_id
+    WHERE e.project_id = ? AND v.deleted_at IS NULL AND (v.created_at < ? OR (v.created_at = ? AND v.id < ?)) AND v.created_at >= ?
+    ORDER BY v.created_at DESC, v.id DESC LIMIT ?`);
+  const readSaid = db.prepare(`SELECT n.*, v.entity_id AS entity_id, v.created_by AS version_by, v.artist AS version_artist
+    FROM notes n JOIN versions v ON v.id = n.version_id JOIN entities e ON e.id = v.entity_id
+    WHERE e.project_id = ? AND v.deleted_at IS NULL AND n.deleted_at IS NULL AND (n.created_at < ? OR (n.created_at = ? AND n.id < ?)) AND n.created_at >= ?
+    ORDER BY n.created_at DESC, n.id DESC LIMIT ?`);
+  function happenings(projectId, { upTo = Number.MAX_SAFE_INTEGER, since = 0, limit = 100, versionBelow = '', noteBelow = '' } = {}) {
+    return {
+      versions: readFiled.all(projectId, upTo, upTo, versionBelow, since, limit).map(versionOf),
+      notes: readSaid.all(projectId, upTo, upTo, noteBelow, since, limit).map((row) => ({ ...noteOf(row), entityId: row.entity_id, versionBy: row.version_by, versionArtist: row.version_artist })),
+    };
   }
+  // The names of everyone who has written in a thread (its first note's id), in lower case.
+  const readThread = db.prepare('SELECT data FROM notes WHERE (id = ? OR re = ?) AND deleted_at IS NULL');
+  const threadNames = (root) => new Set(readThread.all(root, root).map((r) => String(JSON.parse(r.data).name || '').trim().toLowerCase()).filter(Boolean));
   // Everyone the app knows by name: who signed in, who filed or wrote something, who is named on an entity.
   function people() {
     const out = new Set();
@@ -1211,13 +1233,13 @@ function openStore(dataDir) {
   return {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
-    transaction, entities, streamHeads, findVersions, projectFilers, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, happenings, people, entityCount,
+    transaction, entities, streamHeads, findVersions, projectFilers, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, happenings, threadNames, people, entityCount,
     addVersion, addView, addExtra, projectViews, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
     note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesBesides, unfileVersion, notesOnExtra, unfileExtra, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,
     grants, setGrant, removeGrant, removeGrantsOn,
-    presentations, savePresentation, deletePresentation, setMediaPhone, itemsWithMedia, setLook, versionsWithFile,
+    deleteProject, presentations, savePresentation, deletePresentation, setMediaPhone, itemsWithMedia, setLook, versionsWithFile,
     playlists, loosePlaylists, playlist, addPlaylist, setPlaylist, deletePlaylist,
     animatics, animatic, addAnimatic, setAnimatic, deleteAnimatic,
   };

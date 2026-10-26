@@ -168,7 +168,7 @@ function createAdmin({ store, adminEmails, newId, readJson, sendJson, cleanName,
     return sendJson(res, 404, { error: 'Not found' });
   }
 
-  return { isAdmin, allows, seen, handle };
+  return { isAdmin, allows, seen, handle, roles: ROLES };
 }
 
 module.exports = { createAdmin, ROLES };

@@ -193,7 +193,7 @@ const WBAnimatic = (() => {
     // Watching, the sound is the watching page's to turn on and off, and the comments are there only if shown.
     const vbar = el('div', { class: 'an-vbar' },
       !watching && binBtn, onNow, el('span', { class: 'spacer' }),
-      optionsSlot, el('span', { class: 'an-dims' }, venue3d.dims, venue3d.cams), !watching && soundBtn, !(watched && !watched.comments) && notesBtn);
+      el('span', { class: 'an-dims' }, venue3d.cams), optionsSlot, el('span', { class: 'an-dims' }, venue3d.dims), !watching && soundBtn, !(watched && !watched.comments) && notesBtn);
     // Under it, the timeline's own bar: its tools and snapping on the left, playing it in the middle, and how the
     // timeline is drawn on the right.
     const bar = el('div', { class: 'an-bar' },
@@ -2379,7 +2379,10 @@ const WBAnimatic = (() => {
 
     function onKey(e) {
       if (!doc || closed || e.defaultPrevented) return;
-      if (WB.isTyping(e.target) || (e.target instanceof HTMLInputElement) || document.querySelector('dialog[open]')) return;
+      // Space plays even when a control clicked a moment ago (the task picker, a button) still has the keyboard.
+      const released = e.key === ' ' && !e.ctrlKey && !e.metaKey && !e.altKey && WB.heldControl(e.target) && !document.querySelector('dialog[open]');
+      if (released) e.target.blur();
+      else if (WB.isTyping(e.target) || (e.target instanceof HTMLInputElement) || document.querySelector('dialog[open]')) return;
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key;
       // On the venue, W A S D Q E fly and V goes on to the next camera; 2 and 3 switch between the edit as it
@@ -2424,7 +2427,11 @@ const WBAnimatic = (() => {
       else if ((k === '=' || k === '+') && !mod) zoomTo(ppf * 1.5);
       else if ((k === '-' || k === '_') && !mod) zoomTo(ppf / 1.5);
       else done = false;
-      if (done) e.preventDefault();
+      // A key the animatic takes is its own: whatever was clicked a moment ago lets go rather than being rung in blue.
+      if (done) {
+        e.preventDefault();
+        WB.letGo();
+      }
     }
     window.addEventListener('keydown', onKey);
     const onTimeMode = () => {

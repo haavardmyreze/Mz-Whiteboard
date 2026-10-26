@@ -11,7 +11,7 @@ const zlib = require('zlib');
 const { WebSocketServer } = require('ws');
 const { createAuth, parseCookies, isLoopback, clientAddress } = require('./auth');
 const { openStore } = require('./store');
-const { noticesFor, markRead } = require('./notifications');
+const { noticesFor, markRead, mentions } = require('./notifications');
 const { createAdmin } = require('./admin');
 const zip = require('./zip');
 const naming = require('./public/naming');
@@ -871,8 +871,10 @@ function holdsProject(folder) {
   return false;
 }
 // A project's settings: its 3D preview: the model of the venue its work is shown
-// on (an uploaded .glb), the name of the material its projection surface has (`screen` unless said), and
-// which view of a version goes on it (its main one unless said). `preview3d: null` takes the 3D preview away.
+// on (an uploaded .glb), the name of the material its projection surface has (`screen` unless said),
+// which view of a version goes on it (its main one unless said), the camera it opens through and that
+// camera's field of view (`fov`, degrees across; the model's own unless said). `banner` is the picture
+// over the title of its home page. `preview3d: null` takes the 3D preview away.
 // `tasks: false` says its versions are not counted by task: each asset, set or shot has one count.
 // `views` says how its versions are shown: false, one way only; or the names of the ways, the main one
 // first (["cmp", "bty"]: each version is its cmp, and may have a bty beside it). `rules` are what its
@@ -924,6 +926,9 @@ function cleanProjectSettings(asked, was = {}) {
     if (rules.size) out.rules = [...rules.values()];
     else delete out.rules;
   }
+  // A picture across the top of its home page, over its title, to know it by (an uploaded image).
+  if (asked.banner === null) delete out.banner;
+  else if (typeof asked.banner === 'string' && /\.(png|jpe?g|webp|avif)$/i.test(uploadName(asked.banner) || '') && store.media(uploadName(asked.banner))) out.banner = asked.banner;
   if (asked.preview3d === null) delete out.preview3d;
   else if (asked.preview3d && typeof asked.preview3d === 'object') {
     const p = asked.preview3d;
@@ -937,9 +942,78 @@ function cleanProjectSettings(asked, was = {}) {
         // The camera of the model's that the 3D view opens through (its name); none, the one named main, or its first.
         camera: typeof p.camera === 'string' ? p.camera.slice(0, 120) : '',
       };
+      // The main camera's lens, in degrees across its frame, where the project sets one rather than the model's own.
+      const fov = Math.round(Number(p.fov));
+      if (fov >= 10 && fov <= 150) out.preview3d.fov = fov;
     }
   }
   return out;
+}
+
+// Who has what of a project, for its settings' Sharing tab: the permissions given on it and on the folders
+// and boards in it (see admin.js; recorded, not enforced yet), the boards in it anyone with a link can
+// open, and the links to watch it presented. Anyone who sees the project reads it; an admin changes the
+// permissions through the admin area's own requests, and is given the people and groups to choose from.
+function projectSharing(project, req) {
+  const canEdit = admin.allows(req);
+  const inside = new Set([...folders.values()].filter((f) => isWithin(f.id, project.id)).map((f) => f.id));
+  const its = [...boards.values()].filter((b) => inside.has(b.folderId));
+  const boardIds = new Set(its.map((b) => b.id));
+  const people = new Map(store.users().map((u) => [u.email, u]));
+  const groups = store.groups();
+  const groupOf = new Map(groups.map((g) => [g.id, g]));
+  const who = (p) => (p.type === 'user'
+    ? { type: 'user', id: p.id, name: people.get(p.id)?.name || p.id, email: p.id }
+    : { type: 'group', id: p.id, name: groupOf.get(p.id)?.name || 'A group', members: (groupOf.get(p.id)?.members || []).map((e) => people.get(e)?.name || e) });
+  const on = (t) => (t.type === 'folder' ? { type: 'folder', id: t.id, name: t.id === project.id ? null : folders.get(t.id)?.name } : { type: 'board', id: t.id, name: boards.get(t.id)?.name });
+  const now = Date.now();
+  return {
+    shared: project.workspace === 'myreze',
+    canEdit,
+    roles: admin.roles,
+    grants: store.grants().filter((g) => (g.target.type === 'folder' ? inside.has(g.target.id) : boardIds.has(g.target.id)))
+      .map((g) => ({ id: g.id, role: g.role, principal: who(g.principal), target: on(g.target) })),
+    links: SHARING ? its.filter((b) => b.shareToken && !(b.shareExpires && b.shareExpires <= now))
+      .map((b) => ({ id: b.id, name: b.name, access: b.shareAccess, expiresAt: b.shareExpires || null })) : [],
+    presenting: [...presentations.values()].filter((p) => p.projectId === project.id && presentationFor(p.token))
+      .map((p) => ({ name: p.ownerName, live: !!p.live, access: p.access, expiresAt: p.expiresAt || null })),
+    ...(canEdit && {
+      users: store.users().map((u) => ({ email: u.email, name: u.name })),
+      groups: groups.map((g) => ({ id: g.id, name: g.name, members: g.members.length })),
+    }),
+  };
+}
+
+// Deletes a project and everything in it: its folders, its boards (kept out of sight, as any deleted board
+// is), and its catalogue with every version and what was said about them, its playlists, animatics and
+// links to present it, which are gone for good. Whoever has any of it open is let go.
+function deleteProject(project) {
+  const inside = [...folders.values()].filter((f) => isWithin(f.id, project.id));
+  const ids = new Set(inside.map((f) => f.id));
+  for (const board of [...boards.values()]) {
+    if (!ids.has(board.folderId)) continue;
+    clearTimeout(board.saveTimer);
+    board.saveTimer = null;
+    if (board.items) writeBoard(board);
+    store.deleteBoard(board.id);
+    boards.delete(board.id);
+    if (board.shareToken) shares.delete(board.shareToken);
+    for (const peer of board.peers.values()) peer.ws.close(4004, 'Board deleted');
+    store.removeGrantsOn('board', board.id);
+  }
+  for (const p of store.loosePlaylists()) if (ids.has(p.folderId)) store.deletePlaylist(p.id);
+  for (const [token, p] of presentations) {
+    if (p.projectId !== project.id) continue;
+    for (const ws of p.hosts) ws.close(4004, 'Project deleted');
+    for (const w of p.watchers) w.ws.close(4004, 'Project deleted');
+    presentations.delete(token);
+  }
+  store.deleteProject(project.id);
+  for (const f of inside) {
+    folders.delete(f.id);
+    store.removeGrantsOn('folder', f.id);
+  }
+  saveFolders();
 }
 
 // Moves a folder, everything below it and the boards in them to another workspace; it lands at the top level there.
@@ -1372,12 +1446,72 @@ function versionLabels() {
     return known.get(id);
   };
 }
-// A line of a project's Activity: a version filed, or a note written.
-const versionLine = (v, entity, label) => ({ kind: 'version', at: v.createdAt, by: v.createdBy, entity, version: { id: v.id, label: label(v.id), thumb: v.thumb, kind: v.kind } });
+// A line of a project's Activity: a version filed, a note written, a playlist or an animatic made.
+const versionLine = (v, entity, label) => ({ kind: 'version', id: v.id, at: v.createdAt, by: v.createdBy, entity, version: { id: v.id, label: label(v.id), thumb: v.thumb, kind: v.kind } });
 const noteLine = (n, entity, label) => ({
-  kind: 'note', at: n.createdAt, by: n.data.name || n.createdBy, color: n.data.color, entity,
+  kind: 'note', id: n.id, at: n.createdAt, by: n.data.name || n.createdBy, color: n.data.color, entity,
   version: { id: n.versionId, label: label(n.versionId) }, note: { id: n.id, text: String(n.data.text || '').slice(0, 300), reply: !!n.re },
 });
+const playlistLine = (p) => ({ kind: 'playlist', id: p.id, at: p.createdAt, by: p.createdBy, playlist: { id: p.id, name: p.name, count: p.versions.length } });
+const animaticLine = (a) => ({ kind: 'animatic', id: a.id, at: a.createdAt, by: a.createdBy, animatic: { id: a.id, name: a.name } });
+
+// The Activity is newest first, and lines made at the same moment go by their key: their kind's letter and id.
+// A page ends at a line, and the next starts after it (`before`: the cursor of the last line given).
+const lineKey = (x) => `${x.kind[0]}:${x.id}`;
+const newerFirst = (a, b) => b.at - a.at || (lineKey(a) > lineKey(b) ? -1 : lineKey(a) < lineKey(b) ? 1 : 0);
+const lineCursor = (x) => Buffer.from(JSON.stringify([x.at, lineKey(x)])).toString('base64url');
+function lineAfter(before) {
+  if (!before) return { at: Number.MAX_SAFE_INTEGER, key: '\uffff' };
+  try {
+    const [at, key] = JSON.parse(Buffer.from(before, 'base64url').toString('utf8'));
+    if (Number.isSafeInteger(at) && typeof key === 'string' && /^[anpv]:[\w-]+$/.test(key)) return { at, key };
+  } catch {
+    // not a page of this list
+  }
+  return null;
+}
+const comesAfter = (x, c) => x.at < c.at || (x.at === c.at && lineKey(x) < c.key);
+
+// Why a line of a project's Activity is for somebody (named `name`), or null: for them are other people's
+//   mention   comments naming them ("@Anna"), as in the bell (notifications.js)
+//   reply     replies in a thread they wrote in
+//   work      comments on a version they filed or that names them its artist, and playlists of their work
+//   artist    versions filed and comments written on what they make (the artists of an asset, set or shot)
+//   cc        and on what they are cc'd on
+// each line for the first of these that fits.
+function activityFor(name, entityById) {
+  const me = String(name).trim().toLowerCase();
+  const isMe = (n) => typeof n === 'string' && n.trim().toLowerCase() === me;
+  const follows = (entityId) => {
+    const e = entityById.get(entityId);
+    return e && e.artists.some(isMe) ? 'artist' : e && e.cc.some(isMe) ? 'cc' : null;
+  };
+  const threads = new Map();
+  const mine = new Map();
+  const filedByMe = (versionId) => {
+    if (!mine.has(versionId)) {
+      const v = store.version(versionId);
+      mine.set(versionId, !!v && (isMe(v.createdBy) || isMe(v.artist)));
+    }
+    return mine.get(versionId);
+  };
+  return (line, raw) => {
+    if (isMe(line.by)) return null;
+    if (line.kind === 'note') {
+      if (mentions(raw.data.text, name)) return 'mention';
+      const root = raw.re || raw.id;
+      if (raw.re) {
+        if (!threads.has(root)) threads.set(root, store.threadNames(root));
+        if (threads.get(root).has(me)) return 'reply';
+      }
+      if (isMe(raw.versionBy) || isMe(raw.versionArtist)) return 'work';
+      return follows(raw.entityId);
+    }
+    if (line.kind === 'version') return follows(raw.entityId);
+    if (line.kind === 'playlist') return raw.versions.some(filedByMe) ? 'work' : null;
+    return null;
+  };
+}
 
 // A page of a project's Versions: where the one before ended (`next` in its answer), or, as before,
 // a time (only versions filed before it). Undefined for something that is neither.
@@ -1863,22 +1997,66 @@ async function handleCatalogue(req, res, parts) {
       note(board, actor(req, body, 'Somebody'), 'add', list.length);
       return sendJson(res, 200, { board: { id: board.id, name: board.name }, placed: ops.map((o) => o.item.id) });
     }
-    // GET /api/projects/:id/activity   what happened in the project in the last two weeks, newest first:
-    // versions filed and comments written, on any of its assets, sets and shots (the project's home shows it).
+    // GET /api/projects/:id/activity   what happened in the project, newest first, from its start: versions
+    // filed, comments written on them, playlists and animatics made. A page at a time: `limit` lines (50
+    // unless said, 600 at most), `before` the cursor the page before ended at (its `next`), `since` a time
+    // to go back no further than (the project's home asks for two weeks). `for=me` keeps only what is for
+    // whoever asks (see activityFor; without sign-in, the person `name`), each line saying why.
     if (parts.length === 4 && parts[3] === 'activity' && req.method === 'GET') {
+      const q = new URL(req.url, 'http://x').searchParams;
+      // Comments are read from the database, so what is waiting to be written goes first.
+      flushAll();
+      const since = Math.max(0, Number(q.get('since')) || 0);
+      const limit = Math.min(600, Math.max(1, Math.floor(Number(q.get('limit'))) || 50));
+      let cursor = lineAfter(q.get('before'));
+      if (!cursor) return sendJson(res, 400, { error: 'Not a page of this activity' });
+      const forMe = q.get('for') === 'me';
+      const name = forMe ? (req.user ? req.user.name : cleanName(q.get('name'), null)) : null;
+      if (forMe && !name) return sendJson(res, 200, { items: [], more: false, next: null });
       const byId = new Map(store.entities(project.id).map((e) => [e.id, e]));
-      // Enough of two weeks to say what each person did, grouped (the project's home groups them).
-      const { versions, notes } = store.happenings([...byId.keys()], Date.now() - 14 * 24 * 3600 * 1000, 600);
       const about = (id) => {
         const e = byId.get(id);
         return { id: e.id, name: e.name, tier: e.tier, projectId: project.id, project: project.name };
       };
       const label = versionLabels();
-      const items = [
-        ...versions.map((v) => versionLine(v, about(v.entityId), label)),
-        ...notes.map((n) => noteLine(n, about(n.entityId), label)),
-      ].sort((a, b) => b.at - a.at).slice(0, 600);
-      return sendJson(res, 200, { items });
+      const why = forMe ? activityFor(name, byId) : null;
+      // Its playlists and animatics are few: all of them, each time. Versions and comments come in batches,
+      // from the cursor back, until the page is full (for somebody, many may be passed over) or there are no more.
+      const made = [
+        ...store.playlists(project.id).map((p) => ({ line: playlistLine(p), raw: p })),
+        ...store.animatics(project.id).map((a) => ({ line: animaticLine(a), raw: a })),
+      ].filter((x) => x.line.at >= since);
+      const BATCH = 200;
+      const items = [];
+      let more = true;
+      while (items.length < limit && more) {
+        const below = (k) => (k === cursor.key[0] ? cursor.key.slice(2) : k < cursor.key[0] ? '\uffff' : '');
+        const { versions, notes } = store.happenings(project.id, { upTo: cursor.at, since, limit: BATCH, versionBelow: below('v'), noteBelow: below('n') });
+        const lines = [
+          ...versions.map((v) => ({ line: versionLine(v, about(v.entityId), label), raw: v })),
+          ...notes.map((n) => ({ line: noteLine(n, about(n.entityId), label), raw: n })),
+          ...made.filter((x) => comesAfter(x.line, cursor)),
+        ].sort((a, b) => newerFirst(a.line, b.line));
+        // A full batch of either says nothing of what is older than its last: the lines are sure up to there.
+        const ends = [versions.length === BATCH && versions[BATCH - 1], notes.length === BATCH && notes[BATCH - 1]].filter(Boolean)
+          .map((x) => lines.findIndex((l) => l.raw === x));
+        more = ends.length > 0;
+        const sure = more ? lines.slice(0, Math.min(...ends) + 1) : lines;
+        for (const x of sure) {
+          if (why) {
+            const because = why(x.line, x.raw);
+            if (!because) continue;
+            x.line.why = because;
+          }
+          items.push(x.line);
+          if (items.length === limit) break;
+        }
+        if (sure.length) cursor = { at: sure[sure.length - 1].line.at, key: lineKey(sure[sure.length - 1].line) };
+      }
+      // Cut at the limit, the page ends at its last line; and there is more if anything was left after it.
+      const last = items[items.length - 1];
+      if (items.length === limit) more = true;
+      return sendJson(res, 200, { items, more, next: more && last ? lineCursor(last) : null });
     }
     // PATCH { ids, tier, artists: { add, remove, set }, cc: { add, remove, set }, names, tiers }: many at once. What is not
     // said of them is left as each has it; all or none are changed.
@@ -2946,6 +3124,7 @@ async function handleApi(req, res, url) {
       return sendJson(res, 201, publicFolder(folder));
     }
     const folder = visibleFolder(req.user, parts[2]) ? folders.get(parts[2]) : null;
+    if (parts.length === 4 && parts[3] === 'sharing' && folder && folder.project && req.method === 'GET') return sendJson(res, 200, projectSharing(folder, req));
     if (parts.length === 3 && folder) {
       if (req.method === 'PATCH') {
         const body = await readJson(req);
@@ -2994,8 +3173,12 @@ async function handleApi(req, res, url) {
       }
       if (req.method === 'DELETE') {
         // A project is where its catalogue lives: its versions and what was said about them. It is not
-        // dissolved into the folder above like a plain folder.
-        if (folder.project) return sendJson(res, 409, { error: 'A project cannot be deleted' });
+        // dissolved into the folder above like a plain folder: an admin deletes it whole.
+        if (folder.project) {
+          if (!admin.allows(req)) return sendJson(res, 403, { error: 'Only an admin can delete a project' });
+          deleteProject(folder);
+          return sendJson(res, 200, { ok: true });
+        }
         // Nothing inside is deleted: boards, playlists and subfolders move up one level.
         for (const f of folders.values()) if (f.parentId === folder.id) f.parentId = folder.parentId;
         for (const p of store.loosePlaylists()) if (p.folderId === folder.id) store.setPlaylist(p.id, { folderId: folder.parentId });

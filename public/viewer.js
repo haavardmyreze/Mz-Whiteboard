@@ -236,11 +236,13 @@ const WBViewer = (() => {
     const ICON = WB.iconSet(20);
     const d3Pct = el('span', { class: 'v-3dpct' });
     const d3Btn = el('button', { type: 'button', class: 'iconbtn v-3d-btn', html: ICON.cube, title, 'aria-label': '3D', 'aria-pressed': 'false', onclick: () => host.toggle(!host.isOn()) }, d3Pct);
-    const lookBtn = el('button', { type: 'button', class: 'iconbtn v-look-btn', html: ICON.settings, title: 'How the venue is drawn', 'aria-label': '3D view settings', 'aria-haspopup': 'menu', 'aria-expanded': 'false', hidden: true, onclick: () => lookMenu(lookBtn) });
-    const dims = el('span', { class: 'bar-group v-dims', hidden: true }, d3Btn, lookBtn);
+    const lookBtn = el('button', { type: 'button', class: 'iconbtn v-look-btn', html: ICON.shade, title: 'How the venue is drawn', 'aria-label': '3D view settings', 'aria-haspopup': 'menu', 'aria-expanded': 'false', onclick: () => lookMenu(lookBtn) });
+    const dims = el('span', { class: 'bar-group v-dims', hidden: true }, d3Btn);
     const camBtn = el('button', { type: 'button', class: 'iconbtn v-cam', html: ICON.focus, title: 'Look through the main camera. V goes on to the next camera', 'aria-label': 'Main camera', 'aria-pressed': 'false', onclick: () => look('main') });
     const camMore = el('button', { type: 'button', class: 'iconbtn v-cam-more', html: ICON.chevron, title: "The model's other cameras", 'aria-haspopup': 'menu', onclick: () => cameraMenu() });
-    const cams = el('span', { class: 'bar-group v-cams', hidden: true }, camBtn, camMore);
+    // What only the venue has (how it is drawn, its cameras) comes and goes with it. A host puts it at the far
+    // end of its controls from the switch, so nothing that is there in 2D moves when it comes.
+    const cams = el('span', { class: 'bar-group v-cams', hidden: true }, lookBtn, camBtn, camMore);
     const me = { host, freed: (on) => { host.onFree(on); paint(); } };
     const owns = () => lender === me && !!shared3d;
     const showing = () => host.isOn() && owns();
@@ -380,7 +382,6 @@ const WBViewer = (() => {
     function paint() {
       const on = showing();
       dims.hidden = !host.can();
-      lookBtn.hidden = !on;
       d3Btn.setAttribute('aria-pressed', String(host.isOn()));
       if (!d3Btn.disabled) d3Btn.title = host.isOn() ? back : title;
       cams.hidden = !on;
@@ -679,7 +680,7 @@ const WBViewer = (() => {
       el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' }), crumb,
       el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' }),
       el('span', { class: 'stepper' }, prevBtn, posEl, nextBtn),
-      nameEl, el('div', { class: 'spacer' }), clearBtn, venue3d.cams, filesBtn, extras, venue3d.dims,
+      nameEl, el('div', { class: 'spacer' }), venue3d.cams, clearBtn, filesBtn, extras, venue3d.dims,
       el('span', { class: 'bar-group' }, dlBtn, zoomBtn),
       WB.themeButton(), doneBtn);
     // On a phone there is no room for the panel's brush: the viewer's own few tools sit along the bottom.
@@ -1152,20 +1153,12 @@ const WBViewer = (() => {
     let pad = { t: 72, r: 40, b: 32, l: 132 };
     // Whether something fixed in place is on screen (offsetParent says nothing about those).
     const shown = (node) => !node.hidden && node.getClientRects().length > 0;
-    // Docked (`host.dock`), the player leaves the page's own bar and sidebar showing: it keeps the
-    // whole window to work in, and is cut away, seen and touched, where they are.
-    const dockedBy = () => {
-      if (!root.classList.contains('docked')) return { l: 0, t: 0 };
-      const cs = getComputedStyle(root);
-      return { l: parseFloat(cs.getPropertyValue('--dock-l')) || 0, t: parseFloat(cs.getPropertyValue('--dock-t')) || 0 };
-    };
     function layout() {
       const below = timeline.hidden ? 0 : timeline.offsetHeight + 12;
       const top = bar.offsetHeight || 48;
-      const d = dockedBy();
       pad = narrow()
-        ? { t: d.t + top + 16, r: 12, b: bottomChrome() + 12, l: d.l + 12 }
-        : { t: d.t + top + 24, r: (panel.hidden ? 0 : panel.offsetWidth) + 40, b: 32 + below, l: d.l + (filmOff || !shown(film) ? 0 : film.offsetWidth) + 40 };
+        ? { t: top + 16, r: 12, b: bottomChrome() + 12, l: 12 }
+        : { t: top + 24, r: (panel.hidden ? 0 : panel.offsetWidth) + 40, b: 32 + below, l: (filmOff || !shown(film) ? 0 : film.offsetWidth) + 40 };
     }
     function bottomChrome() {
       const tops = [timeline, tools].filter(shown).map((n) => n.getBoundingClientRect().top);
@@ -2537,22 +2530,17 @@ const WBViewer = (() => {
     // In the viewer each key means one thing: the arrows go to the next or previous piece, `,` and `.` step
     // a frame (with Shift, a second), Space or K plays and pauses, M is the sound. Keys the viewer has no
     // use for are left to the page.
-    const { isTyping } = WB;
-    // Space plays even when a control clicked a moment ago (a dropdown in the bar, a button or a link in the
-    // page's sidebar beside a docked player) still has the keyboard: it lets go, and the player takes the key.
-    // Only somewhere text is typed, a dialog or a menu keeps Space.
-    const heldControl = (t) => t instanceof Element && t.matches('select, button, a[href], input[type="checkbox"], input[type="radio"], input[type="range"]')
-      && !t.closest('dialog, .wb-menu, .notices, [role="menu"], [role="dialog"]');
+    // Space plays even when a control clicked a moment ago (a dropdown in the bar, a button) still has the
+    // keyboard (WB.heldControl).
+    const { isTyping, heldControl } = WB;
     window.addEventListener('keydown', (e) => {
       let released = false;
       if (open && e.code === 'Space' && !e.ctrlKey && !e.metaKey && !e.altKey && heldControl(e.target) && !document.querySelector('dialog[open]')
-        && (root.contains(e.target) || root.classList.contains('docked'))) {
+        && root.contains(e.target)) {
         e.target.blur();
         released = true;
       }
       if (!open || (!released && isTyping(e.target)) || document.querySelector('dialog[open]')) return;
-      // Docked beside the page's own sidebar and bar, what has the keyboard there keeps its keys.
-      if (!released && root.classList.contains('docked') && e.target instanceof Element && e.target !== document.body && !root.contains(e.target)) return;
       const k = e.key.toLowerCase();
       // Following somebody who presents, only what is this screen's own is in reach: the sound, and the
       // strip and the comments put away or back. Everything else is theirs to do.
@@ -2576,13 +2564,12 @@ const WBViewer = (() => {
       // Enter works a button that has the keyboard; Space always plays and pauses, even when a button
       // clicked a moment ago still has it.
       if (k === 'enter' && e.target.closest && e.target.closest('button, a[href], input')) return;
-      // A button clicked a moment ago still has the keyboard, and a key press makes the browser ring it in
-      // blue. A key the player takes is the player's, so the button lets go of it.
+      // A key the player takes is the player's, so whatever was clicked a moment ago lets go of it rather
+      // than being rung in blue (even the card behind the player that opened it).
       const done = () => {
         e.preventDefault();
         e.stopImmediatePropagation();
-        const held = document.activeElement;
-        if (held && held !== document.body && root.contains(held) && held.matches('button, a[href]')) held.blur();
+        WB.letGo();
       };
       if (e.code === 'Space') {
         if (!spaceDown) {
@@ -2664,7 +2651,6 @@ const WBViewer = (() => {
         close();
         setHost(next);
         paintDims();
-        root.classList.toggle('docked', !!next.dock);
         root.classList.toggle('locked', !!next.locked);
         // Following somebody who presents, the corner is no way out.
         if (next.locked) brand.removeAttribute('href');
@@ -2867,7 +2853,7 @@ const WBViewer = (() => {
   // counts the groups not at their default, and its tip says what each is at.
   function optionsButton(groups, { title = 'What to show' } = {}) {
     const count = el('span', { class: 'v-opts-n', hidden: true });
-    const btn = el('button', { class: 'iconbtn v-opts', html: ICON.settings, 'aria-haspopup': 'menu', 'aria-label': title }, count);
+    const btn = el('button', { class: 'iconbtn v-opts', html: ICON.pick, 'aria-haspopup': 'menu', 'aria-label': title }, count);
     const shown = () => groups().filter((g) => g.options.length > 1);
     const labelOf = (g) => (g.options.find(([v]) => v === g.value) || [null, ''])[1];
     function paint() {
@@ -2995,10 +2981,10 @@ const WBViewer = (() => {
   // Opens the versions of one entity of a project's catalogue in a player, at `version` (or the newest).
   // What is said about them is live: everyone who has the entity open, here or on any board a version is
   // on, sees it as it is written, and what is written here is there on those boards.
-  // `title` is where the entity is (its project), for the bar; `dock` keeps a page's own bar and sidebar.
+  // `title` is where the entity is (its project), for the bar.
   // Somebody watching a presentation (watch.js) has it `follow`ed instead: { page, view, room } (the entity
   // as the link gives it, the view the presenter shows, and where the notes come from); nothing is theirs to do.
-  async function openEntity(viewer, entityId, { version = null, me, title = null, dock = false, onClose = () => {}, follow = null } = {}) {
+  async function openEntity(viewer, entityId, { version = null, me, title = null, onClose = () => {}, follow = null } = {}) {
     const page = follow ? follow.page : await WB.api('GET', `/api/entities/${entityId}`);
     const versions = page.versions.filter((v) => !v.hidden || v.id === version);
     if (!versions.length) throw new Error('There is nothing filed under it yet');
@@ -3037,7 +3023,6 @@ const WBViewer = (() => {
     });
     viewer.use({
       me: () => me,
-      dock,
       locked: !!follow,
       title: () => (title ? `${title} · ${page.entity.name}` : page.entity.name),
       media: () => pieces,
@@ -3078,7 +3063,7 @@ const WBViewer = (() => {
   // room of the entity it is a version of, so what is said here is said wherever that entity is open.
   // `load(in3d)` gives the pieces, each with its `entityId`: seen on the venue in 3D (`view3d`, the project's
   // model), they may be other files of the same versions.
-  async function openPlaylist(viewer, { load, me, title, dock = false, at = null, view3d = null, onClose = () => {} }) {
+  async function openPlaylist(viewer, { load, me, title, at = null, view3d = null, onClose = () => {} }) {
     let pieces = await load(false);
     if (!pieces.length) throw new Error('There is nothing in it to play yet');
     let notes = [];
@@ -3111,7 +3096,6 @@ const WBViewer = (() => {
       return room;
     };
     viewer.use({
-      dock,
       me: () => me,
       title,
       media: () => pieces,

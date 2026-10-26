@@ -176,7 +176,8 @@ switch), as the player's controls are over its piece; the project's shots are do
 the shot on screen down the right. Under them is the timeline's bar (`an-bar`): its tools and snapping on the
 left, playing in the middle (the time, a frame back, play, a frame on, loop), and how the timeline is drawn on
 the right (compact tracks, the strip, all of it). Then the timeline: track heads on the left, a ruler, and the
-tracks drawn on one canvas on a dark bed, in both themes.
+tracks drawn on one canvas on the page's own ground, in the page's theme; a clip's name over its pictures is
+white on a shade in both.
 
 - **The library** lists the project's shots, by sequence, and the sound files brought in (`doc.sounds`, kept by
   the server with every sound on a track among them). A shot or a sound is carried onto the timeline with the

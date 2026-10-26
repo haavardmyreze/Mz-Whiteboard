@@ -3001,9 +3001,9 @@ body.spectating #topbar .brand { pointer-events: none; }
    Its page takes the whole window under the bar, edge to edge, as a board does: where it is goes in the bar
    (#barpath), and the page has no heading. The edit plays in the middle under a bar of how it is seen, the shots
    to put on it are down its left and what is said about the shot on screen down its right; under them the
-   timeline's bar (its tools, playing, how it is drawn), and the timeline. The timeline is drawn (animatic.js) on
-   the dark bed the Timeline's close-up has, in both themes. The panels are the page's own black, told apart by a
-   hairline where they meet and by nothing more, so the picture and the clips are what is bright. */
+   timeline's bar (its tools, playing, how it is drawn), and the timeline, drawn (animatic.js) on the page's own
+   ground in either theme. The panels are the page's ground too, told apart by a hairline where they meet and by
+   nothing more, so the picture and the clips are what stand out. */
 body.an-on main { display: flex; flex-direction: column; height: calc(100dvh - var(--bar)); padding: 0; }
 body.an-on .page-head, body.an-on .home-head .search, body.an-on .search-toggle, body.an-on .wm-by { display: none; }
 .bar-path { flex: 0 1 auto; display: flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }

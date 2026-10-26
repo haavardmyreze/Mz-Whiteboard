@@ -33,11 +33,15 @@ const WBAnimatic = (() => {
   const SAVE_AFTER = 500;
   const PULL_EVERY = 15000;
   const AUDIO_EXT = /\.(wav|mp3|m4a|aac|ogg|oga|opus|flac)$/i;
-  // The timeline is a dark bed in both themes, so pictures read the same on it: the
-  // page's own black (style.css --bg), the tracks a shade over it, and a clip its pictures.
-  const BED = '#090909';
-  const LANE_BG = '#101010';
-  const CLIP_BG = '#181818';
+  // The timeline is drawn in the page's theme: its bed the page's own ground (style.css --bg), the tracks a shade
+  // off it, a clip its pictures, and the marks on it (the ruler, a sound's shape, what is short) in the page's
+  // ink. What lies over a picture (its name on a shade, its fades, its loops) is white on dark in both, as it is
+  // over any picture.
+  const PAINT = {
+    dark: { bed: '#090909', lane: '#101010', clip: '#181818', slate: '#242424', ink: '255, 255, 255', past: 'rgba(0, 0, 0, 0.4)', quiet: 'rgba(0, 0, 0, 0.35)' },
+    light: { bed: '#f0f0f0', lane: '#e7e7e7', clip: '#d9d9d9', slate: '#c9c9c9', ink: '0, 0, 0', past: 'rgba(0, 0, 0, 0.04)', quiet: 'rgba(240, 240, 240, 0.6)' },
+  };
+  const paint = () => PAINT[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];
   const TEXT = '#f2f2f2';
   const QUIET = 'rgba(255, 255, 255, 0.6)';
   const FONT = (w, px) => `${w} ${px}px Inter, system-ui, sans-serif`;
@@ -1186,6 +1190,9 @@ const WBAnimatic = (() => {
     let ppf = 2;
     let rows = []; // { track, y, h }
     let accentNow = '#5ba0fa';
+    // The theme's colours for this drawing (PAINT), and its ink at a strength.
+    let P = PAINT.dark;
+    const ink = (a) => `rgba(${P.ink}, ${a})`;
     const xOf = (f) => f * ppf - scroller.scrollLeft;
     const fAt = (x) => (x + scroller.scrollLeft) / ppf;
     const yOf = (row) => RULER + row.y - scroller.scrollTop;
@@ -1273,24 +1280,25 @@ const WBAnimatic = (() => {
       if (!doc || !W || !H) return;
       const ctx = cv.getContext('2d');
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = BED;
+      P = paint();
+      ctx.fillStyle = P.bed;
       ctx.fillRect(0, 0, W, H);
       const accent = cssVar('--accent') || '#5ba0fa';
       accentNow = accent;
       const end = endFrame();
-      // The tracks, a shade over the bed; past the end of the edit, darker.
+      // The tracks, a shade off the bed, and quieter when hidden or muted; past the end of the edit, darker.
       rows.forEach((r) => {
         const y = yOf(r);
         if (y > H || y + r.h < RULER) return;
-        ctx.fillStyle = LANE_BG;
+        ctx.fillStyle = P.lane;
         ctx.fillRect(0, y, W, r.h);
         if ((r.track.mute && r.track.kind === 'audio') || r.track.hide) {
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+          ctx.fillStyle = P.quiet;
           ctx.fillRect(0, y, W, r.h);
         }
       });
       if (xOf(end) < W) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.fillStyle = P.past;
         ctx.fillRect(Math.max(0, xOf(end)), RULER, W, H);
       }
       const want = [];
@@ -1355,7 +1363,7 @@ const WBAnimatic = (() => {
       if (tool === 'blade' && bladeAt) {
         const bx = Math.round(xOf(bladeAt.f)) + 0.5;
         const rows2 = bladeAt.all ? rows : rows.filter((r) => r.track.id === bladeAt.track);
-        ctx.fillStyle = TEXT;
+        ctx.fillStyle = ink(0.9);
         for (const r of rows2) ctx.fillRect(bx - 0.5, yOf(r), 1, r.h);
       }
       drawRuler(ctx);
@@ -1392,9 +1400,9 @@ const WBAnimatic = (() => {
       return `${V.fmtTime(f / doc.fps)}:${String(Math.round(f) % base).padStart(2, '0')}`;
     }
     function drawRuler(ctx) {
-      ctx.fillStyle = BED;
+      ctx.fillStyle = P.bed;
       ctx.fillRect(0, 0, W, RULER);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+      ctx.fillStyle = ink(0.08);
       ctx.fillRect(0, RULER - 1, W, 1);
       const fps = doc.fps;
       // A labelled mark at least seventy pixels apart, at a step an editor would count in. A second is the
@@ -1408,7 +1416,7 @@ const WBAnimatic = (() => {
       ctx.font = FONT(500, 10);
       ctx.textBaseline = 'alphabetic';
       if (small) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
+        ctx.fillStyle = ink(0.16);
         for (let k = Math.max(0, Math.floor(fAt(0) / small)); k * small <= f1; k++) {
           ctx.fillRect(Math.round(xOf(k * small)), RULER - 5, 1, 4);
         }
@@ -1417,9 +1425,9 @@ const WBAnimatic = (() => {
       for (let k = Math.max(0, Math.floor(fAt(0) / big)); k * big <= f1; k++) {
         const f = k * big;
         const x = Math.round(xOf(f));
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.fillStyle = ink(0.3);
         ctx.fillRect(x, RULER - 10, 1, 9);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.fillStyle = ink(0.55);
         ctx.fillText(rulerLabel(f, big), x + 4, 12);
       }
     }
@@ -1453,7 +1461,7 @@ const WBAnimatic = (() => {
         ctx.beginPath();
         ctx.rect(x0 + seam, y, xf - x0 - 2 * seam, h);
         ctx.clip();
-        ctx.fillStyle = CLIP_BG;
+        ctx.fillStyle = P.clip;
         ctx.fillRect(left, y, right - left, h);
         if (c.media) drawWave(ctx, c, x0, y, h, left, right, compact ? 0.22 : 0.4);
         else drawPictures(ctx, c, length, x0, y, h, left, right, want);
@@ -1469,7 +1477,7 @@ const WBAnimatic = (() => {
       }
       // What a short version leaves of it: its outline only, and how short it came up.
       if (xf < x1 - 1) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.strokeStyle = ink(0.3);
         ctx.setLineDash([3, 3]);
         ctx.lineWidth = 1;
         ctx.strokeRect(Math.max(xf, -2) + 0.5, y + 0.5, Math.min(x1, W + 2) - Math.max(xf, -2) - 1, h - 1);
@@ -1478,7 +1486,7 @@ const WBAnimatic = (() => {
         const text = own ? `${short} ${short === 1 ? 'frame' : 'frames'} short` : 'nothing to play from here';
         ctx.font = FONT(400, 10);
         if (ctx.measureText(text).width + 12 < x1 - xf) {
-          ctx.fillStyle = QUIET;
+          ctx.fillStyle = ink(0.6);
           ctx.fillText(text, Math.max(xf, 0) + 6, y + h / 2 + 4);
         }
       }
@@ -1529,7 +1537,7 @@ const WBAnimatic = (() => {
       const look = lookOf(c);
       if (!look) {
         // Nothing filed: a slate's stripes.
-        ctx.strokeStyle = '#242424';
+        ctx.strokeStyle = P.slate;
         ctx.lineWidth = 6;
         for (let x = Math.floor(left / 14) * 14 - h; x < right + h; x += 14) {
           ctx.beginPath();
@@ -1574,12 +1582,12 @@ const WBAnimatic = (() => {
       const s = sounds.get(c.media);
       const mid = y + h / 2;
       if (!s || !s.peaks) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+        ctx.fillStyle = ink(0.12);
         ctx.fillRect(left, mid, right - left, 1);
         return;
       }
       const per = 100 / doc.fps; // peaks a frame
-      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.fillStyle = ink(alpha);
       for (let x = Math.floor(left); x < right; x++) {
         const fa = c.in + (x - x0) / ppf;
         const fb = c.in + (x + 1 - x0) / ppf;
@@ -1626,11 +1634,14 @@ const WBAnimatic = (() => {
       }
     }
 
-    // What its name is read against: a shade deepening to the foot of it, under the line of its name; compact,
-    // where the name runs over the middle, a veil over all of a picture (a sound's shape is faint enough).
+    // Whether a clip shows pictures (a shot with something filed), which its name is set over in white on a shade;
+    // a sound, or a shot with nothing filed, has its name in the page's ink with nothing under it.
+    const onPicture = (c) => !c.media && !!lookOf(c);
+    // What its name is read against, over a picture: a shade deepening to the foot of it, under the line of its
+    // name; compact, where the name runs over the middle, a veil over all of it.
     function drawVeil(ctx, c, left, right, y, h) {
+      if (!onPicture(c)) return;
       if (compact) {
-        if (c.media) return;
         ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
         ctx.fillRect(left, y, right - left, h);
         return;
@@ -1654,7 +1665,7 @@ const WBAnimatic = (() => {
       const cx = Math.min(xf, W) - 10;
       const cy = nameLine(y, h) - 3.5;
       ctx.save();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.strokeStyle = onPicture(c) ? 'rgba(255, 255, 255, 0.6)' : ink(0.6);
       ctx.lineWidth = 1.3;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -1709,10 +1720,11 @@ const WBAnimatic = (() => {
       // Held at the left of the timeline while the rest of the clip is still in sight.
       const tx = clamp(Math.max(x0, 0) + 6, x0 + 6, Math.max(x0 + 6, xf - nw - rw - 6));
       const base = nameLine(y, h);
-      ctx.fillStyle = TEXT;
+      const pic = onPicture(c);
+      ctx.fillStyle = pic ? TEXT : ink(0.9);
       ctx.fillText(name, tx, base);
       if (rest) {
-        ctx.fillStyle = QUIET;
+        ctx.fillStyle = pic ? QUIET : ink(0.55);
         ctx.font = FONT(400, 11);
         ctx.fillText(rest, tx + nw + 6, base);
       }
@@ -2421,6 +2433,8 @@ const WBAnimatic = (() => {
       paintNotes();
     };
     window.addEventListener('wb:timemode', onTimeMode);
+    // The theme changed: the timeline is drawn again in its colours.
+    window.addEventListener('wb:theme', draw);
 
     // Dragging the line between the picture and the timeline gives either more room; kept for next time.
     grip.addEventListener('pointerdown', (e) => {
@@ -2558,7 +2572,8 @@ const WBAnimatic = (() => {
       if (!SW || !SH) return;
       const ctx = strip.getContext('2d');
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = BED;
+      P = paint();
+      ctx.fillStyle = P.bed;
       ctx.fillRect(0, 0, SW, SH);
       const end = Math.max(1, endFrame());
       const x = (f) => (f / end) * SW;
@@ -2567,7 +2582,7 @@ const WBAnimatic = (() => {
       order.forEach((t, i) => {
         if (i && t.kind === 'audio' && order[i - 1].kind === 'video') y += STRIP.split;
         const quiet = t.kind === 'video' ? t.hide : t.mute;
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
+        ctx.fillStyle = ink(0.04);
         ctx.fillRect(0, y, SW, STRIP.line);
         for (const c of C.onTrack(doc, t.id)) {
           const x0 = x(c.start);
@@ -2575,16 +2590,16 @@ const WBAnimatic = (() => {
           const x1 = x(C.clipEnd(c));
           const w = Math.max(1, x1 - x0 - 1);
           // What a short version leaves of the clip is fainter, as the timeline outlines it.
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+          ctx.fillStyle = ink(0.1);
           ctx.fillRect(x0, y, w, STRIP.line);
           ctx.fillStyle = c.label ? WBInk.tone(c.label, quiet ? 0.35 : 0.6, 0.135, [0.3, 0.5])
-            : quiet ? 'rgba(255, 255, 255, 0.2)' : t.kind === 'video' ? 'rgba(255, 255, 255, 0.62)' : 'rgba(255, 255, 255, 0.38)';
+            : quiet ? ink(0.2) : t.kind === 'video' ? ink(0.62) : ink(0.38);
           ctx.fillRect(x0, y, Math.max(1, Math.min(w, xf - x0)), STRIP.line);
         }
         y += STRIP.line + STRIP.gap;
       });
       const px = Math.round(x(ph));
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.fillStyle = P.bed;
       ctx.fillRect(px - 1.5, 0, 3, SH);
       ctx.fillStyle = accentNow;
       ctx.fillRect(px - 0.5, 0, 1.5, SH);
@@ -2838,6 +2853,7 @@ const WBAnimatic = (() => {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('wb:timemode', onTimeMode);
+      window.removeEventListener('wb:theme', draw);
       watch.disconnect();
       watchStrip.disconnect();
       stopFrames();

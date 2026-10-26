@@ -614,10 +614,6 @@ const WBViewer = (() => {
         }
       }
     };
-    // A run (`host.run`): the pieces are shots in order, played through one after another like an edit, with
-    // a strip of them all under the picture in place of the side strip. Stills are held a few seconds.
-    const runMode = () => !!opts.run;
-    const STILL = 3;
     setHost(first);
     const me = () => opts.me();
 
@@ -636,9 +632,7 @@ const WBViewer = (() => {
     const pieceBox = el('div', { class: 'v-piece' });
     const ink = svgEl('svg', { class: 'v-ink' });
     const laserCanvas = el('canvas', { class: 'v-laser' });
-    // In a run: which shot is on screen, and which version of it, over the picture.
-    const runCap = el('div', { class: 'v-runcap', hidden: true });
-    const stage = el('div', { class: 'v-stage' }, pieceBox, laserCanvas, runCap);
+    const stage = el('div', { class: 'v-stage' }, pieceBox, laserCanvas);
     const nameEl = el('span', { class: 'v-name' });
     const posEl = el('span', { class: 'v-pos' });
     const prevBtn = el('button', { class: 'iconbtn', html: ICON.prev, title: 'Previous (←)', onclick: () => step(-1) });
@@ -690,9 +684,7 @@ const WBViewer = (() => {
       WB.themeButton(), doneBtn);
     // On a phone there is no room for the panel's brush: the viewer's own few tools sit along the bottom.
     const tools = el('nav', { class: 'chrome v-tools' });
-    // The next shot of a run waits here, loaded and on its first frame, to take over at the cut.
-    const spareBox = el('div', { class: 'v-spare', 'aria-hidden': 'true' });
-    const root = el('div', { class: `viewer${opts.run ? ' run' : ''}${opts.locked ? ' locked' : ''}`, hidden: true }, stage, bar, film, filmTab, filmGrip, timeline, panel, cpTab, tools, spareBox);
+    const root = el('div', { class: `viewer${opts.locked ? ' locked' : ''}`, hidden: true }, stage, bar, film, filmTab, filmGrip, timeline, panel, cpTab, tools);
     if (opts.locked) brand.removeAttribute('href');
     document.body.append(root);
 
@@ -746,7 +738,6 @@ const WBViewer = (() => {
     function readHost() {
       pieces = (opts.media() || []).filter((p) => p && (p.type === 'image' || p.type === 'video')).map(withFile);
       notes = can.read() ? (opts.notes() || []) : [];
-      if (runMode()) layoutRun();
     }
 
     // ---- a version's extras
@@ -755,13 +746,13 @@ const WBViewer = (() => {
     // (full-size stills, another lighting), each `ex`, its label ('' for the version's own). One of them is
     // shown in the piece's place, chosen in the strip (where they are listed under the piece while it is
     // open) or with [ and ]; the piece's own until then. What is said on one is said on it (`ex` on a
-    // comment), so each has its own comments and drawings. A run plays each shot's own file only.
+    // comment), so each has its own comments and drawings.
     const shownFile = new Map(); // piece id -> the `ex` of the file shown in its place
     const FILE_KEYS = [...MEDIA_KEYS, 'lo', 'full', 'shownView'];
     const filesOf = (p) => (p.files && p.files.length > 1 ? p.files
       : p.extras && p.extras.length ? [{ ex: '' }, ...p.extras.map((x) => ({ ...x, ex: x.label }))] : null);
     function withFile(p) {
-      const files = runMode() ? null : filesOf(p);
+      const files = filesOf(p);
       if (!files) return p;
       const own = p.ex || '';
       const want = shownFile.has(p.id) ? shownFile.get(p.id) : own;
@@ -833,136 +824,6 @@ const WBViewer = (() => {
       showFile(list[(((i + dir) % list.length) + list.length) % list.length]);
     }
 
-    // ---- a run: where each shot starts and how long it is
-    let runClips = [];     // { id, start, dur, piece }
-    let runTotal = 0;
-    let runPlaying = false;
-    let runErrors = 0; // shots in a row that would not play
-    let spare = null;      // { id, video }: the next shot, loaded
-    let stillAt = 0;       // how long a still has been showing, in a run
-    let stillRaf = 0;
-    const measured = new Map();
-    function layoutRun() {
-      let at = 0;
-      runClips = pieces.map((p) => {
-        const dur = p.type === 'video' ? (p.dur > 0 ? p.dur : measured.get(p.id) || 4) : STILL;
-        const c = { id: p.id, start: at, dur, piece: p };
-        at += dur;
-        return c;
-      });
-      runTotal = at;
-      // A video whose length was not recorded is measured, and the run laid out again with it.
-      for (const p of pieces) {
-        if (p.type !== 'video' || p.dur > 0 || measured.has(p.id)) continue;
-        measured.set(p.id, 4);
-        const probe = el('video', { preload: 'metadata', src: p.src });
-        probe.addEventListener('error', () => {
-          probe.removeAttribute('src');
-          probe.load();
-        });
-        probe.addEventListener('loadedmetadata', () => {
-          if (probe.duration > 0 && isFinite(probe.duration)) measured.set(p.id, probe.duration);
-          probe.removeAttribute('src');
-          probe.load();
-          if (open && runMode()) {
-            layoutRun();
-            paintRun(true);
-            syncTimeline();
-          }
-        }, { once: true });
-      }
-    }
-    const clipOf = (id) => runClips.find((c) => c.id === id) || null;
-    const runAt = () => {
-      const c = open && clipOf(open.id);
-      if (!c) return 0;
-      const video = videoOpen();
-      return c.start + (video ? whereOf(video) : stillAt);
-    };
-    // The next shot is loaded while this one plays, so the cut to it is clean.
-    function prepareSpare() {
-      const i = runClips.findIndex((c) => c.id === open.id);
-      // The shots after this one are kept on this computer ahead of the cut to them (media.js).
-      const coming = [...runClips.slice(i), ...(looping ? runClips.slice(0, i) : [])].slice(0, 6);
-      WB.media.want('run', coming.filter((c) => c.piece.type === 'video').map((c) => c.piece.src), { rank: WB.media.RANK.run, hold: true });
-      const next = runClips[i + 1] || (looping ? runClips[0] : null);
-      if (spare && (!next || spare.id !== next.id || spare.src !== next.piece.src)) dropSpare();
-      if (!next || next.piece.type !== 'video' || next.id === open.id || spare) return;
-      const video = makeVideo(next.piece);
-      video.muted = !!(videoOpen() && videoOpen().muted);
-      spare = { id: next.id, src: next.piece.src, video };
-      spareBox.replaceChildren(video);
-    }
-    function dropSpare() {
-      if (!spare) return;
-      spare.video.removeAttribute('src');
-      spare.video.load();
-      spare.video.remove();
-      spare = null;
-    }
-    // On to the next shot, at its start; round to the first at the end, if looping.
-    function runOn() {
-      if (!runMode() || !runPlaying || !open) return;
-      const i = runClips.findIndex((c) => c.id === open.id);
-      let next = runClips[i + 1];
-      if (!next) {
-        if (!looping) {
-          runPlaying = false;
-          syncTimeline();
-          return;
-        }
-        next = runClips[0];
-      }
-      if (next.id === open.id) {
-        const v = videoOpen();
-        if (v) goTo(v, 0);
-        stillAt = 0;
-        playOpen();
-        return;
-      }
-      show(next.id);
-    }
-    function playOpen() {
-      const video = videoOpen();
-      cancelAnimationFrame(stillRaf);
-      // A browser that will not play it (no sound allowed yet, say) stops the run rather than leaving
-      // it saying it plays.
-      if (video) {
-        return void video.play().catch(() => {
-          if (videoOpen() !== video) return;
-          runPlaying = false;
-          syncTimeline();
-        });
-      }
-      let last = performance.now();
-      const tick = (now) => {
-        if (!runPlaying || !open || videoOpen()) return;
-        stillAt += (now - last) / 1000;
-        last = now;
-        if (stillAt >= STILL) {
-          stillAt = 0;
-          runOn();
-          return;
-        }
-        syncTimeline();
-        stillRaf = requestAnimationFrame(tick);
-      };
-      stillRaf = requestAnimationFrame(tick);
-    }
-    // Moves the run to a moment of it: the shot there opens, on that moment.
-    function runSeek(t) {
-      if (!runClips.length) return;
-      t = clamp(t, 0, Math.max(0, runTotal - 0.001));
-      let c = runClips[0];
-      for (const x of runClips) if (t >= x.start) c = x;
-      if (!open || open.id !== c.id) show(c.id);
-      const local = t - c.start;
-      const video = videoOpen();
-      if (video) goTo(video, Math.min(local, c.dur));
-      else stillAt = Math.min(local, STILL - 0.01);
-      syncTimeline();
-    }
-
     // `followed` is true when it opens because the person being followed opened it.
     function show(id, { followed = false, thread = null } = {}) {
       // A thread picked is shown on the file of the piece it was written on.
@@ -999,14 +860,9 @@ const WBViewer = (() => {
       paintDims();
       warm3d();
       document.body.classList.toggle('focus-video', piece.type === 'video');
-      if (runMode() && (!was || was.id !== id)) {
-        stillAt = 0;
-        prepareSpare();
-      }
       paintAll();
       layout();
       fit();
-      if (runMode() && runPlaying && (!was || was.id !== id)) playOpen();
       if (thread) pickThread(thread);
       if (opts.onOpen) opts.onOpen(id);
       emit('open', id);
@@ -1016,7 +872,6 @@ const WBViewer = (() => {
     function close() {
       if (!open) return;
       remember3d();
-      WB.media.want('run', []);
       const was = open;
       leavePiece(was);
       switchTyped(was.id, null);
@@ -1028,10 +883,6 @@ const WBViewer = (() => {
       unload(media);
       media = null;
       pieceBox.replaceChildren();
-      runPlaying = false;
-      cancelAnimationFrame(stillRaf);
-      dropSpare();
-      cut.show(false);
       if (three) {
         three.stop();
         three.canvas.remove();
@@ -1068,16 +919,10 @@ const WBViewer = (() => {
       const old = media;
       fullRes.delete(piece.id);
       if (piece.type === 'video') {
-        let video;
-        if (spare && spare.id === piece.id && spare.src === piece.src) {
-          video = spare.video;
-          spare = null;
-        } else video = makeVideo(piece);
-        media = video;
+        media = makeVideo(piece);
         // Open, it is scrubbed and stepped through: worth having all of it. Held back a moment so stepping
-        // quickly past videos does not start fetching every one of them. A run playing through is not
-        // switched over mid-shot (that would jump back a moment at each cut): it is had whole once paused.
-        if (!(runMode() && runPlaying)) wholeTimer = setTimeout(() => holdWhole(piece), 300);
+        // quickly past videos does not start fetching every one of them.
+        wholeTimer = setTimeout(() => holdWhole(piece), 300);
       } else {
         media = el('img', { alt: piece.name || '', draggable: 'false', decoding: 'async', src: piece.prev || piece.src });
       }
@@ -1177,28 +1022,13 @@ const WBViewer = (() => {
     function makeVideo(piece) {
       const video = el('video', { playsinline: '', preload: 'auto' });
       video.muted = !soundWanted;
-      // In a run, the run loops, not the shot.
-      video.loop = looping && !runMode();
+      video.loop = looping;
       if (piece.poster || piece.th) video.poster = piece.poster || piece.th;
       video.src = piece.src;
       const mine = () => media === video;
       for (const type of ['timeupdate', 'seeked', 'loadedmetadata', 'durationchange']) video.addEventListener(type, () => { if (!mine()) return; syncTimeline(); if (type !== 'timeupdate') { paintMarks(); paintInk(); } });
       for (const type of ['progress', 'suspend']) video.addEventListener(type, () => { if (mine()) syncLoaded(); });
       for (const type of ['play', 'pause', 'volumechange']) video.addEventListener(type, () => { if (!mine()) return; syncTimeline(); paintInk(); });
-      video.addEventListener('ended', () => { if (mine()) runOn(); });
-      // A shot that cannot be played (gone, not allowed, a format this browser lacks) is passed over in a
-      // run playing through, as long as some shot still plays.
-      video.addEventListener('error', () => {
-        if (!mine() || !runMode() || !runPlaying) return;
-        if (++runErrors >= runClips.length) {
-          runErrors = 0;
-          runPlaying = false;
-          syncTimeline();
-          return;
-        }
-        runOn();
-      });
-      video.addEventListener('playing', () => { runErrors = 0; });
       const onFrame = (now, meta) => {
         if (!mine()) return;
         syncTimeline(video.duration > 0 && isFinite(video.duration) ? meta.mediaTime % video.duration : meta.mediaTime);
@@ -1276,13 +1106,7 @@ const WBViewer = (() => {
           layout();
           fit();
           const video = videoOpen();
-          if (video && keepAt != null) {
-            video.addEventListener('loadedmetadata', () => {
-              goTo(video, keepAt);
-              if (runMode() && runPlaying && media === video) playOpen();
-            }, { once: true });
-          } else if (runMode() && runPlaying) playOpen();
-          if (runMode()) prepareSpare();
+          if (video && keepAt != null) video.addEventListener('loadedmetadata', () => goTo(video, keepAt), { once: true });
         } else {
           open = now;
         }
@@ -1292,32 +1116,25 @@ const WBViewer = (() => {
       });
     }
 
-    // A run's shot is its name; its version is the rest of its label ("anim v3"), or that it has none.
-    const versionPart = (p) => (p.empty ? 'nothing filed yet' : (p.label || '').startsWith(`${p.name} `) ? p.label.slice(p.name.length + 1) : p.label || '');
     function paintAll() {
       if (!open) return;
       // Shown one of several ways: which, since a shot without the view chosen shows its main one. An
       // extra shown is said by its label.
       const way = open.shownEx || (open.viewNames && open.viewNames.length > 1 ? open.shownView || 'main' : '');
-      nameEl.textContent = [runMode() && open.name ? [open.name, versionPart(open)].filter(Boolean).join(' · ')
-        : open.label || open.name || (open.type === 'video' ? 'Video' : 'Image'), way].filter(Boolean).join(' · ');
+      nameEl.textContent = [open.label || open.name || (open.type === 'video' ? 'Video' : 'Image'), way].filter(Boolean).join(' · ');
       // A version's file name is still there, on a hover over its label.
       nameEl.title = open.label && open.name && open.name !== open.label ? open.name : '';
-      runCap.hidden = !runMode();
-      if (runMode()) runCap.replaceChildren(el('b', { text: open.name || '' }), el('span', { class: open.empty ? 'none' : '', text: versionPart(open) }));
       crumb.textContent = opts.title ? opts.title() : '';
-      // Shown whenever the host downloads, and only greyed out for what has no file (a run's slate), so
+      // Shown whenever the host downloads, and only greyed out for what is not an upload of the team's, so
       // the bar does not shift as the pieces change.
       dlBtn.hidden = !opts.download;
       dlBtn.disabled = !WB.media.keepable(open.src);
-      dlBtn.title = dlBtn.disabled ? 'Nothing to download: nothing is filed yet' : 'Download the original media';
+      dlBtn.title = dlBtn.disabled ? 'Nothing to download' : 'Download the original media';
       filesBtn.hidden = !open.fileList;
       clearBtn.hidden = !opts.clear || !can.member();
       clearBtn.disabled = !plainDrawings().length;
-      timeline.hidden = open.type !== 'video' && !runMode();
-      timeline.classList.toggle('still', open.type !== 'video');
-      if (runMode()) paintRun();
-      else paintFilm();
+      timeline.hidden = open.type !== 'video';
+      paintFilm();
       renderPanel();
       paintMarks();
       paintInk();
@@ -1562,11 +1379,10 @@ const WBViewer = (() => {
       looping = on;
       store('wb:loop', on);
       const video = videoOpen();
-      if (video) video.loop = on && !runMode();
+      if (video) video.loop = on;
       tlLoop.classList.toggle('active', on);
       tlLoop.setAttribute('aria-pressed', String(on));
       tlLoop.title = on ? 'Looping: starts again at the end. Click to stop at the end' : 'Stops at the end. Click to loop';
-      if (typeof spare !== 'undefined' && open && runMode()) prepareSpare();
     }
     setLooping(looping);
     const tlTime = el('button', { class: 'tl-time', text: '0:00', title: 'Show minutes and seconds, frame number or timecode', onclick: cycleTimeMode });
@@ -1574,94 +1390,11 @@ const WBViewer = (() => {
     const tlTip = el('span', { class: 'tl-tip', hidden: true });
     const tlLoaded = el('i', { class: 'tl-loaded' });
     const tlWave = el('canvas', { class: 'tl-wave', width: 480, height: 80 });
-    const tlRun = el('div', { class: 'tl-run' });
-    const tlTrack = el('div', { class: 'tl-track' }, tlWave, tlRun, el('i', { class: 'tl-rail' }, tlLoaded, el('i', { class: 'tl-played' })), tlMarks, el('i', { class: 'tl-head' }), tlTip);
-    // A run's strip: every shot as a clip as long as it lasts, with its still, and where each sequence
-    // begins. It is the track: dragging along it moves through the whole run.
-    let runSig = '';
-    function paintRun(force = false) {
-      cut.show(true);
-      const sig = runClips.map((c) => `${c.id}:${c.dur.toFixed(2)}:${c.piece.poster || c.piece.th || ''}`).join('|');
-      if (force || sig !== runSig) {
-        runSig = sig;
-        const pct = (at) => `${(at / runTotal) * 100}%`;
-        // Along the top, the sequences: a band each, shaded in turn, named where there is room.
-        const seqs = [];
-        for (const c of runClips) {
-          const last = seqs[seqs.length - 1];
-          if (last && last.seq === (c.piece.seq || '')) last.end = c.start + c.dur;
-          else seqs.push({ seq: c.piece.seq || '', start: c.start, end: c.start + c.dur });
-        }
-        const band = el('span', { class: 'tl-seqs' }, seqs.map((q, i) => el('i', {
-          class: `tl-seq${i % 2 ? ' odd' : ''}`, 'data-seq': q.seq, title: q.seq,
-          style: { left: pct(q.start), width: pct(q.end - q.start) },
-        }, el('b', { text: q.seq }))));
-        // Under it, every shot as its stills, cut from the next by a line; its name only where it fits.
-        let seq = null;
-        const clipEls = runClips.map((c) => {
-          const still = stillOf(c.piece);
-          const starts = !!c.piece.seq && c.piece.seq !== seq;
-          seq = c.piece.seq;
-          return el('i', {
-            class: `tl-clip${starts ? ' seq-start' : ''}${c.piece.empty ? ' empty' : ''}`, 'data-id': c.id, title: c.piece.label || c.piece.name || '',
-            style: { left: pct(c.start), width: pct(c.dur) },
-          },
-          el('span', { class: 'tl-clippic', style: still && !c.piece.empty ? { backgroundImage: `url("${still}")` } : {} }),
-          el('span', { class: 'tl-clipname' }, el('b', { text: c.piece.name || '' }), !c.piece.empty && el('span', { text: versionPart(c.piece) })));
-        });
-        tlRun.classList.toggle('one-seq', seqs.length < 2 && !seqs[0]?.seq);
-        tlRun.replaceChildren(band, el('span', { class: 'tl-clips' }, clipEls));
-        cut.setClips(runClips, runTotal);
-        paintCutMarks();
-      }
-      const atClip = runClips.find((c) => c.id === (open && open.id));
-      for (const n of tlRun.querySelectorAll('.tl-clip')) n.classList.toggle('at', n.dataset.id === (open && open.id));
-      for (const n of tlRun.querySelectorAll('.tl-seq')) n.classList.toggle('at', !!atClip && n.dataset.seq === (atClip.piece.seq || ''));
-      const i = runClips.findIndex((c) => c.id === (open && open.id));
-      posEl.textContent = `${i + 1} / ${runClips.length}`;
-      posEl.style.minWidth = `${String(runClips.length).length * 2 + 3}ch`;
-      prevBtn.disabled = nextBtn.disabled = runClips.length < 2;
-    }
-    // Under the whole run, a close-up of it with the playhead held in the middle (cuttrack.js).
-    let cutHold = null;
-    const cut = WBCutTrack.create({
-      onGrab: () => {
-        interact();
-        cutHold = { resume: runPlaying || !!(videoOpen() && !videoOpen().paused) };
-        runPlaying = false;
-        cancelAnimationFrame(stillRaf);
-        if (videoOpen()) videoOpen().pause();
-      },
-      onSeek: (t) => {
-        runSeek(t);
-        told();
-      },
-      onRelease: () => {
-        if (cutHold && cutHold.resume) {
-          runPlaying = true;
-          playOpen();
-        }
-        cutHold = null;
-        syncTimeline();
-        told();
-      },
-    });
-    // Comments on any shot of the run, where they are in it.
-    function paintCutMarks() {
-      if (!runMode()) return;
-      const list = [];
-      for (const c of roots()) {
-        const clip = clipOf(c.on);
-        const at = clip && momentOf(c);
-        if (at == null) continue;
-        list.push({ at: clip.start + Math.min(at, clip.dur), color: hexOk(c.color) ? c.color : '#8a8a8a' });
-      }
-      cut.setMarks(list);
-    }
+    const tlTrack = el('div', { class: 'tl-track' }, tlWave, el('i', { class: 'tl-rail' }, tlLoaded, el('i', { class: 'tl-played' })), tlMarks, el('i', { class: 'tl-head' }), tlTip);
     timeline.append(tlPlay,
       el('button', { class: 'iconbtn tl-step', html: ICON.frameBack, title: 'Back one frame ( , )   With Shift, one second', onclick: (e) => stepFrame(-1, e.shiftKey) }),
       el('button', { class: 'iconbtn tl-step', html: ICON.frameFwd, title: 'Forward one frame ( . )   With Shift, one second', onclick: (e) => stepFrame(1, e.shiftKey) }),
-      tlTime, tlTrack, tlLoop, tlSound, cut.node);
+      tlTime, tlTrack, tlLoop, tlSound);
     window.addEventListener('wb:theme', () => {
       delete tlWave.dataset.drawn;
       fitWave(tlWave);
@@ -1677,25 +1410,20 @@ const WBViewer = (() => {
 
     function syncTimeline(at) {
       const video = videoOpen();
-      if (!open || (!video && !runMode())) return;
-      if (at == null && video) at = whereOf(video);
-      const dur = video ? video.duration : STILL;
-      if (video && changing.has(video) && !(dur > 0)) return;
+      if (!open || !video) return;
+      if (at == null) at = whereOf(video);
+      const dur = video.duration;
+      if (changing.has(video) && !(dur > 0)) return;
       const fps = fpsOf(open.id);
-      // In a run, the track and the time are the run's: where this shot starts, and on from there.
-      const c = runMode() ? clipOf(open.id) : null;
-      const here = c ? c.start + (video ? at : stillAt) : at;
-      const span = c ? runTotal : dur;
-      tlTrack.style.setProperty('--p', `${(span > 0 && isFinite(span) ? clamp(here / span, 0, 1) : 0) * 100}%`);
-      if (c) cut.setTime(here);
-      const label = timeLabel(here, span, fps);
+      tlTrack.style.setProperty('--p', `${(dur > 0 && isFinite(dur) ? clamp(at / dur, 0, 1) : 0) * 100}%`);
+      const label = timeLabel(at, dur, fps);
       if (tlTime.textContent !== label) tlTime.textContent = label;
-      const playing = runMode() ? runPlaying || (video && !video.paused) : !video.paused;
-      const state = `${!playing}${video ? video.muted : ''}`;
+      const playing = !video.paused;
+      const state = `${!playing}${video.muted}`;
       if (timeline.dataset.state !== state) {
         timeline.dataset.state = state;
         tlPlay.innerHTML = playing ? ICON.pause : ICON.play;
-        if (video) tlSound.innerHTML = video.muted ? ICON.muted : ICON.sound;
+        tlSound.innerHTML = video.muted ? ICON.muted : ICON.sound;
       }
       // The moment a comment written now would be about.
       if (!panel.hidden && !momentChip.hidden && !(draft && draft.at != null)) {
@@ -1725,28 +1453,12 @@ const WBViewer = (() => {
     // Playing, stopping and moving the video. Only what this hand does is told to the host.
     function told() {
       const video = videoOpen();
-      if (open && (video || runMode())) emit('media', open.id, video ? !video.paused : runPlaying, video ? whereOf(video) : stillAt);
-      if (!video || !opts.onMedia) return;
-      opts.onMedia(open.id, !video.paused, whereOf(video));
+      if (!open || !video) return;
+      emit('media', open.id, !video.paused, whereOf(video));
+      if (opts.onMedia) opts.onMedia(open.id, !video.paused, whereOf(video));
     }
     function togglePlay() {
       const video = videoOpen();
-      if (runMode() && open) {
-        interact();
-        runPlaying = video ? video.paused : !runPlaying;
-        if (runPlaying) {
-          // From the very end, the run starts again.
-          if (!runClips.some((c) => c.start > runAt() - 0.01) && video && video.duration - whereOf(video) < 0.1) runSeek(0);
-          playOpen();
-        } else {
-          if (video) video.pause();
-          cancelAnimationFrame(stillRaf);
-          if (video) holdWhole(open);
-        }
-        syncTimeline();
-        told();
-        return;
-      }
       if (!video) return;
       interact();
       if (video.paused) video.play().catch(() => {});
@@ -1756,13 +1468,11 @@ const WBViewer = (() => {
     function toggleSound() {
       const video = videoOpen();
       if (video) video.muted = !video.muted;
-      if (spare && video) spare.video.muted = video.muted;
     }
     function stepFrame(dir, second = false) {
       const video = videoOpen();
       if (!video) return;
       interact();
-      runPlaying = false;
       video.pause();
       const fps = fpsOf(open.id);
       if (fps) goTo(video, frameTime(clamp(frameIndex(whereOf(video), fps) + dir * (second ? Math.round(fps) : 1), 0, lastFrame(video, fps)), fps));
@@ -1777,23 +1487,12 @@ const WBViewer = (() => {
     function seek(at) {
       const video = videoOpen();
       if (!video || at == null) return;
-      runPlaying = false;
       video.pause();
       goTo(video, at);
       told();
     }
     // Stops the video on the frame it is showing, so what is made on it next belongs to that frame.
-    // A run stopped where it is: drawing or writing on a shot stays on that shot, still or video.
-    function stopRun() {
-      if (!runMode() || !runPlaying) return;
-      runPlaying = false;
-      cancelAnimationFrame(stillRaf);
-      const video = videoOpen();
-      if (video) video.pause();
-      syncTimeline();
-    }
     function holdFrame() {
-      stopRun();
       const video = videoOpen();
       if (!video) return;
       const fps = fpsOf(open.id);
@@ -1819,7 +1518,6 @@ const WBViewer = (() => {
     let markPress = null;
     let dragFromMark = false;
     const scrubbable = () => {
-      if (runMode() && open && runTotal > 0) return videoOpen() || tlTrack;
       const video = videoOpen();
       return video && video.duration > 0 && isFinite(video.duration) ? video : null;
     };
@@ -1827,15 +1525,10 @@ const WBViewer = (() => {
       const video = videoOpen();
       const r = tlTrack.getBoundingClientRect();
       const k = clamp((e.clientX - r.left) / Math.max(1, r.width), 0, 1);
-      if (runMode()) return { k, at: k * runTotal };
       return { k, at: wholeFrame(k * video.duration) };
     }
     function scrubTo(e) {
       const { at } = trackMoment(e);
-      if (runMode()) {
-        runSeek(at);
-        return told();
-      }
       goTo(videoOpen(), at);
       syncTimeline(at);
       told();
@@ -1847,12 +1540,8 @@ const WBViewer = (() => {
         // capture is a nicety
       }
       interact();
-      scrub = { pid: e.pointerId, resume: runMode() ? runPlaying : !video.paused };
-      if (runMode()) {
-        runPlaying = false;
-        cancelAnimationFrame(stillRaf);
-      }
-      if (videoOpen()) videoOpen().pause();
+      scrub = { pid: e.pointerId, resume: !video.paused };
+      video.pause();
       scrubTo(e);
     }
     tlTrack.addEventListener('pointerdown', (e) => {
@@ -1878,7 +1567,7 @@ const WBViewer = (() => {
       }
       const { k, at } = trackMoment(e);
       tlTip.hidden = false;
-      tlTip.textContent = runMode() ? `${fmtMoment(at, fpsOf(open.id))}${runClipAt(at) ? ` · ${runClipAt(at).piece.label || ''}` : ''}` : fmtMoment(at, fpsOf(open.id));
+      tlTip.textContent = fmtMoment(at, fpsOf(open.id));
       tlTip.style.left = `${k * 100}%`;
       if (scrub && e.pointerId === scrub.pid) scrubTo(e);
     });
@@ -1888,24 +1577,9 @@ const WBViewer = (() => {
       e.stopPropagation();
       e.preventDefault();
     }, true);
-    const runClipAt = (t) => {
-      let c = null;
-      for (const x of runClips) if (t >= x.start) c = x;
-      return c;
-    };
     const endScrub = (e) => {
       if (markPress && e.pointerId === markPress.pid) markPress = null;
       if (!scrub || e.pointerId !== scrub.pid) return;
-      if (runMode()) {
-        if (scrub.resume) {
-          runPlaying = true;
-          playOpen();
-        }
-        scrub = null;
-        tlTip.hidden = !tlTrack.matches(':hover');
-        syncTimeline();
-        return void told();
-      }
       const video = scrubbable();
       if (video && scrub.resume && !atEnd()) video.play().catch(() => {});
       scrub = null;
@@ -1919,12 +1593,10 @@ const WBViewer = (() => {
     // A mark above the track for every comment, in its writer's colour. Comments about the same moment
     // share a mark that says how many they are, and each click on it goes to the next of them.
     function paintMarks() {
-      paintCutMarks();
       const video = videoOpen();
       const dur = video ? video.duration : 0;
       if (!video || !(dur > 0) || !isFinite(dur)) return void tlMarks.replaceChildren();
-      const c0 = runMode() ? clipOf(open.id) : null;
-      const leftOf = (at) => `${clamp(c0 ? (c0.start + at) / runTotal : at / dur, 0, 1) * 100}%`;
+      const leftOf = (at) => `${clamp(at / dur, 0, 1) * 100}%`;
       const stacks = new Map();
       for (const c of roots()) {
         if (!onShown(c)) continue;
@@ -2607,7 +2279,6 @@ const WBViewer = (() => {
     // Starting to write about a video stops it, so the comment is about the frame that was showing.
     composer.addEventListener('focus', () => {
       if (!open) return;
-      stopRun();
       if (timed) holdFrame();
     });
 
@@ -2949,7 +2620,7 @@ const WBViewer = (() => {
       } else if (k === 'f' && e.shiftKey) toggleFilm();
       else if (k === 'c' && e.shiftKey) { if (can.read()) togglePanel(); }
       else if (k === 'c' && !e.shiftKey) startComment();
-      else if ((videoOpen() || runMode()) && (k === 'k' || k === 'enter')) togglePlay();
+      else if (videoOpen() && (k === 'k' || k === 'enter')) togglePlay();
       else if (videoOpen() && e.code === 'Comma') stepFrame(-1, e.shiftKey);
       else if (videoOpen() && e.code === 'Period') stepFrame(1, e.shiftKey);
       else if (videoOpen() && k === 'm') toggleSound();
@@ -2968,7 +2639,7 @@ const WBViewer = (() => {
       spaceDown = false;
       spaceTap = false;
       root.classList.remove('space-held');
-      if (open && tapped && (videoOpen() || runMode())) togglePlay();
+      if (open && tapped && videoOpen()) togglePlay();
     }, true);
     window.addEventListener('blur', () => {
       spaceDown = false;
@@ -2993,7 +2664,6 @@ const WBViewer = (() => {
         close();
         setHost(next);
         paintDims();
-        root.classList.toggle('run', runMode());
         root.classList.toggle('docked', !!next.dock);
         root.classList.toggle('locked', !!next.locked);
         // Following somebody who presents, the corner is no way out.
@@ -3005,7 +2675,6 @@ const WBViewer = (() => {
         soundWanted = !!on;
         const video = videoOpen();
         if (video) video.muted = !soundWanted;
-        if (spare) spare.video.muted = !soundWanted;
       },
       prepare3d: (setting) => venue3d.prepare(setting),
       // Hears what the player does, whatever host it has; returns how to stop.
@@ -3057,17 +2726,6 @@ const WBViewer = (() => {
       followMedia(id, playing, time) {
         if (!open || open.id !== id) return;
         const video = videoOpen();
-        // In a run, playing goes on into the next shot, as theirs does; a still is held as long as theirs.
-        if (runMode()) {
-          runPlaying = !!playing;
-          if (!video) {
-            stillAt = clamp(time, 0, STILL - 0.01);
-            cancelAnimationFrame(stillRaf);
-            if (runPlaying) playOpen();
-            syncTimeline();
-            return;
-          }
-        }
         if (!video) return;
         // Stopped, it is on their frame exactly. Playing, a little behind or ahead is made up by playing a
         // touch quicker or slower (a tenth at most, which nobody hears) rather than by jumping, which shows;
@@ -3175,7 +2833,6 @@ const WBViewer = (() => {
       // Where the open video is, for whoever follows from now on.
       moment() {
         const video = videoOpen();
-        if (!video && open && runMode()) return [open.id, Math.round(stillAt * 1000) / 1000, runPlaying ? 1 : 0];
         return video ? [open.id, Math.round(whereOf(video) * 1000) / 1000, video.paused ? 0 : 1] : null;
       },
       // What is shown, for somebody presenting it: the host's own word for it, if it has one.
@@ -3204,11 +2861,10 @@ const WBViewer = (() => {
   // A view's name as shown: the main one (a version's own file, with no view named) by the name the
   // project gives its main view, if it has named its views.
   const viewLabel = (name, list) => name || (list && list[0]) || 'Main';
-  // The choices of what the player shows (which view; on the timeline, which sequence, task and shots), as
-  // one button in the bar that opens them as a menu, rather than a row of dropdowns. `groups()` says them
-  // as they are now: [{ name, value, def, options: [[value, label]], pick(value) }]; a group with one
-  // option is no choice and is left out. The button counts the groups not at their default, and its tip
-  // says what each is at.
+  // The choices of what the player shows (which view), as one button in the bar that opens them as a menu,
+  // rather than a row of dropdowns. `groups()` says them as they are now: [{ name, value, def, options:
+  // [[value, label]], pick(value) }]; a group with one option is no choice and is left out. The button
+  // counts the groups not at their default, and its tip says what each is at.
   function optionsButton(groups, { title = 'What to show' } = {}) {
     const count = el('span', { class: 'v-opts-n', hidden: true });
     const btn = el('button', { class: 'iconbtn v-opts', html: ICON.settings, 'aria-haspopup': 'menu', 'aria-label': title }, count);
@@ -3415,21 +3071,16 @@ const WBViewer = (() => {
     viewer.open(version && pieces.some((p) => p.id === version) ? version : pieces[pieces.length - 1].id);
   }
 
-  // ---------------------------------------------------------------- a project's shots, played through
+  // ---------------------------------------------------------------- a playlist
   //
-  // Opens the shots of a project in a player as an edit: the newest version of each (of `task`, or of
-  // any), in order, sequence by sequence, played one into the next. What is said is about the shot under
-  // the playhead, live, through its room. A shot with nothing filed may come as a slate (`empty`): it is
-  // seen and held like a still, and nothing is written or drawn on it, as it has no version to be on.
-  // `scene()` says what the run is (which sequence, task, view), for somebody presenting it. Somebody watching a
-  // presentation has it `follow`ed: { room, read } (where the notes come from, and whether they are shown).
-  // With `run: false` the pieces are only taken one at a time, as an entity's versions are: no edit, no
-  // timeline across them, the strip down the left to move between them, each opening at `at` (or the first).
-  // What is said is still about the piece on screen, in the room of the shot it belongs to.
-  async function openRun(viewer, { load, me, title, choices, dock = false, run = true, at = null, view3d = null, onMode3d = null, onClose = () => {}, scene = null, follow = null }) {
-    let pieces = await load();
-    if (!pieces.length) throw new Error('There are no shots to play yet');
-    const onSlate = () => !!(pieces.find((x) => x.id === viewer.current()) || {}).empty;
+  // Opens the versions of a playlist in a player, at `at` (or the first), taken one at a time as an
+  // entity's versions are, with the strip down the left to move between them. Each is commented on in the
+  // room of the entity it is a version of, so what is said here is said wherever that entity is open.
+  // `load(in3d)` gives the pieces, each with its `entityId`: seen on the venue in 3D (`view3d`, the project's
+  // model), they may be other files of the same versions.
+  async function openPlaylist(viewer, { load, me, title, dock = false, at = null, view3d = null, onClose = () => {} }) {
+    let pieces = await load(false);
+    if (!pieces.length) throw new Error('There is nothing in it to play yet');
     let notes = [];
     let room = null;
     let roomOf = null;
@@ -3440,132 +3091,52 @@ const WBViewer = (() => {
       if (room) room.close();
       roomOf = entityId;
       notes = [];
-      room = (follow ? follow.room : entityRoom)(entityId, me, (list) => {
+      room = entityRoom(entityId, me, (list) => {
         notes = list;
         viewer.refresh();
       });
     };
-    // The room follows the shot on screen; a beat later, so playing through does not hop every room.
-    // Coming back to the shot whose room is open before that beat is up stays in it.
+    // The room follows the piece on screen; a beat later, so stepping quickly through does not hop every room.
+    // Coming back to the piece whose room is open before that beat is up stays in it.
     const joinShot = (id) => {
       const p = pieces.find((x) => x.id === id);
       clearTimeout(joinTimer);
       if (!p || p.entityId === roomOf) return;
       joinTimer = setTimeout(() => join(p.entityId), roomOf ? 400 : 0);
     };
-    // A comment goes to the room of the shot it is on, joined there and then if the beat is not up yet.
+    // A comment goes to the room of the piece it is on, joined there and then if the beat is not up yet.
     const roomFor = (pieceId) => {
       const p = pieces.find((x) => x.id === pieceId);
       if (p && p.entityId !== roomOf) join(p.entityId);
       return room;
     };
     viewer.use({
-      run,
       dock,
-      locked: !!follow,
       me: () => me,
       title,
       media: () => pieces,
       notes: () => notes,
-      can: follow ? { read: () => follow.read } : { member: () => true, write: () => !onSlate(), draw: () => !onSlate() },
-      ...(scene && { scene }),
+      can: { member: () => true },
       ...roomNotes(viewer, (pieceId) => (pieceId ? roomFor(pieceId) : room), () => notes, (next) => { notes = next; }),
       onOpen: joinShot,
-      ...(view3d && { view3d, onMode3d }),
+      ...(view3d && {
+        view3d,
+        onMode3d: async (on) => {
+          pieces = await load(on);
+          viewer.refresh();
+        },
+      }),
       onClose: () => {
         clearTimeout(joinTimer);
         if (room) room.close();
-        viewer.extras.replaceChildren();
         onClose();
       },
     });
-    // The run's own choices go in the bar: which sequence, which task. A new choice starts it again.
-    // A choice that only changes how the shots are seen (`keep`: which view) stays where the run is.
-    if (choices) {
-      viewer.extras.replaceChildren(...choices(async ({ keep = false } = {}) => {
-        const next = await load();
-        if (!next.length) return void WB.dialog({ title: 'Nothing to play', text: 'No shot there has anything filed yet.', ok: 'OK', cancellable: false });
-        const at = viewer.current();
-        pieces = next;
-        if (keep && pieces.some((p) => p.id === at)) viewer.refresh();
-        else viewer.open(pieces[0].id);
-      }));
-    }
     viewer.open(pieces.some((p) => p.id === at) ? at : pieces[0].id);
   }
 
-  // ---------------------------------------------------------------- a project's timeline, as its pieces
-  //
-  // The card that stands in for a shot with nothing filed: its name, and that it has nothing yet.
-  // It is drawn as SVG, so it is sharp at any size the player shows it at: drawn at 1280 x 720, said to
-  // be four times that so it is never scaled up from a small picture. An image cannot reach the page's
-  // fonts, so Inter goes inside it (fetched once).
-  const slates = new Map();
-  let slateFont = null;
-  const slateFontReady = () => {
-    if (!slateFont) {
-      slateFont = fetch('/fonts/inter-latin.woff2')
-        .then((r) => (r.ok ? r.blob() : null))
-        .then((b) => b && new Promise((resolve) => {
-          const fr = new FileReader();
-          fr.onload = () => resolve(fr.result);
-          fr.onerror = () => resolve(null);
-          fr.readAsDataURL(b);
-        }))
-        .catch(() => null);
-    }
-    return slateFont;
-  };
-  const SLATE = { w: 1280, h: 720, scale: 3 };
-  const xml = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
-  async function slate(name, task) {
-    const key = `${name}|${task}`;
-    if (slates.has(key)) return slates.get(key);
-    const font = await slateFontReady();
-    const { w, h, scale } = SLATE;
-    const face = font ? `<style>@font-face{font-family:SlateInter;font-weight:100 900;src:url(${font}) format("woff2")}</style>` : '';
-    const family = `${font ? 'SlateInter, ' : ''}Inter, system-ui, -apple-system, 'Segoe UI', sans-serif`;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w * scale}" height="${h * scale}" viewBox="0 0 ${w} ${h}">${face}`
-      + '<defs><pattern id="s" width="40" height="40" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="40" height="40" fill="#111"/><rect width="10" height="40" fill="#191919"/></pattern></defs>'
-      + `<rect width="${w}" height="${h}" fill="url(#s)"/>`
-      + `<text x="${w / 2}" y="360" text-anchor="middle" font-family="${xml(family)}" font-weight="600" font-size="64" fill="#e8e8e8">${xml(name)}</text>`
-      + `<text x="${w / 2}" y="416" text-anchor="middle" font-family="${xml(family)}" font-weight="400" font-size="30" fill="#8a8a8a">${xml(task ? `No ${task} filed yet` : 'Nothing filed yet')}</text>`
-      + '</svg>';
-    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
-    slates.set(key, url);
-    return url;
-  }
-
-  // The pieces a project's timeline (GET /api/projects/:id/timeline) plays, for `openRun`: the newest version
-  // of each shot (of `seq`, or all), seen in `view`, and where `withEmpty`, a slate for each with nothing filed.
-  async function runPieces(data, { seq = '', task = '', withEmpty = true, view = '' } = {}) {
-    if (!data.shots.length) return [];
-    // The slates for shots with nothing filed, drawn before the run is laid out.
-    const pending = data.shots.filter((x) => !x.version && withEmpty && (!seq || x.seq === seq));
-    const slateOf = new Map(await Promise.all(pending.map(async (x) => [x.id, await slate(x.name, task)])));
-    return data.shots.filter((x) => (x.version || withEmpty) && (!seq || x.seq === seq)).map((x) => {
-      if (!x.version) {
-        // A shot with nothing filed (of that task): a slate in its place, held like a still.
-        return {
-          type: 'image', id: `empty-${x.id}`, src: slateOf.get(x.id), nw: SLATE.w * SLATE.scale, nh: SLATE.h * SLATE.scale, empty: true,
-          label: `${x.name} · nothing filed yet`, name: x.name, seq: x.seq, entityId: x.id,
-        };
-      }
-      const shown = inView(x.version.look, view);
-      return { ...shown, src: WB.playable(shown), full: shown.src, id: x.version.id, type: shown.type, label: x.version.label, name: x.name, seq: x.seq, entityId: x.id };
-    });
-  }
-  // A project whose versions are all named views (every one a cmp, say) starts on the one most have.
-  function usualView(data) {
-    const filed = data.shots.filter((x) => x.version);
-    if (!filed.length || !filed.every((x) => x.version.look.view)) return '';
-    const count = new Map();
-    for (const x of filed) count.set(x.version.look.view, (count.get(x.version.look.view) || 0) + 1);
-    return [...count].sort((a, b) => b[1] - a[1])[0][0];
-  }
-
   return {
-    create, openEntity, openRun, runPieces, usualView, entityRoom, inView, optionsButton, viewGroup, ICON, INK, inkColor, pathData, outlinePath, strokeNode, fmtTime, fmtMoment, timeLabel, cycleTimeMode,
+    create, openEntity, openPlaylist, entityRoom, inView, optionsButton, viewGroup, ICON, INK, inkColor, pathData, outlinePath, strokeNode, fmtTime, fmtMoment, timeLabel, cycleTimeMode,
     frameTime, frameIndex, lastFrame, goTo, whereOf, changing, switchSource, fetchWhole, releaseWhole, showWave, venue,
     timeMode: () => timeMode,
   };

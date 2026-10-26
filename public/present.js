@@ -165,7 +165,7 @@ const WBPresent = (() => {
     const v = host.viewer();
     if (type === 'open' || type === 'close') {
       report();
-      // The new piece, and in a run (which plays on into it) how it plays, once it has started.
+      // The new piece, and how it plays once it has started.
       if (type === 'open') {
         tellPlayer({ f: args[0], x: v.file(), t: v.thread(), z: v.zoom(), d: v.view3d(), m: v.moment() }, true);
         setTimeout(() => { if (v.isOpen() && v.current() === args[0]) tellPlayer({ m: v.moment() }); }, 250);

@@ -3350,7 +3350,7 @@
   // ------------------------------------------------------------- a project's playlists
   //
   // Some of a project's versions in the order a review goes through them, as in ShotGrid: made from what is
-  // picked anywhere versions are listed (Add to playlist), put in order by dragging, and played through
+  // picked anywhere versions are listed (Add to playlist), put in order by dragging, and gone through
   // one after another in the player, each with its own comments.
 
   const playlistData = new Map(); // playlist id -> { playlist, versions } as last fetched
@@ -3639,23 +3639,16 @@
     // On the venue (a project with a model of it, as in an animatic) each is shown in the view the project
     // puts on its model; otherwise as filed.
     const preview3d = project.settings && project.settings.preview3d;
-    let in3d = false;
-    let reload = () => {};
-    const load = async () => data.versions.map((v) => {
+    const load = async (in3d) => data.versions.map((v) => {
       const shown = WBViewer.inView(v.look, in3d ? preview3d.view : '');
-      return { ...shown, src: WB.playable(shown), full: shown.src, id: v.id, type: shown.type, label: v.label, name: v.entity, seq: N.seqOf(v.entity) || '', entityId: v.entityId };
+      return { ...shown, src: WB.playable(shown), full: shown.src, id: v.id, type: shown.type, label: v.label, name: v.entity, entityId: v.entityId };
     });
     if (!data.versions.length) return;
     thePlayer();
     try {
-      await WBViewer.openRun(player, {
-        load, me, dock: true, run: false, at: startId,
-        ...(preview3d && preview3d.model && {
-          view3d: { ...preview3d, key: project.id },
-          onMode3d: (on) => { in3d = on; reload({ keep: true }); },
-        }),
-        // Nothing of its own to choose in the bar; it only needs to be told to lay the pieces out again.
-        choices: (again) => { reload = again; return []; },
+      await WBViewer.openPlaylist(player, {
+        load, me, dock: true, at: startId,
+        ...(preview3d && preview3d.model && { view3d: { ...preview3d, key: project.id } }),
         title: () => [project.name, data.playlist.name].filter(Boolean).join(' · '),
         onClose: () => { lookingAt = null; },
       });

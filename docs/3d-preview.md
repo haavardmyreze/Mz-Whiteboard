@@ -9,7 +9,7 @@ uploads.
 How it fits together:
 
 - **One video, two ways of drawing it.** The 3D view textures the screens with the player's own `<video>`
-  (or `<img>`), which plays on unseen beneath the canvas. Time, stepping, scrubbing, the run's cuts and the
+  (or `<img>`), which plays on unseen beneath the canvas. Time, stepping, scrubbing and the
   cache are the player's, unchanged.
 - **A frame, or flying.** The view is either held on a frame or flying. A frame is one of the model's
   cameras (the one named `main`, or its first, to start with; the others are in the menu beside "Main
@@ -111,7 +111,7 @@ block after walking off and coming back, and after the window changes size.
 
 - **The texture is the player's own `<video>`.** three.js draws a `VideoTexture` from any video element,
   so in the app the 3D view would be one more way of drawing the video the player already has open.
-  Time, play and pause, frame stepping, scrubbing, the run's cuts, the cache: all unchanged, nothing
+  Time, play and pause, frame stepping, scrubbing, the cache: all unchanged, nothing
   to keep in sync. A still works the same way.
 - **Nothing to fetch from the internet.** three.js is served from the installed package
   (`/vendor/three/…`, as mediabunny is), loaded only when the 3D view is opened. As served now it is
@@ -127,8 +127,8 @@ block after walking off and coming back, and after the window changes size.
    name (default `screen`). Kept in the project's settings like its naming preset. One model per
    project to start; per-sequence models later if venues differ.
 2. **A "3D" switch in the player's bar**, shown only in a project that has a model, for videos and
-   stills alike. The picture area becomes the WebGL canvas, drawing the open video; the timeline,
-   comments and the close-up track stay as they are. Camera position remembered per project.
+   stills alike. The picture area becomes the WebGL canvas, drawing the open video; the timeline
+   and the comments stay as they are. Camera position remembered per project.
 3. **Comments in 3D, through the main camera.** A comment's moment works as now. A comment made in
    3D says so (`pov: 'main'`), and its drawing is kept in the main camera's frame, exactly as the
    player keeps a drawing in the picture's frame today: the same ink, the same units, only another

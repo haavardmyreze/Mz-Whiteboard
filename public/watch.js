@@ -51,7 +51,7 @@
     if (scene && scene.k === 'board') return frameItems;
     if (scene && scene.k === 'animatic') return cutItems;
     if (!viewer.isOpen()) return [];
-    return (viewer.host().media() || []).filter((p) => p.type === 'video' && !p.empty).map((p) => ({ src: p.src, name: p.label || p.name }));
+    return (viewer.host().media() || []).filter((p) => p.type === 'video').map((p) => ({ src: p.src, name: p.label || p.name }));
   };
   const keptBtn = el('button', { class: 'watch-kept' });
   const keptRing = WB.media.ring(keptBtn, () => ({ label: 'what is shown', items: shownItems() }));

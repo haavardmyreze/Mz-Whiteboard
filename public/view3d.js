@@ -35,7 +35,7 @@ const arrived = new Map(); // url -> how much of it has come, from 0 to 1 (null 
 async function modelFile(url) {
   const media = window.WBMedia;
   if (media && media.keepable(url) && (await media.ready)) {
-    media.want('venue', [url], { rank: media.RANK.run, hold: true });
+    media.want('venue', [url], { rank: media.RANK.venue, hold: true });
     let blob = null;
     try {
       blob = await media.get(url, { onProgress: (loaded, total) => arrived.set(url, total ? loaded / total : null) });

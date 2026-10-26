@@ -2362,59 +2362,7 @@ button.imp-row:hover { background: var(--hover); }
 .ent-top > .btn { order: 2; }
 @media (max-width: 699px) { .ent-top { grid-template-columns: minmax(0, 1fr); } .ent-top > .btn { order: 0; justify-self: start; } }
 
-
-/* A run in the player: the shots of a project played through. No side strip; the bar under the picture
-   runs the whole width, and its track is the strip of shots. */
-.viewer.run .v-film, .viewer.run .v-fstab, .viewer.run .fs-grip { display: none !important; }
-.viewer.run .v-timeline { left: 12px; height: 70px; }
-.tl-run { display: none; }
-.viewer.run .tl-run { display: block; position: absolute; left: 0; right: 0; top: 4px; bottom: 4px; overflow: hidden; border-radius: var(--r-1); background: #090909; }
-.viewer.run .tl-track .tl-rail, .viewer.run .tl-track .tl-wave { display: none !important; }
-/* The whole run: the sequences along the top as bands, each shaded from the next and named where there
-   is room; under them the shots, as their stills, a dark line at every cut. With hundreds of shots it
-   reads as a strip of picture under a row of sequence names, never as a crowd of clipped labels. */
-.tl-seqs { position: absolute; left: 0; right: 0; top: 0; height: 15px; }
-.tl-run.one-seq .tl-seqs { display: none; }
-.tl-seq { position: absolute; top: 0; bottom: 0; box-sizing: border-box; overflow: hidden; container-type: inline-size; border-left: 1px solid #090909; background: #1a1a1a; font-style: normal; }
-.tl-seq.odd { background: #141414; }
-.tl-seq.at { background: #2e2e2e; }
-.tl-seq b { display: block; padding: 0 5px; overflow: hidden; color: #a8a8a8; font-size: var(--fs-micro); font-weight: 600; line-height: 15px; text-overflow: ellipsis; white-space: nowrap; }
-.tl-seq.at b { color: #fff; }
-/* Named only where the whole name fits, or most of it: a name cut to two letters says nothing. */
-@container (max-width: 44px) { .tl-seq b { display: none; } }
-.tl-clips { position: absolute; left: 0; right: 0; top: 16px; bottom: 0; }
-.tl-run.one-seq .tl-clips { top: 0; }
-.tl-clip { position: absolute; top: 0; bottom: 0; display: flex; flex-direction: column; box-sizing: border-box; container-type: inline-size; font-style: normal; border-left: 1px solid #000; background: #161616; }
-/* The stills, one after another at their own shape, as an editor shows a clip, the whole height of it. */
-.tl-clippic { position: absolute; inset: 0; background-color: #181818; background-position: left center; background-repeat: repeat-x; background-size: auto 100%; }
-.tl-clip::after { content: ""; position: absolute; inset: 0; background: rgba(0, 0, 0, 0.28); pointer-events: none; }
-.tl-clip.at::after { background: transparent; box-shadow: inset 0 0 0 2px var(--accent); }
-.tl-clip.seq-start { border-left: 2px solid rgba(255, 255, 255, 0.7); }
-.tl-clip:first-child { border-left: 0; }
-.tl-clip.empty .tl-clippic { background: repeating-linear-gradient(135deg, #1b1b1b 0 5px, #121212 5px 10px); }
-/* A clip wide enough says which shot it is (and, given room, which version), over a shade deepening to its
-   foot; a narrow one is its picture alone, and says so when pointed at. */
-.tl-clipname { position: absolute; z-index: 1; left: 0; right: 0; bottom: 0; display: none; gap: 4px; height: 20px; padding: 5px 5px 0; overflow: hidden; background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.72)); color: #f2f2f2; font-size: var(--fs-micro); line-height: 15px; white-space: nowrap; pointer-events: none; }
-@container (min-width: 64px) { .tl-clipname { display: flex; } }
-.tl-clipname b { flex: none; font-weight: 600; }
-.tl-clipname span { overflow: hidden; color: rgba(255, 255, 255, 0.7); text-overflow: ellipsis; }
-@container (max-width: 120px) { .tl-clipname span { display: none; } }
-.tl-clip.empty .tl-clipname b { color: #9a9a9a; }
-/* Over the picture in a run: the shot, and the version of it. */
-.v-runcap { position: absolute; z-index: 3; top: calc(var(--bar) + 14px); left: 24px; display: flex; align-items: baseline; gap: 10px; padding: 6px 12px; border-radius: var(--r-2); background: rgba(0, 0, 0, 0.62); color: #fff; pointer-events: none; }
-.v-runcap[hidden] { display: none; }
-.v-runcap b { font-size: var(--fs-lg); font-weight: 600; letter-spacing: -0.01em; }
-.v-runcap span { color: #cfcfcf; font-size: var(--fs-ui); }
-.v-runcap span.none { color: #9a9a9a; font-style: italic; }
-.viewer.run .tl-head { top: 3px; bottom: 3px; width: 2px; height: auto; margin: 0 0 0 -1px; border-radius: 1px; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }
-.viewer.run .tl-mark.comment { top: -3px; z-index: 2; }
-.v-timeline.still .iconbtn.tl-step { opacity: 0.35; pointer-events: none; }
-.v-spare { position: fixed; left: 0; top: 0; width: 2px; height: 2px; overflow: hidden; opacity: 0; pointer-events: none; }
-.v-spare video { width: 2px; height: 2px; }
-/* The run's choices in the bar: which sequence, which task. */
-.v-pick { position: relative; display: inline-flex; align-items: center; height: var(--h-sm); padding: 0 24px 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: transparent; color: var(--text); font: inherit; font-size: var(--fs-sm); font-weight: 500; cursor: pointer; appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%); background-position: calc(100% - 13px) 52%, calc(100% - 9px) 52%; background-size: 4px 4px; background-repeat: no-repeat; }
-.v-pick:hover { background-color: var(--hover); }
-.v-pick option { background: var(--surface-1); color: var(--text); }
+/* What the host puts in the player's bar: which view of a version, say. */
 .v-extras { display: inline-flex; align-items: center; gap: 6px; }
 
 /* Picking assets, sets and shots to change together, and the bar that says how many. */
@@ -2659,7 +2607,7 @@ body:not(.vpicking) .vt-head:hover .vl-box { display: block; }
 .seg-icons .seg-btn { width: 30px; height: 26px; padding: 0; }
 .seg-icons .seg-ic svg { display: block; }
 
-/* The player docked in the page (the timeline): the page's bar and sidebar stay, seen and usable. */
+/* The player docked in the page (a catalogue, a playlist): the page's bar and sidebar stay, seen and usable. */
 .viewer.docked { --dock-l: 252px; --dock-t: 48px; clip-path: inset(var(--dock-t) 0 0 var(--dock-l)); }
 .viewer.docked .v-bar { top: var(--dock-t); left: var(--dock-l); }
 .viewer.docked .v-bar .brand, .viewer.docked .v-bar .brand + .bar-slash { display: none; }
@@ -2668,11 +2616,9 @@ body:not(.vpicking) .vt-head:hover .vl-box { display: block; }
 .viewer.docked .v-film { left: var(--dock-l); top: calc(var(--bar) + var(--dock-t)); }
 .viewer.docked .v-fstab { left: calc(var(--dock-l) + var(--film)); top: calc(50% + (var(--bar) + var(--dock-t)) / 2); }
 .viewer.docked .fs-grip { left: calc(var(--dock-l) + var(--film) - 4px); top: calc(var(--bar) + var(--dock-t)); }
-@media (min-width: 700px) { .viewer.docked:not(.run) .v-timeline { left: calc(var(--dock-l) + var(--film) + 12px); } }
+@media (min-width: 700px) { .viewer.docked .v-timeline { left: calc(var(--dock-l) + var(--film) + 12px); } }
 .viewer.docked .v-panel { top: calc(var(--bar) + var(--dock-t)); }
 .viewer.docked .v-cptab { top: calc(50% + (var(--bar) + var(--dock-t)) / 2); }
-/* Docked, the bar above already names the shot playing: nothing more lies over the picture. */
-.viewer.docked .v-runcap { display: none !important; }
 @media (max-width: 900px) {
   .viewer.docked { --dock-l: 0px; }
 }
@@ -2763,29 +2709,6 @@ body.viewonly #hint .hint-guest { display: inline; }
 @media (max-width: 560px) {
   .be-ai-row { grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.3fr) auto; }
   .be-ai-row .be-ai-to, .be-ai-row .be-ai-tier { display: none; }
-}
-
-/* A run's close-up track (cuttrack.js), under the whole run: the playhead held in the middle, the shots
-   going by under it as frames. Only in a run. */
-.cut { display: none; }
-.viewer.run .v-timeline { flex-wrap: wrap; height: auto; padding-bottom: 8px; row-gap: 0; }
-.viewer.run .v-timeline > .tl-track { align-self: center; height: 62px; }
-.viewer.run .cut { position: relative; display: block; flex: 1 0 100%; height: 84px; overflow: hidden; border-radius: var(--r-1); background: #0c0c0c; cursor: grab; touch-action: none; }
-.viewer.run .cut.held { cursor: grabbing; }
-.cut-canvas { display: block; width: 100%; height: 100%; }
-/* How far it is drawn out, in its corner over the frames: there when looked for, quiet otherwise. */
-.cut-zoom { position: absolute; right: 6px; bottom: 6px; display: flex; align-items: center; gap: 1px; padding: 2px; border-radius: var(--r-2); background: rgba(0, 0, 0, 0.7); color: #e8e8e8; font-size: var(--fs-cap); opacity: 0.55; transition: opacity 0.12s var(--ease); cursor: default; }
-.cut:hover .cut-zoom, .cut-zoom:focus-within { opacity: 1; }
-.cut-zbtn { display: grid; place-items: center; width: 22px; height: 20px; padding: 0; border: 0; border-radius: var(--r-1); background: transparent; color: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
-.cut-zbtn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); }
-.cut-zbtn:disabled { opacity: 0.35; cursor: default; }
-.cut-zlabel { min-width: 26px; color: #bdbdbd; font-variant-numeric: tabular-nums; text-align: center; }
-@media (max-width: 560px) {
-  /* On a phone the whole run has a row of its own under the buttons, and the close-up one under that. */
-  .viewer.run .v-timeline { padding-top: 2px; }
-  .viewer.run .v-timeline > .iconbtn, .viewer.run .v-timeline > .tl-time { height: 36px; }
-  .viewer.run .v-timeline > .tl-track { order: 1; flex: 1 0 100%; height: 48px; margin: 0 0 6px; }
-  .viewer.run .cut { order: 2; height: 66px; }
 }
 
 /* The player's 3D view (view3d.js): the venue drawn over the picture, which plays on unseen beneath it
@@ -2989,7 +2912,7 @@ body.spectating :is(#toolbar, #tooloptions, #seltools, #selbox, #followpill, #fo
 body.spectating #topbar > :not(.brand, .bar-slash, #boardname, #conn) { display: none !important; }
 body.spectating #topbar .brand { pointer-events: none; }
 
-/* The player's choices (which view; on the timeline, which sequence, task and shots), in one menu. */
+/* The player's choices (which view), in one menu. */
 .v-opts { position: relative; }
 .v-opts[hidden] { display: none; }
 .v-opts-n { position: absolute; right: 1px; top: 1px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: var(--r-pill); background: var(--ink-bg); color: var(--ink-fg); font-size: var(--fs-micro); font-weight: 600; line-height: 14px; text-align: center; }

@@ -1039,7 +1039,7 @@ public/board.js    The canvas: rendering, input, sync, following
 public/present.js  Presenting a project: the link, the pill, and saying what is shown as you go
 public/watch.js    The page a presentation's link opens: what the presenter shows, followed, and nothing else (watch.html)
 public/snap.js     Smart snapping's geometry: edges, centres, equal gaps (tested on its own)
-public/cuttrack.js A run's close-up track, and the frames every track draws
+public/cuttrack.js The frames an animatic's track is drawn with, taken from its shots in the browser
 public/cut.js      An animatic's arithmetic: what shows and is heard at each frame, and its changes (tested on its own)
 public/animatic.js An animatic's page: its player, its timeline, the shots to put on it and their comments; watched too
 public/viewer.js   The player: one piece at a time, its strip, timeline, comments and drawings; used by boards and the catalogue

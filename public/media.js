@@ -396,7 +396,7 @@
   }
 
   // ---- fetching ahead
-  const RANK = { run: 1, timeline: 1.5, board: 2, page: 3, pinned: 4 };
+  const RANK = { venue: 1, timeline: 1.5, board: 2, page: 3, pinned: 4 };
   let clearedQuiet = false; // just cleared: nothing is fetched again until a page says what it wants
   function want(key, srcs, { rank = 5, kind = null, hold = false } = {}) {
     const list = [...new Set((srcs || []).filter(keepable))];

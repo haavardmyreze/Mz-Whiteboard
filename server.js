@@ -872,8 +872,8 @@ function holdsProject(folder) {
 }
 // A project's settings: its 3D preview: the model of the venue its work is shown
 // on (an uploaded .glb), the name of the material its projection surface has (`screen` unless said),
-// which view of a version goes on it (its main one unless said), the camera it opens through and that
-// camera's field of view (`fov`, degrees across; the model's own unless said). `banner` is the picture
+// which view of a version goes on it (its main one unless said), the camera it opens through, and the
+// field of view it flies through (`fov`, degrees across; unless said, the lens of the view it left). `banner` is the picture
 // over the title of its home page. `preview3d: null` takes the 3D preview away.
 // `tasks: false` says its versions are not counted by task: each asset, set or shot has one count.
 // `views` says how its versions are shown: false, one way only; or the names of the ways, the main one
@@ -942,9 +942,9 @@ function cleanProjectSettings(asked, was = {}) {
         // The camera of the model's that the 3D view opens through (its name); none, the one named main, or its first.
         camera: typeof p.camera === 'string' ? p.camera.slice(0, 120) : '',
       };
-      // The main camera's lens, in degrees across its frame, where the project sets one rather than the model's own.
+      // The lens the 3D view flies through, in degrees across, where the project sets one; else the lens of the view it left.
       const fov = Math.round(Number(p.fov));
-      if (fov >= 10 && fov <= 150) out.preview3d.fov = fov;
+      if (fov >= 10 && fov <= 120) out.preview3d.fov = fov;
     }
   }
   return out;

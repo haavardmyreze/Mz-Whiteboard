@@ -108,8 +108,10 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   let room = null; // the model in the scene
   let modelUrl = '';
   let screenName = 'screen';
-  let main = { cam: true, name: '', position: new THREE.Vector3(0, 1.6, 6), quaternion: new THREE.Quaternion(), fov: 50, own: 50, aspect: 16 / 9 };
-  let cams = [main]; // the model's cameras: { cam, name, position, quaternion, fov, own (its fov as the model has it), aspect }
+  let main = { cam: true, name: '', position: new THREE.Vector3(0, 1.6, 6), quaternion: new THREE.Quaternion(), fov: 50, aspect: 16 / 9 };
+  let cams = [main]; // the model's cameras: { cam, name, position, quaternion, fov, aspect }
+  // The lens flying is done through, in degrees across, as the project sets it; 0 keeps the lens the view had.
+  let flyLens = 0;
   // The frame held, or come back to: a camera of `cams`, or a comment's (no `cam`; its `fov` is worked out
   // from `keep`, the lens over the whole canvas, once the player has laid out its frame).
   let fixed = main;
@@ -121,26 +123,22 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
 
   // ---- the model
 
-  // The model's main camera: the one the project names, else one named main, else its first. Its lens is the
-  // one the project sets (`lens`, degrees across its frame), or else the model's own; the others keep theirs.
-  const mainOf = (list, chosen, lens) => {
-    for (const c of list) c.fov = c.own;
-    const m = (chosen && list.find((c) => c.name === chosen)) || list.find((c) => c.name.toLowerCase() === 'main') || list[0];
-    if (lens) m.fov = fovOf(tanHalf(lens) / m.aspect);
-    return m;
-  };
+  // The model's main camera: the one the project names, else one named main, else its first.
+  const mainOf = (list, chosen) => (chosen && list.find((c) => c.name === chosen)) || list.find((c) => c.name.toLowerCase() === 'main') || list[0];
 
-  async function load({ model, screen = 'screen', camera: chosen = '', fov: lens = 0 }) {
+  // `fov` is the lens to fly through (flyLens), where the project sets one.
+  async function load({ model, screen = 'screen', camera: chosen = '', fov = 0 }) {
     screenName = (screen || 'screen').toLowerCase();
+    flyLens = fov > 0 ? fov : 0;
     if (model === modelUrl && room) {
-      main = mainOf(cams, chosen, lens);
+      main = mainOf(cams, chosen);
       if (fixed && fixed.cam) fixed = main;
       applyScreens();
       return survey();
     }
     const gltf = await loadModel(model);
     // Put up by another call while this one waited for it: as it is, with the view left where it is.
-    if (model === modelUrl && room) return load({ model, screen, camera: chosen, fov: lens });
+    if (model === modelUrl && room) return load({ model, screen, camera: chosen, fov });
     if (room) scene.remove(room);
     room = gltf.scene.clone(true);
     // Its materials are this view's own: the screens' light is put into them (see litByScreens).
@@ -161,7 +159,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       o.getWorldPosition(position);
       o.getWorldQuaternion(quaternion);
       const name = o.name || o.parent?.name || `Camera ${cams.length + 1}`;
-      cams.push({ cam: true, name, position, quaternion, fov: o.fov, own: o.fov, aspect: shapeOf.get(o.name) || shapeOf.get(o.parent?.name) || 16 / 9 });
+      cams.push({ cam: true, name, position, quaternion, fov: o.fov, aspect: shapeOf.get(o.name) || shapeOf.get(o.parent?.name) || 16 / 9 });
     });
     const box = new THREE.Box3().setFromObject(room);
     const size = box.getSize(new THREE.Vector3());
@@ -171,9 +169,9 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
       const look = new THREE.PerspectiveCamera();
       look.position.set(centre.x, centre.y + size.y * 0.1, box.max.z + Math.max(size.x, size.y) * 0.6);
       look.lookAt(centre);
-      cams.push({ cam: true, name: '', position: look.position.clone(), quaternion: look.quaternion.clone(), fov: 50, own: 50, aspect: 16 / 9 });
+      cams.push({ cam: true, name: '', position: look.position.clone(), quaternion: look.quaternion.clone(), fov: 50, aspect: 16 / 9 });
     }
-    main = mainOf(cams, chosen, lens);
+    main = mainOf(cams, chosen);
     fixed = main;
     speed = Math.max(1, size.length() / 12);
     applyScreens();
@@ -660,7 +658,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   }
   // Flying starts from wherever the view is (on a frame, or on its way to one), looking where it looks,
   // with the room at the size it was: the lens over the whole area is the one the view had over the part
-  // of it shown.
+  // of it shown. A project that sets a lens to fly through (flyLens) has the glide out ease to that one.
   function fly() {
     if (free) return;
     free = true;
@@ -672,7 +670,8 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     // (Kept to 122.5° across: past that the glide out eases the room in to it rather than jumping.)
     const r = canvas.getBoundingClientRect();
     const keep = tanHalf(view.fov) / shown.h;
-    camera.fov = capped(fovOf(keep), r.width && r.height ? r.width / r.height : 16 / 9);
+    const aspect = r.width && r.height ? r.width / r.height : 16 / 9;
+    camera.fov = capped(flyLens ? fovOf(tanHalf(flyLens) / aspect) : fovOf(keep), aspect);
     glide = calm.matches ? null : { to: 'free', t0: performance.now(), ms: OUT_MS, from: { ...shown }, tan: keep };
     canvas.classList.add('free');
     onFree(true);

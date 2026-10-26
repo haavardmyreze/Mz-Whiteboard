@@ -658,8 +658,8 @@
     const camera = el('select', { 'aria-label': 'The camera the 3D view opens through' });
     let cameras = [];
     let cameraRow = null;
-    // Its lens, in degrees across the frame: left empty, the camera's own from the model.
-    const fov = el('input', { type: 'number', class: 'ps-num', min: '10', max: '150', step: '1', value: was && was.fov ? String(was.fov) : '', placeholder: 'Model', 'aria-label': 'Field of view, in degrees across' });
+    // The lens the 3D view flies through, in degrees across: left empty, the lens of the view it left.
+    const fov = el('input', { type: 'number', class: 'ps-num', min: '10', max: '120', step: '1', value: was && was.fov ? String(was.fov) : '', placeholder: 'As left', 'aria-label': 'Field of view flying, in degrees across' });
     const paintCameras = () => {
       const chosen = camera.value || (was && was.camera) || '';
       const pick = cameras.includes(chosen) ? chosen : cameras.find((c) => c.toLowerCase() === 'main') || cameras[0] || '';
@@ -720,7 +720,7 @@
     viewsRow = field('Views', 'The main one first: a file of it is a version, the others go with one', viewNames);
     const surfaceRow = field('Screen material', 'What the screens are called in the model', screen);
     cameraRow = field('Main camera', 'Where the work is judged from: the 3D view opens through it', camera);
-    const fovRow = row('Field of view', "The main camera's, in degrees across. Empty, the model's own", fov, el('span', { class: 'ps-unit', text: '°' }));
+    const fovRow = row('Field of view flying', 'In degrees across, once the view leaves a camera to fly. Empty, it keeps the lens of the view it left', fov, el('span', { class: 'ps-unit', text: '°' }));
     pictureRow = field('On the screens', 'Which view of a version is shown', view);
     rulesRow = field('Learned file names', 'Names from elsewhere, read this way when filing. Forget one with its ×', ruleList);
     paintRules();

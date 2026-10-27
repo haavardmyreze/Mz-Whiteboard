@@ -25,7 +25,7 @@ class AiError extends Error {
   }
 }
 
-// What an instruction can name to fill in. The tier goes with the entity, and so does its chapter.
+// What an instruction can name to fill in. The type goes with the entity, and so does its chapter.
 const FIELDS = ['entity', 'task', 'version', 'view'];
 const clip = (text, n) => String(text == null ? '' : text).slice(0, n);
 const versionOf = (n) => (Number.isSafeInteger(n) && n >= 1 && n <= 9999 ? n : null);
@@ -42,7 +42,7 @@ function rules(tasks) {
   ].join('\n');
 }
 // Whether a name is written as what it is: a shot as a shot, anything else not as one.
-const fitsTier = (name, tier) => (tier === 'shot') === (naming.tierOf(name) === 'shot');
+const fitsType = (name, type) => (type === 'shot') === (naming.typeByShape(name) === 'shot');
 // An answer that is no name: a placeholder for "I cannot tell" (unknown, none, <UNKNOWN>, n/a, tbd).
 const placeholder = (said) => /[<>]/.test(String(said || '')) || /^(unknown|none|null|nothing|n-?a|tbd|tba|excluded?|skip(ped)?)$/.test(naming.tokenize(said) || '');
 
@@ -50,7 +50,7 @@ function knownList(entities) {
   const list = (entities || []).slice(0, MAX_KNOWN);
   if (!list.length) return 'The project has no assets, sets or shots yet.';
   const more = (entities.length > list.length) ? `\n(and ${entities.length - list.length} more)` : '';
-  return `The project already has these (name, what it is):\n${list.map((e) => `${e.name} (${e.tier})`).join('\n')}${more}`;
+  return `The project already has these (name, what it is):\n${list.map((e) => `${e.name} (${e.type})`).join('\n')}${more}`;
 }
 
 function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_MODEL, base = process.env.ANTHROPIC_BASE_URL, fetchImpl = fetch, timeoutMs = 90000 } = {}) {
@@ -99,12 +99,12 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
 
   // What each file should be filed as. `files`: [{ key, filename, now: { entity, task, version, view } }] where
   // `now` is what its row says at the moment; `views` are the views the project's versions are shown in
-  // already. Returns { key -> { entity, tier, task, version, view, note, fits } }, with only the fields the
+  // already. Returns { key -> { entity, type, task, version, view, note, fits } }, with only the fields the
   // instruction asked to fill in when it named some.
   async function fileNames({ instruction, files, entities, tasks, views = [], useViews = true, useTasks = true }) {
     const list = (files || []).slice(0, MAX_FILES).filter((f) => f && f.key != null && f.filename);
     if (!list.length) throw new AiError('No files to ask about', 400);
-    const tiers = naming.TIERS;
+    const types = naming.TYPES;
     const system = [
       'You file review media (renders, playblasts, stills) into an animation and VFX project\'s catalogue. Each file becomes a version of an asset, a set or a shot, under a task.',
       rules(tasks),
@@ -112,7 +112,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
       [
         'For each file, say:',
         '- entity: the asset, set or shot it is a version of, named by the rules above. When it is one the project has, use that exact name.',
-        '- tier: what the entity is.',
+        '- type: what the entity is.',
         useTasks ? '- task: the task, from the project\'s tasks when one fits; a new task only when the file name or the instruction clearly names one; otherwise null.'
           : '- task: always null: this project does not count its versions by task, whatever a file name says.',
         '- version: the version number, only when the original file name or the instruction gives one (v3, v003, _003 at the end); otherwise null, and the catalogue numbers it.',
@@ -123,7 +123,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
         'Read everything the original file name says. The person\'s instruction comes first where it says otherwise, but every name keeps the shape the rules give.',
         'An instruction is always about how the files are named, never about which files are filed: every file is filed, and you answer for every one. When it says to exclude, drop, remove, strip or ignore a word (a project code, a prefix, a client name), it means leaving that word out of the names: "psh26 should be excluded" files PSH26_HAUS_0110_vr_v500.mp4 as the shot haus-0110, version 500.',
         'Never answer a placeholder (unknown, none, n/a, <UNKNOWN>): when you cannot tell, answer what the file is set to now.',
-        'Say in `only` which fields the instruction asks you to fill in, when it names them ("fill in chapter, shot and version" is entity, version; the entity includes its chapter or sequence and its tier). Leave `only` null when it does not name any. Whatever is not in `only` is left as it is, whatever you answer for it; what you do answer for is yours to change or to clear.',
+        'Say in `only` which fields the instruction asks you to fill in, when it names them ("fill in chapter, shot and version" is entity, version; the entity includes its chapter or sequence and its type). Leave `only` null when it does not name any. Whatever is not in `only` is left as it is, whatever you answer for it; what you do answer for is yours to change or to clear.',
         'Answer for every file, with the key it was given.',
       ].join('\n'),
     ].join('\n\n');
@@ -151,13 +151,13 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
               properties: {
                 key: { type: 'string' },
                 entity: { type: 'string' },
-                tier: { type: 'string', enum: tiers },
+                type: { type: 'string', enum: types },
                 task: { type: ['string', 'null'] },
                 version: { type: ['integer', 'null'] },
                 view: { type: ['string', 'null'] },
                 note: { type: 'string' },
               },
-              required: ['key', 'entity', 'tier', 'task', 'version', 'view'],
+              required: ['key', 'entity', 'type', 'task', 'version', 'view'],
             },
           },
         },
@@ -177,9 +177,9 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
       if (takes('entity')) {
         const entity = naming.tokenize(a.entity);
         if (!entity || placeholder(a.entity)) continue;
-        const tier = tiers.includes(a.tier) ? a.tier : naming.kindOf(entity, entities || []) || null;
-        if (!tier) continue;
-        Object.assign(answer, { entity, tier, fits: fitsTier(entity, tier) });
+        const type = types.includes(a.type) ? a.type : naming.entityTypeOf(entity, entities || []) || null;
+        if (!type) continue;
+        Object.assign(answer, { entity, type, fits: fitsType(entity, type) });
       }
       if (takes('task')) answer.task = (useTasks && naming.tokenize(a.task)) || null;
       if (takes('version')) answer.version = versionOf(a.version);
@@ -190,21 +190,21 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
   }
 
   // New names, or what they are, for some of a project's assets, sets and shots. `chosen`: [{ id, name,
-  // tier, versions: [file names it was filed from] }]. Returns { id -> { name, tier, note, fits } }, only for
+  // type, versions: [file names it was filed from] }]. Returns { id -> { name, type, note, fits } }, only for
   // those it would change.
   async function renameEntities({ instruction, chosen, entities, tasks }) {
     const list = (chosen || []).slice(0, MAX_ENTITIES);
     if (!list.length) throw new AiError('Nothing to ask about', 400);
-    const tiers = naming.TIERS;
+    const types = naming.TYPES;
     const ids = new Set(list.map((e) => e.id));
     const system = [
       'You tidy up the names of assets, sets and shots in an animation and VFX project\'s catalogue.',
       rules(tasks),
       knownList((entities || []).filter((e) => !ids.has(e.id))),
       [
-        'For each of the ones you are given, say its name and tier as they should be, by the person\'s instruction and the rules above. Use what the files it was filed from were called when they say more than its name does.',
+        'For each of the ones you are given, say its name and type as they should be, by the person\'s instruction and the rules above. Use what the files it was filed from were called when they say more than its name does.',
         'A name must not be one the project already has (listed above), and no two of yours may be the same.',
-        'Leave one as it is by giving its name and tier unchanged. Add a note of a few words on why, for the person checking your answer.',
+        'Leave one as it is by giving its name and type unchanged. Add a note of a few words on why, for the person checking your answer.',
         'Answer for every one, with the id it was given.',
       ].join('\n'),
     ].join('\n\n');
@@ -212,11 +212,11 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
       `Instruction: ${clip(instruction, MAX_INSTRUCTION).trim() || '(none: make the names follow the rules)'}`,
       '',
       'Assets, sets and shots (id, name, what it is, and what some of its files were called):',
-      ...list.map((e) => `${e.id}\t${e.name}\t${e.tier}${e.files && e.files.length ? `\tfiles: ${e.files.slice(0, 3).map((n) => clip(n, 120)).join(', ')}` : ''}`),
+      ...list.map((e) => `${e.id}\t${e.name}\t${e.type}${e.files && e.files.length ? `\tfiles: ${e.files.slice(0, 3).map((n) => clip(n, 120)).join(', ')}` : ''}`),
     ].join('\n');
     const tool = {
       name: 'rename',
-      description: 'The name and tier each should have.',
+      description: 'The name and type each should have.',
       input_schema: {
         type: 'object',
         properties: {
@@ -224,8 +224,8 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
             type: 'array',
             items: {
               type: 'object',
-              properties: { id: { type: 'string' }, name: { type: 'string' }, tier: { type: 'string', enum: tiers }, note: { type: 'string' } },
-              required: ['id', 'name', 'tier'],
+              properties: { id: { type: 'string' }, name: { type: 'string' }, type: { type: 'string', enum: types }, note: { type: 'string' } },
+              required: ['id', 'name', 'type'],
             },
           },
         },
@@ -239,9 +239,9 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
       const e = a && byId.get(String(a.id));
       if (!e || answers[e.id]) continue;
       const name = naming.tokenize(a.name);
-      const tier = tiers.includes(a.tier) ? a.tier : e.tier;
-      if (!name || (name === e.name && tier === e.tier)) continue;
-      answers[e.id] = { name, tier, note: clip(a.note, 200), fits: fitsTier(name, tier) };
+      const type = types.includes(a.type) ? a.type : e.type;
+      if (!name || (name === e.name && type === e.type)) continue;
+      answers[e.id] = { name, type, note: clip(a.note, 200), fits: fitsType(name, type) };
     }
     return answers;
   }

@@ -716,7 +716,7 @@ const WB = (() => {
     playlist: (id) => `#/pl/${id}`,
     reviews: (id, playlist) => `#/f/${id}/reviews${playlist ? `/${playlist}` : ''}`,
     animatic: (id, animatic) => `#/f/${id}/animatic/${animatic}`,
-    catalogue: (id, { tier, seq, entity } = {}) => `#/f/${id}/catalogue${entity ? `/${entity}` : seq ? `/s/${encodeURIComponent(seq)}` : tier ? `/t/${tier}` : ''}`,
+    catalogue: (id, { type, seq, entity } = {}) => `#/f/${id}/catalogue${entity ? `/${entity}` : seq ? `/s/${encodeURIComponent(seq)}` : type ? `/t/${type}` : ''}`,
     versions: (id) => `#/f/${id}/versions`,
     activity: (id) => `#/f/${id}/activity`,
     board: (id) => `/b/${id}`,

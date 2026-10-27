@@ -90,7 +90,7 @@
 
   // In a project folder: which of its pages is open, its home, its reviews (#/f/<id>/reviews: its boards,
   // playlists and animatics, and a playlist among them, …/reviews/<playlist id>), an animatic (…/animatic/<id>),
-  // its versions (…/versions), its activity (…/activity) or catalogue, and in the catalogue the tier
+  // its versions (…/versions), its activity (…/activity) or catalogue, and in the catalogue the type
   // (#/f/<id>/catalogue/t/shot), the sequence (…/s/kilo) or the entity (…/<entity id>) being looked at.
   function currentView() {
     const an = /^#\/f\/[\w-]+\/animatic\/([\w-]+)/.exec(location.hash);
@@ -102,7 +102,7 @@
     const m = /^#\/f\/[\w-]+\/(catalogue)(?:\/(?:(t|s)\/([\w-]+)|([\w-]+)))?/.exec(location.hash);
     // A project's own root is its home page.
     if (!m) return { page: 'home', entity: null };
-    return { page: 'catalogue', tier: m[2] === 't' ? m[3] : null, seq: m[2] === 's' ? m[3] : null, entity: m[4] || null };
+    return { page: 'catalogue', type: m[2] === 't' ? m[3] : null, seq: m[2] === 's' ? m[3] : null, entity: m[4] || null };
   }
 
   // Where the page is: a workspace's top level (#/w/<workspace>), or a folder (#/f/<id>…). With neither
@@ -680,7 +680,7 @@
     const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`).catch(() => null);
     // The order of its sequences, first to last: as set, then any it has that the order does not name yet,
     // by name. Moved with the arrows beside each; By name puts them back in the order their names sort.
-    const seqNames = [...new Set(((cat && cat.entities) || []).filter((e) => e.tier === 'shot' && N.seqOf(e.name)).map((e) => N.seqOf(e.name)))];
+    const seqNames = [...new Set(((cat && cat.entities) || []).filter((e) => e.type === 'shot' && N.seqOf(e.name)).map((e) => N.seqOf(e.name)))];
     let seqs = seqNames.slice().sort(seqSort(project));
     const seqList = el('ol', { class: 'ps-seqs' });
     const paintSeqs = () => seqList.replaceChildren(...seqs.map((q, i) => {
@@ -1144,12 +1144,12 @@
     if (v.page === 'boards') return `f:${rt.id}`;
     if (v.page !== 'catalogue') return `f:${rt.id}`;
     if (v.seq) return `s:${rt.id}:${v.seq}`;
-    if (v.tier) return `t:${rt.id}:${v.tier}`;
+    if (v.type) return `t:${rt.id}:${v.type}`;
     if (v.entity) {
       const e = (catalogues.get(rt.id)?.entities || []).find((x) => x.id === v.entity);
-      const seq = e && e.tier === 'shot' && N.seqOf(e.name);
+      const seq = e && e.type === 'shot' && N.seqOf(e.name);
       if (seq) return `s:${rt.id}:${seq}`;
-      return e ? `t:${rt.id}:${e.tier}` : `c:${rt.id}`;
+      return e ? `t:${rt.id}:${e.type}` : `c:${rt.id}`;
     }
     return `c:${rt.id}`;
   }
@@ -1210,7 +1210,7 @@
     }
     // A project: its reviews (in their folders), and its catalogue.
     const cat = catalogues.get(f.id);
-    const tierRows = () => {
+    const typeRows = () => {
       if (!cat) {
         const pad = { paddingLeft: `${(depth + 2) * 14 + 32}px` };
         if (catBroken(f.id)) {
@@ -1220,11 +1220,11 @@
         loadCatalogue(f.id);
         return [el('div', { class: 'side-row side-note', style: pad, text: 'Loading…' })];
       }
-      return cat.tiers.flatMap((t) => {
-        const of = cat.entities.filter((e) => e.tier === t.id);
+      return cat.types.flatMap((t) => {
+        const of = cat.entities.filter((e) => e.type === t.id);
         const seqs = t.id === 'shot' ? [...new Set(of.map((e) => N.seqOf(e.name)).filter(Boolean))].sort(seqSort(f)) : [];
         return sideRow({
-          key: `t:${f.id}:${t.id}`, depth: depth + 2, icon: null, label: t.label, href: WB.href.catalogue(f.id, { tier: t.id }), count: of.length, hereK,
+          key: `t:${f.id}:${t.id}`, depth: depth + 2, icon: null, label: t.label, href: WB.href.catalogue(f.id, { type: t.id }), count: of.length, hereK,
           kids: seqs.length ? () => seqs.flatMap((q) => sideRow({ key: `s:${f.id}:${q}`, depth: depth + 3, icon: null, label: q, href: WB.href.catalogue(f.id, { seq: q }), count: of.filter((e) => N.seqOf(e.name) === q).length, hereK })) : null,
         });
       });
@@ -1248,7 +1248,7 @@
       const top = childrenOf(f.id).length + reviewsOf(f).length;
       return [
         ...sideRow({ key: `rv:${f.id}`, depth: depth + 1, icon: ICON_BOARDS, label: 'Reviews', href: WB.href.reviews(f.id), count: top, drop, hereK, kids: top ? () => reviewRows(f.id, depth + 2) : null }),
-        ...sideRow({ key: `c:${f.id}`, depth: depth + 1, icon: ICON_CAT, label: 'Catalogue', href: WB.href.catalogue(f.id), kids: tierRows, hereK }),
+        ...sideRow({ key: `c:${f.id}`, depth: depth + 1, icon: ICON_CAT, label: 'Catalogue', href: WB.href.catalogue(f.id), kids: typeRows, hereK }),
         ...sideRow({ key: `vl:${f.id}`, depth: depth + 1, icon: ICON_LIST, label: 'Versions', href: WB.href.versions(f.id), hereK }),
         ...sideRow({ key: `ac:${f.id}`, depth: depth + 1, icon: ICON_ACTIVITY, label: 'Activity', href: WB.href.activity(f.id), hereK }),
       ];
@@ -1301,7 +1301,7 @@
       if (p.kind === 'entity') return { key: `pin:e:${p.id}`, icon: ICON_CAT, label: p.name, href: WB.href.catalogue(project.id, { entity: p.id }), title: project.name };
       if (p.kind === 'place') {
         const icon = { sequence: ICON_FILM, versions: ICON_LIST, activity: ICON_ACTIVITY, playlists: ICON_PLAYLIST, playlist: ICON_PLAYLIST, animatic: ICON_ANIMATIC }[p.what] || ICON_CAT;
-        const label = ['sequence', 'tier', 'playlist', 'animatic'].includes(p.what) ? p.name : `${project.name} ${p.name.toLowerCase()}`;
+        const label = ['sequence', 'type', 'playlist', 'animatic'].includes(p.what) ? p.name : `${project.name} ${p.name.toLowerCase()}`;
         return { key: `pin:p:${p.id}`, icon, label, href: p.href, title: project.name };
       }
       return null;
@@ -1356,7 +1356,7 @@
     }, el('i', { class: 'live', style: { background: p.color } }), el('span', { text: `${p.name} is presenting` }), el('b', { text: 'Watch' })));
   }
 
-  // Where you are: the workspace, the folders down to here, and in a catalogue the tier, the sequence and
+  // Where you are: the workspace, the folders down to here, and in a catalogue the type, the sequence and
   // the asset, set or shot. The last is the page's title; the rest are one small line above it. Every
   // part goes there, folders take drops, and the star beside the title pins what is here.
 
@@ -1388,15 +1388,15 @@
           parts.push(['Catalogue', WB.href.catalogue(f.id)]);
           const cat = catalogues.get(f.id);
           const e = v.entity && cat && cat.entities.find((x) => x.id === v.entity);
-          const tier = v.tier || (v.seq && 'shot') || (e && e.tier);
-          const t = tier && cat && cat.tiers.find((x) => x.id === tier);
-          if (t) parts.push([t.label, WB.href.catalogue(f.id, { tier: t.id })]);
-          const seq = v.seq || (e && e.tier === 'shot' && N.seqOf(e.name));
+          const type = v.type || (v.seq && 'shot') || (e && e.type);
+          const t = type && cat && cat.types.find((x) => x.id === type);
+          if (t) parts.push([t.label, WB.href.catalogue(f.id, { type: t.id })]);
+          const seq = v.seq || (e && e.type === 'shot' && N.seqOf(e.name));
           if (seq) parts.push([seq, WB.href.catalogue(f.id, { seq: seq })]);
           if (v.entity) {
             const name = e ? e.name : shownEntity && shownEntity.id === v.entity ? shownEntity.name : '…';
             parts.push([name, WB.href.catalogue(f.id, { entity: v.entity })]);
-            pin = e || (shownEntity && shownEntity.id === v.entity) ? { kind: 'entity', id: v.entity, name, projectId: f.id, tier: (e || shownEntity).tier, thumb: (e && e.thumb) || null } : null;
+            pin = e || (shownEntity && shownEntity.id === v.entity) ? { kind: 'entity', id: v.entity, name, projectId: f.id, type: (e || shownEntity).type, thumb: (e && e.thumb) || null } : null;
           }
         } else if (v.page === 'animatic') {
           parts.push(['Reviews', WB.href.reviews(f.id), f.id, ws]);
@@ -1415,11 +1415,11 @@
         }
         else if (v.page === 'versions') parts.push(['Versions', WB.href.versions(f.id)]);
         else if (v.page === 'activity') parts.push(['Activity', WB.href.activity(f.id)]);
-        // The star pins what is here, not the project around it: a sequence, a tier, the catalogue
+        // The star pins what is here, not the project around it: a sequence, a type, the catalogue
         // or the versions are pinned as that place (an asset, set or shot as itself).
         if (v.page !== 'home' && !listsBoards(v) && !v.entity) {
           const [name, href] = parts[parts.length - 1];
-          const what = v.seq ? 'sequence' : v.tier ? 'tier' : v.playlist ? 'playlist' : v.page;
+          const what = v.seq ? 'sequence' : v.type ? 'type' : v.playlist ? 'playlist' : v.page;
           pin = { kind: 'place', id: href, href, name, what, projectId: f.id };
         }
       }
@@ -1497,17 +1497,17 @@
   function keepAhead() {
     const pinned = [];
     for (const p of pins()) {
-      if (p.kind !== 'entity' && !(p.kind === 'place' && (p.what === 'sequence' || p.what === 'tier'))) continue;
+      if (p.kind !== 'entity' && !(p.kind === 'place' && (p.what === 'sequence' || p.what === 'type'))) continue;
       if (!folderById(p.projectId)) continue;
       const cat = catalogues.get(p.projectId);
       if (!cat) {
         loadCatalogue(p.projectId);
         continue;
       }
-      const tier = p.what === 'tier' && (/\/t\/([\w-]+)$/.exec(p.href) || [])[1];
+      const type = p.what === 'type' && (/\/t\/([\w-]+)$/.exec(p.href) || [])[1];
       const of = p.kind === 'entity' ? cat.entities.filter((e) => e.id === p.id)
-        : p.what === 'sequence' ? cat.entities.filter((e) => e.tier === 'shot' && N.seqOf(e.name) === p.name)
-          : cat.entities.filter((e) => e.tier === tier);
+        : p.what === 'sequence' ? cat.entities.filter((e) => e.type === 'shot' && N.seqOf(e.name) === p.name)
+          : cat.entities.filter((e) => e.type === type);
       pinned.push(...of.slice().sort((a, b) => (b.latestAt || 0) - (a.latestAt || 0)).slice(0, 40).map((e) => videoOf(e.newest)));
     }
     WB.media.want('pinned', pinned, { rank: WB.media.RANK.pinned, kind: 'pinned' });
@@ -1574,8 +1574,8 @@
   const VL_GROUPS = [['time', 'Upload time'], ['seq', 'Sequence'], ['entity', 'Asset, set or shot'], ['task', 'Task'], ['by', 'Who filed'], ['none', 'Nothing']];
   const VL_SORTS = [['new', 'Newest filed'], ['old', 'Oldest filed'], ['name', 'Name'], ['number', 'Version number']];
   const VL_WHEN = [['', 'Any time'], ['day', 'Today'], ['week', 'Last 7 days'], ['month', 'Last 30 days']];
-  const VL_FILTERS = [['task', 'Task'], ['seq', 'Sequence'], ['tier', 'Kind'], ['by', 'Filed by'], ['artist', 'Artist']];
-  const vlDefault = () => ({ group: 'time', sort: 'new', when: '', newest: false, archived: false, task: [], seq: [], tier: [], by: [], artist: [] });
+  const VL_FILTERS = [['task', 'Task'], ['seq', 'Sequence'], ['type', 'Kind'], ['by', 'Filed by'], ['artist', 'Artist']];
+  const vlDefault = () => ({ group: 'time', sort: 'new', when: '', newest: false, archived: false, task: [], seq: [], type: [], by: [], artist: [] });
   function vlState(project) {
     const key = `wb:vl:${project.id}`;
     return { ...vlDefault(), ...(store(key) || {}) };
@@ -1664,7 +1664,7 @@
       const f = facets || {};
       if (k === 'task') return [...(f.untasked ? [['', 'No task']] : []), ...(f.tasks || []).map((t) => [t, t])];
       if (k === 'seq') return (f.seqs || []).map((q) => [q, q]);
-      if (k === 'tier') return (f.tiers || []).map((t) => [t.id, t.label]);
+      if (k === 'type') return (f.types || []).map((t) => [t.id, t.label]);
       if (k === 'by') return (f.filers || []).map((n) => [n, n]);
       return (f.artists || []).map((n) => [n, n]);
     };
@@ -1720,7 +1720,7 @@
   // them; tasks and people by name; days newest first, or oldest first when sorted so); the sort chosen
   // orders what is in each.
   const byNatural = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-  function versionGroups(list, st, tierName) {
+  function versionGroups(list, st, typeName) {
     if (st.group === 'time') {
       // By day; within a day, by who filed them (whoever comes first in the sort first), however their
       // filing was interleaved with others'.
@@ -1737,14 +1737,14 @@
       return [...days.values()].sort((a, b) => (st.sort === 'old' ? a.day - b.day : b.day - a.day))
         .map((d) => ({ key: `d${d.day}`, title: dayName(d.day), runs: d.runs }));
     }
-    const tierAt = (t) => (N.TIERS.includes(t) ? N.TIERS.indexOf(t) : N.TIERS.length);
+    const typeAt = (t) => (N.TYPES.includes(t) ? N.TYPES.indexOf(t) : N.TYPES.length);
     // For each version, its group's title and where that group comes: [rank, title].
     const groupOf = {
       seq: (v) => {
-        const seq = v.tier === 'shot' && N.seqOf(v.entity);
-        return seq ? [0, seq] : [1 + tierAt(v.tier), `${tierName(v.tier)}s`];
+        const seq = v.type === 'shot' && N.seqOf(v.entity);
+        return seq ? [0, seq] : [1 + typeAt(v.type), `${typeName(v.type)}s`];
       },
-      entity: (v) => [tierAt(v.tier), v.entity],
+      entity: (v) => [typeAt(v.type), v.entity],
       task: (v) => (v.task ? [0, v.task] : [1, 'No task']),
       by: (v) => (v.createdBy ? [0, v.createdBy] : [1, 'Somebody']),
       none: () => [0, ''],
@@ -1767,8 +1767,8 @@
       vpick.project = project.id;
     }
     const cat = catalogues.get(project.id);
-    const tierName = (id) => {
-      const t = cat && cat.tiers.find((x) => x.id === id);
+    const typeName = (id) => {
+      const t = cat && cat.types.find((x) => x.id === id);
       const word = t ? t.one : id || '';
       return word.charAt(0).toUpperCase() + word.slice(1);
     };
@@ -1788,9 +1788,9 @@
     // Grouped by day, a row's time is enough; otherwise it says the day too.
     // What every one of them is goes unsaid: a card says it is a video, or a shot, only where the page has others.
     const kinds = new Set(list.map((v) => v.kind)).size > 1;
-    const tiers = new Set(list.map((v) => v.tier)).size > 1;
-    const grid = (vs) => objectList('version', versionsOf(project, null, vs, { list: true, tierName, day: st.group !== 'time', kinds, tiers }), { grid: 'board-grid ent-grid vl-grid', bare: true });
-    const groups = versionGroups(list, st, tierName);
+    const types = new Set(list.map((v) => v.type)).size > 1;
+    const grid = (vs) => objectList('version', versionsOf(project, null, vs, { list: true, typeName, day: st.group !== 'time', kinds, types }), { grid: 'board-grid ent-grid vl-grid', bare: true });
+    const groups = versionGroups(list, st, typeName);
     // Shift and a click picks a run as it is shown.
     vpick.order = groups.flatMap((g) => (g.runs ? g.runs.flatMap((r) => r.list) : g.list).map((v) => v.id));
     // Headed as the catalogue heads its groups: a day (or a task, a shot…) as a section, and within a
@@ -1936,7 +1936,7 @@
           const have = cat.entities.find((x) => x.name === to);
           const edits = chosen.map((v) => ({
             id: v.id,
-            ...(ent.how.value === 'set' && { entity: have ? have.id : { name: to, tier: N.kindOf(to, cat.entities) || 'asset' } }),
+            ...(ent.how.value === 'set' && { entity: have ? have.id : { name: to, type: N.entityTypeOf(to, cat.entities) || 'asset' } }),
             ...(task && task.how.value === 'set' && { task: taskIn.value }), ...(task && task.how.value === 'none' && { task: null }),
             ...(artist.how.value === 'set' && { artist: artistIn.value }), ...(artist.how.value === 'none' && { artist: null }),
             ...(hide.how.value && { hidden: hide.how.value === 'archive' }),
@@ -2299,7 +2299,7 @@
     if (presentBtn) presentBtn.hidden = !(projectHere() || WBPresent.token());
     $('newsplit').hidden = !makesBoards;
     // Searching from a project's home looks through its catalogue.
-    if (view.page === 'home' && $('q').value.trim()) Object.assign(view, { page: 'catalogue', tier: null, seq: null });
+    if (view.page === 'home' && $('q').value.trim()) Object.assign(view, { page: 'catalogue', type: null, seq: null });
     $('empty').hidden = true;
     // A project has its reviews and its catalogue.
     if (!listsBoards(view)) return renderProject(here, view);
@@ -2383,7 +2383,7 @@
         const page = await api('GET', `/api/entities/${view.entity}`);
         if (shownProject !== sig) return;
         shownEntity = page.entity;
-        WB.remember({ kind: 'entity', id: page.entity.id, name: page.entity.name, tier: page.entity.tier, projectId: project.id, thumb: (page.versions.find((v) => !v.hidden && v.thumb) || {}).thumb || null });
+        WB.remember({ kind: 'entity', id: page.entity.id, name: page.entity.name, type: page.entity.type, projectId: project.id, thumb: (page.versions.find((v) => !v.hidden && v.thumb) || {}).thumb || null });
         if (!catalogues.has(project.id)) loadCatalogue(project.id);
         renderCrumbs(route());
         return showContent(tray, entityPage(project, page));
@@ -2447,7 +2447,7 @@
         el('a', { class: 'btn', href: WB.href.catalogue(project.id), text: 'Open the catalogue' }))];
     }
     const items = act ? act.items : null;
-    const parts = cat.tiers.map((t) => homeTier(project, cat, t)).filter(Boolean);
+    const parts = cat.types.map((t) => homeType(project, cat, t)).filter(Boolean);
     return [
       homePulse(items),
       el('div', { class: 'home-cols' },
@@ -2485,14 +2485,14 @@
 
   // One part of the project (its assets, sets or shots): how many have something filed, each as a mark
   // (shots a row to each sequence, in order), then each task it has with how many have reached it.
-  function homeTier(project, cat, tier) {
-    const list = cat.entities.filter((e) => e.tier === tier.id);
+  function homeType(project, cat, type) {
+    const list = cat.entities.filter((e) => e.type === type.id);
     if (!list.length) return null;
     const filed = list.filter((e) => e.versions).length;
     const fresh = list.filter((e) => stateOf(e) === 'fresh').length;
     const count = (k, n) => el('span', { class: 'ph-count', text: `${k} of ${n}` });
     let rows;
-    if (tier.id === 'shot') {
+    if (type.id === 'shot') {
       const bySeq = new Map();
       const inOrder = shotSort(project);
       for (const e of list.slice().sort((a, b) => inOrder(a.name, b.name))) {
@@ -2513,9 +2513,9 @@
     const step = (task) => (N.TASKS.includes(task) ? N.TASKS.indexOf(task) : N.TASKS.length);
     const tasks = [...reached].sort((a, b) => step(a[0]) - step(b[0]) || a[0].localeCompare(b[0]));
     return el('section', { class: 'ph-part' },
-      label(tier.label, null, el('span', { class: 'tally', text: `${filed} of ${list.length} filed${fresh ? ` · ${fresh} this week` : ''}` })),
+      label(type.label, null, el('span', { class: 'tally', text: `${filed} of ${list.length} filed${fresh ? ` · ${fresh} this week` : ''}` })),
       el('div', { class: 'ph-rows' }, rows),
-      tasks.length > 0 && el('div', { class: 'ph-tasks', role: 'list', 'aria-label': `${tier.label} by task` }, tasks.map(([task, k]) => el('div', { class: 'ph-task', role: 'listitem' },
+      tasks.length > 0 && el('div', { class: 'ph-tasks', role: 'list', 'aria-label': `${type.label} by task` }, tasks.map(([task, k]) => el('div', { class: 'ph-task', role: 'listitem' },
         el('span', { class: 'ph-name', text: task }),
         el('span', { class: 'ph-bar', title: `${k} of ${list.length}` }, el('span', { style: { width: `${(k / list.length) * 100}%` } })),
         el('span', { class: 'ph-count', text: String(k) })))));
@@ -2531,14 +2531,14 @@
     const now = Date.now();
     const people = new Map();
     const of = (name) => people.get(name) || people.set(name, { name, on: new Map(), week: 0 }).get(name);
-    for (const e of cat.entities) for (const a of e.artists || []) of(a).on.set(e.tier, (of(a).on.get(e.tier) || 0) + 1);
+    for (const e of cat.entities) for (const a of e.artists || []) of(a).on.set(e.type, (of(a).on.get(e.type) || 0) + 1);
     for (const x of items || []) if (x.kind === 'version' && x.by && now - x.at < WEEK) of(x.by).week++;
     // Each in their colour, as the project's activity gives it.
     const colourOf = new Map((items || []).map((x) => [x.by, x.color]));
     if (!people.size) return null;
     const total = (p) => [...p.on.values()].reduce((a, b) => a + b, 0);
     const list = [...people.values()].sort((a, b) => total(b) - total(a) || b.week - a.week || a.name.localeCompare(b.name));
-    const on = (p) => cat.tiers.filter((t) => p.on.has(t.id)).map((t) => plural(p.on.get(t.id), t.one)).join(', ');
+    const on = (p) => cat.types.filter((t) => p.on.has(t.id)).map((t) => plural(p.on.get(t.id), t.one)).join(', ');
     return el('div', {},
       label('People', people.size),
       el('div', { class: 'ph-people' }, list.map((p) => el('div', { class: 'ph-person' },
@@ -2757,11 +2757,11 @@
     };
     const artists = peopleRow('artists', 'Artists');
     const cc = peopleRow('cc', 'CC');
-    const tiers = cat.tiers;
-    const tierNow = [...new Set(chosen.map((e) => e.tier))];
-    const tierSel = el('select', { class: 'be-how', 'aria-label': 'What they are' },
-      el('option', { value: '', text: tierNow.length === 1 ? `Leave as ${tierNow[0]}${chosen.length > 1 ? 's' : ''}` : 'Leave as they are' }),
-      tiers.map((t) => el('option', { value: t.id, text: `Make them ${t.label.toLowerCase()}` })));
+    const types = cat.types;
+    const typeNow = [...new Set(chosen.map((e) => e.type))];
+    const typeSel = el('select', { class: 'be-how', 'aria-label': 'What they are' },
+      el('option', { value: '', text: typeNow.length === 1 ? `Leave as ${typeNow[0]}${chosen.length > 1 ? 's' : ''}` : 'Leave as they are' }),
+      types.map((t) => el('option', { value: t.id, text: `Make them ${t.label.toLowerCase()}` })));
     const error = el('p', { class: 've-error', hidden: true });
     const save = el('button', { type: 'submit', class: 'btn primary', text: `Change ${chosen.length}` });
     const names = chosen.map((e) => e.name);
@@ -2769,7 +2769,7 @@
     // ticked to be taken, and can be changed first; nothing is renamed until the dialog is saved.
     let renames = [];
     const aiList = el('div', { class: 'be-ai-list', hidden: true });
-    const tierLabel = (id) => (tiers.find((t) => t.id === id) || { one: id }).one;
+    const typeLabel = (id) => (types.find((t) => t.id === id) || { one: id }).one;
     const ai = WBClaude.on() && WBClaude.box({
       placeholder: 'Tell Claude how to rename them, e.g. "these are all shots of ch01, in the order of their names"',
       ask: async (instruction) => {
@@ -2781,8 +2781,8 @@
           return {
             e, a, take, name,
             node: el('label', { class: 'be-ai-row' }, take,
-              el('span', { class: 'be-ai-old', text: e.name, title: e.tier }), el('span', { class: 'be-ai-to', text: '→' }), name,
-              el('span', { class: 'be-ai-tier', text: a.tier !== e.tier ? `${tierLabel(e.tier)} → ${tierLabel(a.tier)}` : '' }),
+              el('span', { class: 'be-ai-old', text: e.name, title: e.type }), el('span', { class: 'be-ai-to', text: '→' }), name,
+              el('span', { class: 'be-ai-type', text: a.type !== e.type ? `${typeLabel(e.type)} → ${typeLabel(a.type)}` : '' }),
               WBClaude.mark(a.note, a.fits)),
           };
         });
@@ -2796,14 +2796,14 @@
         method: 'dialog',
         onsubmit: async (ev) => {
           ev.preventDefault();
-          const body = { ids: chosen.map((e) => e.id), artists: artists.value(), cc: cc.value(), ...(tierSel.value && { tier: tierSel.value }) };
+          const body = { ids: chosen.map((e) => e.id), artists: artists.value(), cc: cc.value(), ...(typeSel.value && { type: typeSel.value }) };
           const taken = renames.filter((x) => x.take.checked && x.name.value.trim());
           if (taken.length) {
             body.names = Object.fromEntries(taken.filter((x) => x.name.value.trim() !== x.e.name).map((x) => [x.e.id, x.name.value]));
-            body.tiers = Object.fromEntries(taken.filter((x) => x.a.tier !== x.e.tier).map((x) => [x.e.id, x.a.tier]));
+            body.types = Object.fromEntries(taken.filter((x) => x.a.type !== x.e.type).map((x) => [x.e.id, x.a.type]));
           }
-          const renaming = taken.length && (Object.keys(body.names).length || Object.keys(body.tiers).length);
-          if (!body.artists && !body.cc && !body.tier && !renaming) return dlg.close();
+          const renaming = taken.length && (Object.keys(body.names).length || Object.keys(body.types).length);
+          if (!body.artists && !body.cc && !body.type && !renaming) return dlg.close();
           save.disabled = true;
           try {
             await api('PATCH', `/api/projects/${project.id}/entities`, body);
@@ -2811,16 +2811,16 @@
             dlg.close();
             shownProject = '';
             render();
-            // Undo puts each back as it was: its own artists, cc and tier, not one value for all.
-            const before = chosen.map((e) => ({ id: e.id, name: e.name, artists: e.artists || [], cc: e.cc || [], tier: e.tier }));
+            // Undo puts each back as it was: its own artists, cc and type, not one value for all.
+            const before = chosen.map((e) => ({ id: e.id, name: e.name, artists: e.artists || [], cc: e.cc || [], type: e.type }));
             undoable(`Changed ${plural(chosen.length, 'asset, set or shot', 'assets, sets and shots')}`, async () => {
               // Names go back all at once, so names that went round among them can come back round.
               if (renaming) {
                 await api('PATCH', `/api/projects/${project.id}/entities`, {
-                  ids: before.map((e) => e.id), names: Object.fromEntries(before.map((e) => [e.id, e.name])), tiers: Object.fromEntries(before.map((e) => [e.id, e.tier])),
+                  ids: before.map((e) => e.id), names: Object.fromEntries(before.map((e) => [e.id, e.name])), types: Object.fromEntries(before.map((e) => [e.id, e.type])),
                 });
               }
-              for (const e of before) await api('PATCH', `/api/entities/${e.id}`, { artists: e.artists, cc: e.cc, tier: e.tier });
+              for (const e of before) await api('PATCH', `/api/entities/${e.id}`, { artists: e.artists, cc: e.cc, type: e.type });
               catalogues.delete(project.id);
               shownProject = '';
               render();
@@ -2832,11 +2832,11 @@
           }
         },
       },
-      el('h2', { text: `Edit ${chosen.length === 1 ? names[0] : `${chosen.length} ${tierNow.length === 1 ? (tiers.find((t) => t.id === tierNow[0]) || { label: 'assets, sets and shots' }).label.toLowerCase() : 'assets, sets and shots'}`}` }),
+      el('h2', { text: `Edit ${chosen.length === 1 ? names[0] : `${chosen.length} ${typeNow.length === 1 ? (types.find((t) => t.id === typeNow[0]) || { label: 'assets, sets and shots' }).label.toLowerCase() : 'assets, sets and shots'}`}` }),
       el('p', { class: 'be-which', text: names.length > 8 ? `${names.slice(0, 8).join(', ')} and ${names.length - 8} more` : names.join(', ') }),
       ai && el('div', { class: 'be-ai' }, ai.node, aiList),
       artists.node, cc.node,
-      el('div', { class: 'be-row' }, el('span', { class: 'be-label', text: 'What they are' }), el('div', { class: 'be-field' }, el('div', { class: 'be-ctl' }, tierSel))),
+      el('div', { class: 'be-row' }, el('span', { class: 'be-label', text: 'What they are' }), el('div', { class: 'be-field' }, el('div', { class: 'be-ctl' }, typeSel))),
       error,
       el('div', { class: 'dlg-actions' },
         el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }),
@@ -2850,10 +2850,10 @@
   // shot by its shape (or as chosen). A run of shots can be filled in from a sequence and its numbers.
   function addEntities(project) {
     const cat = catalogues.get(project.id);
-    const tiers = N.TIER_LIST;
+    const types = N.TYPE_LIST;
     const box = el('textarea', { rows: 8, spellcheck: 'false', placeholder: 'char-robot\nset-harbour\nkilo-0010\nkilo-0020', 'aria-label': 'Names, one a line' });
-    const tierSel = el('select', { 'aria-label': 'What they are' },
-      el('option', { value: '', text: 'What each name says' }), tiers.map((t) => el('option', { value: t.id, text: `All ${t.label.toLowerCase()}` })));
+    const typeSel = el('select', { 'aria-label': 'What they are' },
+      el('option', { value: '', text: 'What each name says' }), types.map((t) => el('option', { value: t.id, text: `All ${t.label.toLowerCase()}` })));
     const preview = el('div', { class: 'ae-preview' });
     const seq = el('input', { type: 'text', placeholder: 'kilo', spellcheck: 'false', 'aria-label': 'Sequence' });
     const from = el('input', { type: 'number', value: '10', min: '0', 'aria-label': 'First shot number' });
@@ -2866,8 +2866,8 @@
       const list = wanted();
       const have = new Set((catalogues.get(project.id)?.entities || []).map((e) => e.name));
       const fresh = list.filter((n) => !have.has(n));
-      const tierOf = (n) => tierSel.value || N.kindOf(n, catalogues.get(project.id)?.entities || []) || 'asset';
-      const counts = tiers.map((t) => [t, fresh.filter((n) => tierOf(n) === t.id).length]).filter(([, n]) => n);
+      const typeByShape = (n) => typeSel.value || N.entityTypeOf(n, catalogues.get(project.id)?.entities || []) || 'asset';
+      const counts = types.map((t) => [t, fresh.filter((n) => typeByShape(n) === t.id).length]).filter(([, n]) => n);
       preview.textContent = !list.length ? 'Nothing yet.'
         : `${fresh.length ? `Adds ${counts.map(([t, n]) => `${n} ${n === 1 ? t.one : t.label.toLowerCase()}`).join(', ')}.` : 'Nothing new.'}${list.length > fresh.length ? ` ${list.length - fresh.length} already there.` : ''}`;
       save.disabled = !fresh.length;
@@ -2875,7 +2875,7 @@
       error.hidden = true;
     };
     box.addEventListener('input', paint);
-    tierSel.addEventListener('change', paint);
+    typeSel.addEventListener('change', paint);
     const fillShots = () => {
       const q = N.tokenize(seq.value);
       const a = Number(from.value);
@@ -2894,7 +2894,7 @@
           e.preventDefault();
           save.disabled = true;
           try {
-            const res = await api('POST', `/api/projects/${project.id}/entities`, { names: wanted(), tier: tierSel.value || undefined, by: me.name });
+            const res = await api('POST', `/api/projects/${project.id}/entities`, { names: wanted(), type: typeSel.value || undefined, by: me.name });
             catalogues.delete(project.id);
             dlg.close();
             shownProject = '';
@@ -2910,7 +2910,7 @@
       el('h2', { text: 'Add assets, sets & shots' }),
       el('p', { text: 'What the project has, before anything is filed of it. Type or paste the names, one a line; each is an asset, a set or a shot by its name.' }),
       box,
-      el('div', { class: 'ae-row' }, el('span', { text: 'They are' }), tierSel),
+      el('div', { class: 'ae-row' }, el('span', { text: 'They are' }), typeSel),
       el('div', { class: 'ae-row ae-shots' }, el('span', { text: 'Or a run of shots:' }), seq, el('span', { text: 'from' }), from, el('span', { text: 'to' }), to, el('span', { text: 'by' }), step,
         el('button', { type: 'button', class: 'btn small', text: 'Fill in', onclick: fillShots })),
       preview, error,
@@ -3012,7 +3012,7 @@
     countPicked(bar, n, picking.ids.size - n, 'assets, sets and shots');
     bar.querySelector('.pick-edit').disabled = !n;
     const cat = catalogues.get(picking.project);
-    bar.querySelector('.pick-cut').disabled = !(cat && [...picking.ids].some((id) => seen.has(id) && cat.entities.some((e) => e.id === id && e.tier === 'shot')));
+    bar.querySelector('.pick-cut').disabled = !(cat && [...picking.ids].some((id) => seen.has(id) && cat.entities.some((e) => e.id === id && e.type === 'shot')));
     bar.querySelector('.pick-clear').hidden = !picking.ids.size;
   }
   function setPicking(project, on) {
@@ -3044,8 +3044,8 @@
   // naming the row) and what its newest version is.
   function entityObj(project, e, { pickable = false, inRow = false } = {}) {
     const newest = e.newest || null;
-    const tier = (project && catalogues.get(project.id)?.tiers.find((t) => t.id === e.tier)) || null;
-    const kind = tier ? tier.one.charAt(0).toUpperCase() + tier.one.slice(1) : N.TIERS.includes(e.tier) ? e.tier.charAt(0).toUpperCase() + e.tier.slice(1) : '';
+    const type = (project && catalogues.get(project.id)?.types.find((t) => t.id === e.type)) || null;
+    const kind = type ? type.one.charAt(0).toUpperCase() + type.one.slice(1) : N.TYPES.includes(e.type) ? e.type.charAt(0).toUpperCase() + e.type.slice(1) : '';
     const thumbs = el('div', { class: `card-thumbs n${e.thumb ? 1 : 0}`, ...(newest && { title: 'Play the latest' }) },
       e.thumb && el('img', { src: e.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
       newest && el('span', { class: 'play-latest', html: `${ICON_PLAY}<span>Latest</span>` }));
@@ -3086,7 +3086,7 @@
       }),
       box: el('span', { class: 'pick-box', 'aria-hidden': 'true' }),
       still: thumbs,
-      name: inRow && e.tier === 'shot' && N.seqOf(e.name) ? e.name.slice(N.seqOf(e.name).length + 1) : e.name,
+      name: inRow && e.type === 'shot' && N.seqOf(e.name) ? e.name.slice(N.seqOf(e.name).length + 1) : e.name,
       title: e.name,
       lines: inRow ? [newest && N.label(null, newest.task, newest.number)] : [e.versions == null ? kind.toLowerCase() : e.versions ? `${plural(e.versions, 'version')} · last ${ago(e.latestAt)}` : 'Nothing filed yet', artists && artists()],
       cells: {
@@ -3099,8 +3099,8 @@
       menu: [
         newest && ['Play the latest', () => lookAt(e.id, newest.id)],
         ['Open its page', () => { location.hash = WB.href.catalogue(project.id, { entity: e.id }); }],
-        e.tier === 'shot' && ['Add to animatic…', () => addToAnimaticMenu(project, null, [e.id])],
-        [isPinned('entity', e.id) ? 'Unpin from sidebar' : 'Pin to sidebar', () => togglePin({ kind: 'entity', id: e.id, name: e.name, projectId: project.id, tier: e.tier, thumb: e.thumb || null })],
+        e.type === 'shot' && ['Add to animatic…', () => addToAnimaticMenu(project, null, [e.id])],
+        [isPinned('entity', e.id) ? 'Unpin from sidebar' : 'Pin to sidebar', () => togglePin({ kind: 'entity', id: e.id, name: e.name, projectId: project.id, type: e.type, thumb: e.thumb || null })],
       ].filter(Boolean),
     };
   }
@@ -3108,23 +3108,23 @@
   function catalogueView(project, cat, view = {}) {
     const q = WBNaming.tokenize($('q').value);
     const list = cat.entities.filter((e) => (!q || e.name.includes(q))
-      && (!view.tier || e.tier === view.tier) && (!view.seq || (e.tier === 'shot' && N.seqOf(e.name) === view.seq)));
+      && (!view.type || e.type === view.type) && (!view.seq || (e.type === 'shot' && N.seqOf(e.name) === view.seq)));
     const out = [];
     const shown = (es) => objectList('entity', es.map((e) => entityObj(project, e, { pickable: true })), { grid: 'board-grid ent-grid', bare: true });
     // As cards, the whole catalogue (or all its shots) is one grid, as a clip launcher lays out its
     // layers: the same small print everywhere, after a column where each sequence is named. Assets and
     // sets have no order, so theirs wraps; a sequence runs along its row in order, scrolling sideways.
     // A sequence's page, or the assets' or the sets', is one group and wraps its cards as any list.
-    const rows = WB.layout() === 'cards' && !view.seq && (!view.tier || view.tier === 'shot');
+    const rows = WB.layout() === 'cards' && !view.seq && (!view.type || view.type === 'shot');
     const row = (head, es, wrap) => el('div', { class: `seq-row${wrap ? ' wrap' : ''}` }, head || el('div', { class: 'seq-row-head' }),
       objectList('entity', es.map((e) => entityObj(project, e, { pickable: true, inRow: true })), { grid: 'seq-track' }));
     picking.order = [];
-    for (const tier of cat.tiers) {
-      const of = list.filter((e) => e.tier === tier.id);
+    for (const type of cat.types) {
+      const of = list.filter((e) => e.type === type.id);
       if (!of.length) continue;
-      out.push(groupHead(tier.label, { n: of.length }));
+      out.push(groupHead(type.label, { n: of.length }));
       picking.order.push(...of.map((e) => e.id));
-      if (tier.id !== 'shot') {
+      if (type.id !== 'shot') {
         out.push(rows ? el('div', { class: 'seq-rows' }, row(null, of, true)) : shown(of));
         continue;
       }
@@ -3206,7 +3206,7 @@
           const e2 = N.tokenize(ent.value);
           if (!e2) return;
           const body = { task: task.value, artist: artist.value, descriptor: desc.value };
-          if (e2 !== entity.name) body.entity = { name: e2, tier: N.kindOf(e2, cat ? cat.entities : []) || entity.tier };
+          if (e2 !== entity.name) body.entity = { name: e2, type: N.entityTypeOf(e2, cat ? cat.entities : []) || entity.type };
           if (num.value) body.number = Number(num.value);
           save.disabled = true;
           try {
@@ -3253,7 +3253,7 @@
     return [
       ['Open', () => lookAt(entity.id, v.id)],
       ['Add to playlist…', () => addToPlaylistMenu(project, null, [v.id])],
-      entity.tier === 'shot' && ['Add to animatic…', () => addToAnimaticMenu(project, null, [v.id])],
+      entity.type === 'shot' && ['Add to animatic…', () => addToAnimaticMenu(project, null, [v.id])],
       ['Edit…', () => editVersion(project, entity, v)],
       [v.hidden ? 'Bring back from the archive' : 'Archive', () => archiveVersion(v, !v.hidden)],
       v.look && ['Download', () => { location.href = v.look.orig || v.look.src; }],
@@ -3419,14 +3419,14 @@
   // Versions page (`list`) it says which asset, set or shot it is (a link to it) and when it was filed, as
   // the page groups by who filed it (and the day too, in a table not grouped by day: `day`); on the
   // asset, set or shot's own page, who filed it and when. Whether it is an image or a video (`kinds`), and
-  // an asset, set or shot (`tiers`), is said only where the list has more than one.
+  // an asset, set or shot (`types`), is said only where the list has more than one.
   // Listed on a playlist, `open` is how it opens (the playlist playing from it) and `menu` comes first in its menu.
-  function versionObj(project, entity, v, { list = false, tierName = (t) => t, day = false, kinds = false, tiers = false, open, menu = [] } = {}) {
+  function versionObj(project, entity, v, { list = false, typeName = (t) => t, day = false, kinds = false, types = false, open, menu = [] } = {}) {
     const views = verViews(v);
     const extras = verExtras(v);
     const about = [
       list && clock(v.createdAt),
-      list && tiers && tierName(v.tier),
+      list && types && typeName(v.type),
       v.artist && !(list && v.artist === (v.createdBy || '').toLowerCase()) && `by ${v.artist}`,
       v.descriptor,
     ].filter(Boolean).join(' · ') || (!list && v.originalName) || '';
@@ -3458,7 +3458,7 @@
       menu: [...menu, ...versionActions(project, entity, v)],
     };
   }
-  const versionsOf = (project, entity, vs, opts = { kinds: new Set(vs.map((v) => v.kind)).size > 1 }) => vs.map((v) => versionObj(project, entity || { id: v.entityId, name: v.entity, tier: v.tier }, v, opts));
+  const versionsOf = (project, entity, vs, opts = { kinds: new Set(vs.map((v) => v.kind)).size > 1 }) => vs.map((v) => versionObj(project, entity || { id: v.entityId, name: v.entity, type: v.type }, v, opts));
 
   let showHidden = false;
   function entityPage(project, page) {
@@ -3928,7 +3928,7 @@
     }
     vpick.order = versions.map((v) => v.id);
     const kinds = new Set(versions.map((v) => v.kind)).size > 1;
-    const specs = versions.map((v, n) => versionObj(project, { id: v.entityId, name: v.entity, tier: v.tier }, v, {
+    const specs = versions.map((v, n) => versionObj(project, { id: v.entityId, name: v.entity, type: v.type }, v, {
       kinds,
       open: () => playPlaylist(project, data, v.id),
       menu: [['Open here', () => playPlaylist(project, data, v.id)], ['Take off the playlist', () => takeOffPlaylist(project, playlist.id, [v.id])]],
@@ -4427,12 +4427,12 @@
         const a = res.answers[r.key];
         if (!a || !unfiled(r)) continue;
         const f = r.fields;
-        before.push({ r, ent: f.ent.value, task: f.task.value, tier: f.tier.value, num: f.num.value, numTouched: r.numTouched, view: f.f.viewName() });
+        before.push({ r, ent: f.ent.value, task: f.task.value, type: f.type.value, num: f.num.value, numTouched: r.numTouched, view: f.f.viewName() });
         // Only the fields in its answer: asked to fill in the shot and the version and nothing more, the rest
         // are not there, and stay as they are. What is there may clear a field (no task, the main view).
         if ('entity' in a) {
           f.ent.value = a.entity;
-          f.tier.value = a.tier;
+          f.type.value = a.type;
         }
         if ('task' in a) f.task.value = a.task || '';
         WBFiling.changed();
@@ -4455,7 +4455,7 @@
             b.r.fields.ent.value = b.ent;
             b.r.fields.task.value = b.task;
             WBFiling.changed();
-            b.r.fields.tier.value = b.tier;
+            b.r.fields.type.value = b.type;
             b.r.fields.num.value = b.num;
             if (viewList()) b.r.fields.f.setView(b.view || viewList()[0]);
             b.r.numTouched = b.numTouched;
@@ -4495,7 +4495,7 @@
           resyncAll();
         },
       });
-      const { ent, task, tier } = f;
+      const { ent, task, type } = f;
       // The version its name says (v111), read as the app writes names or by a learned pattern, is its number.
       const named = (ruled && ruled.number) || (r.parsed.entity && r.parsed.hip) || null;
       if (named) {
@@ -4530,7 +4530,7 @@
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented && canFile(r)) fileRow(r); });
         input.addEventListener('input', () => { r.touched = true; setMark(r, null); });
       }
-      r.fields = { f, ent, task, num, view: f.viewSel, tier, go, status, bar, thumb, said, undo, box: fields, sync };
+      r.fields = { f, ent, task, num, view: f.viewSel, type, go, status, bar, thumb, said, undo, box: fields, sync };
       // Taken back: whatever is under way for it stops, and the row goes.
       const drop = el('button', {
         type: 'button', class: 'iconbtn imp-x', html: icon('close', 14), title: `Take ${r.file.name} back`,

@@ -1567,7 +1567,7 @@
     }
     const reach = (drawing.size || 0) / 2;
     let best = null;
-    let bestTier = -1;
+    let bestRank = -1;
     let bestHits = 0;
     for (const it of items.values()) {
       if (it.type === 'stroke' || it.id === drawing.id || !selectable(it)) continue;
@@ -1575,10 +1575,10 @@
       let hits = 0;
       for (const s of samples) if (hasPoint(zone, s)) hits++;
       if (!hits) continue;
-      const tier = it.type === 'frame' ? 0 : 1;
-      if (tier > bestTier || (tier === bestTier && (hits > bestHits || (hits === bestHits && (it.z || 0) > (best.z || 0))))) {
+      const rank = it.type === 'frame' ? 0 : 1;
+      if (rank > bestRank || (rank === bestRank && (hits > bestHits || (hits === bestHits && (it.z || 0) > (best.z || 0))))) {
         best = it;
-        bestTier = tier;
+        bestRank = rank;
         bestHits = hits;
       }
     }
@@ -4672,7 +4672,7 @@
     const useTasks = settings.tasks !== false;
     const rules = settings.rules || [];
     const remembered = store(`wb:file:${project.id}`) || null;
-    const known = (name) => !!name && (cat.entities.some((e) => e.name === name) || !!N.tierOf(name));
+    const known = (name) => !!name && (cat.entities.some((e) => e.name === name) || !!N.typeByShape(name));
     // The fields are the catalogue importer's too (filing.js).
     const rows = [];
     const shared = {
@@ -4709,7 +4709,7 @@
         number: before ? before.number : (ruled && ruled.number) || (parsed.entity && parsed.hip) || null,
         view: before ? before.view : parsed.view || (ruled && ruled.view),
       });
-      const row = { it, f, ent: f.ent, task: f.task, tier: f.tier, taught: !parsed.entity && !(ruled && ruled.rule.pattern) };
+      const row = { it, f, ent: f.ent, task: f.task, type: f.type, taught: !parsed.entity && !(ruled && ruled.rule.pattern) };
       row.node = el('div', { class: 'file-row' },
         el('img', { src: it.th || it.prev || (it.type === 'image' ? it.src : it.poster) || '', alt: '' }),
         el('span', { class: 'file-name', text: it.name || (it.type === 'video' ? 'Video' : 'Image'), title: it.name || '' }),
@@ -4888,7 +4888,7 @@
     // Typed as it is spoken ("kilo 0010") or as it is written (kilo-0010), it finds the same.
     const q = catQuery ? WBNaming.tokenize(catQuery) : '';
     const shown = catSeen.entities.filter((e) => !q || e.name.includes(q));
-    const groups = catSeen.tiers.map((t) => [t, shown.filter((e) => e.tier === t.id)]).filter(([, list]) => list.length);
+    const groups = catSeen.types.map((t) => [t, shown.filter((e) => e.type === t.id)]).filter(([, list]) => list.length);
     catBody.replaceChildren(...(groups.length ? groups.map(([t, list]) => el('section', { class: 'cat-group' },
       el('h3', {}, t.label, el('span', { class: 'tally', text: String(list.length) })),
       el('div', { class: 'cat-grid' }, list.map((e) => el('button', { type: 'button', class: 'cat-tile', title: `${e.name}: ${e.versions} ${e.versions === 1 ? 'version' : 'versions'}`, onclick: () => { catEntity = e.id; paintCatalogue(); } },
@@ -4911,7 +4911,7 @@
     const shown = page.versions.filter((v) => !v.hidden);
     catBody.replaceChildren(
       el('button', { type: 'button', class: 'cat-back', onclick: () => { catEntity = null; paintCatalogue(); } }, el('span', { html: ICON.prev }), 'All of the project'),
-      el('div', { class: 'cat-ent' }, el('b', { text: page.entity.name }), el('span', { text: `${page.entity.tier} · ${shown.length} ${shown.length === 1 ? 'version' : 'versions'}` })),
+      el('div', { class: 'cat-ent' }, el('b', { text: page.entity.name }), el('span', { text: `${page.entity.type} · ${shown.length} ${shown.length === 1 ? 'version' : 'versions'}` })),
       shown.length ? el('div', { class: 'cat-versions' }, shown.map((v) => el('div', { class: `cat-ver${here.has(v.id) ? ' here' : ''}` },
         el('button', {
           type: 'button', class: 'cat-put', title: here.has(v.id) ? `${v.label} is on this board. Click to put it on again` : `Put ${v.label} on the board`,

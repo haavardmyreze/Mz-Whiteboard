@@ -355,7 +355,7 @@ const WBAnimatic = (() => {
       paintBin();
       paintOptions();
     }
-    const projectShots = () => (catalogue ? catalogue.entities.filter((e) => e.tier === 'shot').sort((a, b) => N.shotOrder(project.settings && project.settings.seqs)(a.name, b.name)) : []);
+    const projectShots = () => (catalogue ? catalogue.entities.filter((e) => e.type === 'shot').sort((a, b) => N.shotOrder(project.settings && project.settings.seqs)(a.name, b.name)) : []);
     // A shot's newest version as the edit plays it (of its task), from what the catalogue says: enough to
     // put it on and play it until the server says it all.
     function provisional(e) {

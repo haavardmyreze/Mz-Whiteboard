@@ -39,7 +39,7 @@ private networks, otherwise only the host machine can connect.
   with nothing in them show no count. Every page opens with its title, set large: the place you are in
   (kilo-0010). Above it, one small line says how you got there (Myreze / Kilo / Catalogue / Shots / kilo),
   each part a link. The star beside the title pins exactly what is there to the sidebar: a board's folder, a
-  project, a sequence, a tier of the catalogue, the catalogue, Versions, or an asset, set or
+  project, a sequence, a type of the catalogue, the catalogue, Versions, or an asset, set or
   shot. On a narrow window the sidebar is a drawer, opened with the button at the left of the bar.
 - **Pinning.** Pin from a card's `...` menu or the star beside where you are; pins are kept by this
   browser and listed in the sidebar until you unpin them.
@@ -956,8 +956,8 @@ A project's catalogue has its own: `GET /api/projects/<folder>` (its assets, set
 `{ "deleted": false }` to bring a deleted one back), and `POST /api/projects/<folder>/versions` to file
 versions (each file may say its own `entity`, `task` and `number`; the catalogue's `tops` says the
 highest number each task of each entity has reached). `POST /api/projects/<folder>/entities` takes
-`{ "names": [...], "tier" }` to set many up at once; `PATCH /api/entities/<id>` takes `name`, `tier`,
-`artists` and `cc`, and `PATCH /api/projects/<folder>/entities` takes `{ "ids": [...], "tier",
+`{ "names": [...], "type" }` to set many up at once; `PATCH /api/entities/<id>` takes `name`, `type`,
+`artists` and `cc`, and `PATCH /api/projects/<folder>/entities` takes `{ "ids": [...], "type",
 "artists": { "add" | "remove" | "set": [...] }, "cc": { ... } }` to change many at once. `GET /api/people`
 lists the names the app knows.
 `GET /api/projects/<folder>/activity` what happened in the project from its start, newest first (versions
@@ -972,7 +972,7 @@ link, the links to watch it presented; an admin is given the people and groups t
 `GET /api/projects/<folder>/versions?before=` the project's versions newest first, 300 a page, each with
 the boards it is on (when
 `more` is true, its `next` is what to give as `before` for the following page; a time in milliseconds
-still works too); with `find=1` as the Versions page asks: `task`, `seq`, `tier`, `by`, `artist` (each a
+still works too); with `find=1` as the Versions page asks: `task`, `seq`, `type`, `by`, `artist` (each a
 comma separated list; an empty task is none), `since`, `q`, `newest=1`, `archived=1`, `sort` (`new`,
 `old`, `name`, `number`) and `offset`, answering `total`, `more`, the next `offset` and, with the first
 page, `facets` (what there is to filter by). `PATCH /api/projects/<folder>/versions` takes

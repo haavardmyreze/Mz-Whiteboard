@@ -1383,26 +1383,26 @@ test('a board is kept as it was before each round of changes, and can be put bac
 const naming = require('../public/naming');
 
 test('a file name fills in what it can, and a name that says nothing is no trouble', () => {
-  assert.deepEqual(naming.parse('kilo-0010_anim_erik_v012.mov'), { entity: 'kilo-0010', tier: 'shot', task: 'anim', descriptor: null, artist: 'erik', hip: 12, view: null });
+  assert.deepEqual(naming.parse('kilo-0010_anim_erik_v012.mov'), { entity: 'kilo-0010', type: 'shot', task: 'anim', descriptor: null, artist: 'erik', hip: 12, view: null });
   // An asset or a set is read when the project has it, or names like it.
-  const known = [{ name: 'char-dog', tier: 'asset' }, { name: 'set-harbour', tier: 'set' }];
-  assert.deepEqual(naming.parse('char-robot_lookdev_metal_worn_anna_v3.png', known), { entity: 'char-robot', tier: 'asset', task: 'lookdev', descriptor: 'metal_worn', artist: 'anna', hip: 3, view: null });
+  const known = [{ name: 'char-dog', type: 'asset' }, { name: 'set-harbour', type: 'set' }];
+  assert.deepEqual(naming.parse('char-robot_lookdev_metal_worn_anna_v3.png', known), { entity: 'char-robot', type: 'asset', task: 'lookdev', descriptor: 'metal_worn', artist: 'anna', hip: 3, view: null });
   assert.equal(naming.parse('char-robot_lookdev_metal_worn_anna_v3.png').entity, null);
   assert.equal(naming.parse('set-living-room_dressing_v001.jpg', known).task, 'dressing');
   assert.equal(naming.parse('set-living-room_erik_v001.jpg', known).artist, 'erik');
-  assert.deepEqual(naming.parse('screenshoot_090126.png'), { entity: null, tier: null, task: null, descriptor: null, artist: null, hip: null, view: null });
+  assert.deepEqual(naming.parse('screenshoot_090126.png'), { entity: null, type: null, task: null, descriptor: null, artist: null, hip: null, view: null });
   // A word after the version is the view the file shows.
   assert.equal(naming.parse('ch04-0030_comp_erik_v110_bty-left.mp4').view, 'bty-left');
   assert.equal(naming.parse('ch04-0030_comp_erik_v110_bty-left.mp4').hip, 110);
   assert.equal(naming.parse('Robot Final v3.png').hip, 3);
-  assert.equal(naming.tierOf('kilo-0010'), 'shot');
-  assert.equal(naming.tierOf('veh-truck'), null);
-  assert.equal(naming.kindOf('veh-truck', [{ name: 'veh-car', tier: 'asset' }]), 'asset');
-  assert.equal(naming.tierOf('robot'), null);
+  assert.equal(naming.typeByShape('kilo-0010'), 'shot');
+  assert.equal(naming.typeByShape('veh-truck'), null);
+  assert.equal(naming.entityTypeOf('veh-truck', [{ name: 'veh-car', type: 'asset' }]), 'asset');
+  assert.equal(naming.typeByShape('robot'), null);
   assert.equal(naming.tokenize('  Living Room! '), 'living-room');
   assert.equal(naming.seqOf('kilo-0010'), 'kilo');
   assert.equal(naming.seqOf('ch01-0010'), 'ch01');
-  assert.equal(naming.tierOf('ch01-0010'), 'shot');
+  assert.equal(naming.typeByShape('ch01-0010'), 'shot');
   assert.equal(naming.label('kilo-0010', 'anim', 5), 'kilo-0010 anim v5');
   assert.equal(naming.label('char-robot', null, 2), 'char-robot v2');
 });
@@ -1436,9 +1436,9 @@ test('a project is a folder with a catalogue: not inside another project, and no
   const robot = await call('POST', `/api/projects/${kilo.id}/entities`, { name: 'Char Robot' });
   assert.equal(robot.status, 201);
   assert.equal(robot.body.name, 'char-robot');
-  assert.equal(robot.body.tier, 'asset');
+  assert.equal(robot.body.type, 'asset');
   const shot = (await call('POST', `/api/projects/${kilo.id}/entities`, { name: 'kilo-0010' })).body;
-  assert.equal(shot.tier, 'shot');
+  assert.equal(shot.type, 'shot');
   assert.equal((await call('POST', `/api/projects/${kilo.id}/entities`, { name: 'kilo-0010' })).body.id, shot.id);
   const cat = (await call('GET', `/api/projects/${kilo.id}`)).body;
   assert.deepEqual(cat.entities.map((e) => e.name), ['char-robot', 'kilo-0010']);
@@ -1795,13 +1795,13 @@ test('a project is set up with its assets, sets and shots ahead, each with artis
   // many at once: a shot by its shape, anything else an asset unless said; one the project has is left alone
   const setUp = await call('POST', `/api/projects/${project.id}/entities`, { names: ['kilo-0010', 'Kilo-0020 ', 'char-robot', 'kilo-0010', ''] });
   assert.equal(setUp.status, 201);
-  assert.deepEqual(setUp.body.made.map((e) => [e.name, e.tier]), [['kilo-0010', 'shot'], ['kilo-0020', 'shot'], ['char-robot', 'asset']]);
-  await call('POST', `/api/projects/${project.id}/entities`, { names: ['set-harbour'], tier: 'set' });
+  assert.deepEqual(setUp.body.made.map((e) => [e.name, e.type]), [['kilo-0010', 'shot'], ['kilo-0020', 'shot'], ['char-robot', 'asset']]);
+  await call('POST', `/api/projects/${project.id}/entities`, { names: ['set-harbour'], type: 'set' });
   // A new name is what the project's names starting the same way are.
   const guessed = (await call('POST', `/api/projects/${project.id}/entities`, { names: ['set-street', 'char-dog'] })).body;
-  assert.deepEqual(guessed.made.map((e) => [e.name, e.tier]), [['set-street', 'set'], ['char-dog', 'asset']]);
-  const again = (await call('POST', `/api/projects/${project.id}/entities`, { names: ['kilo-0010', 'mystery'], tier: 'asset' })).body;
-  assert.deepEqual([again.had, again.made.map((e) => [e.name, e.tier])], [['kilo-0010'], [['mystery', 'asset']]]);
+  assert.deepEqual(guessed.made.map((e) => [e.name, e.type]), [['set-street', 'set'], ['char-dog', 'asset']]);
+  const again = (await call('POST', `/api/projects/${project.id}/entities`, { names: ['kilo-0010', 'mystery'], type: 'asset' })).body;
+  assert.deepEqual([again.had, again.made.map((e) => [e.name, e.type])], [['kilo-0010'], [['mystery', 'asset']]]);
   const cat = (await call('GET', `/api/projects/${project.id}`)).body;
   assert.equal(cat.entities.length, 7);
   assert.ok(cat.entities.every((e) => e.versions === 0));
@@ -1811,7 +1811,7 @@ test('a project is set up with its assets, sets and shots ahead, each with artis
   const set = await call('PATCH', `/api/entities/${shot.id}`, { artists: ['Erik', 'Erik', ' '], cc: ['Anna'] });
   assert.deepEqual([set.body.artists, set.body.cc], [['Erik'], ['Anna']]);
   assert.equal((await call('PATCH', `/api/entities/${shot.id}`, { name: 'kilo-0020' })).status, 409);
-  assert.equal((await call('PATCH', `/api/entities/${shot.id}`, { tier: 'planet' })).status, 400);
+  assert.equal((await call('PATCH', `/api/entities/${shot.id}`, { type: 'planet' })).status, 400);
   assert.deepEqual((await call('GET', '/api/people')).body.people, ['Anna', 'Erik']);
 });
 
@@ -1857,8 +1857,8 @@ test("a project's activity goes back to its start a page at a time, and For you 
   const s = start(4871, {}, (data) => {
     const store = openStore(data);
     store.saveFolders([{ id: 'kiloproj1', name: 'Kilo', workspace: 'myreze', createdAt: 1, project: true }]);
-    const robot = store.addEntity({ id: 'entrobot1', projectId: 'kiloproj1', tier: 'asset', name: 'char-robot' });
-    const shot = store.addEntity({ id: 'entshot01', projectId: 'kiloproj1', tier: 'shot', name: 'kilo-0010' });
+    const robot = store.addEntity({ id: 'entrobot1', projectId: 'kiloproj1', type: 'asset', name: 'char-robot' });
+    const shot = store.addEntity({ id: 'entshot01', projectId: 'kiloproj1', type: 'shot', name: 'kilo-0010' });
     store.setEntity(robot.id, { artists: ['Anna'] });
     store.setEntity(shot.id, { cc: ['Anna'] });
     const look = { type: 'image', src: '/uploads/a.png' };
@@ -2141,7 +2141,7 @@ test('a version can have extras: more files under labels of their own, added to 
   assert.equal((await call('POST', `/api/versions/${lot[0].id}/unfile`, { extra: 'light-b' })).status, 404);
 });
 
-test('a project\'s versions can be found by task, sequence, tier, filer and words, sorted, newest only, and changed many at once', async (t) => {
+test('a project\'s versions can be found by task, sequence, type, filer and words, sorted, newest only, and changed many at once', async (t) => {
   const s = start(4861);
   t.after(s.stop);
   await s.ready;
@@ -2167,12 +2167,12 @@ test('a project\'s versions can be found by task, sequence, tier, filer and word
   assert.deepEqual(first.facets.tasks, ['anim', 'lighting', 'model']);
   assert.deepEqual(first.facets.seqs, ['ch02', 'kilo']);
   assert.deepEqual(first.facets.filers, ['Anna', 'Ben']);
-  assert.deepEqual(first.facets.tiers.map((x) => x.id), ['asset', 'shot']);
+  assert.deepEqual(first.facets.types.map((x) => x.id), ['asset', 'shot']);
   assert.equal(first.facets.untasked, true);
   assert.deepEqual(await labels('task=anim&sort=old'), ['kilo-0010 anim v1', 'kilo-0010 anim v2', 'ch02-0010 anim v1']);
   assert.deepEqual(await labels('task=&sort=old'), ['kilo-0100 v1']);
   assert.deepEqual(await labels('seq=kilo&sort=name'), ['kilo-0010 anim v2', 'kilo-0010 anim v1', 'kilo-0010 lighting v1', 'kilo-0100 v1']);
-  assert.deepEqual(await labels('tier=asset'), ['char-robot model v1']);
+  assert.deepEqual(await labels('type=asset'), ['char-robot model v1']);
   assert.deepEqual(await labels('by=ben&sort=old'), ['kilo-0010 anim v2', 'ch02-0010 anim v1']);
   assert.deepEqual(await labels('seq=kilo&task=anim&newest=1'), ['kilo-0010 anim v2']);
   assert.deepEqual(await labels('q=take_one'), ['kilo-0010 anim v1']);
@@ -2184,8 +2184,8 @@ test('a project\'s versions can be found by task, sequence, tier, filer and word
   ] });
   assert.equal(moved.status, 200);
   assert.deepEqual(moved.body.versions.map((v) => v.label), ['kilo-0020 anim v1', 'kilo-0020 anim v2', 'kilo-0010 lighting v1', 'char-robot model v1']);
-  assert.deepEqual(await labels('tier=asset'), []);
-  assert.deepEqual(await labels('tier=asset&archived=1'), ['char-robot model v1']);
+  assert.deepEqual(await labels('type=asset'), []);
+  assert.deepEqual(await labels('type=asset&archived=1'), ['char-robot model v1']);
   assert.deepEqual(await labels('artist=erik'), ['kilo-0010 lighting v1']);
   // A number taken anywhere changes none of them.
   const clash = await call('PATCH', `/api/projects/${project.id}/versions`, { edits: [{ id: c1.id, artist: 'anna' }, { id: l1.id, entity: { name: 'kilo-0020' }, task: 'anim', number: 1 }] });
@@ -2239,14 +2239,14 @@ test('many assets, sets and shots are edited at once: artists and cc added, take
   // added to each, never twice; the rest left as each had it
   let res = await call('PATCH', url, { ids: [a, b], artists: { add: ['Ben', 'erik'] } });
   assert.deepEqual(res.body.entities.map((e) => [e.name, e.artists, e.cc]), [['kilo-0010', ['Erik', 'Ben'], ['Anna']], ['kilo-0020', ['Ben', 'erik'], []]]);
-  // taken off, whatever the case; set outright; and the tier
-  res = await call('PATCH', url, { ids: [a, b, c], artists: { remove: ['ERIK'] }, cc: { set: ['Dina'] }, tier: 'asset' });
-  assert.deepEqual(res.body.entities.map((e) => [e.artists, e.cc, e.tier]), [[['Ben'], ['Dina'], 'asset'], [['Ben'], ['Dina'], 'asset'], [[], ['Dina'], 'asset']]);
-  // something of another project, or a tier that is none, changes nothing at all
+  // taken off, whatever the case; set outright; and the type
+  res = await call('PATCH', url, { ids: [a, b, c], artists: { remove: ['ERIK'] }, cc: { set: ['Dina'] }, type: 'asset' });
+  assert.deepEqual(res.body.entities.map((e) => [e.artists, e.cc, e.type]), [[['Ben'], ['Dina'], 'asset'], [['Ben'], ['Dina'], 'asset'], [[], ['Dina'], 'asset']]);
+  // something of another project, or a type that is none, changes nothing at all
   const lima = (await call('POST', `/api/projects/${other.id}/entities`, { names: ['lima-0010'] })).body.made[0];
-  assert.equal((await call('PATCH', url, { ids: [a, lima.id], tier: 'shot' })).status, 400);
-  assert.equal((await call('PATCH', url, { ids: [a], tier: 'planet' })).status, 400);
-  assert.equal((await call('GET', `/api/projects/${project.id}`)).body.entities.find((e) => e.id === a).tier, 'asset');
+  assert.equal((await call('PATCH', url, { ids: [a, lima.id], type: 'shot' })).status, 400);
+  assert.equal((await call('PATCH', url, { ids: [a], type: 'planet' })).status, 400);
+  assert.equal((await call('GET', `/api/projects/${project.id}`)).body.entities.find((e) => e.id === a).type, 'asset');
 });
 
 test('a project lists its versions newest first, and puts chosen ones on one of its boards', async (t) => {
@@ -2636,7 +2636,7 @@ test('the newest version is one thing everywhere, and a project\'s versions page
   try {
     const store = openStore(dir);
     store.saveFolders([{ id: 'kilo', name: 'Kilo', workspace: 'myreze', createdAt: 1, project: true }]);
-    store.addEntity({ id: 'shot1', projectId: 'kilo', tier: 'shot', name: 'kilo-0010' });
+    store.addEntity({ id: 'shot1', projectId: 'kilo', type: 'shot', name: 'kilo-0010' });
     const look = { type: 'image', src: '/uploads/a.png' };
     const file = (id, task, at, number = null) => store.addVersion({ id, entityId: 'shot1', task, number, kind: 'image', look, at });
     file('anim1', 'anim', 10);
@@ -2706,8 +2706,8 @@ test('shot names are read by the project\'s naming rules, whatever their sequenc
   const project = await call('POST', '/api/folders', { name: 'Kilo' });
   await call('PATCH', `/api/folders/${project.id}`, { project: true });
   const { made } = await call('POST', `/api/projects/${project.id}/entities`, { names: ['ch01-0010', 'kilo-0010', 'char-robot'] });
-  assert.deepEqual(made.map((e) => [e.name, e.tier]), [['ch01-0010', 'shot'], ['kilo-0010', 'shot'], ['char-robot', 'asset']]);
-  const cut = await call('POST', `/api/projects/${project.id}/animatics`, { name: 'Shots', shots: made.filter((e) => e.tier === 'shot').map((e) => e.id), by: 'Anna' });
+  assert.deepEqual(made.map((e) => [e.name, e.type]), [['ch01-0010', 'shot'], ['kilo-0010', 'shot'], ['char-robot', 'asset']]);
+  const cut = await call('POST', `/api/projects/${project.id}/animatics`, { name: 'Shots', shots: made.filter((e) => e.type === 'shot').map((e) => e.id), by: 'Anna' });
   assert.deepEqual(Object.values(cut.shots).map((x) => [x.name, x.seq]).sort(), [['ch01-0010', 'ch01'], ['kilo-0010', 'kilo']]);
 });
 
@@ -2738,8 +2738,8 @@ test('Claude suggests names for files and renames, through the server, without c
       const body = JSON.parse(raw);
       asked.push({ key: req.headers['x-api-key'], body });
       const input = body.tool_choice.name === 'file_versions'
-        ? { files: [{ key: 'r0', entity: 'ch02-0010', tier: 'shot', task: 'anim', version: 4, view: 'bty', note: 'v4 in the name' }] }
-        : { entities: [{ id: body.messages[0].content.match(/\n(\S+)\topening/)[1], name: 'ch02-0020', tier: 'shot', note: 'the opening shot' }] };
+        ? { files: [{ key: 'r0', entity: 'ch02-0010', type: 'shot', task: 'anim', version: 4, view: 'bty', note: 'v4 in the name' }] }
+        : { entities: [{ id: body.messages[0].content.match(/\n(\S+)\topening/)[1], name: 'ch02-0020', type: 'shot', note: 'the opening shot' }] };
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ stop_reason: 'tool_use', content: [{ type: 'tool_use', name: body.tool_choice.name, input }] }));
     });
@@ -2757,12 +2757,12 @@ test('Claude suggests names for files and renames, through the server, without c
   const kilo = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
   await call('PATCH', `/api/folders/${kilo.id}`, { project: true });
   await call('PATCH', `/api/folders/${kilo.id}`, { settings: { views: ['cmp', 'bty'] } });
-  const made = (await call('POST', `/api/projects/${kilo.id}/entities`, { names: ['opening', 'char-robot', 'set-kitchen'], tier: 'asset' })).body.made;
+  const made = (await call('POST', `/api/projects/${kilo.id}/entities`, { names: ['opening', 'char-robot', 'set-kitchen'], type: 'asset' })).body.made;
   const [opening, robot, kitchen] = ['opening', 'char-robot', 'set-kitchen'].map((n) => made.find((e) => e.name === n));
 
   const files = await call('POST', `/api/projects/${kilo.id}/ai/files`, { instruction: 'all shots of ch02', files: [{ key: 'r0', filename: 'Robot walk v4.mov' }] });
   assert.equal(files.status, 200);
-  assert.deepEqual(files.body.answers.r0, { entity: 'ch02-0010', tier: 'shot', task: 'anim', version: 4, view: 'bty', note: 'v4 in the name', fits: true });
+  assert.deepEqual(files.body.answers.r0, { entity: 'ch02-0010', type: 'shot', task: 'anim', version: 4, view: 'bty', note: 'v4 in the name', fits: true });
   assert.equal(asked[0].key, 'sk-test');
   assert.match(asked[0].body.system, /char-robot \(asset\)/, 'the project\'s names go along');
   assert.match(asked[0].body.messages[0].content, /all shots of ch02/);
@@ -2775,16 +2775,16 @@ test('Claude suggests names for files and renames, through the server, without c
 
   const ren = await call('POST', `/api/projects/${kilo.id}/ai/entities`, { instruction: 'opening is the first shot', ids: [opening.id] });
   assert.equal(ren.status, 200);
-  assert.deepEqual(ren.body.answers[opening.id], { name: 'ch02-0020', tier: 'shot', note: 'the opening shot', fits: true });
+  assert.deepEqual(ren.body.answers[opening.id], { name: 'ch02-0020', type: 'shot', note: 'the opening shot', fits: true });
   assert.equal((await call('GET', `/api/entities/${opening.id}`)).body.entity.name, 'opening', 'only suggested');
   assert.equal((await call('POST', `/api/projects/${kilo.id}/ai/entities`, { ids: ['nope'] })).status, 400);
 
-  // Applied as one change: each its own name and tier; names can go round among them; all or nothing.
+  // Applied as one change: each its own name and type; names can go round among them; all or nothing.
   const ids = [opening.id, robot.id];
-  const swap = await call('PATCH', `/api/projects/${kilo.id}/entities`, { ids, names: { [opening.id]: 'char-robot', [robot.id]: 'opening' }, tiers: { [robot.id]: 'shot' } });
+  const swap = await call('PATCH', `/api/projects/${kilo.id}/entities`, { ids, names: { [opening.id]: 'char-robot', [robot.id]: 'opening' }, types: { [robot.id]: 'shot' } });
   assert.equal(swap.status, 200);
   const named = (id) => swap.body.entities.find((e) => e.id === id);
-  assert.deepEqual([named(opening.id).name, named(opening.id).tier, named(robot.id).name, named(robot.id).tier], ['char-robot', 'asset', 'opening', 'shot']);
+  assert.deepEqual([named(opening.id).name, named(opening.id).type, named(robot.id).name, named(robot.id).type], ['char-robot', 'asset', 'opening', 'shot']);
   assert.equal((await call('PATCH', `/api/projects/${kilo.id}/entities`, { ids, names: { [opening.id]: 'set-kitchen' } })).status, 409, 'another has that name');
   assert.equal((await call('PATCH', `/api/projects/${kilo.id}/entities`, { ids, names: { [opening.id]: 'x', [robot.id]: 'x' } })).status, 409, 'two would share it');
   assert.equal((await call('PATCH', `/api/projects/${kilo.id}/entities`, { ids, names: { [kitchen.id]: 'y' } })).status, 400, 'only what is picked');
@@ -2841,8 +2841,8 @@ test('a project is presented through a link of its presenter: live only while th
   const board = (await call(anna, 'POST', '/api/boards', { name: 'Standup', folderId: kilo.id })).body;
   const [a, b, c] = [await upload('a.webm'), await upload('b.webm'), await upload('c.png')];
   await call(anna, 'POST', `/api/projects/${kilo.id}/versions`, { files: [
-    { look: { type: 'video', src: a, nw: 640, nh: 360, name: 'a.webm' }, entity: { name: 'kilo-0010', tier: 'shot' }, task: 'anim' },
-    { look: { type: 'video', src: b, nw: 640, nh: 360, name: 'b.webm' }, entity: { name: 'kilo-0020', tier: 'shot' }, task: 'anim' },
+    { look: { type: 'video', src: a, nw: 640, nh: 360, name: 'a.webm' }, entity: { name: 'kilo-0010', type: 'shot' }, task: 'anim' },
+    { look: { type: 'video', src: b, nw: 640, nh: 360, name: 'b.webm' }, entity: { name: 'kilo-0020', type: 'shot' }, task: 'anim' },
   ] });
   const shots = (await call(anna, 'GET', `/api/projects/${kilo.id}`)).body.entities;
   const e10 = shots.find((e) => e.name === 'kilo-0010');
@@ -3035,9 +3035,9 @@ test("on a board in a project with a model of its venue, a catalogued piece that
   const look = (src, name) => ({ type: 'video', src, nw: 1920, nh: 1080, name });
   // kilo-0010 v1 in two views, cmp and bty; kilo-0020 v1 in bty only.
   await call('POST', `/api/projects/${kilo.id}/versions`, { files: [
-    { look: look(cmp, 'kilo-0010_comp_v001_cmp.webm'), entity: { name: 'kilo-0010', tier: 'shot' }, task: 'comp', number: 1, view: 'cmp' },
-    { look: look(bty, 'kilo-0010_comp_v001_bty.webm'), entity: { name: 'kilo-0010', tier: 'shot' }, task: 'comp', number: 1, view: 'bty' },
-    { look: look(other, 'kilo-0020_comp_v001_bty.webm'), entity: { name: 'kilo-0020', tier: 'shot' }, task: 'comp', number: 1, view: 'bty' },
+    { look: look(cmp, 'kilo-0010_comp_v001_cmp.webm'), entity: { name: 'kilo-0010', type: 'shot' }, task: 'comp', number: 1, view: 'cmp' },
+    { look: look(bty, 'kilo-0010_comp_v001_bty.webm'), entity: { name: 'kilo-0010', type: 'shot' }, task: 'comp', number: 1, view: 'bty' },
+    { look: look(other, 'kilo-0020_comp_v001_bty.webm'), entity: { name: 'kilo-0020', type: 'shot' }, task: 'comp', number: 1, view: 'bty' },
   ] });
   const shots = (await call('GET', `/api/projects/${kilo.id}`)).body.entities;
   const versionOf = async (name) => (await call('GET', `/api/entities/${shots.find((e) => e.name === name).id}`)).body.versions[0];
@@ -3099,7 +3099,7 @@ test('a video is given a phone copy by one browser, and it is put everywhere the
   await call('PATCH', `/api/folders/${kilo.id}`, { project: true });
   const board = (await call('POST', '/api/boards', { name: 'Review', folderId: kilo.id })).body;
   const [review, phone, bigger, light] = [await upload('review.webm', 50000), await upload('phone.webm', 9000), await upload('bigger.webm', 60000), await upload('light.webm', 4000)];
-  await call('POST', `/api/projects/${kilo.id}/versions`, { files: [{ look: { type: 'video', src: review, nw: 1920, nh: 1080, name: 'a.webm' }, entity: { name: 'kilo-0010', tier: 'shot' }, task: 'anim' }] });
+  await call('POST', `/api/projects/${kilo.id}/versions`, { files: [{ look: { type: 'video', src: review, nw: 1920, nh: 1080, name: 'a.webm' }, entity: { name: 'kilo-0010', type: 'shot' }, task: 'anim' }] });
   const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?board=${board.id}`);
   const seen = [];
   await new Promise((resolve) => {

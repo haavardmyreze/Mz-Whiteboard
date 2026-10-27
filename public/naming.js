@@ -20,8 +20,8 @@
   else root.WBNaming = make();
 })(typeof self !== 'undefined' ? self : this, () => {
   const TOKEN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-  const TIERS = ['asset', 'set', 'shot'];
-  const TIER_LIST = [
+  const TYPES = ['asset', 'set', 'shot'];
+  const TYPE_LIST = [
     { id: 'asset', label: 'Assets', one: 'asset' },
     { id: 'set', label: 'Sets', one: 'set' },
     { id: 'shot', label: 'Shots', one: 'shot' },
@@ -39,19 +39,19 @@
   }
 
   // 'shot' for a name with a shot's shape, else null: whether a name is an asset or a set is not in it.
-  const tierOf = (name) => (SHOT.test(String(name || '')) ? 'shot' : null);
-  // What a name is: a shot by its shape, else one of `entities` ([{ name, tier }], the project's) by
+  const typeByShape = (name) => (SHOT.test(String(name || '')) ? 'shot' : null);
+  // What a name is: a shot by its shape, else one of `entities` ([{ name, type }], the project's) by
   // name, else what most of those whose name starts with the same word are (char-dog an asset, where
   // char-robot is one); null when nothing says.
-  function kindOf(name, entities = []) {
+  function entityTypeOf(name, entities = []) {
     const n = String(name || '');
-    if (tierOf(n)) return 'shot';
+    if (typeByShape(n)) return 'shot';
     const own = entities.find((e) => e.name === n);
-    if (own) return own.tier;
+    if (own) return own.type;
     const head = n.split('-')[0];
     if (!head || head === n) return null;
     const count = new Map();
-    for (const e of entities) if (e.tier !== 'shot' && e.name.startsWith(`${head}-`)) count.set(e.tier, (count.get(e.tier) || 0) + 1);
+    for (const e of entities) if (e.type !== 'shot' && e.name.startsWith(`${head}-`)) count.set(e.type, (count.get(e.type) || 0) + 1);
     return [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
   }
 
@@ -84,12 +84,12 @@
     return m ? Number(m[1]) : null;
   };
 
-  // Whatever can be read from a file name: { entity, tier, task, descriptor, artist, hip, view }, each null
+  // Whatever can be read from a file name: { entity, type, task, descriptor, artist, hip, view }, each null
   // when the name does not say. `hip` is the number after v: the version it is filed as, unless another
-  // is said (otherwise the catalogue counts on from the last). `entities` are the project's ([{ name, tier }]):
+  // is said (otherwise the catalogue counts on from the last). `entities` are the project's ([{ name, type }]):
   // a first part that is none of them, and whose kind they do not say, is not taken for a name.
   function parse(filename, entities = []) {
-    const out = { entity: null, tier: null, task: null, descriptor: null, artist: null, hip: null, view: null };
+    const out = { entity: null, type: null, task: null, descriptor: null, artist: null, hip: null, view: null };
     const stem = String(filename || '').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '').toLowerCase().trim();
     if (!stem) return out;
     const mark = /^v(\d{1,4})$/;
@@ -106,10 +106,10 @@
       out.hip = Number(last[1]);
       tokens.pop();
     }
-    const tier = kindOf(tokens[0], entities);
-    if (!tier) return out;
+    const type = entityTypeOf(tokens[0], entities);
+    if (!type) return out;
     out.entity = tokens[0];
-    out.tier = tier;
+    out.type = type;
     const middle = tokens.slice(1);
     if (last && middle.length >= 2) {
       out.task = middle[0];
@@ -139,7 +139,7 @@
   // The shots a sequence has, by number, and the step they go up in: the gap there is most often between
   // one and the next, the smaller of two as often (10 when they do not say).
   function sequence(names, seq) {
-    const nums = [...new Set((names || []).filter((n) => tierOf(n) && seqOf(n) === seq).map(shotNumber))].sort((a, b) => a - b);
+    const nums = [...new Set((names || []).filter((n) => typeByShape(n) && seqOf(n) === seq).map(shotNumber))].sort((a, b) => a - b);
     const gaps = new Map();
     for (let i = 1; i < nums.length; i++) gaps.set(nums[i] - nums[i - 1], (gaps.get(nums[i] - nums[i - 1]) || 0) + 1);
     let step = 10;
@@ -176,7 +176,7 @@
     // version one way (`ctx.useViews` false), and the usual ones otherwise.
     const views = ctx.useViews === false ? [] : ctx.views && ctx.views.length ? ctx.views : VIEWS;
     if (raw.includes('_') && !/\s/.test(raw)) {
-      const p = parse(raw, ctx.entities || names.map((name) => ({ name, tier: tierOf(name) || 'asset' })));
+      const p = parse(raw, ctx.entities || names.map((name) => ({ name, type: typeByShape(name) || 'asset' })));
       const ruled = !p.entity && byRules(raw, ctx.rules, ctx.tasks);
       if (p.entity || ruled) {
         out.entity = p.entity || ruled.entity;
@@ -211,7 +211,7 @@
     // of the name ("living room", "set living room") for as long as that makes it more of a name: not
     // once it is one the project has, or a shot. After the version, it is an extra.
     const tasks = ctx.tasks || [];
-    const whole = () => !!out.entity && (names.includes(out.entity) || !!tierOf(out.entity));
+    const whole = () => !!out.entity && (names.includes(out.entity) || !!typeByShape(out.entity));
     const longer = (t) => {
       const joined = tokenize(`${out.entity}-${t}`);
       return names.includes(joined) || (!names.includes(out.entity) && !whole());
@@ -235,13 +235,13 @@
     return out;
   }
 
-  // Shots a name not written as one may have been meant as, each { name, tier: 'shot' }: one with a short
+  // Shots a name not written as one may have been meant as, each { name, type: 'shot' }: one with a short
   // number (kilo-10 is kilo-0010), or a number run on to a sequence the project has (kilo10).
   function corrections(typed, names = []) {
     const n = tokenize(typed);
-    if (!n || tierOf(n)) return [];
+    if (!n || typeByShape(n)) return [];
     const out = [];
-    const add = (name) => { if (tierOf(name) && !out.some((o) => o.name === name)) out.push({ name, tier: 'shot' }); };
+    const add = (name) => { if (typeByShape(name) && !out.some((o) => o.name === name)) out.push({ name, type: 'shot' }); };
     const short = /^(.+?)-(\d{1,3})$/.exec(n);
     if (short) add(shotName(short[1], Number(short[2])));
     const glued = /^([a-z][a-z0-9-]*?[a-z])(\d{1,4})$/.exec(n);
@@ -306,7 +306,7 @@
   // what it was filed as, `views` the project's, the main one first), or null.
   function patternFrom(filename, filed) {
     const { entity, task = null, number = null, view = null, views = [] } = filed;
-    if (tierOf(entity) !== 'shot') return null;
+    if (typeByShape(entity) !== 'shot') return null;
     const words = stemWords(filename);
     const seq = seqOf(entity);
     const n = shotNumber(entity);
@@ -340,12 +340,12 @@
   function ruleFrom(filename, filed) {
     const f = typeof filed === 'string' ? { entity: filed } : filed || {};
     const entity = f.entity;
-    if (!entity || parse(filename, [{ name: entity, tier: tierOf(entity) || 'asset' }]).entity) return null;
+    if (!entity || parse(filename, [{ name: entity, type: typeByShape(entity) || 'asset' }]).entity) return null;
     const whole = patternFrom(filename, f);
     if (whole) return whole;
     const [w0, w1] = stemWords(filename);
     if (!w0) return null;
-    const seq = tierOf(entity) === 'shot' ? seqOf(entity) : null;
+    const seq = typeByShape(entity) === 'shot' ? seqOf(entity) : null;
     if (seq) {
       const n = shotNumber(entity);
       if (/^\d+$/.test(w1 || '') && Number(w1) === n && /[a-z]/.test(w0) && !VAGUE.has(w0)) return { word: w0, seq };
@@ -419,7 +419,7 @@
     : rule.seq ? `${rule.word}${rule.glued ? '' : ' '}010 → ${shotName(rule.seq, 10)}` : `${rule.word} → ${rule.name}`);
 
   return {
-    TIERS, TIER_LIST, TASKS, TOKEN, VIEWS, DIGITS, tokenize, tierOf, kindOf, seqOf, seqOrder, shotOrder, parse, label,
+    TYPES, TYPE_LIST, TASKS, TOKEN, VIEWS, DIGITS, tokenize, typeByShape, entityTypeOf, seqOf, seqOrder, shotOrder, parse, label,
     pad, shotName, shotNumber, sequence, nextShot, readLine, corrections, distance, nearMisses, ruleFrom, byRules, ruleText, ruleKey, PATTERN_TOKEN,
   };
 });

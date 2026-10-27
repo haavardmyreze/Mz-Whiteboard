@@ -1400,8 +1400,8 @@ body.show-names:not(.focus) .item.filed:is(.image, .video):not([data-name=""])::
 .file-ask[hidden] { display: none; }
 .file-ask:focus-visible { outline: none; }
 .file-is:has(.file-ask:not([hidden]):hover) .file-kind, .file-is:has(.file-ask:focus-visible) .file-kind { background: var(--hover); color: var(--text); }
-.tier-menu { min-width: 140px; }
-.tier-menu .menu-item { display: flex; align-items: center; gap: 8px; }
+.type-menu { min-width: 140px; }
+.type-menu .menu-item { display: flex; align-items: center; gap: 8px; }
 .menu-icon { display: inline-grid; flex: none; color: var(--text-2); }
 .file-kind.ask { background: var(--warn-bg); color: var(--warn-fg); font-size: var(--fs-ui); font-weight: 600; }
 .file-kind.ask::after { display: none; }
@@ -2686,10 +2686,10 @@ body.viewonly #hint .hint-guest { display: inline; }
 .be-ai-row input[type="text"] { min-width: 0; height: 28px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); font: inherit; font-size: var(--fs-ui); }
 .be-ai-row input[type="text"]:focus { border-color: var(--accent); outline: none; }
 .be-ai-row:has(input[type="checkbox"]:not(:checked)) > :not(input) { opacity: 0.45; }
-.be-ai-tier { color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; }
+.be-ai-type { color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; }
 @media (max-width: 560px) {
   .be-ai-row { grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.3fr) auto; }
-  .be-ai-row .be-ai-to, .be-ai-row .be-ai-tier { display: none; }
+  .be-ai-row .be-ai-to, .be-ai-row .be-ai-type { display: none; }
 }
 
 /* The player's 3D view (view3d.js): the venue drawn over the picture, which plays on unseen beneath it
@@ -2961,9 +2961,9 @@ body.spectating #topbar .brand { pointer-events: none; }
 .nc-flabel { display: flex; gap: 8px; align-items: baseline; font-size: var(--fs-sm); }
 .nc-flabel span { color: var(--muted); font-size: var(--fs-cap); }
 .nc-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.nc-tiers { display: flex; flex-direction: column; gap: 6px; }
-.nc-tier { display: grid; grid-template-columns: auto 90px minmax(0, 1.3fr) minmax(0, 1fr); gap: 6px 8px; align-items: center; }
-.nc-tier input[hidden] { visibility: hidden; display: block; }
+.nc-types { display: flex; flex-direction: column; gap: 6px; }
+.nc-type { display: grid; grid-template-columns: auto 90px minmax(0, 1.3fr) minmax(0, 1fr); gap: 6px 8px; align-items: center; }
+.nc-type input[hidden] { visibility: hidden; display: block; }
 .nc-eg { grid-column: 3 / -1; margin-top: -2px; color: var(--muted); font-size: var(--fs-cap); font-variant-numeric: tabular-nums; }
 .nc-eg:empty { display: none; }
 .nc-reads { display: flex; flex-direction: column; gap: 3px; margin: 12px 0 0; padding: 0; list-style: none; font-size: var(--fs-sm); }
@@ -2974,7 +2974,7 @@ body.spectating #topbar .brand { pointer-events: none; }
 .nc-error { margin-top: 10px; color: var(--danger); font-size: var(--fs-sm); }
 .nc-error[hidden] { display: none; }
 .nc-delete { margin-right: auto; }
-@media (max-width: 560px) { .nc-tier { grid-template-columns: auto minmax(0, 1fr); } .nc-tier input:nth-of-type(n+3) { grid-column: 2; } .nc-eg { grid-column: 2; } .nc-row { grid-template-columns: 1fr; } .nc-said, .nc-actions { justify-content: flex-start; } .nc-warn { text-align: left; } }
+@media (max-width: 560px) { .nc-type { grid-template-columns: auto minmax(0, 1fr); } .nc-type input:nth-of-type(n+3) { grid-column: 2; } .nc-eg { grid-column: 2; } .nc-row { grid-template-columns: 1fr; } .nc-said, .nc-actions { justify-content: flex-start; } .nc-warn { text-align: left; } }
 
 /* Learning how names from elsewhere read (filing.js offerRule): asked in the middle of the page. */
 .rule-dlg { width: min(560px, calc(100vw - 32px)); }

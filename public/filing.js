@@ -47,10 +47,10 @@ const WBFiling = (() => {
     return {
       value: e.name, task, label: task ? `${e.name} › ${task}` : e.name,
       thumb: (s && s.thumb) || e.thumb || null,
-      hint: hint || (s ? `v${s.number} → v${nextOf(e, s.task)}` : `${e.tier}${e.versions ? ` · ${WB.plural(e.versions, 'version')}` : ''}`),
+      hint: hint || (s ? `v${s.number} → v${nextOf(e, s.task)}` : `${e.type}${e.versions ? ` · ${WB.plural(e.versions, 'version')}` : ''}`),
     };
   }
-  const newOption = (name, kinds, hint) => ({ value: name, task: undefined, label: `New: ${name}`, hint: hint || N.kindOf(name, kinds || []) || 'say what it is', make: true });
+  const newOption = (name, kinds, hint) => ({ value: name, task: undefined, label: `New: ${name}`, hint: hint || N.entityTypeOf(name, kinds || []) || 'say what it is', make: true });
 
   // Suggestions for "which asset, set or shot", as a line is typed, best first. `ctx` is what the row
   // knows besides: { entities, tasks, useTasks, line context (see readLine), likely, above }.
@@ -125,7 +125,7 @@ const WBFiling = (() => {
     if (seqTyped && names.some((n) => N.seqOf(n) === seqTyped[1])) push(newOption(N.nextShot(names, seqTyped[1]), ctx.entities, `next shot in ${seqTyped[1]}`));
     if (name && !byName.has(name)) {
       for (const miss of N.nearMisses(name, names)) push(streamOption(byName.get(miss), null, 'did you mean?', useTasks));
-      for (const c of N.corrections(name, names)) push(byName.has(c.name) ? streamOption(byName.get(c.name), null, 'as a shot', useTasks) : newOption(c.name, ctx.entities, `new ${c.tier}`));
+      for (const c of N.corrections(name, names)) push(byName.has(c.name) ? streamOption(byName.get(c.name), null, 'as a shot', useTasks) : newOption(c.name, ctx.entities, `new ${c.type}`));
       push(newOption(name, ctx.entities));
     }
     // A pick keeps what else the line said: a suggestion names only the entity (and perhaps its task).
@@ -261,10 +261,10 @@ const WBFiling = (() => {
     node.style.gridTemplateColumns = lineColumns({ useTasks, views });
     return node;
   }
-  const TIER_ICON = { asset: 'cube', set: 'set', shot: 'film' };
+  const TYPE_ICON = { asset: 'cube', set: 'set', shot: 'film' };
 
   // One piece's fields. `getEntities()` and `getTasks()` are the project's as last known;
-  // `onChange` hears every edit. The tier is asked only for a new name whose shape does not say it, and
+  // `onChange` hears every edit. The type is asked only for a new name whose shape does not say it, and
   // the task only when the project counts by task (`useTasks`). `peers()` are the fields of the rows
   // still to be filed, in order, this one among them: what is above says what a short line means, and
   // the keys that fill rows in work on those below. `remembered` is what was filed last ({ entity, task }).
@@ -288,31 +288,31 @@ const WBFiling = (() => {
     const readout = el('div', { class: 'file-says', id: `fs-${WB.uid()}` });
     const ent = el('input', { type: 'text', value: entity, placeholder: 'Asset, set or shot', spellcheck: 'false', 'aria-label': `What ${label} is`, 'aria-describedby': readout.id, title: SHORT_HELP });
     const taskIn = el('input', { type: 'text', value: task, placeholder: 'task', spellcheck: 'false', 'aria-label': 'Task', hidden: !useTasks });
-    // What it is, as an icon: the project's when it has it; for a new one, what it is said to be (`tier`),
+    // What it is, as an icon: the project's when it has it; for a new one, what it is said to be (`type`),
     // else a shot by its shape, else what the project's names starting the same way are, else a question.
     // A new one's icon is a button, to say otherwise: it opens a menu of what it can be, with a tick on what
     // it is taken to be now. What is said is its `value` ('' while nothing is).
     const kind = el('span', { class: 'file-kind' });
-    const tier = el('button', { type: 'button', class: 'file-ask', value: '', 'aria-label': 'What it is', 'aria-haspopup': 'menu', title: 'What is it?' });
-    const sayTier = (id) => {
-      tier.value = id;
+    const type = el('button', { type: 'button', class: 'file-ask', value: '', 'aria-label': 'What it is', 'aria-haspopup': 'menu', title: 'What is it?' });
+    const sayType = (id) => {
+      type.value = id;
       sync();
       onChange();
     };
-    tier.addEventListener('click', () => {
-      if (document.querySelector('.tier-menu')) return WB.closeMenus();
+    type.addEventListener('click', () => {
+      if (document.querySelector('.type-menu')) return WB.closeMenus();
       const n = name();
-      const now = tier.value || (n && N.kindOf(n, entities())) || '';
-      WB.menu(tier, N.TIER_LIST.map((t) => el('button', {
+      const now = type.value || (n && N.entityTypeOf(n, entities())) || '';
+      WB.menu(type, N.TYPE_LIST.map((t) => el('button', {
         type: 'button', class: `menu-item menu-check${t.id === now ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(t.id === now),
         onclick: (e) => {
           e.preventDefault();
           e.stopPropagation();
           WB.closeMenus();
-          tier.focus();
-          sayTier(t.id);
+          type.focus();
+          sayType(t.id);
         },
-      }, el('span', { class: 'menu-tick', html: t.id === now ? WB.icon('check', 14) : '' }), el('span', { class: 'menu-icon', html: WB.icon(TIER_ICON[t.id], 15) }), el('span', { text: t.one[0].toUpperCase() + t.one.slice(1) }))), { align: 'left', cls: 'tier-menu' });
+      }, el('span', { class: 'menu-tick', html: t.id === now ? WB.icon('check', 14) : '' }), el('span', { class: 'menu-icon', html: WB.icon(TYPE_ICON[t.id], 15) }), el('span', { text: t.one[0].toUpperCase() + t.one.slice(1) }))), { align: 'left', cls: 'type-menu' });
     });
     // The version it follows, and the one it is to be: typed, or the next (faint).
     const prevSlot = el('span', { class: 'file-follows' });
@@ -333,7 +333,7 @@ const WBFiling = (() => {
       if (popped && popped.button === info) return shutPop();
       if (readout.childNodes.length) popOver(info, () => readout);
     });
-    const line_ = el('span', { class: 'file-line' }, el('span', { class: 'file-is' }, kind, tier), ent, useTasks ? taskIn : null, prevSlot, verSeg, viewSel || null, extraIn, el('span', { class: 'file-info-cell' }, info));
+    const line_ = el('span', { class: 'file-line' }, el('span', { class: 'file-is' }, kind, type), ent, useTasks ? taskIn : null, prevSlot, verSeg, viewSel || null, extraIn, el('span', { class: 'file-info-cell' }, info));
     line_.style.gridTemplateColumns = lineColumns({ useTasks, views });
     // Which extra of its version it is, if it is one (see readout: it says so, with the way back).
     let extra = null;
@@ -392,9 +392,9 @@ const WBFiling = (() => {
         get last() { return last(); },
         get taken() { return above.map((p) => p.name()).filter(Boolean); },
         get seq() {
-          for (let i = above.length - 1; i >= 0; i--) if (N.tierOf(above[i].name()) === 'shot') return N.seqOf(above[i].name());
+          for (let i = above.length - 1; i >= 0; i--) if (N.typeByShape(above[i].name()) === 'shot') return N.seqOf(above[i].name());
           const l = last();
-          return l && N.tierOf(l.entity) === 'shot' ? N.seqOf(l.entity) : null;
+          return l && N.typeByShape(l.entity) === 'shot' ? N.seqOf(l.entity) : null;
         },
       };
     }
@@ -525,7 +525,7 @@ const WBFiling = (() => {
     let likelyAt = 0;
     function checks() {
       const { list, at } = around();
-      const key = [edits, list.length, at, entities().length, likelyAt, ent.value, taskIn.value, tier.value, own.number, numberOf && numberOf(), viewName(), extra, (piece() || {}).dur];
+      const key = [edits, list.length, at, entities().length, likelyAt, ent.value, taskIn.value, type.value, own.number, numberOf && numberOf(), viewName(), extra, (piece() || {}).dur];
       if (!judged || !same(judged.key, key)) judged = { key, out: judge() };
       return judged.out;
     }
@@ -565,19 +565,19 @@ const WBFiling = (() => {
       if (!e) {
         const misses = N.nearMisses(n, names);
         if (misses.length) out.push({ text: 'Not in the project. Did you mean', fixes: misses.map((m) => ({ label: m, run: () => setLine(m) })), warn: true, rank: 1 });
-        const tierNow = N.tierOf(n);
+        const typeNow = N.typeByShape(n);
         // A shot written short (kilo-10) or run on (kilo10) is offered as the shot it is.
         const fixes = N.corrections(n, names).filter((c) => !misses.includes(c.name)).slice(0, 2);
         if (fixes.length) out.push({ text: 'A shot? Perhaps', fixes: fixes.map((c) => ({ label: c.name, run: () => setLine(c.name) })), warn: true, rank: 2 });
         // Nothing says what a new one is: it is asked, nothing is assumed.
-        if (!tier.value && !N.kindOf(n, list)) {
-          out.push({ text: 'New: what is it?', fixes: N.TIER_LIST.map((t) => ({ label: t.one, run: () => { changed(); tier.value = t.id; sync(); } })), warn: true, rank: 2 });
+        if (!type.value && !N.entityTypeOf(n, list)) {
+          out.push({ text: 'New: what is it?', fixes: N.TYPE_LIST.map((t) => ({ label: t.one, run: () => { changed(); type.value = t.id; sync(); } })), warn: true, rank: 2 });
         }
-        if (tierNow === 'shot') {
+        if (typeNow === 'shot') {
           const seq = N.seqOf(n);
-          const seqs = [...new Set(names.filter((x) => N.tierOf(x) === 'shot').map((x) => N.seqOf(x)))];
+          const seqs = [...new Set(names.filter((x) => N.typeByShape(x) === 'shot').map((x) => N.seqOf(x)))];
           const taken = lineContext().taken;
-          const above = taken.some((x) => N.seqOf(x) === seq && N.tierOf(x) === 'shot');
+          const above = taken.some((x) => N.seqOf(x) === seq && N.typeByShape(x) === 'shot');
           if (!seqs.includes(seq) && !above) {
             // A warning when it is a letter or two from one there is; otherwise said in the tag that says
             // it is new (see paintReadout), and asked about when filed.
@@ -642,7 +642,7 @@ const WBFiling = (() => {
     // Ready to file: it says what it is, every word of it is read, and a new one says what it is.
     const ready = () => {
       const n = name();
-      return !!n && !line().rest.length && !(extra && checks().some((c) => c.warn && c.rank === 0)) && (!!have(n) || !!tier.value || !!N.kindOf(n, entities()));
+      return !!n && !line().rest.length && !(extra && checks().some((c) => c.warn && c.rank === 0)) && (!!have(n) || !!type.value || !!N.entityTypeOf(n, entities()));
     };
 
     // The number it gets: the page's, or the one typed, or one past the highest of its entity and task,
@@ -721,20 +721,20 @@ const WBFiling = (() => {
     function paintLine() {
       const n = name();
       const e = n ? have(n) : null;
-      const guess = n && !e && !tier.value ? N.kindOf(n, entities()) : null;
-      const tid = e ? e.tier : tier.value || guess || null;
-      const t = tid && N.TIER_LIST.find((x) => x.id === tid);
+      const guess = n && !e && !type.value ? N.entityTypeOf(n, entities()) : null;
+      const tid = e ? e.type : type.value || guess || null;
+      const t = tid && N.TYPE_LIST.find((x) => x.id === tid);
       const seq = tid === 'shot' ? N.seqOf(n) : null;
       const newSeq = !e && seq && checks().some((c) => c.newSeq);
-      tier.hidden = !n || !!e;
-      kind.innerHTML = !n ? '' : tid ? WB.icon(TIER_ICON[tid] || 'dot', 15) : '?';
+      type.hidden = !n || !!e;
+      kind.innerHTML = !n ? '' : tid ? WB.icon(TYPE_ICON[tid] || 'dot', 15) : '?';
       kind.className = `file-kind${!n || e ? '' : ' new'}${newSeq ? ' new-seq' : ''}${n && !tid ? ' ask' : ''}`;
       const why = guess === 'shot' ? ', by the shape of its name' : guess ? ', as the project\'s names like it are' : '';
       const a = t && /^[aeiou]/.test(t.one) ? 'an' : 'a';
       const said = !n ? '' : !tid ? `${n} is new: say what it is` : e ? `${n}: ${a} ${t.one} the project has`
         : `${n} is new: ${a} ${t.one}${seq ? `, in ${newSeq ? 'a new sequence, ' : ''}${seq}` : ''}${why}`;
       kind.title = said;
-      tier.title = said ? `${said}. Click to say otherwise` : '';
+      type.title = said ? `${said}. Click to say otherwise` : '';
       // The version it follows: its still (with a tick when the piece looks like it), which shows the two
       // side by side under the pointer or the keyboard.
       const head = n ? headOf() : null;
@@ -789,7 +789,7 @@ const WBFiling = (() => {
       if (e.inputType !== 'insertText' || e.data !== ' ' || ent.selectionStart !== ent.value.length) return;
       const l = N.readLine(ent.value, lineContext());
       if (!l.entity || l.rest.length) return;
-      const whole = !!have(l.entity) || !!l.short || N.tierOf(l.entity) === 'shot';
+      const whole = !!have(l.entity) || !!l.short || N.typeByShape(l.entity) === 'shot';
       const more = l.task !== undefined || l.number != null || !!l.view || !!l.extra;
       if (!more && !whole) return;
       combo.hide();
@@ -873,7 +873,7 @@ const WBFiling = (() => {
     extraIn.addEventListener('blur', () => { extraIn.value = extra || ''; });
     sync();
     return Object.assign(self, {
-      ent, task: taskIn, tier, readout, sync, line: line_, version: verIn, name, have, taskName, settle, setLine, checks, ready, number,
+      ent, task: taskIn, type, readout, sync, line: line_, version: verIn, name, have, taskName, settle, setLine, checks, ready, number,
       typedNumber: () => (numberOf ? null : own.number), viewSel, viewName, setView, extraName, setExtra,
       // A number and view read for it from elsewhere (a learned rule), as if typed on its line; `named`
       // when what it is was read from its own file's name so.
@@ -885,11 +885,11 @@ const WBFiling = (() => {
       },
       // Its name was read from its own file's name, and has not been changed since.
       fromName: () => fromName,
-      // What the server is told it is: one the project has, by id, or a new one, by name and tier.
+      // What the server is told it is: one the project has, by id, or a new one, by name and type.
       entity: () => {
         const n = name();
         const h = have(n);
-        return h ? h.id : { name: n, tier: tier.value || N.kindOf(n, entities()) };
+        return h ? h.id : { name: n, type: type.value || N.entityTypeOf(n, entities()) };
       },
       // The project does not have it yet: it is made when filed.
       isNew: () => !!name() && !have(name()),
@@ -915,7 +915,7 @@ const WBFiling = (() => {
     if (at < 0 || !n) return null;
     const task = from.taskName();
     const names = entities.map((e) => e.name);
-    const shot = N.tierOf(n) === 'shot' ? N.seqOf(n) : null;
+    const shot = N.typeByShape(n) === 'shot' ? N.seqOf(n) : null;
     const step = shot ? N.sequence(names, shot).step : 0;
     let num = shot ? N.shotNumber(n) : 0;
     const before = [];

@@ -122,7 +122,7 @@ END;
 CREATE TABLE IF NOT EXISTS entities (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL,
-  tier TEXT NOT NULL,
+  type TEXT NOT NULL,
   name TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   created_by TEXT,
@@ -541,7 +541,7 @@ function openStore(dataDir) {
   function addPlaylist({ id, projectId = '', name, versions = [], workspace = null, folderId = null, by = null, at = Date.now() }) {
     return transaction(() => {
       // One outside a project files its versions under an entity of its own, named as it is.
-      const entity = projectId ? null : addEntity({ id: `${id}e`, projectId: id, tier: 'asset', name, by });
+      const entity = projectId ? null : addEntity({ id: `${id}e`, projectId: id, type: 'asset', name, by });
       putPlaylist.run(id, projectId, name, JSON.stringify(versions), at, by, at, workspace, folderId, entity ? entity.id : null);
       return playlist(id);
     });
@@ -765,7 +765,7 @@ function openStore(dataDir) {
     }
   };
   const entityOf = (r) => ({
-    id: r.id, projectId: r.project_id, tier: r.tier, name: r.name, createdAt: r.created_at, createdBy: r.created_by,
+    id: r.id, projectId: r.project_id, type: r.type, name: r.name, createdAt: r.created_at, createdBy: r.created_by,
     artists: names(r.artists), cc: names(r.cc),
   });
   // No task is '' in the database (see SCHEMA) and null everywhere else.
@@ -842,17 +842,17 @@ function openStore(dataDir) {
   };
   // A project's versions, newest filed first (archived and deleted ones left out), each with its entity,
   // a page at a time. `after` is where the page before ended: the [created_at, number, id] of its last.
-  const readProjectVersions = db.prepare(`SELECT v.*, e.name AS entity_name, e.tier AS entity_tier FROM versions v JOIN entities e ON e.id = v.entity_id
+  const readProjectVersions = db.prepare(`SELECT v.*, e.name AS entity_name, e.type AS entity_type FROM versions v JOIN entities e ON e.id = v.entity_id
     WHERE e.project_id = ? AND v.deleted_at IS NULL AND v.hidden = 0 AND (v.created_at, v.number, v.id) < (?, ?, ?)
     ORDER BY v.created_at DESC, v.number DESC, v.id DESC LIMIT ?`);
   const projectVersions = (projectId, { after = [Number.MAX_SAFE_INTEGER, 0, ''], limit = 300 } = {}) =>
-    readProjectVersions.all(projectId, after[0], after[1], after[2], limit).map((r) => ({ ...versionOf(r), entityName: r.entity_name, entityTier: r.entity_tier }));
-  // A project's versions as its Versions page asks for them: those of some tasks, sequences, tiers, filers
+    readProjectVersions.all(projectId, after[0], after[1], after[2], limit).map((r) => ({ ...versionOf(r), entityName: r.entity_name, entityType: r.entity_type }));
+  // A project's versions as its Versions page asks for them: those of some tasks, sequences, types, filers
   // or artists, filed since a time, matching words, only the newest of each entity and task, archived ones
   // too, in an order, a page at a time ({ list, total }). Each filter given as a list takes any of it; ''
   // in `tasks` is no task. A sequence is the shots whose name is it and a number.
   //   sort: 'new' (newest filed first, the default), 'old', 'name' (by entity, then task, newest first), 'number'
-  function findVersions(projectId, { tasks, seqs, tiers, by, artists, since, q, newest = false, archived = false, sort = 'new', offset = 0, limit = 300 } = {}) {
+  function findVersions(projectId, { tasks, seqs, types, by, artists, since, q, newest = false, archived = false, sort = 'new', offset = 0, limit = 300 } = {}) {
     const where = ['e.project_id = ?', 'v.deleted_at IS NULL'];
     const args = [projectId];
     const anyOf = (col, list) => {
@@ -861,11 +861,11 @@ function openStore(dataDir) {
     };
     if (!archived) where.push('v.hidden = 0');
     if (tasks && tasks.length) anyOf('v.task', tasks.map(taskKey));
-    if (tiers && tiers.length) anyOf('e.tier', tiers);
+    if (types && types.length) anyOf('e.type', types);
     if (by && by.length) anyOf('lower(v.created_by)', by.map((n) => String(n).toLowerCase()));
     if (artists && artists.length) anyOf('v.artist', artists);
     if (seqs && seqs.length) {
-      where.push(`(e.tier = 'shot' AND (${seqs.map(() => "(substr(e.name, 1, length(?) + 1) = ? || '-' AND substr(e.name, length(?) + 2) <> '' AND substr(e.name, length(?) + 2) NOT GLOB '*[^0-9]*')").join(' OR ')}))`);
+      where.push(`(e.type = 'shot' AND (${seqs.map(() => "(substr(e.name, 1, length(?) + 1) = ? || '-' AND substr(e.name, length(?) + 2) <> '' AND substr(e.name, length(?) + 2) NOT GLOB '*[^0-9]*')").join(' OR ')}))`);
       for (const q2 of seqs) args.push(q2, q2, q2, q2);
     }
     if (since) {
@@ -882,8 +882,8 @@ function openStore(dataDir) {
     const order = { old: 'v.created_at ASC, v.number ASC, v.id ASC', name: 'e.name ASC, v.task ASC, v.number DESC', number: 'v.number DESC, v.created_at DESC' }[sort] || NEWEST_FIRST;
     const from = `FROM versions v JOIN entities e ON e.id = v.entity_id WHERE ${where.join(' AND ')}`;
     const total = db.prepare(`SELECT count(*) AS n ${from}`).get(...args).n;
-    const list = db.prepare(`SELECT v.*, e.name AS entity_name, e.tier AS entity_tier ${from} ORDER BY ${order} LIMIT ? OFFSET ?`).all(...args, limit, offset)
-      .map((r) => ({ ...versionOf(r), entityName: r.entity_name, entityTier: r.entity_tier }));
+    const list = db.prepare(`SELECT v.*, e.name AS entity_name, e.type AS entity_type ${from} ORDER BY ${order} LIMIT ? OFFSET ?`).all(...args, limit, offset)
+      .map((r) => ({ ...versionOf(r), entityName: r.entity_name, entityType: r.entity_type }));
     return { list, total };
   }
   // Who has filed versions in a project, each once.
@@ -905,26 +905,26 @@ function openStore(dataDir) {
     const r = readEntityNamed.get(projectId, name);
     return r ? entityOf(r) : null;
   };
-  const putEntity = db.prepare('INSERT INTO entities (id, project_id, tier, name, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (project_id, name) DO NOTHING');
+  const putEntity = db.prepare('INSERT INTO entities (id, project_id, type, name, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (project_id, name) DO NOTHING');
   // Made, or the one of that name the project has already.
-  function addEntity({ id, projectId, tier, name, by = null }) {
-    putEntity.run(id, projectId, tier, name, Date.now(), by);
+  function addEntity({ id, projectId, type, name, by = null }) {
+    putEntity.run(id, projectId, type, name, Date.now(), by);
     return entityNamed(projectId, name);
   }
   const dropPeople = db.prepare('DELETE FROM entity_people WHERE entity_id = ?');
   const putPerson = db.prepare('INSERT OR IGNORE INTO entity_people (entity_id, role, name_key) VALUES (?, ?, ?)');
-  // Renames it, moves it to another tier, or says who works on it and who follows it.
-  const putEntityFields = db.prepare('UPDATE entities SET name = ?, tier = ?, artists = ?, cc = ? WHERE id = ?');
-  function setEntity(id, { name, tier, artists, cc }) {
+  // Renames it, moves it to another type, or says who works on it and who follows it.
+  const putEntityFields = db.prepare('UPDATE entities SET name = ?, type = ?, artists = ?, cc = ? WHERE id = ?');
+  function setEntity(id, { name, type, artists, cc }) {
     const e = entity(id);
     if (!e) return { ok: false };
-    const to = { name: name ?? e.name, tier: tier ?? e.tier, artists: artists ?? e.artists, cc: cc ?? e.cc };
+    const to = { name: name ?? e.name, type: type ?? e.type, artists: artists ?? e.artists, cc: cc ?? e.cc };
     if (to.name !== e.name) {
       const have = entityNamed(e.projectId, to.name);
       if (have) return { ok: false, taken: have };
     }
     transaction(() => {
-      putEntityFields.run(to.name, to.tier, JSON.stringify(to.artists), JSON.stringify(to.cc), id);
+      putEntityFields.run(to.name, to.type, JSON.stringify(to.artists), JSON.stringify(to.cc), id);
       dropPeople.run(id);
       for (const [role, list] of [['artist', to.artists], ['cc', to.cc]]) for (const n of list) if (n.trim()) putPerson.run(id, role, n.trim().toLowerCase());
     });

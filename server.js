@@ -1128,7 +1128,7 @@ function versionInfo(ref) {
   if (!e) return null;
   const newest = store.newestVersion(v.entityId, v.task);
   return {
-    id: v.id, entityId: e.id, entity: e.name, tier: e.tier, projectId: e.projectId, task: v.task, number: v.number,
+    id: v.id, entityId: e.id, entity: e.name, type: e.type, projectId: e.projectId, task: v.task, number: v.number,
     label: naming.label(e.name, v.task, v.number), artist: v.artist, descriptor: v.descriptor, hidden: v.hidden,
     thumb: v.thumb, kind: v.kind, newest: newest && newest.id !== v.id && newest.number > v.number ? newest : null,
   };
@@ -1249,7 +1249,7 @@ function viewFor(project, asked) {
 }
 
 // The entity a file is to go under, without making anything yet: one the project has, by its id or its
-// name, or one to make, by its name ({ name, tier, make: true }).
+// name, or one to make, by its name ({ name, type, make: true }).
 function entityFor(project, spec) {
   if (typeof spec === 'string') {
     const e = store.entity(spec);
@@ -1261,11 +1261,11 @@ function entityFor(project, spec) {
   if (!name) throw refusal(400, 'An asset, set or shot needs a name');
   const have = store.entityNamed(project.id, name);
   if (have) return have;
-  const tier = naming.TIERS.includes(spec.tier) ? spec.tier : naming.kindOf(name, store.entities(project.id)) || 'asset';
-  return { name, tier, make: true };
+  const type = naming.TYPES.includes(spec.type) ? spec.type : naming.entityTypeOf(name, store.entities(project.id)) || 'asset';
+  return { name, type, make: true };
 }
 // That entity, made now if it is to be (or the one of that name, should it have been made meanwhile).
-const madeEntity = (project, e, by) => (e.make ? store.addEntity({ id: newId(), projectId: project.id, tier: e.tier, name: e.name, by }) : e);
+const madeEntity = (project, e, by) => (e.make ? store.addEntity({ id: newId(), projectId: project.id, type: e.type, name: e.name, by }) : e);
 const resolveEntity = (project, spec, by) => madeEntity(project, entityFor(project, spec), by);
 
 const tokenOrNull = (v) => (typeof v === 'string' && naming.tokenize(v) ? naming.tokenize(v) : null);
@@ -1340,7 +1340,7 @@ function fileVersions(req, project, body) {
     else delete look.view;
     return {
       board, item, look, asked, view, extra,
-      entity: entityFor(project, pick('entity') ?? (parsed.entity && { name: parsed.entity, tier: parsed.tier })),
+      entity: entityFor(project, pick('entity') ?? (parsed.entity && { name: parsed.entity, type: parsed.type })),
       task: !usesTasks(project) ? null : pick('task') !== undefined ? tokenOrNull(pick('task')) : parsed.task,
       descriptor: pick('descriptor') !== undefined ? tokenOrNull(pick('descriptor')) : parsed.descriptor,
       artist: pick('artist') !== undefined ? tokenOrNull(pick('artist')) : parsed.artist,
@@ -1557,7 +1557,7 @@ const playlistScope = (p) => p.projectId || p.id;
 // A playlist's versions, in its order: those still there, each with its entity.
 const playlistVersions = (p) => p.versions.map((id) => liveVersion(id)).filter(Boolean).map((v) => {
   const e = store.entity(v.entityId);
-  return e && e.projectId === playlistScope(p) ? { ...v, entityName: e.name, entityTier: e.tier } : null;
+  return e && e.projectId === playlistScope(p) ? { ...v, entityName: e.name, entityType: e.type } : null;
 }).filter(Boolean);
 // A playlist as a list of them shows it: its name, how many versions, the first stills, when it changed.
 // One outside a project also says where it is kept.
@@ -1610,7 +1610,7 @@ function cleanAnimatic(asked, project) {
   const isShot = (id) => {
     if (!shotOk.has(id)) {
       const e = typeof id === 'string' && store.entity(id);
-      shotOk.set(id, !!e && e.projectId === project.id && e.tier === 'shot');
+      shotOk.set(id, !!e && e.projectId === project.id && e.type === 'shot');
     }
     return shotOk.get(id);
   };
@@ -1655,7 +1655,7 @@ function cleanAnimatic(asked, project) {
 function shotsInOrder(projectId, task) {
   const p = folders.get(projectId);
   const inOrder = naming.shotOrder(p && p.settings && p.settings.seqs);
-  return store.entities(projectId).filter((e) => e.tier === 'shot').sort((a, b) => inOrder(a.name, b.name)).map((e) => {
+  return store.entities(projectId).filter((e) => e.type === 'shot').sort((a, b) => inOrder(a.name, b.name)).map((e) => {
     const v = task ? store.newestOfTask(e.id, naming.tokenize(task) || null) : e.newest;
     return { e, v };
   });
@@ -1688,7 +1688,7 @@ const framesOf = (version, fps) => {
 function usualRate(project) {
   const count = new Map();
   for (const e of store.entities(project.id)) {
-    const fps = e.tier === 'shot' && e.newest && e.newest.look.fps;
+    const fps = e.type === 'shot' && e.newest && e.newest.look.fps;
     if (!(fps > 0)) continue;
     const rate = ANIMATIC_RATES.reduce((best, r) => (Math.abs(r - fps) < Math.abs(best - fps) ? r : best));
     if (Math.abs(rate - fps) < 0.05) count.set(rate, (count.get(rate) || 0) + 1);
@@ -1699,14 +1699,14 @@ function usualRate(project) {
 const shotFor = (id) => {
   if (typeof id !== 'string') return null;
   const e = store.entity(id) || store.entity(liveVersion(id)?.entityId);
-  return e && e.tier === 'shot' ? e.id : null;
+  return e && e.type === 'shot' ? e.id : null;
 };
 // The shape a new animatic of a project starts at: the one most of its shots' newest versions have (in a
 // project with a model of its venue, the unwrapped picture its screens show), or 1920 x 1080.
 function usualShape(project) {
   const count = new Map();
   for (const e of store.entities(project.id)) {
-    const look = e.tier === 'shot' && e.newest && e.newest.look;
+    const look = e.type === 'shot' && e.newest && e.newest.look;
     if (!look || !(look.nw >= 16 && look.nh >= 16)) continue;
     const key = `${Math.round(look.nw)}x${Math.round(look.nh)}`;
     count.set(key, (count.get(key) || 0) + 1);
@@ -1757,13 +1757,13 @@ async function handleCatalogue(req, res, parts) {
   const projectFor = (id) => (visibleFolder(req.user, id) && folders.get(id).project ? folders.get(id) : null);
   const boardsSeen = (list) => list.filter((b) => canSee(req.user, b.workspace)).map((b) => ({ id: b.id, name: b.name }));
   // Versions as a list shows them (the Versions page, a playlist): each read with its entity's name and
-  // tier. `full` sends the whole of each one's look, as the player needs it to play them one after another.
+  // type. `full` sends the whole of each one's look, as the player needs it to play them one after another.
   const shape = (list, { full = false } = {}) => {
     const on = store.boardsWithVersions(list.map((v) => v.id));
     return list.map((v) => {
       const { src, poster, th, dur, fps, nw, nh, type } = v.look;
       return {
-        id: v.id, entityId: v.entityId, entity: v.entityName, tier: v.entityTier, task: v.task, number: v.number,
+        id: v.id, entityId: v.entityId, entity: v.entityName, type: v.entityType, task: v.task, number: v.number,
         label: naming.label(v.entityName, v.task, v.number), kind: v.kind, thumb: v.thumb, look: full ? v.look : { type, src, poster, th, dur, fps, nw, nh },
         views: [v.look.view || '', ...(v.look.views || []).map((x) => x.view)].filter((x, i) => i || (v.look.views || []).length),
         extras: (v.look.extras || []).map((x) => x.label),
@@ -1776,7 +1776,7 @@ async function handleCatalogue(req, res, parts) {
   const versionsFor = (scope, ids) => [...new Set(Array.isArray(ids) ? ids : [])].slice(0, 1000)
     .filter((id) => typeof id === 'string' && liveVersion(id) && store.entity(liveVersion(id).entityId)?.projectId === scope);
   // GET /api/projects/:id                  the project and its entities
-  // POST /api/projects/:id/entities        { name, tier }
+  // POST /api/projects/:id/entities        { name, type }
   // POST /api/projects/:id/versions        { files, entity, task, descriptor, artist }
   if (parts[1] === 'projects') {
     const project = projectFor(parts[2]);
@@ -1784,7 +1784,7 @@ async function handleCatalogue(req, res, parts) {
     if (parts.length === 3 && req.method === 'GET') {
       return sendJson(res, 200, {
         project: publicFolder(project),
-        tiers: naming.TIER_LIST,
+        types: naming.TYPE_LIST,
         entities: store.entities(project.id),
         tasks: [...new Set([...naming.TASKS, ...store.projectTasks(project.id)])],
         artists: store.projectArtists(project.id),
@@ -1872,10 +1872,10 @@ async function handleCatalogue(req, res, parts) {
     // project's Versions list. `next`, when there are more, is what to give as `before` for the next page.
     //
     // GET /api/projects/:id/versions?find=1&...  the same, as the Versions page asks for it: filtered by any
-    // of `task`, `seq`, `tier`, `by` (who filed), `artist` (each comma separated; an empty task is none),
+    // of `task`, `seq`, `type`, `by` (who filed), `artist` (each comma separated; an empty task is none),
     // `since` (a time), words `q`, only the `newest` of each entity and task, `archived` ones too; in a
     // `sort` (new, old, name, number); a page at a time from `offset`, `limit` long (at most 300). With every page, `total` and
-    // `facets`: what there is to filter by (its tasks, sequences, tiers, filers, artists).
+    // `facets`: what there is to filter by (its tasks, sequences, types, filers, artists).
     if (parts.length === 4 && parts[3] === 'versions' && req.method === 'GET') {
       const sp = new URL(req.url, 'http://x').searchParams;
       // Which boards each is on is read from the database, so what is waiting to be written goes first.
@@ -1884,7 +1884,7 @@ async function handleCatalogue(req, res, parts) {
         const listOf = (key) => (sp.get(key) === null ? null : sp.get(key).split(',').map((x) => x.trim()).slice(0, 100));
         const offset = Math.max(0, Math.min(1e6, Number(sp.get('offset')) || 0));
         const found = store.findVersions(project.id, {
-          tasks: listOf('task'), seqs: listOf('seq'), tiers: listOf('tier'), by: listOf('by'), artists: listOf('artist'),
+          tasks: listOf('task'), seqs: listOf('seq'), types: listOf('type'), by: listOf('by'), artists: listOf('artist'),
           since: Number(sp.get('since')) || 0, q: (sp.get('q') || '').slice(0, 200), newest: sp.get('newest') === '1', archived: sp.get('archived') === '1',
           sort: sp.get('sort') || 'new', offset, limit: Math.max(1, Math.min(VERSIONS_PAGE, Number(sp.get('limit')) || VERSIONS_PAGE)),
         });
@@ -1892,8 +1892,8 @@ async function handleCatalogue(req, res, parts) {
         const ents = store.entities(project.id);
         out.facets = {
           tasks: store.projectTasks(project.id), filers: store.projectFilers(project.id), artists: store.projectArtists(project.id),
-          seqs: [...new Set(ents.filter((e) => e.tier === 'shot' && naming.seqOf(e.name)).map((e) => naming.seqOf(e.name)))].sort(naming.seqOrder(project.settings && project.settings.seqs)),
-          tiers: naming.TIER_LIST.filter((t) => ents.some((e) => e.tier === t.id)).map((t) => ({ id: t.id, label: t.label })),
+          seqs: [...new Set(ents.filter((e) => e.type === 'shot' && naming.seqOf(e.name)).map((e) => naming.seqOf(e.name)))].sort(naming.seqOrder(project.settings && project.settings.seqs)),
+          types: naming.TYPE_LIST.filter((t) => ents.some((e) => e.type === t.id)).map((t) => ({ id: t.id, label: t.label })),
           untasked: ents.some((e) => e.tops && e.tops['']),
         };
         return sendJson(res, 200, out);
@@ -1981,7 +1981,7 @@ async function handleCatalogue(req, res, parts) {
         const cols = new Map();
         for (const v of list) {
           const e = store.entity(v.entityId);
-          const key = e.tier === 'shot' ? `0:${naming.seqOf(e.name) || e.name}` : `${e.tier === 'asset' ? 1 : 2}:${e.tier === 'asset' ? 'Assets' : 'Sets'}`;
+          const key = e.type === 'shot' ? `0:${naming.seqOf(e.name) || e.name}` : `${e.type === 'asset' ? 1 : 2}:${e.type === 'asset' ? 'Assets' : 'Sets'}`;
           (cols.get(key) || cols.set(key, []).get(key)).push({ v, name: e.name });
         }
         let x = 0;
@@ -2039,7 +2039,7 @@ async function handleCatalogue(req, res, parts) {
       const byId = new Map(store.entities(project.id).map((e) => [e.id, e]));
       const about = (id) => {
         const e = byId.get(id);
-        return { id: e.id, name: e.name, tier: e.tier, projectId: project.id, project: project.name };
+        return { id: e.id, name: e.name, type: e.type, projectId: project.id, project: project.name };
       };
       const label = versionLabels();
       const why = forMe ? activityFor(name, byId) : null;
@@ -2084,15 +2084,15 @@ async function handleCatalogue(req, res, parts) {
       if (items.length === limit) more = true;
       return sendJson(res, 200, { items, more, next: more && last ? lineCursor(last) : null });
     }
-    // PATCH { ids, tier, artists: { add, remove, set }, cc: { add, remove, set }, names, tiers }: many at once. What is not
+    // PATCH { ids, type, artists: { add, remove, set }, cc: { add, remove, set }, names, types }: many at once. What is not
     // said of them is left as each has it; all or none are changed.
     if (parts.length === 4 && parts[3] === 'entities' && req.method === 'PATCH') {
       const body = await readJson(req, 1024 * 1024);
       const ids = Array.isArray(body.ids) ? [...new Set(body.ids)].slice(0, 2000) : [];
       const list = ids.map((id) => store.entity(id));
       if (!list.length || list.some((e) => !e || e.projectId !== project.id)) return sendJson(res, 400, { error: 'Pick assets, sets or shots of this project' });
-      if (body.tier !== undefined && !naming.TIERS.includes(body.tier)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
-      // { names: { id: name }, tiers: { id: tier } }: each its own (as Claude suggests in batch edit).
+      if (body.type !== undefined && !naming.TYPES.includes(body.type)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
+      // { names: { id: name }, types: { id: type } }: each its own (as Claude suggests in batch edit).
       const own = (map) => (map && typeof map === 'object' && !Array.isArray(map) ? map : {});
       const names = new Map();
       for (const [id, n] of Object.entries(own(body.names))) {
@@ -2101,10 +2101,10 @@ async function handleCatalogue(req, res, parts) {
         if (!name) return sendJson(res, 400, { error: 'An asset, set or shot needs a name' });
         names.set(id, name);
       }
-      const tiers = own(body.tiers);
-      for (const [id, t] of Object.entries(tiers)) {
+      const types = own(body.types);
+      for (const [id, t] of Object.entries(types)) {
         if (!ids.includes(id)) return sendJson(res, 400, { error: 'Change only what is picked' });
-        if (!naming.TIERS.includes(t)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
+        if (!naming.TYPES.includes(t)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
       }
       // The names as they will all be: none twice, and none another of the project's has.
       const after = new Map(list.map((e) => [e.id, names.get(e.id) || e.name]));
@@ -2131,7 +2131,7 @@ async function handleCatalogue(req, res, parts) {
         for (const e of moving) store.setEntity(e.id, { name: `~${e.id}` });
         return list.map((e) => store.setEntity(e.id, {
           ...(names.has(e.id) && { name: names.get(e.id) }),
-          ...(tiers[e.id] ? { tier: tiers[e.id] } : body.tier !== undefined && { tier: body.tier }),
+          ...(types[e.id] ? { type: types[e.id] } : body.type !== undefined && { type: body.type }),
           artists: change(e.artists, body.artists),
           cc: change(e.cc, body.cc),
         }).entity);
@@ -2139,16 +2139,16 @@ async function handleCatalogue(req, res, parts) {
       retellEntities(new Set(done.map((e) => e.id)));
       return sendJson(res, 200, { entities: done });
     }
-    // { name, tier } makes one; { names: [...], tier } sets up many at once, before anything is filed of
-    // them. A name the project has already is left as it is. Without a tier, the name's shape says.
+    // { name, type } makes one; { names: [...], type } sets up many at once, before anything is filed of
+    // them. A name the project has already is left as it is. Without a type, the name's shape says.
     if (parts.length === 4 && parts[3] === 'entities' && req.method === 'POST') {
       const body = await readJson(req, 1024 * 1024);
       const by = actor(req, body);
-      if (!Array.isArray(body.names)) return sendJson(res, 201, resolveEntity(project, { name: body.name, tier: body.tier }, by));
+      if (!Array.isArray(body.names)) return sendJson(res, 201, resolveEntity(project, { name: body.name, type: body.type }, by));
       const wanted = [...new Set(body.names.slice(0, 2000).map((n) => naming.tokenize(n)).filter(Boolean))];
       if (!wanted.length) return sendJson(res, 400, { error: 'No names to add' });
       const had = wanted.filter((n) => store.entityNamed(project.id, n));
-      const made = store.transaction(() => wanted.filter((n) => !had.includes(n)).map((n) => resolveEntity(project, { name: n, tier: body.tier }, by)));
+      const made = store.transaction(() => wanted.filter((n) => !had.includes(n)).map((n) => resolveEntity(project, { name: n, type: body.type }, by)));
       return sendJson(res, 201, { made, had });
     }
     if (parts.length === 4 && parts[3] === 'versions' && req.method === 'POST') {
@@ -2179,7 +2179,7 @@ async function handleCatalogue(req, res, parts) {
         const chosen = ids.map((id) => entities.find((e) => e.id === id));
         if (!chosen.length || chosen.some((e) => !e)) return sendJson(res, 400, { error: 'Pick assets, sets or shots of this project' });
         const withFiles = chosen.map((e) => ({
-          id: e.id, name: e.name, tier: e.tier,
+          id: e.id, name: e.name, type: e.type,
           files: [...new Set(store.versionsOf(e.id).map((v) => v.originalName).filter(Boolean))].slice(0, 3),
         }));
         const answers = await ai.renameEntities({ instruction: body.instruction, chosen: withFiles, entities, tasks });
@@ -2190,7 +2190,7 @@ async function handleCatalogue(req, res, parts) {
     }
     return sendJson(res, 404, { error: 'Not found' });
   }
-  // PATCH /api/entities/:id { name, tier, artists, cc }: renamed, or who works on it and who follows it.
+  // PATCH /api/entities/:id { name, type, artists, cc }: renamed, or who works on it and who follows it.
   if (parts[1] === 'entities' && parts.length === 3 && req.method === 'PATCH') {
     const entity = store.entity(parts[2]);
     const project = entity && projectFor(entity.projectId);
@@ -2201,9 +2201,9 @@ async function handleCatalogue(req, res, parts) {
       edit.name = naming.tokenize(body.name);
       if (!edit.name) return sendJson(res, 400, { error: 'An asset, set or shot needs a name' });
     }
-    if (body.tier !== undefined) {
-      if (!naming.TIERS.includes(body.tier)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
-      edit.tier = body.tier;
+    if (body.type !== undefined) {
+      if (!naming.TYPES.includes(body.type)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
+      edit.type = body.type;
     }
     if (body.artists !== undefined) edit.artists = cleanPeople(body.artists);
     if (body.cc !== undefined) edit.cc = cleanPeople(body.cc);
@@ -4404,7 +4404,7 @@ function handleWatchApi(req, res, url, token, rest) {
     const e = store.entity(entity[1]);
     if (!e || e.projectId !== pres.projectId || !wasShown(pres, 'entity', e.id)) return sendJson(res, 404, { error: 'Not shown' });
     return sendJson(res, 200, {
-      entity: { id: e.id, name: e.name, tier: e.tier, projectId: e.projectId }, project: projectOut,
+      entity: { id: e.id, name: e.name, type: e.type, projectId: e.projectId }, project: projectOut,
       versions: store.versionsOf(e.id).map((v) => versionOut(v, e)), notes: [],
     });
   }

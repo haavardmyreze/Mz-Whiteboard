@@ -54,12 +54,12 @@ test('filing: a shot can be said short, by the sequence it is filed in', () => {
 });
 
 test('filing: a shot written short is offered as the shot, a new name is guessed by the project\'s like it, and a near miss is the one meant', () => {
-  assert.deepEqual(naming.corrections('kilo-10'), [{ name: 'kilo-0010', tier: 'shot' }]);
-  assert.deepEqual(naming.corrections('kilo10', NAMES), [{ name: 'kilo-0010', tier: 'shot' }]);
+  assert.deepEqual(naming.corrections('kilo-10'), [{ name: 'kilo-0010', type: 'shot' }]);
+  assert.deepEqual(naming.corrections('kilo10', NAMES), [{ name: 'kilo-0010', type: 'shot' }]);
   assert.deepEqual(naming.corrections('robot'), []);
   assert.deepEqual(naming.corrections('kilo-0010'), []);
-  const ents = [{ name: 'char-robot', tier: 'asset' }, { name: 'char-dog', tier: 'asset' }, { name: 'loc-harbour', tier: 'set' }];
-  assert.deepEqual(['char-cat', 'loc-street', 'kilo-0020', 'robot', 'char-robot'].map((n) => naming.kindOf(n, ents)), ['asset', 'set', 'shot', null, 'asset']);
+  const ents = [{ name: 'char-robot', type: 'asset' }, { name: 'char-dog', type: 'asset' }, { name: 'loc-harbour', type: 'set' }];
+  assert.deepEqual(['char-cat', 'loc-street', 'kilo-0020', 'robot', 'char-robot'].map((n) => naming.entityTypeOf(n, ents)), ['asset', 'set', 'shot', null, 'asset']);
   assert.deepEqual(naming.nearMisses('kilo-010', NAMES), ['kilo-0010']);
   assert.deepEqual(naming.nearMisses('klio-0010', NAMES), ['kilo-0010']);
   assert.deepEqual(naming.nearMisses('char-robto', NAMES), ['char-robot']);
@@ -147,10 +147,10 @@ test('filing: a video is most like the version it is as long as, at the same rat
 });
 
 test('naming: names are written one way, and a file is read only for what the project knows', () => {
-  const ents = [{ name: 'char-robot', tier: 'asset' }, { name: 'loc-harbour', tier: 'set' }];
+  const ents = [{ name: 'char-robot', type: 'asset' }, { name: 'loc-harbour', type: 'set' }];
   // A shot by its shape, always; an asset or a set when the project has it or names like it.
   assert.equal(naming.parse('chap01-0010_v111_cmp.mp4').entity, 'chap01-0010');
-  assert.deepEqual([naming.parse('char-dog_rig_v2.mov', ents).entity, naming.parse('char-dog_rig_v2.mov', ents).tier], ['char-dog', 'asset']);
+  assert.deepEqual([naming.parse('char-dog_rig_v2.mov', ents).entity, naming.parse('char-dog_rig_v2.mov', ents).type], ['char-dog', 'asset']);
   assert.equal(naming.parse('char-dog_rig_v2.mov').entity, null);
   // Another studio's names are not taken for names by the first word: they are learned once filed by hand.
   assert.equal(naming.parse('NHMoc_CHAP01_010_cmp_v111.mp4', ents).entity, null);

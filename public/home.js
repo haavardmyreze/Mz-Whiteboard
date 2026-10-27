@@ -2533,6 +2533,8 @@
     const of = (name) => people.get(name) || people.set(name, { name, on: new Map(), week: 0 }).get(name);
     for (const e of cat.entities) for (const a of e.artists || []) of(a).on.set(e.tier, (of(a).on.get(e.tier) || 0) + 1);
     for (const x of items || []) if (x.kind === 'version' && x.by && now - x.at < WEEK) of(x.by).week++;
+    // Each in their colour, as the project's activity gives it.
+    const colourOf = new Map((items || []).map((x) => [x.by, x.color]));
     if (!people.size) return null;
     const total = (p) => [...p.on.values()].reduce((a, b) => a + b, 0);
     const list = [...people.values()].sort((a, b) => total(b) - total(a) || b.week - a.week || a.name.localeCompare(b.name));
@@ -2540,7 +2542,7 @@
     return el('div', {},
       label('People', people.size),
       el('div', { class: 'ph-people' }, list.map((p) => el('div', { class: 'ph-person' },
-        WB.avatar(p.name),
+        WB.avatar(p.name, colourOf.get(p.name)),
         el('span', { class: 'ph-who' }, el('b', { text: p.name }), p.on.size > 0 && el('span', { text: `on ${on(p)}` })),
         p.week > 0 && el('span', { class: 'ph-week', text: `${p.week} this week`, title: `${plural(p.week, 'version')} filed in the last seven days` })))));
   }
@@ -2571,6 +2573,9 @@
       pageFailed(sig, err);
     }
   }
+  // What was done, at a glance, before who did it: filed, said, or a playlist or an animatic made.
+  const KIND = { version: ['import', 'Filed'], note: ['comment', 'Comment'], playlist: ['playlist', 'Playlist'], animatic: ['animatic', 'Animatic'] };
+  const kindMark = (kind) => el('span', { class: 'pa-kind', html: icon(KIND[kind][0], 16), title: KIND[kind][1] });
   const WHY = { mention: 'Mentions you', reply: 'Replies to you', work: 'On your work', artist: 'You make it', cc: 'You are cc’d on it' };
   function activityView(project, sig) {
     const list = activityLists.get(`${project.id}|${forYou}`);
@@ -2653,6 +2658,7 @@
         again.querySelector('.pa-run').focus({ preventScroll: true });
       },
     },
+    kindMark(newest.kind),
     WB.avatar(newest.by || '?', newest.color),
     el('div', { class: 'pa-body' },
       el('p', { class: 'pa-what' }, el('b', { text: newest.by || 'Somebody' }), filed ? ' filed ' : ' wrote ', el('span', { class: 'pa-thing', text: `${n} ${filed ? 'versions' : 'comments'}` }),
@@ -2676,6 +2682,7 @@
     }[x.kind]();
     const at = new Date(x.at);
     const body = [
+      kindMark(x.kind),
       WB.avatar(x.by || '?', x.color),
       el('div', { class: 'pa-body' },
         el('p', { class: 'pa-what' }, el('b', { text: x.by || 'Somebody' }), ' ', ...what),

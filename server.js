@@ -9,7 +9,7 @@ const os = require('os');
 const net = require('net');
 const zlib = require('zlib');
 const { WebSocketServer } = require('ws');
-const { createAuth, parseCookies, isLoopback, clientAddress } = require('./auth');
+const { createAuth, parseCookies, isLoopback, clientAddress, colorFor } = require('./auth');
 const { openStore } = require('./store');
 const { noticesFor, markRead, mentions } = require('./notifications');
 const { createAdmin } = require('./admin');
@@ -1455,7 +1455,7 @@ function versionLabels() {
 // A line of a project's Activity: a version filed, a note written, a playlist or an animatic made.
 const versionLine = (v, entity, label) => ({ kind: 'version', id: v.id, at: v.createdAt, by: v.createdBy, entity, version: { id: v.id, label: label(v.id), thumb: v.thumb, kind: v.kind } });
 const noteLine = (n, entity, label) => ({
-  kind: 'note', id: n.id, at: n.createdAt, by: n.data.name || n.createdBy, color: n.data.color, entity,
+  kind: 'note', id: n.id, at: n.createdAt, by: n.data.name || n.createdBy, entity,
   version: { id: n.versionId, label: label(n.versionId) }, note: { id: n.id, text: String(n.data.text || '').slice(0, 300), reply: !!n.re },
 });
 const playlistLine = (p) => ({ kind: 'playlist', id: p.id, at: p.createdAt, by: p.createdBy, playlist: { id: p.id, name: p.name, count: p.versions.length } });
@@ -1477,6 +1477,18 @@ function lineAfter(before) {
   return null;
 }
 const comesAfter = (x, c) => x.at < c.at || (x.at === c.at && lineKey(x) < c.key);
+
+// The colour somebody goes by, by name: the one they last wrote a note in (the one they chose, or with sign-in
+// the one it gives them), else their sign-in's, else one of the palette picked by their name, so a name
+// always has the same one.
+function peopleColours() {
+  const signedIn = new Map(store.users().filter((u) => u.name).map((u) => [u.name.trim().toLowerCase(), colorFor(u.email)]));
+  const wrote = store.noteColours();
+  return (name) => {
+    const k = String(name || '').trim().toLowerCase();
+    return k ? wrote.get(k) || signedIn.get(k) || colorFor(k) : null;
+  };
+}
 
 // Why a line of a project's Activity is for somebody (named `name`), or null: for them are other people's
 //   mention   comments naming them ("@Anna"), as in the bell (notifications.js)
@@ -2059,6 +2071,9 @@ async function handleCatalogue(req, res, parts) {
         }
         if (sure.length) cursor = { at: sure[sure.length - 1].line.at, key: lineKey(sure[sure.length - 1].line) };
       }
+      // Each in the colour its person goes by.
+      const colourOf = peopleColours();
+      for (const x of items) x.color = colourOf(x.by);
       // Cut at the limit, the page ends at its last line; and there is more if anything was left after it.
       const last = items[items.length - 1];
       if (items.length === limit) more = true;

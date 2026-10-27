@@ -948,6 +948,10 @@ function openStore(dataDir) {
       notes: readSaid.all(projectId, upTo, upTo, noteBelow, since, limit).map((row) => ({ ...noteOf(row), entityId: row.entity_id, versionBy: row.version_by, versionArtist: row.version_artist })),
     };
   }
+  // The colour each person last wrote a note in, by their name in lower case.
+  const readNoteColours = db.prepare(`SELECT lower(trim(json_extract(data, '$.name'))) AS who, json_extract(data, '$.color') AS color, max(created_at)
+    FROM notes WHERE json_extract(data, '$.color') IS NOT NULL GROUP BY who`);
+  const noteColours = () => new Map(readNoteColours.all().filter((r) => r.who && /^#[0-9a-f]{6}$/i.test(r.color)).map((r) => [r.who, r.color]));
   // The names of everyone who has written in a thread (its first note's id), in lower case.
   const readThread = db.prepare('SELECT data FROM notes WHERE (id = ? OR re = ?) AND deleted_at IS NULL');
   const threadNames = (root) => new Set(readThread.all(root, root).map((r) => String(JSON.parse(r.data).name || '').trim().toLowerCase()).filter(Boolean));
@@ -1233,7 +1237,7 @@ function openStore(dataDir) {
   return {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
-    transaction, entities, streamHeads, findVersions, projectFilers, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, happenings, threadNames, people, entityCount,
+    transaction, entities, streamHeads, findVersions, projectFilers, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, happenings, threadNames, noteColours, people, entityCount,
     addVersion, addView, addExtra, projectViews, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
     note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesBesides, unfileVersion, notesOnExtra, unfileExtra, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,

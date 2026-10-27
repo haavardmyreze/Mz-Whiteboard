@@ -3211,6 +3211,7 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 .pa-row { display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 12px 4px; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
 .pa-row:hover { background: var(--hover); }
 .pa-row .avatar { flex: none; }
+.pa-kind { display: inline-grid; flex: none; place-items: center; width: 24px; height: 24px; color: var(--text-2); }
 .pa-row .avatar:hover { transform: none; }
 .pa-body { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
 .pa-what { margin: 0; color: var(--text-2); font-size: var(--fs-ui); line-height: 1.5; }
@@ -3228,7 +3229,7 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 .pa-fold { display: inline-grid; flex: none; align-self: center; color: var(--muted); transition: transform 0.15s var(--ease); }
 .pa-runs.open .pa-fold { transform: rotate(90deg); }
 .pa-runs.open > .pa-run { border-bottom-color: transparent; }
-.pa-inner { padding-left: 36px; border-bottom: 1px solid var(--line); }
+.pa-inner { padding-left: 32px; border-bottom: 1px solid var(--line); }
 .pa-inner li:last-child .pa-row { border-bottom: 0; }
 .pa-pics .pa-pic { width: 48px; height: 27px; }
 @media (max-width: 560px) { .pa-pic, .pa-pics { display: none; } }

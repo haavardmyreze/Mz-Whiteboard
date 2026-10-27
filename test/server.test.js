@@ -1888,6 +1888,9 @@ test("a project's activity goes back to its start a page at a time, and For you 
   assert.equal(new Set(seen.map((x) => x.id)).size, 256);
   assert.ok(seen.every((x, i) => !i || seen[i - 1].at >= x.at));
   assert.equal(seen[0].id, 'note00004');
+  // each in a colour: a person's always the same one
+  assert.ok(seen.every((x) => /^#[0-9a-f]{6}$/i.test(x.color)));
+  assert.equal(new Set(seen.filter((x) => x.by === 'Ben').map((x) => x.color)).size, 1);
   // as far back as asked
   assert.equal((await get(`since=${now - 7 * DAY}&limit=600`)).items.length, 6);
   assert.equal((await get('before=nonsense')).items, undefined);

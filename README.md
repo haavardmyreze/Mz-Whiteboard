@@ -464,7 +464,8 @@ and its catalogue, every version and comment on them, its playlists and animatic
   week; and what is waiting (set up with nothing filed, or quiet for two weeks or more). Searching from
   the home looks through the catalogue. Its reviews are at `#/f/<project>/reviews`.
 - **Its activity.** Activity, in the sidebar under the project (`#/f/<project>/activity`), is everything
-  that happened in it from its start, newest first and a day at a time: versions filed (with their still),
+  that happened in it from its start, newest first and a day at a time, each line opening with what was
+  done (filed, a comment, a playlist, an animatic) as an icon, then who, in their colour: versions filed (with their still),
   comments and replies (with their words), playlists and animatics made. One person's versions filed, or
   comments written, close together (each within half an hour of the next, whatever others did between)
   are one line where there are three or more: "Havard filed 30 versions on kilo-0010, kilo-0020 and
@@ -962,7 +963,8 @@ lists the names the app knows.
 `GET /api/projects/<folder>/activity` what happened in the project from its start, newest first (versions
 filed, comments, playlists and animatics made), `limit` lines a page (50, at most 600), `before` the `next`
 of the page before when `more` is true, `since` a time to go back no further than, and `for=me` only what
-is for whoever asks (`name` without sign-in), each line with its `why`,
+is for whoever asks (`name` without sign-in), each line with its `why`, and each with the `color` its person
+goes by (the one they last commented in, else their sign-in's, else one picked by their name),
 `GET /api/folders/<project>/sharing` who has what of a project (its permissions, the boards in it open by
 link, the links to watch it presented; an admin is given the people and groups to choose from too),
 `GET /api/projects/<folder>/versions?before=` the project's versions newest first, 300 a page, each with

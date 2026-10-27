@@ -1499,6 +1499,25 @@ test('a project says who has what of it; only an admin is given the people to ch
   assert.equal((await call('GET', `/api/folders/${elsewhere.id}/sharing`)).status, 404);
 });
 
+test("a project's banner is an uploaded picture, kept in sight where it is chosen to be", async (t) => {
+  const s = start(4872);
+  t.after(s.stop);
+  await s.ready;
+  const json = { 'content-type': 'application/json' };
+  const patch = async (settings) => (await (await fetch(`${s.base}/api/folders/${kilo.id}`, { method: 'PATCH', headers: json, body: JSON.stringify({ settings }) })).json()).settings;
+  const kilo = await (await fetch(`${s.base}/api/folders`, { method: 'POST', headers: json, body: JSON.stringify({ name: 'Kilo' }) })).json();
+  await fetch(`${s.base}/api/folders/${kilo.id}`, { method: 'PATCH', headers: json, body: JSON.stringify({ project: true }) });
+  const { url } = await (await fetch(`${s.base}/api/upload?name=b.jpg`, { method: 'POST', body: crypto.randomBytes(300) })).json();
+  // only a picture uploaded here, and the point kept in sight held to the picture
+  assert.equal((await patch({ banner: '/uploads/nothere.jpg' })).banner, undefined);
+  const set = await patch({ banner: url, bannerAt: [120, 33.333] });
+  assert.equal(set.banner, url);
+  assert.deepEqual(set.bannerAt, [100, 33.3]);
+  const gone = await patch({ banner: null });
+  assert.equal(gone.banner, undefined);
+  assert.equal(gone.bannerAt, undefined);
+});
+
 test('media filed as a version takes its notes along, and they show on every board the version is on', async (t) => {
   const s = start(4837);
   t.after(s.stop);

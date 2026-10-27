@@ -512,7 +512,8 @@ and its catalogue, every version and comment on them, its playlists and animatic
   row moves while it comes in; a row that did not come in has "Try again".
 - **Project settings.** The settings button beside the star on the project's home, or Project settings
   in its menu, opens them as one dialog in tabs, listed down its side (across the top on a phone) so more
-  can come: Home (its banner: a picture across the top of its home, over its title), Versions (Count by task, Several views of each version and their names, the file names it has
+  can come: Home (its banner: a picture across the top of its home, over its title, dragged in its band, or moved
+  with the arrow keys, to choose what shows where it is cut; a double-click centres it), Versions (Count by task, Several views of each version and their names, the file names it has
   learned), Sequences (their order), 3D (the venue model and what goes with it) and Sharing: who has what
   of the project (the people and groups given a role on it or on what is in it, as in the admin area,
   recorded and not yet enforced), the boards in it open to anyone with their link, and the links to watch
@@ -531,8 +532,9 @@ and its catalogue, every version and comment on them, its playlists and animatic
   move of the view leaves the main camera: a drag (with both buttons held, it slides the camera along the
   view's plane: sideways, up and down), the wheel, W A S D (along the view, wherever it points) or Q and E
   (down, up), easing in and out as in Unreal's viewport, with the view filling the whole picture
-  area and the room kept at the size it was (the lens never wider than 122.5° across), unless the settings
-  give a field of view to fly with, in degrees across, which the view eases to as it leaves the camera. "Main camera"
+  area, easing to the lens it flies with: as wide across the frame as the main camera's (so the room stays
+  as it was on leaving it), unless the settings give another field of view in degrees across the frame (they
+  show the main camera's as the number it is), never wider than 122.5° across the window. "Main camera"
   goes back to the main camera, and the arrow beside it lists the model's other cameras to look through.
   The keys 2 and 3 switch between the picture and the venue; in 3D, V goes to the next camera (the last
   comes round to the first), or to the main camera from a free view or a comment's frame.

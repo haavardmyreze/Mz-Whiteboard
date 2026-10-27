@@ -596,12 +596,64 @@
     let model = was ? { url: was.model, name: was.name || 'Model' } : null;
     // Its banner: the picture over the title of its home page.
     let banner = (project.settings && project.settings.banner) || null;
-    const bannerShow = el('div', { class: 'ps-banner' });
+    let bannerAt = (project.settings && project.settings.bannerAt) || [50, 50];
+    // Shown cut as the home cuts it. Dragged (or moved with the arrow keys), the picture slides in its band to
+    // choose what is kept in sight; a double-click puts it back in the middle.
+    const bannerShow = el('div', { class: 'ps-banner', tabindex: '0', 'aria-label': 'Where the banner is cut. Drag it, or use the arrow keys' });
+    const placeBanner = () => {
+      const img = bannerShow.querySelector('img');
+      if (img) img.style.objectPosition = bannerPlace(bannerAt);
+    };
+    // How far the picture reaches past the band each way, in pixels: what a drag can move across.
+    const bannerSpare = () => {
+      const img = bannerShow.querySelector('img');
+      if (!img || !img.naturalWidth) return [0, 0];
+      const k = Math.max(bannerShow.clientWidth / img.naturalWidth, bannerShow.clientHeight / img.naturalHeight);
+      return [img.naturalWidth * k - bannerShow.clientWidth, img.naturalHeight * k - bannerShow.clientHeight];
+    };
+    const moveBanner = (dx, dy) => {
+      const [sx, sy] = bannerSpare();
+      bannerAt = [sx ? bannerAt[0] - (dx / sx) * 100 : bannerAt[0], sy ? bannerAt[1] - (dy / sy) * 100 : bannerAt[1]].map((v) => Math.min(100, Math.max(0, v)));
+      placeBanner();
+    };
+    bannerShow.addEventListener('pointerdown', (e) => {
+      if (!banner || e.button !== 0) return;
+      e.preventDefault();
+      bannerShow.setPointerCapture(e.pointerId);
+      bannerShow.classList.add('held');
+      let last = [e.clientX, e.clientY];
+      const move = (m) => {
+        moveBanner(m.clientX - last[0], m.clientY - last[1]);
+        last = [m.clientX, m.clientY];
+      };
+      const up = () => {
+        bannerShow.classList.remove('held');
+        bannerShow.removeEventListener('pointermove', move);
+        bannerShow.removeEventListener('pointerup', up);
+        bannerShow.removeEventListener('pointercancel', up);
+      };
+      bannerShow.addEventListener('pointermove', move);
+      bannerShow.addEventListener('pointerup', up);
+      bannerShow.addEventListener('pointercancel', up);
+    });
+    bannerShow.addEventListener('keydown', (e) => {
+      const by = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+      if (!by || !banner) return;
+      e.preventDefault();
+      // A step is a twentieth of what there is to move across; the picture moves the way the arrow points.
+      const [sx, sy] = bannerSpare();
+      moveBanner(by[0] * sx / 20, by[1] * sy / 20);
+    });
+    bannerShow.addEventListener('dblclick', () => {
+      bannerAt = [50, 50];
+      placeBanner();
+    });
     const bannerPick = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/avif', hidden: true });
     const bannerChoose = el('button', { type: 'button', class: 'btn small', onclick: () => bannerPick.click() });
     const bannerRemove = el('button', { type: 'button', class: 'btn small ghost', text: 'Remove', onclick: () => { banner = null; paintBanner(); } });
     const paintBanner = (saying) => {
-      bannerShow.replaceChildren(banner && !saying ? el('img', { src: banner, alt: '' }) : el('span', { text: saying || 'No banner' }));
+      bannerShow.replaceChildren(banner && !saying ? el('img', { src: banner, alt: '', draggable: 'false' }) : el('span', { text: saying || 'No banner' }));
+      placeBanner();
       bannerShow.classList.toggle('none', !banner || !!saying);
       bannerChoose.textContent = banner ? 'Replace…' : 'Choose a picture…';
       bannerRemove.hidden = !banner;
@@ -614,6 +666,7 @@
       try {
         const up = await WBIngest.upload(await bannerFile(f), '.jpg', (k) => paintBanner(`Uploading ${f.name}… ${Math.round(k * 100)}%`));
         banner = up.url;
+        bannerAt = [50, 50];
       } catch (err) {
         WB.toast(`${f.name} could not be used: ${err.message}`, { ms: 6000 });
       }
@@ -656,18 +709,31 @@
     const view = el('select', { 'aria-label': 'Which view goes on the model' });
     // Which of the model's cameras the 3D view opens through, from those its file names.
     const camera = el('select', { 'aria-label': 'The camera the 3D view opens through' });
-    let cameras = [];
+    let cameras = []; // { name, across }: its lens in degrees across
+    let camerasRead = false;
     let cameraRow = null;
-    // The lens the 3D view flies through, in degrees across: left empty, the lens of the view it left.
-    const fov = el('input', { type: 'number', class: 'ps-num', min: '10', max: '120', step: '1', value: was && was.fov ? String(was.fov) : '', placeholder: 'As left', 'aria-label': 'Field of view flying, in degrees across' });
+    // The lens the 3D view flies through, in degrees across. Left empty, the main camera's own, which it shows;
+    // a model with no camera is seen through a stand-in 79° across (view3d.js).
+    const fov = el('input', { type: 'number', class: 'ps-num', min: '10', max: '120', step: '1', value: was && was.fov ? String(was.fov) : '', 'aria-label': 'Field of view flying, in degrees across' });
+    const fovSays = el('span');
+    const paintFov = () => {
+      const main = cameras.find((c) => c.name === camera.value);
+      const across = main ? main.across : cameras.length || !camerasRead ? null : 79;
+      fov.placeholder = across ? String(across) : '';
+      fovSays.textContent = `In degrees across the frame, once the view leaves a camera to fly.${across ? ` Unless set, ${across}°: the main camera's` : ' Unless set, the main camera\'s'}`;
+    };
     const paintCameras = () => {
       const chosen = camera.value || (was && was.camera) || '';
-      const pick = cameras.includes(chosen) ? chosen : cameras.find((c) => c.toLowerCase() === 'main') || cameras[0] || '';
-      camera.replaceChildren(...cameras.map((c) => el('option', { value: c, text: c, ...(c === pick && { selected: true }) })));
+      const names = cameras.map((c) => c.name);
+      const pick = names.includes(chosen) ? chosen : names.find((c) => c.toLowerCase() === 'main') || names[0] || '';
+      camera.replaceChildren(...names.map((c) => el('option', { value: c, text: c, ...(c === pick && { selected: true }) })));
       if (cameraRow) cameraRow.hidden = !model || cameras.length < 2;
+      paintFov();
     };
+    camera.addEventListener('change', paintFov);
     const readCameras = async (from) => {
       cameras = from ? await glbCameras(from).catch(() => []) : [];
+      camerasRead = !!from;
       paintCameras();
     };
     // The ways it can show a version on the model: its views as they are being set here, the main one first.
@@ -720,7 +786,8 @@
     viewsRow = field('Views', 'The main one first: a file of it is a version, the others go with one', viewNames);
     const surfaceRow = field('Screen material', 'What the screens are called in the model', screen);
     cameraRow = field('Main camera', 'Where the work is judged from: the 3D view opens through it', camera);
-    const fovRow = row('Field of view flying', 'In degrees across, once the view leaves a camera to fly. Empty, it keeps the lens of the view it left', fov, el('span', { class: 'ps-unit', text: '°' }));
+    const fovRow = el('div', { class: 'ps-row' }, el('div', { class: 'ps-label' }, el('b', { text: 'Field of view flying' }), fovSays),
+      el('div', { class: 'ps-control' }, fov, el('span', { class: 'ps-unit', text: '°' })));
     pictureRow = field('On the screens', 'Which view of a version is shown', view);
     rulesRow = field('Learned file names', 'Names from elsewhere, read this way when filing. Forget one with its ×', ruleList);
     paintRules();
@@ -729,7 +796,7 @@
     const tabs = WB.settingTabs('project', [
       {
         id: 'home', label: 'Home', icon: 'home', hint: 'How its home page looks',
-        rows: [field('Banner', 'A picture across the top of its home, over its title. A wide one fits best', el('div', { class: 'ps-banner-box' }, bannerShow, el('div', { class: 'ps-banner-acts' }, bannerChoose, bannerRemove, bannerPick)))],
+        rows: [field('Banner', 'A picture across the top of its home, over its title. Drag it to choose what shows where it is cut', el('div', { class: 'ps-banner-box' }, bannerShow, el('div', { class: 'ps-banner-acts' }, bannerChoose, bannerRemove, bannerPick)))],
       },
       {
         id: 'versions', label: 'Versions', icon: 'stack', hint: 'How versions are counted, shown and read from file names',
@@ -774,7 +841,7 @@
           }
           save.disabled = true;
           try {
-            await api('PATCH', `/api/folders/${project.id}`, { settings: { banner, tasks: byTask.checked, views: byView.checked ? named() : false, rules, seqs, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value, camera: camera.value, fov: Number(fov.value) || 0 } : null } });
+            await api('PATCH', `/api/folders/${project.id}`, { settings: { banner, ...(banner && { bannerAt: bannerAt.map((v) => Math.round(v * 10) / 10) }), tasks: byTask.checked, views: byView.checked ? named() : false, rules, seqs, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value, camera: camera.value, fov: Number(fov.value) || 0 } : null } });
             catalogues.delete(project.id);
             await refresh();
             dlg.close();
@@ -871,6 +938,9 @@
     return box;
   }
 
+  // Where a banner is cut: the point of it kept in sight, as a CSS object-position (the middle unless chosen).
+  const bannerPlace = (at) => (Array.isArray(at) ? `${at[0]}% ${at[1]}%` : '50% 50%');
+
   // A picture chosen as a banner, made the size a banner is shown at: at most 2400 pixels across, as a JPEG.
   async function bannerFile(file) {
     const bitmap = await createImageBitmap(file);
@@ -881,7 +951,7 @@
     return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('It could not be read as a picture'))), 'image/jpeg', 0.88));
   }
 
-  // The names of the cameras in a .glb (a File, or the address of one), read from the JSON at its start
+  // The cameras in a .glb (a File, or the address of one), by name, read from the JSON at its start
   // without loading the rest: a camera is a node with a camera on it. An address is read in two small
   // pieces (its header, then its JSON), where the server gives pieces; otherwise whole.
   async function glbCameras(from) {
@@ -896,7 +966,15 @@
     // "glTF", then the first chunk's length and its kind, "JSON".
     if (head.getUint32(0, true) !== 0x46546c67 || head.getUint32(16, true) !== 0x4e4f534a) return [];
     const json = JSON.parse(new TextDecoder().decode(await bytes(20, head.getUint32(12, true))));
-    return [...new Set((json.nodes || []).filter((n) => n.camera != null).map((n, i) => n.name || `Camera ${i + 1}`))];
+    // Each with its lens in degrees across its frame (16:9 where the file gives no shape, as view3d.js reads it).
+    const lensOf = (c) => {
+      const p = c && c.perspective;
+      if (!p || !Number.isFinite(p.yfov)) return null;
+      return Math.round((2 * Math.atan(Math.tan(p.yfov / 2) * (p.aspectRatio || 16 / 9)) * 180) / Math.PI);
+    };
+    const seen = new Set();
+    return (json.nodes || []).filter((n) => n.camera != null).map((n, i) => ({ name: n.name || `Camera ${i + 1}`, across: lensOf((json.cameras || [])[n.camera]) }))
+      .filter((c) => !seen.has(c.name) && seen.add(c.name));
   }
 
   // A folder (or a project) as an object: what is in it, and its menu. Things are dropped on it to move
@@ -1366,6 +1444,7 @@
     const shownBanner = $('pagebanner').firstChild;
     if (!banner) $('pagebanner').replaceChildren();
     else if (!shownBanner || shownBanner.getAttribute('src') !== banner) $('pagebanner').replaceChildren(el('img', { src: banner, alt: '', draggable: 'false' }));
+    if (banner) $('pagebanner').firstChild.style.objectPosition = bannerPlace(here.settings.bannerAt);
     $('pagebanner').hidden = !banner;
     // Lists are shown one of three ways. A project's home, its activity and an animatic are not lists: nothing
     // there is shown more than one way.

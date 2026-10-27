@@ -874,7 +874,7 @@ function holdsProject(folder) {
 // on (an uploaded .glb), the name of the material its projection surface has (`screen` unless said),
 // which view of a version goes on it (its main one unless said), the camera it opens through, and the
 // field of view it flies through (`fov`, degrees across; unless said, the lens of the view it left). `banner` is the picture
-// over the title of its home page. `preview3d: null` takes the 3D preview away.
+// over the title of its home page, and `bannerAt` the point of it kept in sight. `preview3d: null` takes the 3D preview away.
 // `tasks: false` says its versions are not counted by task: each asset, set or shot has one count.
 // `views` says how its versions are shown: false, one way only; or the names of the ways, the main one
 // first (["cmp", "bty"]: each version is its cmp, and may have a bty beside it). `rules` are what its
@@ -926,9 +926,15 @@ function cleanProjectSettings(asked, was = {}) {
     if (rules.size) out.rules = [...rules.values()];
     else delete out.rules;
   }
-  // A picture across the top of its home page, over its title, to know it by (an uploaded image).
-  if (asked.banner === null) delete out.banner;
-  else if (typeof asked.banner === 'string' && /\.(png|jpe?g|webp|avif)$/i.test(uploadName(asked.banner) || '') && store.media(uploadName(asked.banner))) out.banner = asked.banner;
+  // A picture across the top of its home page, over its title, to know it by (an uploaded image), and the
+  // point of it kept in sight where it is cut to the band (`bannerAt`: [x, y], percent across and down).
+  if (asked.banner === null) {
+    delete out.banner;
+    delete out.bannerAt;
+  } else if (typeof asked.banner === 'string' && /\.(png|jpe?g|webp|avif)$/i.test(uploadName(asked.banner) || '') && store.media(uploadName(asked.banner))) out.banner = asked.banner;
+  if (Array.isArray(asked.bannerAt) && asked.bannerAt.length === 2 && asked.bannerAt.every(Number.isFinite)) {
+    out.bannerAt = asked.bannerAt.map((v) => Math.round(Math.min(100, Math.max(0, v)) * 10) / 10);
+  }
   if (asked.preview3d === null) delete out.preview3d;
   else if (asked.preview3d && typeof asked.preview3d === 'object') {
     const p = asked.preview3d;

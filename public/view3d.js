@@ -110,7 +110,8 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   let screenName = 'screen';
   let main = { cam: true, name: '', position: new THREE.Vector3(0, 1.6, 6), quaternion: new THREE.Quaternion(), fov: 50, aspect: 16 / 9 };
   let cams = [main]; // the model's cameras: { cam, name, position, quaternion, fov, aspect }
-  // The lens flying is done through, in degrees across, as the project sets it; 0 keeps the lens the view had.
+  // The lens flying is done through, in degrees across the frame the work is held in, as the project sets it;
+  // 0 is the main camera's own.
   let flyLens = 0;
   // The frame held, or come back to: a camera of `cams`, or a comment's (no `cam`; its `fov` is worked out
   // from `keep`, the lens over the whole canvas, once the player has laid out its frame).
@@ -657,8 +658,9 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     canvas.classList.remove('free');
   }
   // Flying starts from wherever the view is (on a frame, or on its way to one), looking where it looks,
-  // with the room at the size it was: the lens over the whole area is the one the view had over the part
-  // of it shown. A project that sets a lens to fly through (flyLens) has the glide out ease to that one.
+  // with the room at the size it was; the glide out then eases to the lens flown through: the one the project
+  // sets (flyLens), or else the main camera's, each as wide across the frame as it says (so leaving the main
+  // camera with its own lens, the room stays as it is).
   function fly() {
     if (free) return;
     free = true;
@@ -671,7 +673,10 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     const r = canvas.getBoundingClientRect();
     const keep = tanHalf(view.fov) / shown.h;
     const aspect = r.width && r.height ? r.width / r.height : 16 / 9;
-    camera.fov = capped(flyLens ? fovOf(tanHalf(flyLens) / aspect) : fovOf(keep), aspect);
+    const fr = frameRect(r) || shown;
+    const frameAspect = r.width && r.height ? (fr.w * r.width) / (fr.h * r.height) : main.aspect;
+    const lens = flyLens || fovOf(tanHalf(main.fov) * main.aspect);
+    camera.fov = capped(fovOf(tanHalf(lens) / frameAspect / fr.h), aspect);
     glide = calm.matches ? null : { to: 'free', t0: performance.now(), ms: OUT_MS, from: { ...shown }, tan: keep };
     canvas.classList.add('free');
     onFree(true);

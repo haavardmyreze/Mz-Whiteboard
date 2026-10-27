@@ -717,7 +717,8 @@ const WB = (() => {
     reviews: (id, playlist) => `#/f/${id}/reviews${playlist ? `/${playlist}` : ''}`,
     animatic: (id, animatic) => `#/f/${id}/animatic/${animatic}`,
     catalogue: (id, { type, seq, entity } = {}) => `#/f/${id}/catalogue${entity ? `/${entity}` : seq ? `/s/${encodeURIComponent(seq)}` : type ? `/t/${type}` : ''}`,
-    versions: (id) => `#/f/${id}/versions`,
+    // A place in the catalogue (all of it, a type or a sequence), shown as every version filed of it.
+    versions: (id, { type, seq } = {}) => `${href.catalogue(id, { type, seq })}/versions`,
     activity: (id) => `#/f/${id}/activity`,
     board: (id) => `/b/${id}`,
     abs: (h) => (h.startsWith('#') ? `/${h}` : h),

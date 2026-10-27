@@ -37,7 +37,7 @@ the app (`#/vocabulary`) lays the same out in pictures.
 | Workspace | The top level of everything. Myreze is shared by the whole studio; Personal is your own, and nobody else can see it |
 | Folder | Keeps boards, playlists and other folders together, like a folder on disk |
 | Project | A folder for a production. Besides its boards, it keeps a catalogue of everything being made for it and every version delivered |
-| Catalogue | The list of everything a project makes (its assets, sets and shots), each with every version of it |
+| Catalogue | The list of everything a project makes (its assets, sets and shots), shown as those or as every version filed of them |
 | Activity | Everything that has happened in a project since it started; **For you** narrows it to what concerns you |
 | Entity | One thing a project makes and delivers versions of: an asset (char-robot), a set (harbour) or a shot (kilo-0010). Which of the three it is, is its **type** |
 | Sequence | Shots that belong together, like a scene, named by the start of their names (kilo in kilo-0010) |
@@ -62,20 +62,20 @@ the app (`#/vocabulary`) lays the same out in pictures.
 - **Getting around.** There is no separate home page: the app opens on the workspace you were last in
   (Myreze to begin with), and the mark in the corner goes back to it. A sidebar on the left holds what
   you pinned (each a row that goes there), then each workspace with its folders and projects as a tree. A project opens to its
-  Reviews (its boards, playlists and animatics, each under it), Catalogue and Versions, and the catalogue
+  Reviews (its boards, playlists and animatics, each under it), Catalogue and Activity, and the catalogue
   to its entities, the shots by
   sequence, each with a count. Only what you are in is open: the way to the page you are on is opened
   for you, and the rest close as you go elsewhere (an arrow opens a row for a look in the meantime). Rows
   with nothing in them show no count. Every page opens with its title, set large: the place you are in
   (kilo-0010). Above it, one small line says how you got there (Myreze / Kilo / Catalogue / Shots / kilo),
   each part a link. The star beside the title pins exactly what is there to the sidebar: a board's folder, a
-  project, a sequence, a type of the catalogue, the catalogue, Versions, or an asset, set or
+  project, a sequence, a type of the catalogue, the catalogue (whichever way it is shown), or an asset, set or
   shot. On a narrow window the sidebar is a drawer, opened with the button at the left of the bar.
 - **Pinning.** Pin from a card's `...` menu or the star beside where you are; pins are kept by this
   browser and listed in the sidebar until you unpin them.
 - **Everything is an object, shown one way.** A board, a folder, an entity and a version
   are all listed the way a file manager lists files, and every list (a workspace, a folder,
-  the catalogue, Versions, an entity's versions) can be shown three ways, chosen with the three
+  the catalogue as entities or as versions, an entity's versions) can be shown three ways, chosen with the three
   buttons at the end of the page's title (or in Your account) and remembered per browser: as cards, as
   rows (a small still beside each name, many to a screen), or as a table. As cards, each is a print with
   its label: the picture square-cornered, as the work is judged, and its name and what is known of it
@@ -207,8 +207,8 @@ the app (`#/vocabulary`) lays the same out in pictures.
   video players from the kept copies, scrubbing included, so a card scrubbed on hover or an
   animatic's next shot plays from the disk too. What is kept is listed in IndexedDB, a record a video,
   and a lock for each file keeps two tabs from fetching the same one.
-- **Seeing what is cached.** Every video card (in the catalogue, an asset's versions, the Versions
-  list) has a badge in its top right corner: a green tick once it is cached on this computer, a
+- **Seeing what is cached.** Every video card (in the catalogue as entities or as versions, an
+  asset's versions) has a badge in its top right corner: a green tick once it is cached on this computer, a
   ring filling while it comes, a cloud while it still plays from the server. The ring a board has in
   its bar is in the page's bar too, for whatever you are looking at: the cards of the page, or with an
   animatic open, the whole animatic ("3/12 cached", then "Cached"), which is fetched in full behind the
@@ -645,7 +645,7 @@ and its catalogue, every version and comment on them, its playlists and animatic
   its drawing), zoomed in as far as you are, in 2D or 3D through the camera you look through, flying
   with you, and your laser. They cannot go elsewhere or look about: the corner is no way out, and their
   keys, wheel and pointer move nothing. Only what is their screen's own is in reach: the sound, full
-  screen, and folding the strip and the comments away. Lists (the catalogue, Versions, a project's home)
+  screen, and folding the strip and the comments away. Lists (the catalogue, either way, and a project's home)
   are never shown: while you look for the next thing, what they saw last stays behind the same cover a
   lost connection has, saying you are finding what to show next. Anything outside the project is shown
   the same way, as nothing.
@@ -695,8 +695,12 @@ and its catalogue, every version and comment on them, its playlists and animatic
 - **Artists and CC.** An entity's page names its artists and who else is cc'd, picked from
   everyone the app knows (who signed in, filed, wrote a comment or was named before) or typed. Its card
   shows its artists.
-- **Versions, every one, as you want to see them.** A project's Versions (in the sidebar) lists every
-  version filed in it, the same way an entity's page lists its own: its still (which scrubs
+- **Versions, every one, as you want to see them.** The catalogue, a type of it or a sequence can be
+  shown as its entities or as its versions, with the switch beside its title (Entities, Versions; at
+  `…/catalogue/versions`, `…/catalogue/t/shot/versions`, `…/catalogue/s/kilo/versions`). The way
+  chosen last is kept for the project by the browser, and the sidebar, the crumbs and the catalogue's
+  sequence names go to the place shown that way. Shown as versions, it lists every version filed in
+  that place (all of the project, its shots, kilo's shots), the same way an entity's page lists its own: its still (which scrubs
   under the pointer and opens in the player), its shot (a link to it) and the rest of its label, when it
   was filed, and the boards it is on. Its groups are headed as the catalogue's are: each day a section,
   and within it who filed a run of them. As a table (the buttons in the top bar), a version's row has
@@ -710,7 +714,8 @@ and its catalogue, every version and comment on them, its playlists and animatic
     The groups keep their own order (sequences as they are numbered, then assets and sets; tasks and
     people by name; days newest first, or oldest first when so sorted), and the sort orders what is in
     each.
-  - **Filter** narrows to some tasks (or no task), sequences, kinds (assets, sets, shots), people who
+  - **Filter** narrows to some tasks (or no task), sequences, kinds (assets, sets, shots: in a type or a
+    sequence, what it already says is not offered), people who
     filed them or artists; to today, the last 7 or 30 days; to only the newest of each asset, set or
     shot and task; or with what is archived too, all ticked in one panel. Each filter in force is a chip
     beside it, taken off with its ×.
@@ -740,8 +745,8 @@ and its catalogue, every version and comment on them, its playlists and animatic
   are a grid, a playlist's a strip, and its line says Board or Playlist. One can be made into the other:
   a board's menu has Make a playlist of it (the versions on it, in the order it reads: rows first, then
   left to right, a frame read through as one piece), and a playlist's has Lay out on a board (a new
-  board with its versions in rows, in its order). Versions go on a playlist from anywhere they are listed: pick them on the Versions page, the
-  catalogue or a shot's page and press Add to playlist, or use Add to playlist… in a version's menu. A
+  board with its versions in rows, in its order). Versions go on a playlist from anywhere they are listed: pick them in the catalogue shown as versions,
+  or on a shot's page and press Add to playlist, or use Add to playlist… in a version's menu. A
   playlist's page has Play and its versions in order: drag one to where it should go, take some off
   (Take off, with the selection; or from a version's menu, and Undo puts them back), or open one, which
   opens the playlist on it. Play opens them in the player, over the whole window: one version at a
@@ -875,8 +880,8 @@ and its catalogue, every version and comment on them, its playlists and animatic
     wants a desk: on a narrow window the library, and then the comments, are left out.
 - **Changing many at once.** Select, above the catalogue, picks entities with a click
   (Shift and a click for every one between), or drag on empty space to draw a box over them, as in a
-  file manager (with Shift, Ctrl or Cmd it adds to what is picked; the Versions list and an asset's
-  versions work the same, and in a folder a box picks boards and folders to move or delete together); the bar at the foot has Select all, Clear and Edit. Edit
+  file manager (with Shift, Ctrl or Cmd it adds to what is picked; the catalogue shown as versions and an
+  asset's versions work the same, and in a folder a box picks boards and folders to move or delete together); the bar at the foot has Select all, Clear and Edit. Edit
   changes them together: artists and people cc'd added, taken off or set outright, and what they are
   (assets, sets or shots), showing who each field has now. What is left alone stays as each has it, and
   all of them change or none do. Esc, or Done, stops selecting.
@@ -916,7 +921,7 @@ Every project is made of the same things, written one way, so there is nothing t
   the project gives them another: Order, under Sequences in its settings (the sliders beside the
   project's title), lists them first to last, each moved up or down with its arrows, or put back By name.
   Sequences named for what they are (kine, haus, elec) are put in story order there. The timeline plays
-  them in that order, and the catalogue, the sidebar, the project's home, the Versions page grouped by
+  them in that order, and the catalogue, the sidebar, the project's home, the catalogue's versions grouped by
   sequence, its filters, and a new board laid out as the edit all list them so; a sequence the order
   does not name yet comes after those it does.
 
@@ -1002,7 +1007,7 @@ link, the links to watch it presented; an admin is given the people and groups t
 `GET /api/projects/<folder>/versions?before=` the project's versions newest first, 300 a page, each with
 the boards it is on (when
 `more` is true, its `next` is what to give as `before` for the following page; a time in milliseconds
-still works too); with `find=1` as the Versions page asks: `task`, `seq`, `type`, `by`, `artist` (each a
+still works too); with `find=1` as the catalogue's versions ask: `task`, `seq`, `type`, `by`, `artist` (each a
 comma separated list; an empty task is none), `since`, `q`, `newest=1`, `archived=1`, `sort` (`new`,
 `old`, `name`, `number`) and `offset`, answering `total`, `more`, the next `offset` and, with the first
 page, `facets` (what there is to filter by). `PATCH /api/projects/<folder>/versions` takes

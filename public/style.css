@@ -547,6 +547,9 @@ body.home:not(.admin) .appbar .wordmark { color: var(--text); }
 .crumb-pin { width: 28px; height: 28px; color: var(--muted); }
 .crumb-pin.on { color: var(--pin); }
 .crumb-pin.on svg { fill: currentColor; }
+/* A place in the catalogue, shown as its entities or as its versions: the switch beside its title. */
+.seg.cat-show { display: inline-grid; margin: 0 0 0 6px; padding: 2px; }
+.cat-show .seg-btn { height: 26px; padding: 0 10px; }
 
 /* A section opens with its name, its count, and a rule that runs to the right edge of the grid. */
 .section-label { display: flex; align-items: baseline; gap: 8px; margin: 40px 0 16px; color: var(--text); font-size: var(--fs-lg); font-weight: 600; letter-spacing: -0.01em; }

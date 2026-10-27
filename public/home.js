@@ -90,14 +90,16 @@
 
   // In a project folder: which of its pages is open, its home, its reviews (#/f/<id>/reviews: its boards,
   // playlists and animatics, and a playlist among them, …/reviews/<playlist id>), an animatic (…/animatic/<id>),
-  // its versions (…/versions), its activity (…/activity) or catalogue, and in the catalogue the type
-  // (#/f/<id>/catalogue/t/shot), the sequence (…/s/kilo) or the entity (…/<entity id>) being looked at.
+  // its activity (…/activity) or catalogue, and in the catalogue the type (#/f/<id>/catalogue/t/shot), the
+  // sequence (…/s/kilo) or the entity (…/<entity id>) being looked at. The catalogue, a type or a sequence
+  // is shown as its entities, or as every version filed of them (…/versions on the end: page 'versions').
   function currentView() {
     const an = /^#\/f\/[\w-]+\/animatic\/([\w-]+)/.exec(location.hash);
     if (an) return { page: 'animatic', animatic: an[1], entity: null };
     const rv = /^#\/f\/[\w-]+\/reviews(?:\/([\w-]+))?/.exec(location.hash);
     if (rv) return { page: 'reviews', playlist: rv[1] || null, entity: null };
-    if (/^#\/f\/[\w-]+\/versions/.test(location.hash)) return { page: 'versions', entity: null };
+    const vs = /^#\/f\/[\w-]+\/catalogue(?:\/(t|s)\/([\w-]+))?\/versions$/.exec(location.hash);
+    if (vs) return { page: 'versions', type: vs[1] === 't' ? vs[2] : null, seq: vs[1] === 's' ? vs[2] : null, entity: null };
     if (/^#\/f\/[\w-]+\/activity/.test(location.hash)) return { page: 'activity', entity: null };
     const m = /^#\/f\/[\w-]+\/(catalogue)(?:\/(?:(t|s)\/([\w-]+)|([\w-]+)))?/.exec(location.hash);
     // A project's own root is its home page.
@@ -1113,7 +1115,6 @@
 
   const ICON_BOARDS = icon('boards', 16);
   const ICON_CAT = icon('catalogue', 16);
-  const ICON_LIST = icon('list', 16);
   const ICON_ACTIVITY = icon('activity', 16);
   const ICON_FILM = icon('film', 16);
   const ICON_PLAYLIST = icon('playlist', 16);
@@ -1140,10 +1141,10 @@
     const v = f && f.project ? currentView() : { page: 'boards' };
     if (v.page === 'animatic') return `an:${rt.id}:${v.animatic}`;
     if (v.page === 'reviews') return v.playlist ? `pl:${rt.id}:${v.playlist}` : `rv:${rt.id}`;
-    if (v.page === 'versions') return `vl:${rt.id}`;
     if (v.page === 'activity') return `ac:${rt.id}`;
     if (v.page === 'boards') return `f:${rt.id}`;
-    if (v.page !== 'catalogue') return `f:${rt.id}`;
+    // Its entities or its versions, the place in the catalogue is the same row.
+    if (v.page !== 'catalogue' && v.page !== 'versions') return `f:${rt.id}`;
     if (v.seq) return `s:${rt.id}:${v.seq}`;
     if (v.type) return `t:${rt.id}:${v.type}`;
     if (v.entity) {
@@ -1170,7 +1171,7 @@
     if (f.project) {
       opened.add(`f:${f.id}`);
       const v = currentView();
-      if (v.page === 'catalogue') opened.add(`c:${f.id}`);
+      if (v.page === 'catalogue' || v.page === 'versions') opened.add(`c:${f.id}`);
       if (v.page === 'reviews' || v.page === 'animatic') {
         opened.add(`rv:${f.id}`);
         // and so is the folder a playlist or an animatic is kept in.
@@ -1250,7 +1251,6 @@
       return [
         ...sideRow({ key: `rv:${f.id}`, depth: depth + 1, icon: ICON_BOARDS, label: 'Reviews', href: WB.href.reviews(f.id), count: top, drop, hereK, kids: top ? () => reviewRows(f.id, depth + 2) : null }),
         ...sideRow({ key: `c:${f.id}`, depth: depth + 1, icon: ICON_CAT, label: 'Catalogue', href: WB.href.catalogue(f.id), kids: typeRows, hereK }),
-        ...sideRow({ key: `vl:${f.id}`, depth: depth + 1, icon: ICON_LIST, label: 'Versions', href: WB.href.versions(f.id), hereK }),
         ...sideRow({ key: `ac:${f.id}`, depth: depth + 1, icon: ICON_ACTIVITY, label: 'Activity', href: WB.href.activity(f.id), hereK }),
       ];
     };
@@ -1301,7 +1301,7 @@
       if (!project) return null;
       if (p.kind === 'entity') return { key: `pin:e:${p.id}`, icon: ICON_CAT, label: p.name, href: WB.href.catalogue(project.id, { entity: p.id }), title: project.name };
       if (p.kind === 'place') {
-        const icon = { sequence: ICON_FILM, versions: ICON_LIST, activity: ICON_ACTIVITY, playlists: ICON_PLAYLIST, playlist: ICON_PLAYLIST, animatic: ICON_ANIMATIC }[p.what] || ICON_CAT;
+        const icon = { sequence: ICON_FILM, activity: ICON_ACTIVITY, playlists: ICON_PLAYLIST, playlist: ICON_PLAYLIST, animatic: ICON_ANIMATIC }[p.what] || ICON_CAT;
         const label = ['sequence', 'type', 'playlist', 'animatic'].includes(p.what) ? p.name : `${project.name} ${p.name.toLowerCase()}`;
         return { key: `pin:p:${p.id}`, icon, label, href: p.href, title: project.name };
       }
@@ -1366,12 +1366,37 @@
   // the entity. The last is the page's title; the rest are one small line above it. Every
   // part goes there, folders take drops, and the star beside the title pins what is here.
 
+  // A place in the catalogue (all of it, a type or a sequence) is shown as its entities or as every version
+  // filed of them, with the switch beside its title. The way chosen last is kept for the project, and a way
+  // to the place that does not say which (the sidebar, a crumb) goes to that.
+  const catShowKey = (id) => `wb:catshow:${id}`;
+  function catShowSwitch(f, v) {
+    const place = { type: v.type, seq: v.seq };
+    const go = (show) => {
+      store(catShowKey(f.id), show);
+      location.hash = show === 'versions' ? WB.href.versions(f.id, place) : WB.href.catalogue(f.id, place);
+    };
+    return el('div', { class: 'seg cat-show', role: 'group', 'aria-label': 'Show it as' }, [['catalogue', 'Entities'], ['versions', 'Versions']].map(([k, label]) => el('button', {
+      type: 'button', class: `seg-btn${v.page === k ? ' on' : ''}`, 'aria-pressed': String(v.page === k), text: label,
+      title: k === 'versions' ? 'Every version filed, newest first' : 'Each asset, set and shot, with its newest version',
+      onclick: () => { if (v.page !== k) go(k); },
+    })));
+  }
+  function catShowRemembered() {
+    const f = currentFolder() && folderById(currentFolder());
+    const v = f && f.project ? currentView() : null;
+    if (!v || v.page !== 'catalogue' || v.entity || store(catShowKey(f.id)) !== 'versions') return false;
+    location.replace(WB.href.versions(f.id, { type: v.type, seq: v.seq }));
+    return true;
+  }
+
   function renderCrumbs(rt) {
     const parts = []; // [label, href, folderId for drops (undefined: none), ws]
     let pin = null;
     let settingsOf = null; // a project's home has the way to its settings
     let playlistHere = null; // a playlist's page has its menu beside its title
     let animaticHere = null; // and so has an animatic's
+    let catShow = null; // and a place in the catalogue, the way to show it as its entities or its versions
     const onLoose = currentLoose();
     if (rt.kind === 'space') parts.push([spaceName(rt.space), spaceHref(rt.space), null, rt.space]);
     else {
@@ -1390,7 +1415,7 @@
       if (f && f.project) {
         const v = currentView();
         if (v.page === 'home') settingsOf = f;
-        if (v.page === 'catalogue') {
+        if (v.page === 'catalogue' || v.page === 'versions') {
           parts.push(['Catalogue', WB.href.catalogue(f.id)]);
           const cat = catalogues.get(f.id);
           const e = v.entity && cat && cat.entities.find((x) => x.id === v.entity);
@@ -1419,15 +1444,15 @@
             playlistHere = p ? { project: f, playlist: p.playlist } : null;
           }
         }
-        else if (v.page === 'versions') parts.push(['Versions', WB.href.versions(f.id)]);
         else if (v.page === 'activity') parts.push(['Activity', WB.href.activity(f.id)]);
-        // The star pins what is here, not the project around it: a sequence, a type, the catalogue
-        // or the versions are pinned as that place (an entity as itself).
+        // The star pins what is here, not the project around it: a sequence, a type or the catalogue is
+        // pinned as that place, whichever way it is shown (an entity as itself).
         if (v.page !== 'home' && !listsBoards(v) && !v.entity) {
           const [name, href] = parts[parts.length - 1];
-          const what = v.seq ? 'sequence' : v.type ? 'type' : v.playlist ? 'playlist' : v.page;
+          const what = v.seq ? 'sequence' : v.type ? 'type' : v.playlist ? 'playlist' : v.page === 'versions' ? 'catalogue' : v.page;
           pin = { kind: 'place', id: href, href, name, what, projectId: f.id };
         }
+        if ((v.page === 'catalogue' && !v.entity) || v.page === 'versions') catShow = catShowSwitch(f, v);
       }
     }
     // A playlist outside a project: the place that keeps it, then its own name as the title.
@@ -1468,6 +1493,7 @@
       settingsOf && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('settings', 16), title: 'Project settings', 'aria-label': 'Project settings', onclick: () => projectSettings(settingsOf) }),
       playlistHere && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('more', 16), title: 'Rename or delete the playlist', 'aria-label': 'Playlist menu', 'aria-haspopup': 'menu', onclick: (e) => openMenu(e.currentTarget, playlistHere.loose ? loosePlaylistMenu(playlistHere.loose) : playlistMenu(playlistHere.project, playlistHere.playlist)) }),
       animaticHere && el('button', { type: 'button', class: 'iconbtn crumb-pin', html: icon('more', 16), title: 'Rename, copy, set up, download or delete the animatic', 'aria-label': 'Animatic menu', 'aria-haspopup': 'menu', onclick: (e) => openMenu(e.currentTarget, animaticMenu(animaticHere.project, animaticHere.animatic, { here: true })) }),
+      catShow,
       onActivity && el('button', {
         type: 'button', class: `btn small ghost pa-foryou${forYou ? ' active' : ''}`, 'aria-pressed': String(forYou), text: 'For you',
         title: forYou ? 'Only what is for you: comments on your work, replies to you, what is filed of what you make or are cc’d on. Click for everything' : 'Everything in the project. Click for only what is for you',
@@ -1588,7 +1614,7 @@
   }
   const vlSave = (project, state) => store(`wb:vl:${project.id}`, state);
   const vlFiltered = (st) => VL_FILTERS.some(([k]) => st[k].length) || st.when || st.newest || st.archived;
-  // The Versions page shows a page of them at a time, however many a project has, and a way to the others.
+  // The catalogue shown as versions has a page of them at a time, however many there are, and a way to the others.
   // Which page is open is kept while the list is asked for the same way; any change to its filters, sort
   // or search starts again from the first.
   const VL_PAGE = 100;
@@ -1597,11 +1623,21 @@
     const at = vlPages.get(project.id);
     return at && at.base === vlQuery(st) ? at.page : 0;
   }
-  // What the server is asked: the page's state and the search, a page from `offset`.
+  // The place in the catalogue the versions are of: a type or a sequence, or all of it.
+  const vlScope = () => {
+    const v = currentView();
+    return v.page === 'versions' ? { type: v.type, seq: v.seq } : {};
+  };
+  // A filter the place already says is no use there: a sequence's own, or a type's (and sequences off shots).
+  const vlScoped = (k, sc = vlScope()) => (k === 'type' && !!(sc.type || sc.seq)) || (k === 'seq' && !!(sc.seq || (sc.type && sc.type !== 'shot')));
+  // What the server is asked: the page's state, the place and the search, a page from `offset`.
   function vlQuery(st, offset = 0) {
     const since = { day: dayOf(Date.now()), week: Date.now() - 7 * 864e5, month: Date.now() - 30 * 864e5 }[st.when] || 0;
     const p = new URLSearchParams({ find: '1', sort: st.sort, offset: String(offset), limit: String(VL_PAGE) });
-    for (const [k] of VL_FILTERS) if (st[k].length) p.set(k, st[k].join(','));
+    for (const [k] of VL_FILTERS) if (st[k].length && !vlScoped(k)) p.set(k, st[k].join(','));
+    const sc = vlScope();
+    if (sc.seq) p.set('seq', sc.seq);
+    if (sc.type || sc.seq) p.set('type', sc.type || 'shot');
     if (since) p.set('since', String(since));
     if (st.newest) p.set('newest', '1');
     if (st.archived) p.set('archived', '1');
@@ -1633,7 +1669,7 @@
   }
 
   // A menu of things to tick (each filter's): it stays open while ticking, and closes with a click away.
-  // A panel under a button of the Versions bar, painted afresh by `build()` on each change, until a click
+  // A panel under a button of the versions' bar, painted afresh by `build()` on each change, until a click
   // elsewhere or Escape. The page under it is drawn again as it changes, so the panel keeps its own place.
   function vlPanel(anchor, build, cls = '') {
     document.querySelector('.vl-pop')?.remove();
@@ -1689,14 +1725,14 @@
         section('Sort', ...choice('vl-sort', VL_SORTS, st.sort, (v) => set({ sort: v }))),
       ]),
     });
-    const count = VL_FILTERS.filter(([k]) => st[k].length).length + (st.when ? 1 : 0) + (st.newest ? 1 : 0) + (st.archived ? 1 : 0);
+    const count = VL_FILTERS.filter(([k]) => st[k].length && !vlScoped(k)).length + (st.when ? 1 : 0) + (st.newest ? 1 : 0) + (st.archived ? 1 : 0);
     const filter = el('button', {
       type: 'button', class: `btn small ghost vl-open${count ? ' on' : ''}`, html: `${icon('filter', 14)}<span>Filter${count ? ` · ${count}` : ''}</span>`, 'aria-haspopup': 'dialog',
       onclick: (e) => vlPanel(e.currentTarget, (repaint) => [
         section('Show', tick(st.newest, 'Newest of each only', (on) => { set({ newest: on }); repaint(); }),
           tick(st.archived, 'Archived too', (on) => { set({ archived: on }); repaint(); })),
         section('Filed', ...choice('vl-when', VL_WHEN, st.when, (v) => { set({ when: v }); repaint(); })),
-        ...VL_FILTERS.filter(([k]) => options(k).length || st[k].length).map(([k, title]) => section(title,
+        ...VL_FILTERS.filter(([k]) => !vlScoped(k) && (options(k).length || st[k].length)).map(([k, title]) => section(title,
           ...options(k).map(([v, t]) => tick(st[k].includes(v), t, (on) => {
             set({ [k]: on ? [...st[k], v] : st[k].filter((x) => x !== v) });
             repaint();
@@ -1707,7 +1743,7 @@
     const chip = (text, off) => el('span', { class: 'vl-chip' }, el('span', { text }),
       el('button', { type: 'button', class: 'vl-chip-x', html: icon('close', 12), title: `Take off ${text}`, 'aria-label': `Take off ${text}`, onclick: off }));
     const chips = [
-      ...VL_FILTERS.filter(([k]) => st[k].length).map(([k, title]) => chip(`${title}: ${st[k].map((v) => labelOf(k, v)).join(', ')}`, () => set({ [k]: [] }))),
+      ...VL_FILTERS.filter(([k]) => st[k].length && !vlScoped(k)).map(([k, title]) => chip(`${title}: ${st[k].map((v) => labelOf(k, v)).join(', ')}`, () => set({ [k]: [] }))),
       st.when && chip((VL_WHEN.find(([w]) => w === st.when) || [])[1], () => set({ when: '' })),
       st.newest && chip('Newest only', () => set({ newest: false })),
       st.archived && chip('Archived too', () => set({ archived: false })),
@@ -1830,7 +1866,10 @@
     out.unshift(...versionsTools(project, st, data));
     const q = $('q').value.trim();
     if (!list.length) {
-      out.push(el('p', { class: 'home-empty', text: q ? `No version matches "${q}"${vlFiltered(st) ? ' with these filters' : ''}.` : vlFiltered(st) ? 'No version is like that.' : 'Nothing is filed in this project yet.' }));
+      const sc = vlScope();
+      const t = sc.type && cat && cat.types.find((x) => x.id === sc.type);
+      const where = sc.seq || (t ? t.label.toLowerCase() : sc.type) || 'this project';
+      out.push(el('p', { class: 'home-empty', text: q ? `No version matches "${q}"${vlFiltered(st) ? ' with these filters' : ''}.` : vlFiltered(st) ? 'No version is like that.' : `Nothing is filed in ${where} yet.` }));
     }
     out.push(vlPager(project, st, data.total));
     return out;
@@ -1889,7 +1928,7 @@
     countPicked(bar, shown, n - shown, 'versions');
   }
 
-  // Many versions changed at once (the Versions page's selection): moved to another entity,
+  // Many versions changed at once (those picked in the catalogue shown as versions): moved to another entity,
   // given a task or none, an artist or none, archived or brought back. Each field leaves them as they are
   // unless it says otherwise. Those moved to one place go in the order they were filed, each the next
   // number there. All of it or none (PATCH /api/projects/:id/versions); Undo puts each back as it was,
@@ -2253,6 +2292,7 @@
       renderedFor = location.hash;
       return renderVocabulary();
     }
+    if (catShowRemembered()) return;
     const rt = route();
     if (renderedFor !== location.hash) {
       // A link to a folder or project that is not there any more says so, rather than landing quietly
@@ -2394,7 +2434,7 @@
     // there at once in the catalogue's player and in an animatic.
     const model = project.settings && project.settings.preview3d;
     if (model && model.model) thePlayer().prepare3d({ ...model, key: project.id });
-    const sig = `${project.id}|${view.page}|${view.entity}|${view.playlist || ''}|${view.animatic || ''}`;
+    const sig = `${project.id}|${view.page}|${view.entity}|${view.playlist || ''}|${view.animatic || ''}|${view.type || ''}|${view.seq || ''}`;
     const fresh = shownProject !== sig;
     shownProject = sig;
     if (view.page === 'versions') return versionsPage(project, fresh, sig);
@@ -3383,7 +3423,7 @@
       el('div', { class: 'ent-pp' }, el('span', { class: 'ent-pp-label', text: 'CC' }), namesField(entity.cc || [], save('cc'), { placeholder: 'Keep someone in the loop' })));
   }
 
-  // Picking versions, on the Versions page and an entity's own: a click on a card picks it
+  // Picking versions, in the catalogue shown as versions and on an entity's own page: a click on a card picks it
   // (Shift and a click, every one between it and the last), and the bar at the foot says what can be done.
   function pickVersion(project, id, range) {
     if (range && vpick.last && vpick.order.includes(vpick.last)) {
@@ -3423,7 +3463,7 @@
   },
   v.thumb && el('img', { src: v.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
   badge && v.kind === 'video' && el('span', { class: 'ver-kind', text: 'Video' })), v.look, v.label);
-  // Its shot strong (on the Versions page a link to its page), the rest of its label quieter.
+  // Its shot strong (in the catalogue's versions a link to its page), the rest of its label quieter.
   function verName(project, entity, v, list) {
     const rest = v.label.startsWith(entity.name) ? v.label.slice(entity.name.length).trim() : v.label;
     return [list ? el('a', { class: 'ver-ent', href: WB.href.catalogue(project.id, { entity: entity.id }), text: entity.name, title: `${entity.name}: its page` }) : el('span', { class: 'ver-ent', text: entity.name }),
@@ -3444,7 +3484,7 @@
 
   // A version as an object: its picture (scrubbed under the pointer, opened in the player with a click),
   // its shot and the rest of its label, what is known of it, the boards it is on, and its menu. On the
-  // Versions page (`list`) it says which entity it is (a link to it) and when it was filed, as
+  // catalogue's versions (`list`) it says which entity it is (a link to it) and when it was filed, as
   // the page groups by who filed it (and the day too, in a table not grouped by day: `day`); on the
   // entity's own page, who filed it and when. Whether it is an image or a video (`kinds`), and
   // an entity (`types`), is said only where the list has more than one.
@@ -3966,9 +4006,9 @@
     return [
       el('div', { class: 'cat-tools' },
         el('button', { type: 'button', class: 'btn primary', html: `${ICON_PLAY}<span>Play</span>`, title: 'Open them in the player, from the first', disabled: !versions.length, onclick: () => playPlaylist(project, data, versions[0].id) }),
-        el('a', { class: 'btn ghost', href: WB.href.versions(project.id), html: `${ICON_PLUS}<span>Add versions</span>`, title: 'Pick versions on the Versions page, then Add to playlist' })),
+        el('a', { class: 'btn ghost', href: WB.href.versions(project.id), html: `${ICON_PLUS}<span>Add versions</span>`, title: 'Pick versions in the catalogue, shown as versions, then Add to playlist' })),
       label('Versions', versions.length, versions.length > 1 && el('span', { class: 'label-note', text: 'Drag to put them in order' })),
-      versions.length ? list : el('p', { class: 'home-quiet', text: 'Nothing on it yet. Pick versions on the Versions page, the catalogue or a shot\'s page, and press Add to playlist.' }),
+      versions.length ? list : el('p', { class: 'home-quiet', text: 'Nothing on it yet. Pick versions in the catalogue, shown as versions, or on a shot\'s page, and press Add to playlist.' }),
     ];
   }
 

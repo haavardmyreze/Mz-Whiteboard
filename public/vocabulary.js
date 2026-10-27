@@ -18,7 +18,7 @@ const WBVocabulary = (() => {
       ['project', 'Project', 'A folder for a production. Besides its boards, it keeps a catalogue of everything being made for it and every version delivered. Any folder can become one: Make it a project, in its menu.'],
     ]],
     ['What a project makes', [
-      ['catalogue', 'Catalogue', 'The list of everything a project makes: its assets, its sets and its shots, each with every version of it. It is laid out the way the project is on disk.'],
+      ['catalogue', 'Catalogue', 'The list of everything a project makes: its assets, its sets and its shots, laid out the way the project is on disk. The switch beside its title shows the same place as every version filed of it instead.'],
       ['tag', 'Entity', 'One thing the project makes and delivers versions of: an asset (char-robot), a set (harbour) or a shot (kilo-0010). Which of the three it is, is its type.'],
       ['film', 'Sequence', 'Shots that belong together, like a scene. You don’t make one separately: kilo-0010 and kilo-0020 are in the sequence kilo because their names start with it.'],
       ['checks', 'Task', 'The stage of work a version is for, such as anim, light or comp. Each task counts its own versions, so lookdev can be on v1 while model is on v10. A project that doesn’t work in tasks can turn them off.'],

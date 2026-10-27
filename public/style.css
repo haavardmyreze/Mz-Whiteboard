@@ -3221,4 +3221,14 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 .pa-pic { flex: none; width: 64px; height: 36px; object-fit: cover; box-shadow: 0 0 0 1px var(--line); }
 .pa-time { flex: none; min-width: 40px; color: var(--muted); font-size: var(--fs-sm); line-height: 1.6; font-variant-numeric: tabular-nums; text-align: right; }
 .pa-more { margin: 24px 0 48px; }
-@media (max-width: 560px) { .pa-pic { display: none; } }
+/* A run of one person's lines, folded into one: what they are of after it, a few of its stills, the time from
+   first to last, and a chevron that turns as it opens onto its lines, set in under it. */
+.pa-of { color: var(--text-2); }
+.pa-pics { display: flex; flex: none; gap: 4px; }
+.pa-fold { display: inline-grid; flex: none; align-self: center; color: var(--muted); transition: transform 0.15s var(--ease); }
+.pa-runs.open .pa-fold { transform: rotate(90deg); }
+.pa-runs.open > .pa-run { border-bottom-color: transparent; }
+.pa-inner { padding-left: 36px; border-bottom: 1px solid var(--line); }
+.pa-inner li:last-child .pa-row { border-bottom: 0; }
+.pa-pics .pa-pic { width: 48px; height: 27px; }
+@media (max-width: 560px) { .pa-pic, .pa-pics { display: none; } }

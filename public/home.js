@@ -2601,7 +2601,65 @@
         if (shownProject === sig) $('content').replaceChildren(...activityView(project, sig));
       },
     });
-    return [...[...days].map(([day, lines]) => el('section', { class: 'pa-day' }, label(day), el('ol', { class: 'pa-list' }, lines.map((x) => activityLine(project, x))))), more];
+    return [...[...days].map(([day, lines]) => el('section', { class: 'pa-day' }, label(day), el('ol', { class: 'pa-list' },
+      inRuns(lines).map((r) => (r.lines.length > 1 ? activityRun(project, r) : activityLine(project, r.lines[0])))))), more];
+  }
+  // A run: one person's versions filed, or comments written, close together (each within half an hour of the
+  // one after it, whatever others did between) is one line, folded, where there are three or more. It stands
+  // where its newest is. Fewer stay lines of their own, each where it falls.
+  const RUN_GAP = 30 * 60e3;
+  const RUN_MIN = 3;
+  const openRuns = new Set(); // the runs unfolded, by their newest line's id
+  function inRuns(lines) {
+    const runs = [];
+    const going = new Map(); // `${who}|${kind}` -> the run they are in now
+    for (const x of lines) {
+      const key = `${String(x.by || '').toLowerCase()}|${x.kind}`;
+      const run = (x.kind === 'version' || x.kind === 'note') && going.get(key);
+      if (run && run.lines[run.lines.length - 1].at - x.at <= RUN_GAP) run.lines.push(x);
+      else {
+        const fresh = { lines: [x] };
+        runs.push(fresh);
+        going.set(key, fresh);
+      }
+    }
+    return runs.flatMap((r) => (r.lines.length >= RUN_MIN ? [r] : r.lines.map((x) => ({ lines: [x] }))))
+      .sort((a, b) => b.lines[0].at - a.lines[0].at);
+  }
+  function activityRun(project, run) {
+    const [newest] = run.lines;
+    const oldest = run.lines[run.lines.length - 1];
+    const n = run.lines.length;
+    const open = openRuns.has(newest.id);
+    const filed = newest.kind === 'version';
+    // What they are of: the assets, sets and shots (or, for comments, the versions), the first few by name.
+    const of = [...new Set(run.lines.map((x) => (filed ? x.entity.name : x.version.label || x.entity.name)))];
+    const ofText = of.length <= 3 ? of.join(', ') : `${of.slice(0, 2).join(', ')} and ${of.length - 2} more`;
+    const whys = new Set(run.lines.map((x) => x.why));
+    const clock = (at) => new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const span = clock(oldest.at) === clock(newest.at) ? clock(newest.at) : `${clock(oldest.at)}–${clock(newest.at)}`;
+    const stills = filed ? run.lines.filter((x) => x.version.thumb).slice(0, 4) : [];
+    const head = el('button', {
+      type: 'button', class: 'pa-row pa-run', 'aria-expanded': String(open),
+      title: open ? 'Fold them away' : `Show all ${n}`,
+      onclick: () => {
+        if (open) openRuns.delete(newest.id);
+        else openRuns.add(newest.id);
+        const again = activityRun(project, run);
+        item.replaceWith(again);
+        again.querySelector('.pa-run').focus({ preventScroll: true });
+      },
+    },
+    WB.avatar(newest.by || '?', newest.color),
+    el('div', { class: 'pa-body' },
+      el('p', { class: 'pa-what' }, el('b', { text: newest.by || 'Somebody' }), filed ? ' filed ' : ' wrote ', el('span', { class: 'pa-thing', text: `${n} ${filed ? 'versions' : 'comments'}` }),
+        el('span', { class: 'pa-of', text: ` on ${ofText}` })),
+      whys.size === 1 && newest.why && el('span', { class: 'pa-why', text: WHY[newest.why] })),
+    stills.length > 0 && el('span', { class: 'pa-pics' }, stills.map((x) => el('img', { class: 'pa-pic', src: x.version.thumb, alt: '', loading: 'lazy', draggable: 'false' }))),
+    el('time', { class: 'pa-time', datetime: new Date(newest.at).toISOString(), text: span }),
+    el('span', { class: 'pa-fold', html: icon('chevron', 14) }));
+    const item = el('li', { class: `pa-runs${open ? ' open' : ''}` }, head, open && el('ol', { class: 'pa-list pa-inner' }, run.lines.map((x) => activityLine(project, x))));
+    return item;
   }
   // A line: who did what, to which, when; a comment's words under it, and a version's still beside it. A version
   // or a comment opens in the player, a playlist or an animatic on its page.

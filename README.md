@@ -465,8 +465,11 @@ and its catalogue, every version and comment on them, its playlists and animatic
   the home looks through the catalogue. Its reviews are at `#/f/<project>/reviews`.
 - **Its activity.** Activity, in the sidebar under the project (`#/f/<project>/activity`), is everything
   that happened in it from its start, newest first and a day at a time: versions filed (with their still),
-  comments and replies (with their words), playlists and animatics made. Fifty at a time; Show earlier goes
-  further back. A version or a comment opens in the player, a playlist or an animatic on its page. For you,
+  comments and replies (with their words), playlists and animatics made. One person's versions filed, or
+  comments written, close together (each within half an hour of the next, whatever others did between)
+  are one line where there are three or more: "Havard filed 30 versions on kilo-0010, kilo-0020 and
+  char-robot", with a few of their stills and the time from first to last, folded until clicked open.
+  Fifty lines at a time; Show earlier goes further back. A version or a comment opens in the player, a playlist or an animatic on its page. For you,
   beside the title and on until turned off, keeps what is yours, each saying why: comments that @mention
   you, replies in a thread you wrote in, comments on a version you filed or that names you its artist,
   playlists of your work, and every version filed and comment written on what you make or are cc'd on.

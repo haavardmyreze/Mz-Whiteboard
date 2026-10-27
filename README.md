@@ -34,28 +34,28 @@ the app (`#/vocabulary`) lays the same out in pictures.
 
 | Word | What it is |
 | ---- | ---------- |
-| Workspace | Myreze, shared by everyone, or your Personal one |
-| Folder | A place in a workspace for boards, folders and playlists |
-| Project | A folder with a catalogue: its entities and their versions, its reviews and its activity |
-| Catalogue | Every entity a project has |
-| Activity | Everything that happened in a project, from its start; **For you** is what concerns you |
-| Entity | What versions are filed under: an asset, a set or a shot. Which of the three is its **type** |
-| Sequence | Shots that go together, named by the start of their names (kilo in kilo-0010) |
-| Task | A stage of the work a version is for: anim, comp, light |
-| Version | One result filed of an entity and task, counted v1, v2, v3 |
-| Pass | One of a version's ways of being seen, each its own file (cmp, bty), as a project names them |
-| Attachment | Any other file filed with a version under a label of its own: a full-size still, another lighting |
-| Review | A board, a playlist or an animatic in a project; its Reviews page lists them |
-| Board | A canvas to lay work out on, with sticky notes, headings, blocks, frames and drawing |
-| Playlist | Versions in an order, played one at a time |
-| Animatic | Shots cut together on a timeline, each playing its newest version |
-| Comment | What is said about a piece of work; a **reply** answers one, and the two are a **thread**. One may carry a **drawing** |
-| Sticky note | A note on a board, part of the board, never a comment |
-| Artist, CC | Who makes an entity, and who else follows it |
-| Role, group | What somebody may do (viewer, commenter, editor, manager), and people given roles together |
-| Share link | A board opened without signing in |
-| Present link | Somebody presenting, watched |
-| Venue | The 3D model of where the work is shown; its **screens** show it, seen through its **main camera**, or **flying** |
+| Workspace | The top level of everything. Myreze is shared by the whole studio; Personal is your own, and nobody else can see it |
+| Folder | Keeps boards, playlists and other folders together, like a folder on disk |
+| Project | A folder for a production. Besides its boards, it keeps a catalogue of everything being made for it and every version delivered |
+| Catalogue | The list of everything a project makes (its assets, sets and shots), each with every version of it |
+| Activity | Everything that has happened in a project since it started; **For you** narrows it to what concerns you |
+| Entity | One thing a project makes and delivers versions of: an asset (char-robot), a set (harbour) or a shot (kilo-0010). Which of the three it is, is its **type** |
+| Sequence | Shots that belong together, like a scene, named by the start of their names (kilo in kilo-0010) |
+| Task | The stage of work a version is for (anim, light, comp). Each task counts its own versions |
+| Version | One delivery of an entity for a task, counted v1, v2, v3; the highest is the newest |
+| Pass | One way of seeing a version, when every version needs more than one (cmp, bty). The project lists its passes; each is its own file |
+| Attachment | An extra file that belongs to one version only, under a label: a full-size still, the same frame lit another way |
+| Review | Anything the team looks at work in together: a board, a playlist or an animatic. A project lists them on its Reviews page |
+| Board | An open canvas for images and videos, with headings, sticky notes, frames and drawing |
+| Playlist | Versions in a set order, played one at a time with notes on each, as in dailies |
+| Animatic | An edit of a project's shots on a timeline. Each clip points at a shot, so it always plays the newest version |
+| Comment | A note on a picture or video, written in the player. It can carry a **drawing**, and a **reply** to it makes a **thread** |
+| Sticky note | Text placed on a board as part of its layout; never a comment |
+| Artist, CC | Set on an entity: who makes it, and who else follows it |
+| Role, group | What someone may do on a folder or board (viewer, commenter, editor, manager), and people given the same roles |
+| Share link | A link to one board for someone without an account: to look, read the comments, or comment |
+| Present link | A link to watch somebody present: whoever opens it sees exactly what they show |
+| Venue | A 3D model of where the work will be shown; its **screens** play it, seen through its **main camera**, or by **flying** freely |
 
 ## What it does
 

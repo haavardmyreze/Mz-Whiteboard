@@ -3243,7 +3243,7 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 .vc-tab:hover { background: var(--hover); color: var(--text); }
 .vc-tab.on { background: var(--surface-2); color: var(--text); font-weight: 600; }
 .vc-tab:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent); }
-.vc-lead { margin: 24px 0 0; color: var(--text-2); font-size: var(--fs-ui); line-height: 1.6; }
+.vc-lead { max-width: 640px; margin: 24px 0 0; color: var(--text-2); font-size: var(--fs-ui); line-height: 1.6; text-wrap: pretty; }
 .vc-body { max-width: 1040px; margin-top: 16px; }
 .vc-figure { display: grid; grid-template-columns: minmax(0, 1fr) 264px; gap: 32px; align-items: start; }
 .vc-plate { display: grid; place-items: center; min-height: 320px; padding: 40px 32px; border-radius: var(--r-3); background: var(--surface-1); }

@@ -12,40 +12,40 @@ const WBVocabulary = (() => {
 
   // Every word, by what it is about: its icon, the word, and what it is.
   const WORDS = [
-    ['Places', [
-      ['home', 'Workspace', 'Myreze, shared by everyone, or your Personal one.'],
-      ['folder', 'Folder', 'A place in a workspace for boards, folders and playlists.'],
-      ['project', 'Project', 'A folder with a catalogue: its entities and their versions, its reviews and its activity.'],
+    ['Where things are', [
+      ['home', 'Workspace', 'The top level of everything. Myreze is shared by the whole studio. Personal is your own, and nobody else can see what is in it.'],
+      ['folder', 'Folder', 'Keeps boards, playlists and other folders together, like a folder on disk. Deleting a folder doesn’t delete what was in it: that moves up a level.'],
+      ['project', 'Project', 'A folder for a production. Besides its boards, it keeps a catalogue of everything being made for it and every version delivered. Any folder can become one: Make it a project, in its menu.'],
     ]],
     ['What a project makes', [
-      ['catalogue', 'Catalogue', 'Every entity a project has.'],
-      ['film', 'Sequence', 'Shots that go together, named by the start of their names (kilo in kilo-0010).'],
-      ['tag', 'Entity', 'What versions are filed under: an asset, a set or a shot. Which of the three is its type.'],
-      ['checks', 'Task', 'A stage of the work a version is for: anim, comp, light.'],
-      ['stack', 'Version', 'One result filed of an entity and task, counted v1, v2, v3.'],
-      ['pick', 'Pass', 'One of a version’s ways of being seen, each its own file (cmp, bty), as the project names them.'],
-      ['file', 'Attachment', 'Any other file filed with a version under a label of its own: a full-size still, another lighting.'],
+      ['catalogue', 'Catalogue', 'The list of everything a project makes: its assets, its sets and its shots, each with every version of it. It is laid out the way the project is on disk.'],
+      ['tag', 'Entity', 'One thing the project makes and delivers versions of: an asset (char-robot), a set (harbour) or a shot (kilo-0010). Which of the three it is, is its type.'],
+      ['film', 'Sequence', 'Shots that belong together, like a scene. You don’t make one separately: kilo-0010 and kilo-0020 are in the sequence kilo because their names start with it.'],
+      ['checks', 'Task', 'The stage of work a version is for, such as anim, light or comp. Each task counts its own versions, so lookdev can be on v1 while model is on v10. A project that doesn’t work in tasks can turn them off.'],
+      ['stack', 'Version', 'One delivery of an entity for a task. Versions count up, v1, v2, v3, and the highest is the newest. You file them from a board (select, then Shift+V) or by dropping files on the catalogue.'],
+      ['pick', 'Pass', 'One way of seeing a version, when every version needs more than one. On projection work, say, the flat picture (cmp) and how it looks projected (bty). The project lists its passes in its settings, and each is its own file.'],
+      ['file', 'Attachment', 'An extra file that belongs to one version only, under a label you give it: a full-size still to check detail, or the same frame lit another way. Unlike a pass, it isn’t something every version has.'],
     ]],
-    ['Looking at the work', [
-      ['boards', 'Review', 'A board, a playlist or an animatic in a project. Its Reviews page lists them.'],
-      ['board', 'Board', 'A canvas to lay work out on, with sticky notes, headings, blocks, frames and drawing.'],
-      ['playlist', 'Playlist', 'Versions in an order, played one at a time.'],
-      ['animatic', 'Animatic', 'Shots cut together on a timeline, each playing its newest version.'],
-      ['comment', 'Comment', 'What is said about a piece of work. A reply answers one, and the two are a thread. One may carry a drawing.'],
-      ['note', 'Sticky note', 'A note on a board: part of the board, never a comment.'],
-      ['activity', 'Activity', 'Everything that happened in a project, from its start. For you is what concerns you.'],
+    ['Looking at work together', [
+      ['boards', 'Review', 'Anything the team looks at work in together and gives notes on: a board, a playlist or an animatic. A project lists all of them on its Reviews page.'],
+      ['board', 'Board', 'An open canvas. Lay images and videos out freely, add headings, sticky notes and frames, and draw. Good for standups, look development and putting things side by side.'],
+      ['playlist', 'Playlist', 'Versions in a set order, played one at a time with notes on each, the way a dailies session goes through them.'],
+      ['animatic', 'Animatic', 'An edit of the project’s shots on a timeline. Each clip points at a shot, not a file, so it always plays that shot’s newest version: the cut keeps up as work is filed.'],
+      ['comment', 'Comment', 'A note on a picture or a video, written in the player. It can carry a drawing that shows what it means, and replies to it make a thread. A comment on a version stays with it wherever the version is shown.'],
+      ['note', 'Sticky note', 'Text placed on a board as part of its layout. It isn’t a comment: it doesn’t belong to any piece of work, only to the board.'],
+      ['activity', 'Activity', 'Everything that has happened in a project since it started: versions filed, comments, new playlists and animatics. For you narrows it to what concerns you.'],
     ]],
     ['People and sharing', [
-      ['person', 'Artist, CC', 'Who makes an entity, and who else follows it. Both see what happens to it under For you.'],
-      ['people', 'Role, group', 'What somebody may do (viewer, commenter, editor, manager), and people given roles together.'],
-      ['link', 'Share link', 'A board opened without signing in: to look, read the comments, or comment.'],
-      ['eye', 'Present link', 'Somebody presenting, watched: whoever opens it sees what they show.'],
+      ['person', 'Artist, CC', 'Set on each entity: the artists who make it, and the people cc’d to follow it. Both see its new versions and comments under For you.'],
+      ['people', 'Role, group', 'A role says what someone may do on a folder or a board: view, comment, edit or manage. A group is people who get the same roles. Admins set them up; for now they are recorded but not yet enforced.'],
+      ['link', 'Share link', 'A link to one board for someone without an account, such as a client. You choose whether they can only look, also read the comments, or also comment.'],
+      ['eye', 'Present link', 'A link to watch you present. Whoever opens it sees exactly what you show, as you show it, and can’t go anywhere else.'],
     ]],
-    ['On the venue, in 3D', [
-      ['cube', 'Venue', 'The 3D model of where the work is shown.'],
-      ['frame', 'Screen', 'Where the work plays on the venue.'],
-      ['focus', 'Main camera', 'The camera the 3D view opens through, where the work is judged from.'],
-      ['pan', 'Flying', 'Moving freely, once the view leaves a camera.'],
+    ['Seeing the work in 3D', [
+      ['cube', 'Venue', 'A 3D model of the place the work will be shown, such as a dome or a stage. Add one in a project’s settings to see the work on it.'],
+      ['frame', 'Screen', 'The surfaces in the venue that the picture plays on.'],
+      ['focus', 'Main camera', 'The camera in the venue model that sees what the audience will see. The 3D view starts there, so the work is judged as it will be seen.'],
+      ['pan', 'Flying', 'Moving freely around the venue, with the mouse or W A S D, away from the main camera. The project’s settings set how wide its lens is.'],
     ]],
   ];
   const ABOUT = new Map(WORDS.flatMap(([group, list]) => list.map(([ic, word, say]) => [word, { ic, say, group }])));
@@ -111,7 +111,7 @@ const WBVocabulary = (() => {
         brace('4', 'Task', 'under'),
         brace('6', 'Version', 'under')),
       el('div', { class: 'vc-with' },
-        el('span', { text: 'With each version' }),
+        el('span', { text: 'A version can also have' }),
         pick('Pass', 'passes'), pick('Attachment', 'attachments'), pick('Comment', 'comments')));
   }
 
@@ -139,10 +139,22 @@ const WBVocabulary = (() => {
     ])))));
 
   const CHAPTERS = [
-    { id: 'places', label: 'Places', lead: 'Places inside places. Pick one to read what it is.', body: () => figure(places) },
-    { id: 'version', label: 'A version', lead: 'A version’s name says what it is. Pick a part of it.', body: () => figure(version) },
-    { id: 'reviews', label: 'Reviews', lead: 'Three ways to look at versions together. Pick one to read what it is.', body: () => figure(reviews) },
-    { id: 'words', label: 'Every word', lead: 'Each word the app uses, and what it is.', body: () => [words()] },
+    {
+      id: 'places', label: 'Where things are', body: () => figure(places),
+      lead: 'Everything you make lives in a workspace, kept in folders. A folder that holds a production becomes a project, which also keeps track of everything being made for it. Click any part of the picture to read what it is.',
+    },
+    {
+      id: 'version', label: 'Versions', body: () => figure(version),
+      lead: 'Every piece of work you deliver is filed as a version of something. Its name says exactly what it is: which shot or asset, which stage of the work, and which attempt. Click a part of the name to read about it.',
+    },
+    {
+      id: 'reviews', label: 'Reviews', body: () => figure(reviews),
+      lead: 'Reviews are where the team looks at versions together and gives notes. There are three kinds, for three ways of working. Click one to read when it is the right one.',
+    },
+    {
+      id: 'words', label: 'All words', body: () => [words()],
+      lead: 'The app uses each of these words for one thing only, on every page. Wherever you see “pass” or “version”, it means what it says here.',
+    },
   ];
 
   // `chapter` is the id after #/vocabulary/, the first chapter if there is none.

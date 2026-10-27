@@ -532,9 +532,10 @@ and its catalogue, every version and comment on them, its playlists and animatic
   move of the view leaves the main camera: a drag (with both buttons held, it slides the camera along the
   view's plane: sideways, up and down), the wheel, W A S D (along the view, wherever it points) or Q and E
   (down, up), easing in and out as in Unreal's viewport, with the view filling the whole picture
-  area, easing to the lens it flies with: as wide across the frame as the main camera's (so the room stays
-  as it was on leaving it), unless the settings give another field of view in degrees across the frame (they
-  show the main camera's as the number it is), never wider than 122.5° across the window. "Main camera"
+  area, easing to the lens it flies with: a field of view in degrees across the view as it is seen (between
+  the strip and the comments), as Unreal measures its own. Unless the settings give one, it is the main
+  camera's, the number they show (its lens across its frame, read from the model). The lens is never wider
+  than 122.5° across the whole window. "Main camera"
   goes back to the main camera, and the arrow beside it lists the model's other cameras to look through.
   The keys 2 and 3 switch between the picture and the venue; in 3D, V goes to the next camera (the last
   comes round to the first), or to the main camera from a free view or a comment's frame.

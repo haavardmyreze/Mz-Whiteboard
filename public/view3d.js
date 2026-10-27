@@ -74,9 +74,10 @@ const MOVE = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE']);
 // with), or a place a comment was made from: its camera's place, turn and lens over a 16:9 frame.
 //
 // `onFree(on)` hears when the view leaves a frame to fly, or has come to one; `frameOf()` says where on the
-// page the frame held is (a DOMRect: the player lays it out at aspect()); `holds(e)` says a press is the
-// player's own (drawing, erasing, pointing), not a move of the view.
-export function create({ onFree = () => {}, frameOf = () => null, holds = () => false } = {}) {
+// page the frame held is (a DOMRect: the player lays it out at aspect()); `seen()` where across the page the
+// view is seen ({ left, right }; the whole canvas unless said); `holds(e)` says a press is the player's own
+// (drawing, erasing, pointing), not a move of the view.
+export function create({ onFree = () => {}, frameOf = () => null, seen = () => null, holds = () => false } = {}) {
   const canvas = document.createElement('canvas');
   canvas.className = 'v-3d';
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -110,8 +111,8 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   let screenName = 'screen';
   let main = { cam: true, name: '', position: new THREE.Vector3(0, 1.6, 6), quaternion: new THREE.Quaternion(), fov: 50, aspect: 16 / 9 };
   let cams = [main]; // the model's cameras: { cam, name, position, quaternion, fov, aspect }
-  // The lens flying is done through, in degrees across the frame the work is held in, as the project sets it;
-  // 0 is the main camera's own.
+  // The lens flying is done through, in degrees across the view as it is seen (as Unreal measures its field of
+  // view), as the project sets it; 0 is the main camera's own, in degrees across its frame.
   let flyLens = 0;
   // The frame held, or come back to: a camera of `cams`, or a comment's (no `cam`; its `fov` is worked out
   // from `keep`, the lens over the whole canvas, once the player has laid out its frame).
@@ -659,8 +660,7 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
   }
   // Flying starts from wherever the view is (on a frame, or on its way to one), looking where it looks,
   // with the room at the size it was; the glide out then eases to the lens flown through: the one the project
-  // sets (flyLens), or else the main camera's, each as wide across the frame as it says (so leaving the main
-  // camera with its own lens, the room stays as it is).
+  // sets (flyLens), or else the main camera's, spanning that many degrees across the view as it is seen.
   function fly() {
     if (free) return;
     free = true;
@@ -673,13 +673,29 @@ export function create({ onFree = () => {}, frameOf = () => null, holds = () => 
     const r = canvas.getBoundingClientRect();
     const keep = tanHalf(view.fov) / shown.h;
     const aspect = r.width && r.height ? r.width / r.height : 16 / 9;
-    const fr = frameRect(r) || shown;
-    const frameAspect = r.width && r.height ? (fr.w * r.width) / (fr.h * r.height) : main.aspect;
     const lens = flyLens || fovOf(tanHalf(main.fov) * main.aspect);
-    camera.fov = capped(fovOf(tanHalf(lens) / frameAspect / fr.h), aspect);
+    camera.fov = r.width && r.height ? capped(fovOf(r.height / 2 / lensAcross(lens, r)), aspect) : fovOf(tanHalf(lens) / aspect);
     glide = calm.matches ? null : { to: 'free', t0: performance.now(), ms: OUT_MS, from: { ...shown }, tan: keep };
     canvas.classList.add('free');
     onFree(true);
+  }
+  // The focal length, in pixels of the canvas `r`, at which the part of it seen spans `lens` degrees across. The
+  // view looks out through the canvas's middle, and the part seen need not be centred on it (the strip on one
+  // side, the comments on the other), so it is found by halving, its two sides' angles added up.
+  function lensAcross(lens, r) {
+    const s = seen();
+    const mid = r.left + r.width / 2;
+    const toLeft = Math.max(1, s ? mid - s.left : r.width / 2);
+    const toRight = Math.max(1, s ? s.right - mid : r.width / 2);
+    const spans = (f) => THREE.MathUtils.radToDeg(Math.atan(toLeft / f) + Math.atan(toRight / f));
+    let lo = 1e-3;
+    let hi = 1e6;
+    for (let i = 0; i < 60; i++) {
+      const f = Math.sqrt(lo * hi);
+      if (spans(f) > lens) lo = f;
+      else hi = f;
+    }
+    return Math.sqrt(lo * hi);
   }
   // To a frame, from flying or from another frame: gliding from wherever the view is.
   function holdOn(target, animate = true) {

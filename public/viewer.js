@@ -208,6 +208,7 @@ const WBViewer = (() => {
   //   toggle(on)     shows the venue (having asked `ready()` for the view) or its own picture: the switch,
   //                  and 2 and 3, call it
   //   frameOf()      where the frame the view holds is on the page (a box laid out at `three.aspect()`)
+  //   seen()         where across the page the view is seen ({ left, right }), if not the whole of it
   //   holds(e)       whether a press on the venue is its own (a pen), not a move of the view
   //   quiet()        whether the keys are its own just now (a pen in hand), not the view's
   //   onFree(on)     the view left its frame to fly, or came to one
@@ -223,6 +224,7 @@ const WBViewer = (() => {
       shared3d = mod.create({
         onFree: (on) => { if (lender) lender.freed(on); },
         frameOf: () => (lender ? lender.host.frameOf() : null),
+        seen: () => (lender && lender.host.seen ? lender.host.seen() : null),
         holds: (e) => !!lender && lender.host.holds(e),
       });
       shared3d.setLook(lookShown());
@@ -654,6 +656,11 @@ const WBViewer = (() => {
       isOn: () => in3d,
       toggle: (on) => set3d(on),
       frameOf: () => pieceBox.getBoundingClientRect(),
+      // The venue is drawn under the strip and the comments: it is seen between them.
+      seen: () => {
+        const r = stage.getBoundingClientRect();
+        return { left: shown(film) ? film.getBoundingClientRect().right : r.left, right: shown(panel) ? panel.getBoundingClientRect().left : r.right };
+      },
       // Drawing, erasing and pointing are done on the frame held; any other press moves the view.
       holds: (e) => e.button === 0 && !spaceDown && (tool === 'pen' || tool === 'eraser' || tool === 'laser'),
       quiet: () => tool === 'pen' || tool === 'eraser',

@@ -720,7 +720,7 @@
       const main = cameras.find((c) => c.name === camera.value);
       const across = main ? main.across : cameras.length || !camerasRead ? null : 79;
       fov.placeholder = across ? String(across) : '';
-      fovSays.textContent = `In degrees across the frame, once the view leaves a camera to fly.${across ? ` Unless set, ${across}°: the main camera's` : ' Unless set, the main camera\'s'}`;
+      fovSays.textContent = `Degrees across the 3D view as you see it, as in Unreal, once it leaves a camera to fly.${across ? ` Unless set, ${across}°: the main camera's` : ' Unless set, the main camera\'s'}`;
     };
     const paintCameras = () => {
       const chosen = camera.value || (was && was.camera) || '';

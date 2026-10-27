@@ -2092,7 +2092,7 @@ test('a version can be shown more than one way: each pass is filed with it, by n
   assert.equal((await file([{ pass: 'bty', look: await look('g.mp4') }])).body.versions[0].label, 'kilo-0010 comp v4');
 });
 
-test('a version can have extras: more files under labels of their own, added to the version, and taken back', async (t) => {
+test('a version can have attachments: more files under labels of their own, added to the version, and taken back', async (t) => {
   const s = start(4901);
   t.after(s.stop);
   await s.ready;
@@ -2107,38 +2107,38 @@ test('a version can have extras: more files under labels of their own, added to 
   const file = async (files) => call('POST', `/api/projects/${project.id}/versions`, { entity: { name: 'kilo-0010' }, task: 'comp', files });
   const still = async (name) => ({ type: 'image', src: await up(), name, nw: 12288, nh: 6144 });
   // Nothing to add it to yet: refused, and nothing is filed.
-  const none = await file([{ extra: 'light-a', look: await still('a.png') }]);
+  const none = await file([{ attachment: 'light-a', look: await still('a.png') }]);
   assert.equal(none.status, 409);
   assert.match(none.body.error, /kilo-0010 comp has no version to add “light-a” to/);
-  // A version and its extras brought in together: one version, its own file and two more.
-  const lot = (await file([{ look: { type: 'video', src: await up(), name: 'v.mp4', dur: 4 } }, { extra: 'Light A', look: await still('a.png') }, { extra: 'light-b', look: await still('b.png') }])).body.versions;
+  // A version and its attachments brought in together: one version, its own file and two more.
+  const lot = (await file([{ look: { type: 'video', src: await up(), name: 'v.mp4', dur: 4 } }, { attachment: 'Light A', look: await still('a.png') }, { attachment: 'light-b', look: await still('b.png') }])).body.versions;
   assert.equal(lot[0].label, 'kilo-0010 comp v1');
   assert.deepEqual(lot.map((v) => v.id), [lot[0].id, lot[0].id, lot[0].id]);
-  assert.deepEqual(lot.map((v) => v.filedExtra), [undefined, 'light-a', 'light-b']);
-  assert.deepEqual(lot[2].look.extras.map((x) => [x.label, x.type, x.nw]), [['light-a', 'image', 12288], ['light-b', 'image', 12288]]);
+  assert.deepEqual(lot.map((v) => v.filedAttachment), [undefined, 'light-a', 'light-b']);
+  assert.deepEqual(lot[2].look.attachments.map((x) => [x.label, x.type, x.nw]), [['light-a', 'image', 12288], ['light-b', 'image', 12288]]);
   assert.equal(lot[2].look.type, 'video');
-  // With no number, an extra goes with the newest version; with one, with that version; never twice by label.
+  // With no number, an attachment goes with the newest version; with one, with that version; never twice by label.
   const v2 = (await file([{ look: await still('c.png') }])).body.versions[0];
-  assert.equal((await file([{ extra: 'warm', look: await still('d.png') }])).body.versions[0].id, v2.id);
-  assert.equal((await file([{ extra: 'warm', number: 1, look: await still('e.png') }])).body.versions[0].id, lot[0].id);
-  const twice = await file([{ extra: 'warm', number: 1, look: await still('f.png') }]);
+  assert.equal((await file([{ attachment: 'warm', look: await still('d.png') }])).body.versions[0].id, v2.id);
+  assert.equal((await file([{ attachment: 'warm', number: 1, look: await still('e.png') }])).body.versions[0].id, lot[0].id);
+  const twice = await file([{ attachment: 'warm', number: 1, look: await still('f.png') }]);
   assert.equal(twice.status, 409);
-  assert.match(twice.body.error, /kilo-0010 comp v1 has an extra called “warm” already/);
-  assert.equal((await file([{ extra: 'cool', number: 9, look: await still('g.png') }])).status, 409);
-  // An extra makes no version: the count goes on from v2.
+  assert.match(twice.body.error, /kilo-0010 comp v1 has an attachment called “warm” already/);
+  assert.equal((await file([{ attachment: 'cool', number: 9, look: await still('g.png') }])).status, 409);
+  // An attachment makes no version: the count goes on from v2.
   assert.equal((await file([{ look: await still('h.png') }])).body.versions[0].label, 'kilo-0010 comp v3');
   // The entity's page has them in full, and the Versions list by label.
   const entity = (await call('GET', `/api/projects/${project.id}`)).body.entities.find((e) => e.name === 'kilo-0010');
   const page = (await call('GET', `/api/entities/${entity.id}`)).body;
-  assert.deepEqual(page.versions.find((v) => v.id === lot[0].id).look.extras.map((x) => x.label), ['light-a', 'light-b', 'warm']);
+  assert.deepEqual(page.versions.find((v) => v.id === lot[0].id).look.attachments.map((x) => x.label), ['light-a', 'light-b', 'warm']);
   const listed = (await call('GET', `/api/projects/${project.id}/versions`)).body.versions;
-  assert.deepEqual(listed.find((v) => v.id === lot[0].id).extras, ['light-a', 'light-b', 'warm']);
-  // Taken back straight after: the version stays, without it. A version with extras is not taken back whole.
+  assert.deepEqual(listed.find((v) => v.id === lot[0].id).attachments, ['light-a', 'light-b', 'warm']);
+  // Taken back straight after: the version stays, without it. A version with attachments is not taken back whole.
   assert.equal((await call('POST', `/api/versions/${lot[0].id}/unfile`, {})).status, 409);
-  assert.equal((await call('POST', `/api/versions/${lot[0].id}/unfile`, { extra: 'light-b' })).status, 200);
+  assert.equal((await call('POST', `/api/versions/${lot[0].id}/unfile`, { attachment: 'light-b' })).status, 200);
   const after = (await call('GET', `/api/versions/${lot[0].id}`)).body;
-  assert.deepEqual(after.look.extras.map((x) => x.label), ['light-a', 'warm']);
-  assert.equal((await call('POST', `/api/versions/${lot[0].id}/unfile`, { extra: 'light-b' })).status, 404);
+  assert.deepEqual(after.look.attachments.map((x) => x.label), ['light-a', 'warm']);
+  assert.equal((await call('POST', `/api/versions/${lot[0].id}/unfile`, { attachment: 'light-b' })).status, 404);
 });
 
 test('a project\'s versions can be found by task, sequence, type, filer and words, sorted, newest only, and changed many at once', async (t) => {

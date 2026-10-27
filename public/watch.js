@@ -333,7 +333,7 @@
     const has = (id) => (viewer.host().media() || []).some((p) => p.id === id);
     if ('f' in patch && typeof patch.f === 'string' && patch.f !== viewer.current() && has(patch.f)) viewer.follow(patch.f);
     const open = viewer.current();
-    // Which of its files is shown in its place (one of its version's extras), before the zoom on it.
+    // Which of its files is shown in its place (one of its version's attachments), before the zoom on it.
     if ('x' in patch && typeof patch.x === 'string') viewer.followFile(patch.x);
     if ('d' in patch) viewer.follow3d(patch.d);
     if ('m' in patch && Array.isArray(patch.m) && patch.m[0] === open) {

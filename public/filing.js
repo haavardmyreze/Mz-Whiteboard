@@ -7,7 +7,7 @@
 //
 // Each row is one line of parts, labelled once above the rows (lineHead): what it is (an icon, with a
 // dot when it is new, or a question when nothing says), its name, the task, the version it follows (its
-// still, which shows the two side by side), the version it is to be, the pass, the extra it is of that
+// still, which shows the two side by side), the version it is to be, the pass, the attachment it is of that
 // version (a label, empty for a version of its own), and what there is to say about it. What the page filled in itself, and nobody said (the next number, the main pass), is faint,
 // so that it reads as the guess it is. The name takes a whole line, read by WBNaming.readLine:
 // "kilo-0010 anim v12 bty", a file name pasted in, or a short way to say a shot (20, +, .); a space after
@@ -133,7 +133,7 @@ const WBFiling = (() => {
       if (o.task === undefined && line.task !== undefined) o.task = line.task;
       o.number = line.number;
       o.pass = line.pass;
-      o.extra = line.extra;
+      o.attachment = line.attachment;
     }
     return out;
   }
@@ -257,7 +257,7 @@ const WBFiling = (() => {
     const node = el('span', { class: 'file-line file-labels', 'aria-hidden': 'true' },
       el('span'), el('span', { text: 'Asset, set or shot' }), useTasks && el('span', { text: 'Task' }),
       el('span', { text: 'Follows' }), el('span', { text: 'Version' }), passes && el('span', { text: 'Pass', title: `${passes[0]} is the main one: a version of its own` }),
-      el('span', { text: 'Extra', title: 'A label here adds the file to that version as an extra, rather than making a version of its own' }), el('span'));
+      el('span', { text: 'Attachment', title: 'A label here adds the file to that version as an attachment, rather than making a version of its own' }), el('span'));
     node.style.gridTemplateColumns = lineColumns({ useTasks, passes });
     return node;
   }
@@ -274,8 +274,8 @@ const WBFiling = (() => {
   // `typedNumber()`, starting from `number`. `passes` are the project's passes, the main one first (null when it shows each
   // version one way): the row then has a Pass picker (`passSel`, starting at `pass`, the one its name
   // says), and `passName()` is the one picked, null for the main one. A word after the version that is no
-  // pass (in a project shown one way, any word) makes the piece an extra of that version instead:
-  // `extraName()` is its label, null for a version or pass of its own. `named` says the entity given
+  // pass (in a project shown one way, any word) makes the piece an attachment of that version instead:
+  // `attachmentName()` is its label, null for a version or pass of its own. `named` says the entity given
   // was read from the piece's own file name. `rules` let the project's learned rules read pasted names;
   // `say(text, undo)` tells the person something the keys did (a toast unless the page says otherwise).
   // `piece()` is the look of what is being filed (to compare it with the version it follows).
@@ -323,9 +323,9 @@ const WBFiling = (() => {
     // to go with a version. A name that says a pass the project does not have is asked about, not guessed.
     const passSel = passes && el('select', { class: 'file-pass', 'aria-label': 'Pass', title: `Which way of its version it shows. ${passes[0]}, the main one, is a version of its own; the others go with one` },
       el('option', { value: '', text: passes[0] }), passes.slice(1).map((v) => el('option', { value: v, text: v })));
-    // Which extra of its version it is: a label, or nothing for a version (or pass) of its own. Filled
+    // Which attachment of its version it is: a label, or nothing for a version (or pass) of its own. Filled
     // in from its name, or typed.
-    const extraIn = el('input', { type: 'text', class: 'file-extra', placeholder: '', spellcheck: 'false', 'aria-label': 'Extra', title: 'A label (light-a, still-1043) adds it to the version as an extra. Empty: a version of its own' });
+    const attachmentIn = el('input', { type: 'text', class: 'file-attachment', placeholder: '', spellcheck: 'false', 'aria-label': 'Attachment', title: 'A label (light-a, still-1043) adds it to the version as an attachment. Empty: a version of its own' });
     // What there is to say about it, behind a mark at the end of the line (see paintReadout).
     const info = el('button', { type: 'button', class: 'file-info', 'aria-expanded': 'false', tabindex: '-1' });
     info.addEventListener('pointerdown', (e) => e.preventDefault());
@@ -333,23 +333,23 @@ const WBFiling = (() => {
       if (popped && popped.button === info) return shutPop();
       if (readout.childNodes.length) popOver(info, () => readout);
     });
-    const line_ = el('span', { class: 'file-line' }, el('span', { class: 'file-is' }, kind, type), ent, useTasks ? taskIn : null, prevSlot, verSeg, passSel || null, extraIn, el('span', { class: 'file-info-cell' }, info));
+    const line_ = el('span', { class: 'file-line' }, el('span', { class: 'file-is' }, kind, type), ent, useTasks ? taskIn : null, prevSlot, verSeg, passSel || null, attachmentIn, el('span', { class: 'file-info-cell' }, info));
     line_.style.gridTemplateColumns = lineColumns({ useTasks, passes });
-    // Which extra of its version it is, if it is one (see readout: it says so, with the way back).
-    let extra = null;
-    const setExtra = (x) => {
-      extra = N.tokenize(x || '') || null;
-      extraIn.value = extra || '';
+    // Which attachment of its version it is, if it is one (see readout: it says so, with the way back).
+    let attachment = null;
+    const setAttachment = (x) => {
+      attachment = N.tokenize(x || '') || null;
+      attachmentIn.value = attachment || '';
     };
     function setPass(v) {
       if (!v) return;
-      if (!passes || !passes.includes(v)) return setExtra(v);
-      setExtra(null);
+      if (!passes || !passes.includes(v)) return setAttachment(v);
+      setAttachment(null);
       passSel.value = v === passes[0] ? '' : v;
     }
     setPass(namedPass);
-    const passName = () => (!extra && passSel && passSel.value) || null;
-    const extraName = () => extra;
+    const passName = () => (!attachment && passSel && passSel.value) || null;
+    const attachmentName = () => attachment;
     let likely = [];
     let fromName = named && !!entity;
     // What a line said of the number, on a page with no field for it. Said by a line, it goes when the
@@ -357,7 +357,7 @@ const WBFiling = (() => {
     const own = { number: typedNumber, said: false };
     const toLine = (l) => {
       if (l.pass) setPass(l.pass);
-      if (l.extra) setExtra(l.extra);
+      if (l.attachment) setAttachment(l.attachment);
       if (l.number == null) return;
       if (onLine) return onLine(l);
       own.number = l.number;
@@ -423,11 +423,11 @@ const WBFiling = (() => {
     // row, rather than lose them.
     function settle() {
       const l = line();
-      if (!l.entity || l.rest.length || (ent.value === l.entity && l.task === undefined && l.number == null && !l.pass && !l.extra)) return;
+      if (!l.entity || l.rest.length || (ent.value === l.entity && l.task === undefined && l.number == null && !l.pass && !l.attachment)) return;
       changed();
       ent.value = l.entity;
       if (useTasks && l.task !== undefined) taskIn.value = l.task || '';
-      if (l.number != null || l.pass || l.extra) toLine(l);
+      if (l.number != null || l.pass || l.attachment) toLine(l);
       sync();
       onChange();
     }
@@ -458,7 +458,7 @@ const WBFiling = (() => {
         changed();
         fromName = false;
         if (useTasks && o.task !== undefined) taskIn.value = o.task || '';
-        if (o.number != null || o.pass || o.extra) toLine({ number: o.number, pass: o.pass, extra: o.extra });
+        if (o.number != null || o.pass || o.attachment) toLine({ number: o.number, pass: o.pass, attachment: o.attachment });
         settle();
         sync();
         onChange();
@@ -525,7 +525,7 @@ const WBFiling = (() => {
     let likelyAt = 0;
     function checks() {
       const { list, at } = around();
-      const key = [edits, list.length, at, entities().length, likelyAt, ent.value, taskIn.value, type.value, own.number, numberOf && numberOf(), passName(), extra, (piece() || {}).dur];
+      const key = [edits, list.length, at, entities().length, likelyAt, ent.value, taskIn.value, type.value, own.number, numberOf && numberOf(), passName(), attachment, (piece() || {}).dur];
       if (!judged || !same(judged.key, key)) judged = { key, out: judge() };
       return judged.out;
     }
@@ -539,19 +539,19 @@ const WBFiling = (() => {
       const e = have(n);
       const typed = ent.value.trim();
       if (l.short) out.push({ text: `${typed} is ${l.short}: ${n}` });
-      else if (typed !== n && l.task === undefined && l.number == null && !l.pass && !l.extra && !l.rest.length) out.push({ text: `Called ${n}` });
+      else if (typed !== n && l.task === undefined && l.number == null && !l.pass && !l.attachment && !l.rest.length) out.push({ text: `Called ${n}` });
       if (l.rest.length) out.push({ text: `Not read: ${l.rest.join(' ')}. Take it out${useTasks ? ' or put it in the task' : ''} to file`, warn: true, rank: 0 });
-      // An extra: which version it goes with, or that there is none; a pass it may have been meant as; and
+      // An attachment: which version it goes with, or that there is none; a pass it may have been meant as; and
       // the way back to a version of its own.
-      if (extra) {
+      if (attachment) {
         const at = number();
         const head = headOf();
-        const ahead = around().list.slice(0, Math.max(0, around().at)).some((p) => p.name() === n && p.taskName() === taskName() && !p.extraName());
+        const ahead = around().list.slice(0, Math.max(0, around().at)).some((p) => p.name() === n && p.taskName() === taskName() && !p.attachmentName());
         const fixes = [...(passes || []).filter((x) => x !== passes[0]).map((x) => ({ label: `the ${x} pass`, run: () => { changed(); setPass(x); sync(); } })),
-          { label: 'A version of its own', run: () => { changed(); setExtra(null); sync(); } }];
-        if (!at || (!ahead && !(e && at <= ((e.tops || {})[taskName() || ''] || 0)))) out.push({ text: `An extra, “${extra}”, but there is no ${at ? N.label(n, taskName(), at) : `version of ${N.label(n, taskName(), '').replace(/ v$/, '')}`} to add it to`, fixes, warn: true, rank: 0 });
-        else if (head && head.number === at && (head.look.extraNames || []).includes(extra)) out.push({ text: `${N.label(n, taskName(), at)} has an extra called “${extra}” already`, fixes, warn: true, rank: 0 });
-        else out.push({ text: `Adds it to ${N.label(n, taskName(), at)} as an extra, “${extra}”`, fixes, extra: true });
+          { label: 'A version of its own', run: () => { changed(); setAttachment(null); sync(); } }];
+        if (!at || (!ahead && !(e && at <= ((e.tops || {})[taskName() || ''] || 0)))) out.push({ text: `An attachment, “${attachment}”, but there is no ${at ? N.label(n, taskName(), at) : `version of ${N.label(n, taskName(), '').replace(/ v$/, '')}`} to add it to`, fixes, warn: true, rank: 0 });
+        else if (head && head.number === at && (head.look.attachmentNames || []).includes(attachment)) out.push({ text: `${N.label(n, taskName(), at)} has an attachment called “${attachment}” already`, fixes, warn: true, rank: 0 });
+        else out.push({ text: `Adds it to ${N.label(n, taskName(), at)} as an attachment, “${attachment}”`, fixes, attachment: true });
       }
       const v = passName();
       if (v) {
@@ -594,7 +594,7 @@ const WBFiling = (() => {
       // A number typed that the count has passed already: most likely someone's, or was (numbers are never
       // given twice), unless it was skipped. The server says for sure when it is filed.
       const top = e ? (e.tops || {})[taskName() || ''] || 0 : 0;
-      if (e && !numberOf && !extra && own.number && own.number <= top) {
+      if (e && !numberOf && !attachment && own.number && own.number <= top) {
         out.push({ text: `${N.label(n, taskName(), own.number)} is probably taken: the count is at v${top}`, fixes: [{ label: 'The next instead', run: () => { changed(); own.number = null; sync(); } }], warn: true, rank: 0 });
       }
       if (e && useTasks) {
@@ -642,7 +642,7 @@ const WBFiling = (() => {
     // Ready to file: it says what it is, every word of it is read, and a new one says what it is.
     const ready = () => {
       const n = name();
-      return !!n && !line().rest.length && !(extra && checks().some((c) => c.warn && c.rank === 0)) && (!!have(n) || !!type.value || !!N.entityTypeOf(n, entities()));
+      return !!n && !line().rest.length && !(attachment && checks().some((c) => c.warn && c.rank === 0)) && (!!have(n) || !!type.value || !!N.entityTypeOf(n, entities()));
     };
 
     // The number it gets: the page's, or the one typed, or one past the highest of its entity and task,
@@ -651,20 +651,20 @@ const WBFiling = (() => {
     let counted = null;
     // Another pass (not the main one) goes with a version rather than making one: that of the nearest
     // row above going to the same that is not this pass, else the newest there is if it lacks this pass.
-    // An extra goes with that of the nearest row above going to the same that is no extra, else the newest.
+    // An attachment goes with that of the nearest row above going to the same that is no attachment, else the newest.
     function number() {
       if (numberOf) return numberOf();
       if (own.number) return own.number;
       const { list, at } = around();
-      const key = [edits, list.length, at, entities().length, ent.value, taskIn.value, passName(), extra];
+      const key = [edits, list.length, at, entities().length, ent.value, taskIn.value, passName(), attachment];
       if (counted && same(counted.key, key)) return counted.n;
       const n = name();
       const t = taskName();
       const above = list.slice(0, Math.max(0, at)).filter((p) => p.name() === n && p.taskName() === t);
       const v = passName();
       let joins = null;
-      if (extra) {
-        const row = [...above].reverse().find((p) => !p.extraName());
+      if (attachment) {
+        const row = [...above].reverse().find((p) => !p.attachmentName());
         const head = headOf();
         counted = { key, n: row ? row.number() : head ? head.number : null };
         return counted.n;
@@ -675,7 +675,7 @@ const WBFiling = (() => {
         joins = row ? row.number() : head && !(head.look.passNames || []).includes(v) ? head.number : null;
       }
       let top = nextOf(have(n), t) - 1;
-      for (const p of above) if (!p.extraName()) top = Math.max(top, p.number());
+      for (const p of above) if (!p.attachmentName()) top = Math.max(top, p.number());
       counted = { key, n: joins || top + 1 };
       return counted.n;
     }
@@ -707,7 +707,7 @@ const WBFiling = (() => {
       readout.replaceChildren(...shown.map(note));
       const said = shown.map((c) => c.text).join('. ');
       info.className = `file-info${warns.length ? ' warn' : shown.length ? ' note' : ''}`;
-      info.innerHTML = shown.length ? WB.icon(warns.length ? 'warn' : shown.some((c) => c.extra) ? 'stack' : 'info', 15) : '';
+      info.innerHTML = shown.length ? WB.icon(warns.length ? 'warn' : shown.some((c) => c.attachment) ? 'stack' : 'info', 15) : '';
       info.hidden = !shown.length;
       info.title = said;
       info.setAttribute('aria-label', said ? `${warns.length ? 'To sort out' : 'Notes'}: ${said}` : '');
@@ -775,7 +775,7 @@ const WBFiling = (() => {
     // ---- typing through the line, as a date's parts are typed through
 
     // The parts typed in, in order, and the one after or before one.
-    const parts = () => [ent, useTasks && taskIn, verIn, passSel, extraIn].filter(Boolean);
+    const parts = () => [ent, useTasks && taskIn, verIn, passSel, attachmentIn].filter(Boolean);
     const step = (from, by) => parts()[parts().indexOf(from) + by] || null;
     const toEnd = (input) => {
       input.focus();
@@ -790,7 +790,7 @@ const WBFiling = (() => {
       const l = N.readLine(ent.value, lineContext());
       if (!l.entity || l.rest.length) return;
       const whole = !!have(l.entity) || !!l.short || N.typeByShape(l.entity) === 'shot';
-      const more = l.task !== undefined || l.number != null || !!l.pass || !!l.extra;
+      const more = l.task !== undefined || l.number != null || !!l.pass || !!l.attachment;
       if (!more && !whole) return;
       combo.hide();
       if (more) settle();
@@ -832,12 +832,12 @@ const WBFiling = (() => {
     });
     taskIn.addEventListener('blur', settleTask);
     taskIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') settleTask(); }, true);
-    // The version: a number, typed over what the page put in; a space goes on to the pass (or the extra).
+    // The version: a number, typed over what the page put in; a space goes on to the pass (or the attachment).
     verIn.addEventListener('focus', () => { if (verSeg.classList.contains('auto') && verIn.select) verIn.select(); });
     verIn.addEventListener('keydown', (e) => {
       if (e.key === ' ') {
         e.preventDefault();
-        (passSel || extraIn).focus();
+        (passSel || attachmentIn).focus();
       }
     });
     if (!numberOf) {
@@ -861,26 +861,26 @@ const WBFiling = (() => {
       });
     }
 
-    if (passSel) passSel.addEventListener('change', () => { changed(); setExtra(null); sync(); onChange(); });
+    if (passSel) passSel.addEventListener('change', () => { changed(); setAttachment(null); sync(); onChange(); });
     // Typed as it is, read as a label: the box keeps what was typed until it is left.
-    extraIn.addEventListener('input', () => {
+    attachmentIn.addEventListener('input', () => {
       changed();
-      extra = N.tokenize(extraIn.value) || null;
-      if (extra && passSel) passSel.value = '';
+      attachment = N.tokenize(attachmentIn.value) || null;
+      if (attachment && passSel) passSel.value = '';
       sync();
       onChange();
     });
-    extraIn.addEventListener('blur', () => { extraIn.value = extra || ''; });
+    attachmentIn.addEventListener('blur', () => { attachmentIn.value = attachment || ''; });
     sync();
     return Object.assign(self, {
       ent, task: taskIn, type, readout, sync, line: line_, version: verIn, name, have, taskName, settle, setLine, checks, ready, number,
-      typedNumber: () => (numberOf ? null : own.number), passSel, passName, setPass, extraName, setExtra,
+      typedNumber: () => (numberOf ? null : own.number), passSel, passName, setPass, attachmentName, setAttachment,
       // A number and pass read for it from elsewhere (a learned rule), as if typed on its line; `named`
       // when what it is was read from its own file's name so.
       take: (l) => {
         changed();
         if (l.named) fromName = true;
-        toLine({ number: l.number ?? null, pass: l.pass || null, extra: l.extra || null });
+        toLine({ number: l.number ?? null, pass: l.pass || null, attachment: l.attachment || null });
         sync();
       },
       // Its name was read from its own file's name, and has not been changed since.

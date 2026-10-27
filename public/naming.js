@@ -159,15 +159,15 @@
   }
 
   // What a line typed where a piece is filed says: which asset, set or shot, and any task, version number
-  // and pass after it ("kilo-0010 anim v12 bty"). A word after the version that is no pass is an extra of
-  // that version (`extra`: "kilo-0010 comp v12 light-b"). A whole file name pasted in is read as a file name is.
+  // and pass after it ("kilo-0010 anim v12 bty"). A word after the version that is no pass is an attachment of
+  // that version (`attachment`: "kilo-0010 comp v12 light-b"). A whole file name pasted in is read as a file name is.
   // A few short ways to say a shot, read against `ctx.seq` (the sequence being filed in): `20` is shot
   // 0020 of it, `+` its next shot (`kilo+` the next of kilo), and `.` whatever was filed last
   // (`ctx.last`). `task` is left undefined where the line does not say one, so that a task field keeps its
   // own; with `ctx.useTasks` false a line never says one. Words that are read as nothing are in `rest`.
   //   ctx: { names, entities, tasks, passes, usePasses, seq, last: { entity, task }, useTasks, rules }
   function readLine(text, ctx = {}) {
-    const out = { entity: null, task: undefined, number: null, pass: null, extra: null, short: null, rest: [] };
+    const out = { entity: null, task: undefined, number: null, pass: null, attachment: null, short: null, rest: [] };
     const raw = String(text || '').trim();
     if (!raw) return out;
     const useTasks = ctx.useTasks !== false;
@@ -182,7 +182,7 @@
         out.entity = p.entity || ruled.entity;
         if (useTasks && (p.task || (ruled && ruled.task))) out.task = p.task || ruled.task;
         out.pass = ctx.usePasses === false ? null : (ruled && ruled.pass) || (passes.includes(p.pass) ? p.pass : null);
-        if (p.pass && !out.pass) out.extra = p.pass;
+        if (p.pass && !out.pass) out.attachment = p.pass;
         out.number = (ruled ? ruled.number : p.hip) || null;
         if (ruled) out.short = 'read as names like it are';
         return out;
@@ -209,7 +209,7 @@
     } else out.entity = tokenize(first) || null;
     // A word after the name is a version number, a pass or a task, by what it is. Any other word is more
     // of the name ("living room", "set living room") for as long as that makes it more of a name: not
-    // once it is one the project has, or a shot. After the version, it is an extra.
+    // once it is one the project has, or a shot. After the version, it is an attachment.
     const tasks = ctx.tasks || [];
     const whole = () => !!out.entity && (names.includes(out.entity) || !!typeByShape(out.entity));
     const longer = (t) => {
@@ -227,7 +227,7 @@
       else if (more && longer(t)) {
         out.entity = tokenize(`${out.entity}-${t}`);
         continue;
-      } else if (out.number != null && !out.extra) out.extra = t;
+      } else if (out.number != null && !out.attachment) out.attachment = t;
       else if (useTasks && out.task === undefined && whole()) out.task = t;
       else out.rest.push(w);
       more = false;

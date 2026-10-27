@@ -8,8 +8,8 @@ const likely = require('../likely');
 const NAMES = ['kilo-0010', 'kilo-0020', 'kilo-0030', 'char-robot', 'set-living-room', 'ch01-0010'];
 const TASKS = ['model', 'rig', 'lookdev', 'dressing', 'layout', 'anim', 'fx', 'lighting'];
 const read = (text, ctx = {}) => {
-  const { short, rest, extra, ...out } = naming.readLine(text, { names: NAMES, tasks: TASKS, ...ctx });
-  return { ...out, ...(short && { short }), ...(rest.length && { rest }), ...(extra && { extra }) };
+  const { short, rest, attachment, ...out } = naming.readLine(text, { names: NAMES, tasks: TASKS, ...ctx });
+  return { ...out, ...(short && { short }), ...(rest.length && { rest }), ...(attachment && { attachment }) };
 };
 
 test('filing: a typed line says the name, and the task, version and pass after it', () => {
@@ -25,12 +25,12 @@ test('filing: a typed line says the name, and the task, version and pass after i
   assert.equal(read('char robot rig').entity, 'char-robot');
   // A file name pasted in is read as a file name is.
   assert.deepEqual(read('kilo-0010_anim_erik_v012_bty.mov'), { entity: 'kilo-0010', task: 'anim', number: 12, pass: 'bty' });
-  // A word after the version that is no pass is an extra of that version, typed or in a file's name.
-  assert.deepEqual(read('kilo-0010 anim v12 light-b'), { entity: 'kilo-0010', task: 'anim', number: 12, pass: null, extra: 'light-b' });
-  assert.deepEqual(read('kilo-0010 v12 light-b'), { entity: 'kilo-0010', task: undefined, number: 12, pass: null, extra: 'light-b' });
+  // A word after the version that is no pass is an attachment of that version, typed or in a file's name.
+  assert.deepEqual(read('kilo-0010 anim v12 light-b'), { entity: 'kilo-0010', task: 'anim', number: 12, pass: null, attachment: 'light-b' });
+  assert.deepEqual(read('kilo-0010 v12 light-b'), { entity: 'kilo-0010', task: undefined, number: 12, pass: null, attachment: 'light-b' });
   assert.deepEqual(read('kilo-0010 v12 anim'), { entity: 'kilo-0010', task: 'anim', number: 12, pass: null });
-  assert.deepEqual(read('kilo-0010 anim v12 bty', { usePasses: false }), { entity: 'kilo-0010', task: 'anim', number: 12, pass: null, extra: 'bty' });
-  assert.deepEqual(read('kilo-0010_comp_erik_v012_warm.png', { passes: ['cmp', 'bty'] }), { entity: 'kilo-0010', task: 'comp', number: 12, pass: null, extra: 'warm' });
+  assert.deepEqual(read('kilo-0010 anim v12 bty', { usePasses: false }), { entity: 'kilo-0010', task: 'anim', number: 12, pass: null, attachment: 'bty' });
+  assert.deepEqual(read('kilo-0010_comp_erik_v012_warm.png', { passes: ['cmp', 'bty'] }), { entity: 'kilo-0010', task: 'comp', number: 12, pass: null, attachment: 'warm' });
   // A project that does not count by task never reads one, and says what it did not read.
   assert.deepEqual(read('kilo-0010 anim', { useTasks: false }), { entity: 'kilo-0010', task: undefined, number: null, pass: null, rest: ['anim'] });
 });

@@ -3408,10 +3408,10 @@
     const passes = v.passes || (v.look && (v.look.passes || []).length ? [v.look.pass || 'main', ...v.look.passes.map((x) => x.pass)] : []);
     return passes.length ? passes.map((x) => x || 'main') : null;
   };
-  // A version's extras, by label: said only of one that has some.
-  const verExtras = (v) => {
-    const extras = v.extras || (v.look && v.look.extras ? v.look.extras.map((x) => x.label) : []);
-    return extras.length ? extras : null;
+  // A version's attachments, by label: said only of one that has some.
+  const verAttachments = (v) => {
+    const attachments = v.attachments || (v.look && v.look.attachments ? v.look.attachments.map((x) => x.label) : []);
+    return attachments.length ? attachments : null;
   };
 
   // A version as an object: its picture (scrubbed under the pointer, opened in the player with a click),
@@ -3423,7 +3423,7 @@
   // Listed on a playlist, `open` is how it opens (the playlist playing from it) and `menu` comes first in its menu.
   function versionObj(project, entity, v, { list = false, typeName = (t) => t, day = false, kinds = false, types = false, open, menu = [] } = {}) {
     const passes = verPasses(v);
-    const extras = verExtras(v);
+    const attachments = verAttachments(v);
     const about = [
       list && clock(v.createdAt),
       list && types && typeName(v.type),
@@ -3440,13 +3440,13 @@
         about,
         // Shown more than one way: its passes, the main one first.
         passes && `Passes: ${passes.join(', ')}`,
-        extras && `Extras: ${extras.join(', ')}`,
+        attachments && `Attachments: ${attachments.join(', ')}`,
         !list && `Filed ${ago(v.createdAt)}${v.createdBy ? ` by ${v.createdBy}` : ''}${v.hidden ? ' · archived' : ''}`,
         list && v.hidden && 'Archived',
         verBoards(v, 4),
       ],
       aside: [v.hidden && 'Archived', passes && el('span', { text: plural(passes.length, 'pass', 'passes'), title: `Passes: ${passes.join(', ')}` }),
-        extras && el('span', { text: plural(extras.length, 'extra'), title: `Extras: ${extras.join(', ')}` })].filter(Boolean),
+        attachments && el('span', { text: plural(attachments.length, 'attachment'), title: `Attachments: ${attachments.join(', ')}` })].filter(Boolean),
       cells: {
         kind: 'Version', where: entity.name,
         task: v.task || '—',
@@ -4340,20 +4340,20 @@
     const PHASE = { enc: 'Preparing', up: 'Uploading', strip: 'Building timeline', orig: 'Keeping the original' };
     const choiceOf = (r) => ({ name: r.fields.f.name(), task: r.fields.f.taskName() });
     const passOf = (r) => r.fields.f.passName();
-    const extraOf = (r) => r.fields.f.extraName();
+    const attachmentOf = (r) => r.fields.f.attachmentName();
     // The next number for a row: one past the highest its asset, set or shot and task has, counting the
     // rows above it still to be filed to the same. Another pass of the row just above (the same name and
     // task, from the same version of the file) is the same version, and has its number.
     // The row a pass goes with: another of the same asset, set or shot and task, from the same version of
     // the file (by the version its name says, when both say one), the main one first, above or below it.
     // Without a version in the names, the nearest row above going there.
-    // An extra goes with such a row too, one that is no extra, or else with the newest version there is.
+    // An attachment goes with such a row too, one that is no attachment, or else with the newest version there is.
     function partnerOf(r) {
       const pass = passOf(r);
-      const extra = extraOf(r);
-      if (!pass && !extra) return null;
+      const attachment = attachmentOf(r);
+      if (!pass && !attachment) return null;
       const { name, task } = choiceOf(r);
-      const others = rows.filter((o) => o !== r && o.fields && o.status !== 'failed' && (extra ? !extraOf(o) : passOf(o) !== pass && !extraOf(o))
+      const others = rows.filter((o) => o !== r && o.fields && o.status !== 'failed' && (attachment ? !attachmentOf(o) : passOf(o) !== pass && !attachmentOf(o))
         && choiceOf(o).name === name && choiceOf(o).task === task);
       if (r.parsed.hip != null) {
         const same = others.filter((o) => o.parsed.hip === r.parsed.hip);
@@ -4365,7 +4365,7 @@
     function nextNumber(r) {
       const { name, task } = choiceOf(r);
       const pass = passOf(r);
-      if (extraOf(r)) {
+      if (attachmentOf(r)) {
         const partner = partnerOf(r);
         if (partner) return partner.status === 'filed' && partner.version ? partner.version.number : Number(partner.fields.num.value) || nextNumber(partner);
         const head = known(name) && known(name).heads && known(name).heads[task || ''];
@@ -4387,8 +4387,8 @@
       for (const o of rows) {
         if (o === r) break;
         if (o.status === 'filed' || !o.fields) continue;
-        // A pass that goes with another row makes no version of its own, nor does an extra.
-        if ((passOf(o) && partnerOf(o)) || extraOf(o)) continue;
+        // A pass that goes with another row makes no version of its own, nor does an attachment.
+        if ((passOf(o) && partnerOf(o)) || attachmentOf(o)) continue;
         const c = choiceOf(o);
         if (c.name === name && c.task === task) n = Math.max(n, (Number(o.fields.num.value) || n) + 1);
       }
@@ -4522,8 +4522,8 @@
         // Another pass of the version the row above is: shown as going with it.
         const above = rows[rows.indexOf(r) - 1];
         const { task } = choiceOf(r);
-        r.node?.classList.toggle('with-above', !!(above && above.fields && (passOf(r) || extraOf(r)) && unfiled(r) && unfiled(above)
-          && choiceOf(above).name === name && choiceOf(above).task === task && (extraOf(r) || passOf(above) !== passOf(r)) && Number(above.fields.num.value) === Number(num.value)));
+        r.node?.classList.toggle('with-above', !!(above && above.fields && (passOf(r) || attachmentOf(r)) && unfiled(r) && unfiled(above)
+          && choiceOf(above).name === name && choiceOf(above).task === task && (attachmentOf(r) || passOf(above) !== passOf(r)) && Number(above.fields.num.value) === Number(num.value)));
         paintHead();
       };
       for (const input of [ent, task, num]) {
@@ -4610,7 +4610,7 @@
     async function unfileRow(r) {
       if (r.status !== 'filed' || !r.version) return;
       try {
-        await api('POST', `/api/versions/${r.version.id}/unfile`, { by: me.name, ...(r.version.filedExtra && { extra: r.version.filedExtra }) });
+        await api('POST', `/api/versions/${r.version.id}/unfile`, { by: me.name, ...(r.version.filedAttachment && { attachment: r.version.filedAttachment }) });
       } catch (err) {
         r.fields.undo.hidden = true;
         return fail(err);
@@ -4634,9 +4634,9 @@
       // A new sequence is said out loud once before it is made.
       if (!(await WBFiling.confirmSequences([r.fields.f], seqsAsked))) return;
       if (!canFile(r)) return;
-      // A pass or an extra goes with its version, so the row that makes that version is filed first, then this counts from it.
+      // A pass or an attachment goes with its version, so the row that makes that version is filed first, then this counts from it.
       const partner = partnerOf(r);
-      if (partner && !passOf(partner) && !extraOf(partner) && unfiled(partner) && (canFile(partner) || partner.inflight)) {
+      if (partner && !passOf(partner) && !attachmentOf(partner) && unfiled(partner) && (canFile(partner) || partner.inflight)) {
         await fileRow(partner);
         r.fields.sync();
       }
@@ -4652,10 +4652,10 @@
       paintRow(r);
       try {
         const pass = passOf(r);
-        const extra = extraOf(r);
-        const res = await api('POST', `/api/projects/${project.id}/versions`, { files: [{ look: r.look, entity, task, pass, ...(extra && { extra }), ...(Number.isSafeInteger(number) && number >= 1 && { number }) }], by: me.name });
+        const attachment = attachmentOf(r);
+        const res = await api('POST', `/api/projects/${project.id}/versions`, { files: [{ look: r.look, entity, task, pass, ...(attachment && { attachment }), ...(Number.isSafeInteger(number) && number >= 1 && { number }) }], by: me.name });
         const v = res.versions[0];
-        Object.assign(r, { status: 'filed', label: v.filedPass || v.filedExtra ? `${v.label} · ${v.filedPass || v.filedExtra}` : v.label, version: v, filedAt: Date.now() });
+        Object.assign(r, { status: 'filed', label: v.filedPass || v.filedAttachment ? `${v.label} · ${v.filedPass || v.filedAttachment}` : v.label, version: v, filedAt: Date.now() });
         store(`wb:file:${project.id}`, { entity: name, task });
         // What is filed now has its number: the rows still to go count on from it.
         cat = null;

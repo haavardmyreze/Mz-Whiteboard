@@ -14,14 +14,14 @@
 //     title: () => 'Standup',             what the bar calls where the media is; a click there closes
 //     media: () => [piece],               in the order the arrows take them:
 //                                         { id, type: 'image'|'video', src, prev?, pw?, th?, poster?, nw, nh,
-//                                           fps?, dur?, wf?, name?, label?, orig?, extras?, files?, ex? }
-//                                         A piece filed as a version may have its version's extras: `extras`
+//                                           fps?, dur?, wf?, name?, label?, orig?, attachments?, files?, att? }
+//                                         A piece filed as a version may have its version's attachments: `attachments`
 //                                         (its look's, each with its `label`), or `files` (the version's own
-//                                         file and its extras, each with `ex`, '' for its own) with `ex`
+//                                         file and its attachments, each with `att`, '' for its own) with `att`
 //                                         saying which of them the piece itself is. Any of them can be shown
-//                                         in its place (see "a version's extras" below).
+//                                         in its place (see "a version's attachments" below).
 //     notes: () => [comment],             { id, on, re?, text, name, color, t, done, at?, fr?, drawing?, edited?,
-//                                           guest?, obn?, ex? }, on any of the pieces (`ex`: on that extra of it)
+//                                           guest?, obn?, att? }, on any of the pieces (`att`: on that attachment of it)
 //     drawings: (id) => [stroke],         drawings on the piece that are not a comment's, if the host has them
 //     can: { read, write, draw, member }  functions: read comments, write them, draw, act as one of the team
 //     add(comment), set(id, patch), remove(ids)      what is said, done (the host keeps and shares it)
@@ -38,7 +38,7 @@
 // Whoever wants to know what the player does, whatever host it has, listens with `watch(fn)`: fn('open', id),
 // ('close'), ('media', id, playing, time), ('thread', id), ('laser', id, pts), ('zoom'), ('3d'), ('muted'),
 // ('3dload', k): the venue is loading, k of it come (null while that is not known), false once it is there,
-// ('file', id, ex): another of the open piece's files is shown in its place.
+// ('file', id, att): another of the open piece's files is shown in its place.
 //
 // Drawings are measured against the piece: its width is 1000, its height in proportion. A stroke is a
 // box (x, y, w, h), its points within the box from 0 to 1, how wide its line is along them (ws, times
@@ -642,7 +642,7 @@ const WBViewer = (() => {
     const nextBtn = el('button', { class: 'iconbtn', html: ICON.next, title: 'Next (→)', onclick: () => step(1) });
     const crumb = el('button', { class: 'bar-crumb', title: 'Back (Esc)', onclick: () => close() });
     const clearBtn = el('button', { class: 'iconbtn v-clear', html: ICON.eraser, title: 'Clear what is drawn on it (not what was drawn for a comment)', 'aria-label': 'Clear drawing', onclick: () => clearDrawing() });
-    const extras = el('span', { class: 'v-extras' });
+    const barSlot = el('span', { class: 'v-slot' });
     // On a window too narrow for the strip, the open piece's other files are a menu here (see showFile).
     const filesBtn = el('button', { class: 'iconbtn v-files', html: ICON.stack, title: 'Its other files ([ and ])', 'aria-label': 'Its other files', 'aria-haspopup': 'menu', hidden: true, onclick: () => filesMenu() });
     const dlBtn = el('button', { class: 'iconbtn', html: ICON.download, title: 'Download the original media', onclick: () => opts.download && open && opts.download(open) });
@@ -687,7 +687,7 @@ const WBViewer = (() => {
       el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' }), crumb,
       el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' }),
       el('span', { class: 'stepper' }, prevBtn, posEl, nextBtn),
-      nameEl, el('div', { class: 'spacer' }), venue3d.cams, clearBtn, filesBtn, extras, venue3d.dims,
+      nameEl, el('div', { class: 'spacer' }), venue3d.cams, clearBtn, filesBtn, barSlot, venue3d.dims,
       el('span', { class: 'bar-group' }, dlBtn, zoomBtn),
       WB.themeButton(), doneBtn);
     // On a phone there is no room for the panel's brush: the viewer's own few tools sit along the bottom.
@@ -748,30 +748,30 @@ const WBViewer = (() => {
       notes = can.read() ? (opts.notes() || []) : [];
     }
 
-    // ---- a version's extras
+    // ---- a version's attachments
     //
-    // A piece filed as a version may have more files than its own: the version's own file and its extras
-    // (full-size stills, another lighting), each `ex`, its label ('' for the version's own). One of them is
+    // A piece filed as a version may have more files than its own: the version's own file and its attachments
+    // (full-size stills, another lighting), each `att`, its label ('' for the version's own). One of them is
     // shown in the piece's place, chosen in the strip (where they are listed under the piece while it is
-    // open) or with [ and ]; the piece's own until then. What is said on one is said on it (`ex` on a
+    // open) or with [ and ]; the piece's own until then. What is said on one is said on it (`att` on a
     // comment), so each has its own comments and drawings.
-    const shownFile = new Map(); // piece id -> the `ex` of the file shown in its place
+    const shownFile = new Map(); // piece id -> the `att` of the file shown in its place
     const FILE_KEYS = [...MEDIA_KEYS, 'lo', 'full', 'shownPass'];
     const filesOf = (p) => (p.files && p.files.length > 1 ? p.files
-      : p.extras && p.extras.length ? [{ ex: '' }, ...p.extras.map((x) => ({ ...x, ex: x.label }))] : null);
+      : p.attachments && p.attachments.length ? [{ att: '' }, ...p.attachments.map((x) => ({ ...x, att: x.label }))] : null);
     function withFile(p) {
       const files = filesOf(p);
       if (!files) return p;
-      const own = p.ex || '';
+      const own = p.att || '';
       const want = shownFile.has(p.id) ? shownFile.get(p.id) : own;
-      const f = files.find((x) => x.ex === want);
+      const f = files.find((x) => x.att === want);
       // Its own (as the host gives it), the others in the version's order after it: the order they are
       // listed and stepped through.
-      const mine = { ex: own };
+      const mine = { att: own };
       for (const k of FILE_KEYS) if (p[k] !== undefined) mine[k] = p[k];
-      const fileList = [mine, ...files.filter((x) => x.ex !== own)];
-      if (!f || want === own) return { ...p, fileList, shownEx: own };
-      const out = { ...p, fileList, shownEx: want };
+      const fileList = [mine, ...files.filter((x) => x.att !== own)];
+      if (!f || want === own) return { ...p, fileList, shownAtt: own };
+      const out = { ...p, fileList, shownAtt: want };
       for (const k of FILE_KEYS) delete out[k];
       for (const k of MEDIA_KEYS) if (f[k] !== undefined) out[k] = f[k];
       out.src = WB.playable(f);
@@ -779,17 +779,17 @@ const WBViewer = (() => {
       return out;
     }
     // Whether a comment is on what is shown: the piece open, and the one of its files in its place.
-    const onShown = (c) => !!open && c.on === open.id && (c.ex || '') === (open.shownEx || '');
-    // What a file of a piece is called in the strip: an extra by its label, the version's own by what it is.
-    const fileName = (f) => f.ex || (f.type === 'video' ? 'Video' : f.type === 'image' ? 'Image' : 'Its own');
+    const onShown = (c) => !!open && c.on === open.id && (c.att || '') === (open.shownAtt || '');
+    // What a file of a piece is called in the strip: an attachment by its label, the version's own by what it is.
+    const fileName = (f) => f.att || (f.type === 'video' ? 'Video' : f.type === 'image' ? 'Image' : 'Its own');
     // Shows another of the open piece's files in its place. Two of one shape (one frame at another size,
     // another lighting of it) are looked at the same way: flipping between them keeps the view where it
     // was, zoomed in as far and on the same spot. One of another shape is fitted, as a piece opened is.
-    function showFile(ex, { followed = false } = {}) {
-      if (!open || !open.fileList || (open.shownEx || '') === ex || !open.fileList.some((f) => f.ex === ex)) return false;
+    function showFile(att, { followed = false } = {}) {
+      if (!open || !open.fileList || (open.shownAtt || '') === att || !open.fileList.some((f) => f.att === att)) return false;
       if (!followed) interact();
       const before = { s: cam.s, x: cam.x, y: cam.y, w: W, h: H, fitted: !zoomed() };
-      shownFile.set(open.id, ex);
+      shownFile.set(open.id, att);
       readHost();
       const now = pieces.find((p) => p.id === open.id);
       if (!now) return false;
@@ -808,27 +808,27 @@ const WBViewer = (() => {
         cam.y = before.y;
         applyCam();
       } else fit();
-      emit('file', open.id, ex);
+      emit('file', open.id, att);
       return true;
     }
     function filesMenu() {
       if (!open || !open.fileList) return;
       WB.menu(filesBtn, open.fileList.map((f) => {
-        const on = f.ex === (open.shownEx || '');
+        const on = f.att === (open.shownAtt || '');
         return el('button', {
           type: 'button', class: `menu-item menu-check${on ? ' on' : ''}`, role: 'menuitemradio', 'aria-checked': String(on),
           onclick: (e) => {
             e.preventDefault();
             WB.closeMenus();
-            showFile(f.ex);
+            showFile(f.att);
           },
         }, el('span', { class: 'menu-tick', html: on ? ICON.check : '' }), el('span', { text: fileName(f) }));
       }));
     }
     function stepFile(dir) {
       if (!open || !open.fileList) return;
-      const list = open.fileList.map((f) => f.ex);
-      const i = list.indexOf(open.shownEx || '');
+      const list = open.fileList.map((f) => f.att);
+      const i = list.indexOf(open.shownAtt || '');
       showFile(list[(((i + dir) % list.length) + list.length) % list.length]);
     }
 
@@ -836,7 +836,7 @@ const WBViewer = (() => {
     function show(id, { followed = false, thread = null } = {}) {
       // A thread picked is shown on the file of the piece it was written on.
       const about = thread && (opts.notes() || []).find((c) => c.id === thread);
-      if (about && about.on === id) shownFile.set(id, about.ex || '');
+      if (about && about.on === id) shownFile.set(id, about.att || '');
       readHost();
       const piece = pieces.find((p) => p.id === id);
       if (!piece) return false;
@@ -973,8 +973,8 @@ const WBViewer = (() => {
     let three = null; // the page's 3D view, while it is lent to this player (see venue)
     let busy3d = false; // following somebody into 3D (see follow3d)
     let next3d = null;
-    // An extra shown in a piece's place is looked at as it is, never on the venue.
-    const has3d = () => !!(opts.view3d && opts.view3d.model) && (!opts.can3d || (!!open && opts.can3d(open))) && !(open && (open.shownEx || '') !== (open.ex || ''));
+    // An attachment shown in a piece's place is looked at as it is, never on the venue.
+    const has3d = () => !!(opts.view3d && opts.view3d.model) && (!opts.can3d || (!!open && opts.can3d(open))) && !(open && (open.shownAtt || '') !== (open.att || ''));
     // A piece that can be seen on the model open, the venue is fetched and made ready a moment after, so the
     // switch is there at once (the piece's own picture comes first).
     function warm3d() {
@@ -1127,8 +1127,8 @@ const WBViewer = (() => {
     function paintAll() {
       if (!open) return;
       // Shown one of several ways: which, since a shot without the pass chosen shows its main one. An
-      // extra shown is said by its label.
-      const way = open.shownEx || (open.passNames && open.passNames.length > 1 ? open.shownPass || 'main' : '');
+      // attachment shown is said by its label.
+      const way = open.shownAtt || (open.passNames && open.passNames.length > 1 ? open.shownPass || 'main' : '');
       nameEl.textContent = [open.label || open.name || (open.type === 'video' ? 'Video' : 'Image'), way].filter(Boolean).join(' · ');
       // A version's file name is still there, on a hover over its label.
       nameEl.title = open.label && open.name && open.name !== open.label ? open.name : '';
@@ -1312,14 +1312,14 @@ const WBViewer = (() => {
       for (const c of roots()) {
         if (c.done) continue;
         openCount.set(c.on, (openCount.get(c.on) || 0) + 1);
-        if (c.on === open.id) fileCount.set(c.ex || '', (fileCount.get(c.ex || '') || 0) + 1);
+        if (c.on === open.id) fileCount.set(c.att || '', (fileCount.get(c.att || '') || 0) + 1);
       }
       // The piece itself is the first of its files: its own, in the strip as a piece always is. The rest
       // are under it while it is open, set in under its number.
       const files = open.fileList ? open.fileList.slice(1) : [];
       const ownOf = (p) => (p.fileList ? { ...p, ...p.fileList[0] } : p);
       const sig = [...pieces.map((p) => `${p.id} ${stillOf(ownOf(p))} ${openCount.get(p.id) || 0} ${p.label || p.name || ''}`),
-        open.id, fileCount.get(open.fileList ? open.fileList[0].ex : '') || 0, ...files.map((f) => `${f.ex} ${stillOf(f)} ${fileCount.get(f.ex) || 0}`)].join('|');
+        open.id, fileCount.get(open.fileList ? open.fileList[0].att : '') || 0, ...files.map((f) => `${f.att} ${stillOf(f)} ${fileCount.get(f.att) || 0}`)].join('|');
       const thumb = (p, still, n) => el('span', { class: 'fs-thumb', style: { aspectRatio: String(clamp((p.nw || 16) / (p.nh || 9), 0.6, 2.4)) } },
         still && el('img', { src: still, alt: '', decoding: 'async', draggable: 'false' }),
         p.type === 'video' && el('span', { class: 'fs-badge', html: ICON.play }),
@@ -1333,21 +1333,21 @@ const WBViewer = (() => {
         film.replaceChildren(...pieces.flatMap((p, i) => {
           // An open piece showing another of its files keeps its own still here.
           const own = ownOf(p);
-          const n = p.id === open.id && p.fileList ? fileCount.get(p.fileList[0].ex) : openCount.get(p.id);
+          const n = p.id === open.id && p.fileList ? fileCount.get(p.fileList[0].att) : openCount.get(p.id);
           const kind = p.type === 'video' ? 'Video' : 'Image';
-          const item = el('button', { class: 'fs-item', 'data-id': p.id, title: p.label || p.name || kind, onclick: () => (p.id === open.id && p.fileList ? showFile(p.fileList[0].ex) : show(p.id)) },
+          const item = el('button', { class: 'fs-item', 'data-id': p.id, title: p.label || p.name || kind, onclick: () => (p.id === open.id && p.fileList ? showFile(p.fileList[0].att) : show(p.id)) },
             el('span', { class: 'fs-num', text: String(i + 1) }),
             thumb(own, stillOf(own), n),
             el('span', { class: 'fs-label' },
               el('span', { class: 'fs-name', text: p.label || p.name || kind }),
               el('span', { class: 'fs-kind', text: p.fileList ? fileName(p.fileList[0]) : kindOf(p) })));
           if (p.id !== open.id || !files.length) return [item];
-          return [item, ...files.map((f) => el('button', { class: 'fs-item fs-sub', 'data-id': p.id, 'data-ex': f.ex, title: fileName(f), onclick: () => showFile(f.ex) },
+          return [item, ...files.map((f) => el('button', { class: 'fs-item fs-sub', 'data-id': p.id, 'data-att': f.att, title: fileName(f), onclick: () => showFile(f.att) },
             el('span', { class: 'fs-num' }),
-            thumb(f, stillOf(f), fileCount.get(f.ex)),
+            thumb(f, stillOf(f), fileCount.get(f.att)),
             el('span', { class: 'fs-label' },
               el('span', { class: 'fs-name', text: fileName(f) }),
-              el('span', { class: 'fs-kind', text: f.ex ? kindOf(f) : 'Its own file' }))))];
+              el('span', { class: 'fs-kind', text: f.att ? kindOf(f) : 'Its own file' }))))];
         }));
         recentre = true;
       }
@@ -1357,8 +1357,8 @@ const WBViewer = (() => {
       prevBtn.disabled = nextBtn.disabled = pieces.length < 2;
       for (const node of film.children) {
         // Of a piece with more files than its own, the one shown; of any other, the piece.
-        const current = node.dataset.id === open.id && (open.fileList ? (node.dataset.ex ?? open.fileList[0].ex) === (open.shownEx || '') : true);
-        node.classList.toggle('holds', node.dataset.id === open.id && !current && node.dataset.ex === undefined);
+        const current = node.dataset.id === open.id && (open.fileList ? (node.dataset.att ?? open.fileList[0].att) === (open.shownAtt || '') : true);
+        node.classList.toggle('holds', node.dataset.id === open.id && !current && node.dataset.att === undefined);
         if (current === node.classList.contains('current') && !(current && recentre)) continue;
         node.classList.toggle('current', current);
         if (!current) {
@@ -2451,7 +2451,7 @@ const WBViewer = (() => {
       const rootNote = c && (c.re ? noteById(c.re) : c);
       if (!rootNote) return;
       if (rootNote.on !== open.id) return void show(rootNote.on, { thread: rootNote.id });
-      if ((rootNote.ex || '') !== (open.shownEx || '')) showFile(rootNote.ex || '');
+      if ((rootNote.att || '') !== (open.shownAtt || '')) showFile(rootNote.att || '');
       // It is seen from where it was made: in 3D from the place it was made at, or, drawn on the picture, on
       // the picture.
       if (rootNote.pov && has3d()) {
@@ -2473,7 +2473,7 @@ const WBViewer = (() => {
       const text = composer.value.trim();
       if (!text || !open || !can.write()) return;
       const drawn = draft && draft.on === open.id && draft.strokes.length ? draft : null;
-      const c = { id: drawn ? drawn.id : uid(), type: 'comment', text: text.slice(0, 2000), name: me().name, color: me().color, t: Date.now(), done: false, on: open.id, ...(open.shownEx && { ex: open.shownEx }) };
+      const c = { id: drawn ? drawn.id : uid(), type: 'comment', text: text.slice(0, 2000), name: me().name, color: me().color, t: Date.now(), done: false, on: open.id, ...(open.shownAtt && { att: open.shownAtt }) };
       if (drawn) {
         if (drawn.at != null) c.at = drawn.at;
         if (drawn.fr != null) c.fr = drawn.fr;
@@ -2601,7 +2601,7 @@ const WBViewer = (() => {
         step(k === 'arrowright' || k === 'arrowdown' ? 1 : -1);
         return done();
       }
-      // A piece's other files (its version's extras) have keys of their own, so the arrows still go
+      // A piece's other files (its version's attachments) have keys of their own, so the arrows still go
       // from piece to piece.
       if ((e.key === '[' || e.key === ']') && open.fileList) {
         stepFile(e.key === ']' ? 1 : -1);
@@ -2681,9 +2681,9 @@ const WBViewer = (() => {
       current: () => (open ? open.id : null),
       // Which of the open piece's files is shown in its place ('' its version's own; see showFile), and
       // the one somebody followed shows.
-      file: () => (open ? open.shownEx || '' : null),
-      followFile: (ex) => !!open && showFile(ex, { followed: true }),
-      extras,
+      file: () => (open ? open.shownAtt || '' : null),
+      followFile: (att) => !!open && showFile(att, { followed: true }),
+      barSlot,
       startComment,
       typeComment,
       // Where a comment was left: what it is on opens, on the comment's frame, with its thread picked.
@@ -2705,7 +2705,7 @@ const WBViewer = (() => {
         }
         if (open && thread !== undefined) {
           const c = typeof thread === 'string' ? noteById(thread) : null;
-          if (c && !c.re && c.on === open.id && (c.ex || '') !== (open.shownEx || '')) showFile(c.ex || '', { followed: true });
+          if (c && !c.re && c.on === open.id && (c.att || '') !== (open.shownAtt || '')) showFile(c.att || '', { followed: true });
           const next = c && !c.re && onShown(c) ? c.id : null;
           if (next !== activeThread) {
             activeThread = next;
@@ -3014,7 +3014,7 @@ const WBViewer = (() => {
       const p = pieces.find((x) => x.id === id);
       const names = p ? p.passNames : [];
       const list = page.project && page.project.settings && Array.isArray(page.project.settings.passes) ? page.project.settings.passes : null;
-      viewer.extras.replaceChildren(...(names.length > 1 && !follow ? [optionsButton(() => [passGroup(names, p.shownPass, (name) => {
+      viewer.barSlot.replaceChildren(...(names.length > 1 && !follow ? [optionsButton(() => [passGroup(names, p.shownPass, (name) => {
         pass = name;
         WB.store(passKey, name);
         pieces = piecesIn(in3d ? preview3d.pass : pass);
@@ -3056,7 +3056,7 @@ const WBViewer = (() => {
       onOpen: showPicker,
       onClose: () => {
         room.close();
-        viewer.extras.replaceChildren();
+        viewer.barSlot.replaceChildren();
         onClose();
       },
     });

@@ -1747,10 +1747,10 @@
       id: it.id, type: it.type, src: WB.playable(it), full: it.src, prev: it.prev, pw: it.pw, th: it.th, poster: it.poster, nw: it.nw || it.w, nh: it.nh || it.h,
       fps: it.fps, dur: it.dur, wf: it.wf, name: it.name, orig: it.orig, label: it.ver && versionInfo.get(it.ver) ? versionInfo.get(it.ver).label : null,
     };
-    // A version with extras: all its files, any of which the player can show in the piece's place, and
+    // A version with attachments: all its files, any of which the player can show in the piece's place, and
     // which of them the piece itself is.
     const files = it.ver && versionInfo.get(it.ver) && versionInfo.get(it.ver).files;
-    if (files) Object.assign(piece, { files, ex: it.ex || '' });
+    if (files) Object.assign(piece, { files, att: it.att || '' });
     const look = shown3d && look3dOf(it);
     if (!look || look.src === it.src || look.type !== it.type) return piece;
     const { pass, ...media } = look;
@@ -1773,14 +1773,14 @@
     erase: (ids) => exec(delOps(ids)),
     clear: (id) => exec([{ t: 'del', ids: [...items.values()].filter((it) => it.type === 'stroke' && it.pid === id).map((it) => it.id) }]),
     // Another of its version's files shown in the piece's place comes down as that file.
-    download: viewOnly ? null : (p) => ((p.shownEx || '') !== (p.ex || '') ? saveAs(p.orig || p.full || p.src, (p.name || p.shownEx).replace(/\.[^.]+$/, '') + (/\.[a-z0-9]+$/i.exec(p.orig || p.full || p.src)?.[0] || '')) : downloadPiece(p.id)),
+    download: viewOnly ? null : (p) => ((p.shownAtt || '') !== (p.att || '') ? saveAs(p.orig || p.full || p.src, (p.name || p.shownAtt).replace(/\.[^.]+$/, '') + (/\.[a-z0-9]+$/i.exec(p.orig || p.full || p.src)?.[0] || '')) : downloadPiece(p.id)),
     names: () => [...peers.values()].filter((p) => !p.viewer).map((p) => ({ name: p.name, color: p.color })),
     toast,
     onOpen: (id) => {
       openId = id;
       finishEdit();
       setSel([]);
-      viewer.extras.append($('peers'));
+      viewer.barSlot.append($('peers'));
       renderPanel();
       sendP({ f: id });
       queueAhead();
@@ -4774,24 +4774,24 @@
       dlg.remove();
       if (!confirmed) return;
       // A version number typed on a row's line goes with it, and so does the version another pass goes
-      // with; otherwise the next. Its pass is said (null for the main one), and so is an extra's label: the
+      // with; otherwise the next. Its pass is said (null for the main one), and so is an attachment's label: the
       // server finds the version it goes with as the row does, unless a number is typed.
       const files = rows.map((row) => ({
         board: boardId, item: row.it.id, entity: row.f.entity(), task: row.f.taskName(), pass: row.f.passName(),
-        ...(row.f.extraName() && { extra: row.f.extraName() }),
+        ...(row.f.attachmentName() && { attachment: row.f.attachmentName() }),
         ...((row.f.typedNumber() || row.f.passName()) && { number: row.f.number() }),
       }));
-      const said = new Map(rows.map((row) => [row.it.id, { entity: nameOf(row), task: row.f.taskName(), number: row.f.typedNumber(), pass: row.f.passName() || row.f.extraName() }]));
+      const said = new Map(rows.map((row) => [row.it.id, { entity: nameOf(row), task: row.f.taskName(), number: row.f.typedNumber(), pass: row.f.passName() || row.f.attachmentName() }]));
       try {
         const res = await WB.api('POST', `/api/projects/${project.id}/versions`, { files, by: me.name });
         const last = rows[rows.length - 1];
         store(`wb:file:${project.id}`, { entity: nameOf(last), task: last.f.taskName() });
         learnVersions(res.versions);
-        // Taken back as if it had not been: every one of them, or none. The extras first, then what they went with.
+        // Taken back as if it had not been: every one of them, or none. The attachments first, then what they went with.
         const unfile = async () => {
-          for (const v of [...res.versions].sort((a, b) => !!b.filedExtra - !!a.filedExtra)) await WB.api('POST', `/api/versions/${v.id}/unfile`, { by: me.name, ...(v.filedExtra && { extra: v.filedExtra }) });
+          for (const v of [...res.versions].sort((a, b) => !!b.filedAttachment - !!a.filedAttachment)) await WB.api('POST', `/api/versions/${v.id}/unfile`, { by: me.name, ...(v.filedAttachment && { attachment: v.filedAttachment }) });
         };
-        const named = (v) => (v.filedExtra ? `${v.label} · ${v.filedExtra}` : v.label);
+        const named = (v) => (v.filedAttachment ? `${v.label} · ${v.filedAttachment}` : v.label);
         const filed = toast(res.versions.length === 1 ? `Filed as ${named(res.versions[0])}` : `Filed ${res.versions.length}: ${res.versions.map(named).join(', ')}`, {
           ms: 20000, key: 'filed',
           action: [

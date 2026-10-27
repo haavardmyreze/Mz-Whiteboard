@@ -2273,8 +2273,8 @@ a.seq-row-head:hover { color: var(--text); }
 .v-ink g.callout { filter: drop-shadow(0 0 4px #fff) drop-shadow(0 0 14px #fff); transition: filter 0.2s ease-out; }
 .v-laser { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .v-bar .v-clear[hidden], .v-bar [hidden] { display: none; }
-.v-extras { display: flex; align-items: center; }
-.v-extras:empty { display: none; }
+.v-slot { display: flex; align-items: center; }
+.v-slot:empty { display: none; }
 .viewer .v-film, .viewer .v-timeline, .viewer .v-panel, .viewer .v-bar { z-index: 2; }
 .viewer .v-fstab, .viewer .fs-grip, .viewer .v-cptab { z-index: 3; }
 #helppanel { z-index: 46; }
@@ -2289,7 +2289,7 @@ a.seq-row-head:hover { color: var(--text); }
   .v-tools .iconbtn.active { background: var(--ink-bg); color: var(--ink-fg); }
   .viewer .v-timeline { bottom: calc(var(--tbh) + 14px + env(safe-area-inset-bottom)); }
   .v-bar { gap: 4px; padding: 0 8px; }
-  .v-bar .wordmark, .v-bar .bar-slash, .v-bar .bar-crumb, .v-bar .themebtn, .v-bar .v-clear, .v-extras { display: none !important; }
+  .v-bar .wordmark, .v-bar .bar-slash, .v-bar .bar-crumb, .v-bar .themebtn, .v-bar .v-clear, .v-slot { display: none !important; }
   .v-name { flex: 1 1 0; }
 }
 
@@ -2370,7 +2370,7 @@ button.imp-row:hover { background: var(--hover); }
 @media (max-width: 699px) { .ent-top { grid-template-columns: minmax(0, 1fr); } .ent-top > .btn { order: 0; justify-self: start; } }
 
 /* What the host puts in the player's bar: which view of a version, say. */
-.v-extras { display: inline-flex; align-items: center; gap: 6px; }
+.v-slot { display: inline-flex; align-items: center; gap: 6px; }
 
 /* Picking assets, sets and shots to change together, and the bar that says how many. */
 .pick-toggle.on, .bpick-toggle.on { border-color: transparent; background: var(--ink-bg); color: var(--ink-fg); }
@@ -2885,7 +2885,7 @@ body.focus .present-pill { left: calc((100vw + var(--film, 0px) - var(--side, 0p
 /* A player that only follows somebody presenting: nothing in it is to be steered, bar folding the strip
    and the comments away, and reading the comments. */
 .viewer.locked :is(.v-stage, .v-timeline, .v-film, .fs-grip, .cp-list > *) { pointer-events: none; }
-.viewer.locked :is(.bar-crumb, .bar-slash, .stepper, .v-clear, .v-dims, .v-cams, .v-extras, .bar-group, .themebtn, .v-tools, .cp-compose, .cp-reply) { display: none !important; }
+.viewer.locked :is(.bar-crumb, .bar-slash, .stepper, .v-clear, .v-dims, .v-cams, .v-slot, .bar-group, .themebtn, .v-tools, .cp-compose, .cp-reply) { display: none !important; }
 .viewer.locked .v-bar > .btn.primary { display: none; }
 .viewer.locked .brand { pointer-events: none; }
 .viewer.locked .tl-loop, .viewer.locked .tl-step { visibility: hidden; }

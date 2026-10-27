@@ -781,14 +781,14 @@ function openStore(dataDir) {
   const NEWEST_FIRST = 'v.created_at DESC, v.number DESC, v.id DESC';
 
   // What a card shows of a version: enough to scrub through it, or play it. A version shown more than one
-  // way (its views: the unwrapped picture and how it looks projected, say) has each of them, the same way.
+  // way (its passes: the unwrapped picture and how it looks projected, say) has each of them, the same way.
   const glanceLook = (l) => {
-    const { type, src, poster, th, dur, fps, nw, nh, view } = l;
-    return { type, src, poster, th, dur, fps, nw, nh, ...(view && { view }) };
+    const { type, src, poster, th, dur, fps, nw, nh, pass } = l;
+    return { type, src, poster, th, dur, fps, nw, nh, ...(pass && { pass }) };
   };
   const glanceOf = (v) => {
     const look = glanceLook(v.look);
-    if (Array.isArray(v.look.views) && v.look.views.length) look.views = v.look.views.map(glanceLook);
+    if (Array.isArray(v.look.passes) && v.look.passes.length) look.passes = v.look.passes.map(glanceLook);
     return { id: v.id, task: v.task, number: v.number, kind: v.kind, at: v.createdAt, look };
   };
   // What the cards of some entities show, in one go rather than one entity at a time: how many versions
@@ -829,8 +829,8 @@ function openStore(dataDir) {
   // the newest version of each task ({ task (or ''): { id, number, thumb, at, look } }), with enough of
   // its look to play it beside a piece about to follow it, and to say how their lengths differ.
   const headLook = (raw) => {
-    const { type, src, lo, poster, dur, fps, nw, nh, view, views, extras } = JSON.parse(raw);
-    return { type, src, ...(lo && { lo }), poster, dur, fps, nw, nh, viewNames: [view || '', ...(views || []).map((x) => x.view)], extraNames: (extras || []).map((x) => x.label) };
+    const { type, src, lo, poster, dur, fps, nw, nh, pass, passes, extras } = JSON.parse(raw);
+    return { type, src, ...(lo && { lo }), poster, dur, fps, nw, nh, passNames: [pass || '', ...(passes || []).map((x) => x.pass)], extraNames: (extras || []).map((x) => x.label) };
   };
   const entities = (projectId) => {
     const tops = new Map();
@@ -1021,16 +1021,16 @@ function openStore(dataDir) {
       return { ok: true, version: version(id) };
     });
   }
-  // Another view of a version (see glanceOf): kept with its look, under its name.
+  // Another pass of a version (see glanceOf): kept with its look, under its name.
   const putLook = db.prepare('UPDATE versions SET look = ? WHERE id = ?');
   const setLook = (id, look) => putLook.run(JSON.stringify(look), id).changes > 0;
-  // The versions whose look (or one of its views) shows an uploaded file, deleted ones too.
+  // The versions whose look (or one of its passes) shows an uploaded file, deleted ones too.
   const readWithFile = db.prepare('SELECT id FROM versions WHERE look LIKE ?');
   const versionsWithFile = (src) => readWithFile.all(`%${JSON.stringify(src).slice(1, -1)}%`).map((r) => r.id);
-  function addView(id, look) {
+  function addPass(id, look) {
     const v = version(id);
     if (!v) return null;
-    putLook.run(JSON.stringify({ ...v.look, views: [...(v.look.views || []), look] }), id);
+    putLook.run(JSON.stringify({ ...v.look, passes: [...(v.look.passes || []), look] }), id);
     return version(id);
   }
   // An extra of a version (see cleanLook in server.js), under its label, with when it came and who
@@ -1043,12 +1043,12 @@ function openStore(dataDir) {
     putLook.run(JSON.stringify({ ...v.look, extras: [...(v.look.extras || []), { ...look, at: Date.now(), ...(by && { by }), ...(board && { board }) }] }), id);
     return version(id);
   }
-  // The names of the views a project's versions are shown in, each once.
-  const readViews = db.prepare(`SELECT DISTINCT name FROM (
-      SELECT json_extract(v.look, '$.view') AS name FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ? AND v.deleted_at IS NULL
-      UNION SELECT json_extract(j.value, '$.view') FROM versions v JOIN entities e ON e.id = v.entity_id, json_each(v.look, '$.views') j WHERE e.project_id = ? AND v.deleted_at IS NULL
+  // The names of the passes a project's versions are shown in, each once.
+  const readPasses = db.prepare(`SELECT DISTINCT name FROM (
+      SELECT json_extract(v.look, '$.pass') AS name FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ? AND v.deleted_at IS NULL
+      UNION SELECT json_extract(j.value, '$.pass') FROM versions v JOIN entities e ON e.id = v.entity_id, json_each(v.look, '$.passes') j WHERE e.project_id = ? AND v.deleted_at IS NULL
     ) WHERE name IS NOT NULL ORDER BY name`);
-  const projectViews = (projectId) => readViews.all(projectId, projectId).map((r) => r.name);
+  const projectPasses = (projectId) => readPasses.all(projectId, projectId).map((r) => r.name);
   const putGone = db.prepare('UPDATE versions SET deleted_at = ? WHERE id = ?');
   const deleteVersion = (id) => putGone.run(Date.now(), id).changes > 0;
   const restoreVersion = (id) => putGone.run(null, id).changes > 0;
@@ -1234,7 +1234,7 @@ function openStore(dataDir) {
     saveBoard, boards, loadItems, summaries, deleteBoard, deletedBoards, restoreBoard, folders, saveFolders, addMedia, media, setMediaCrc, logActivity, activity,
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
     transaction, entities, streamHeads, findVersions, projectFilers, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, happenings, threadNames, people, entityCount,
-    addVersion, addView, addExtra, projectViews, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
+    addVersion, addPass, addExtra, projectPasses, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
     note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesBesides, unfileVersion, notesOnExtra, unfileExtra, notesForBoard, notesOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,

@@ -202,7 +202,7 @@ const WBViewer = (() => {
   // made ready ahead, and the page's one 3D view (view3d.js), lent to whichever of them is showing it, as a
   // browser keeps only so many drawing contexts going. What a host does itself is say what it has and lay out
   // its own picture: `host` gives
-  //   setting()      the project's 3D setting ({ model, screen, camera, view }), or null
+  //   setting()      the project's 3D setting ({ model, screen, camera, pass }), or null
   //   can()          whether what it has open can be seen on the venue now
   //   isOn()         whether it shows the venue
   //   toggle(on)     shows the venue (having asked `ready()` for the view) or its own picture: the switch,
@@ -756,7 +756,7 @@ const WBViewer = (() => {
     // open) or with [ and ]; the piece's own until then. What is said on one is said on it (`ex` on a
     // comment), so each has its own comments and drawings.
     const shownFile = new Map(); // piece id -> the `ex` of the file shown in its place
-    const FILE_KEYS = [...MEDIA_KEYS, 'lo', 'full', 'shownView'];
+    const FILE_KEYS = [...MEDIA_KEYS, 'lo', 'full', 'shownPass'];
     const filesOf = (p) => (p.files && p.files.length > 1 ? p.files
       : p.extras && p.extras.length ? [{ ex: '' }, ...p.extras.map((x) => ({ ...x, ex: x.label }))] : null);
     function withFile(p) {
@@ -1102,12 +1102,12 @@ const WBViewer = (() => {
         const now = pieces.find((p) => p.id === open.id);
         if (!now) return void close();
         // Another file under the same piece (a newer version swapped in, a video given its original): shown afresh.
-        // Another view of the same version is the same moment seen another way: it stays on that moment.
+        // Another pass of the same version is the same moment seen another way: it stays on that moment.
         if (now.src !== open.src || now.type !== open.type) {
           const was = videoOpen();
           // The same video in another copy (its phone copy arriving) stays on its moment, as another view does.
           const sameVideo = now.type === open.type && !!now.full && now.full === open.full;
-          const keepAt = was && (now.shownView !== open.shownView || sameVideo) ? whereOf(was) : null;
+          const keepAt = was && (now.shownPass !== open.shownPass || sameVideo) ? whereOf(was) : null;
           leavePiece(open);
           open = now;
           mount(now);
@@ -1126,9 +1126,9 @@ const WBViewer = (() => {
 
     function paintAll() {
       if (!open) return;
-      // Shown one of several ways: which, since a shot without the view chosen shows its main one. An
+      // Shown one of several ways: which, since a shot without the pass chosen shows its main one. An
       // extra shown is said by its label.
-      const way = open.shownEx || (open.viewNames && open.viewNames.length > 1 ? open.shownView || 'main' : '');
+      const way = open.shownEx || (open.passNames && open.passNames.length > 1 ? open.shownPass || 'main' : '');
       nameEl.textContent = [open.label || open.name || (open.type === 'video' ? 'Video' : 'Image'), way].filter(Boolean).join(' · ');
       // A version's file name is still there, on a hover over its label.
       nameEl.title = open.label && open.name && open.name !== open.label ? open.name : '';
@@ -2833,28 +2833,28 @@ const WBViewer = (() => {
     };
   }
 
-  // ---------------------------------------------------------------- a version's views
+  // ---------------------------------------------------------------- a version's passes
   //
   // A version may be shown more than one way: the unwrapped picture (cmp, vr) and how it looks projected
   // (bty, or bty-left, top, side...), each its own file. Its look is the main one, with the others in
-  // `views`. Most have none, and then nothing here is ever seen.
+  // `passes`. Most have none, and then nothing here is ever seen.
   const MEDIA_KEYS = ['type', 'src', 'orig', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'wf', 'name'];
-  // Its views' names, the main one first ('' when the main one has none).
-  const viewsOf = (look) => [look.view || '', ...(look.views || []).map((v) => v.view)];
-  // The look of a version as seen in `view`: that view's file, or the main one's when it has none of that
-  // name. `shownView` says which it is.
-  function inView(look, view) {
-    const { views, ...main } = look;
-    const pick = view && view !== main.view && (views || []).find((v) => v.view === view);
-    if (!pick) return { ...main, shownView: main.view || '', viewNames: viewsOf(look) };
+  // Its passes' names, the main one first ('' when the main one has none).
+  const passesOf = (look) => [look.pass || '', ...(look.passes || []).map((v) => v.pass)];
+  // The look of a version as seen in `pass`: that pass's file, or the main one's when it has none of that
+  // name. `shownPass` says which it is.
+  function inPass(look, pass) {
+    const { passes, ...main } = look;
+    const pick = pass && pass !== main.pass && (passes || []).find((v) => v.pass === pass);
+    if (!pick) return { ...main, shownPass: main.pass || '', passNames: passesOf(look) };
     const out = { ...main };
     for (const k of MEDIA_KEYS) delete out[k];
-    return { ...out, ...pick, name: pick.name || main.name, shownView: pick.view, viewNames: viewsOf(look) };
+    return { ...out, ...pick, name: pick.name || main.name, shownPass: pick.pass, passNames: passesOf(look) };
   }
-  // A view's name as shown: the main one (a version's own file, with no view named) by the name the
-  // project gives its main view, if it has named its views.
-  const viewLabel = (name, list) => name || (list && list[0]) || 'Main';
-  // The choices of what the player shows (which view), as one button in the bar that opens them as a menu,
+  // A pass's name as shown: the main one (a version's own file, with no pass named) by the name the
+  // project gives its main pass, if it has named its passes.
+  const passLabel = (name, list) => name || (list && list[0]) || 'Main';
+  // The choices of what the player shows (which pass), as one button in the bar that opens them as a menu,
   // rather than a row of dropdowns. `groups()` says them as they are now: [{ name, value, def, options:
   // [[value, label]], pick(value) }]; a group with one option is no choice and is left out. The button
   // counts the groups not at their default, and its tip says what each is at.
@@ -2890,12 +2890,12 @@ const WBViewer = (() => {
     paint();
     return btn;
   }
-  // Which view of each version: a group for optionsButton (a way of seeing, not a filter, so not counted).
-  // `list` is the project's views as its settings name them, the main one first: they are shown in its order.
-  const viewGroup = (names, value, pick, list = null) => {
+  // Which pass of each version: a group for optionsButton (a way of seeing, not a filter, so not counted).
+  // `list` is the project's passes as its settings name them, the main one first: they are shown in its order.
+  const passGroup = (names, value, pick, list = null) => {
     const at = (n) => (list ? (n === '' || n === list[0] ? -1 : list.indexOf(n) === -1 ? 99 : list.indexOf(n)) : 0);
     const shown = [...names].sort((a, b) => at(a) - at(b));
-    return { name: 'View', value, def: value, options: shown.map((n) => [n, viewLabel(n, list)]), pick };
+    return { name: 'Pass', value, def: value, options: shown.map((n) => [n, passLabel(n, list)]), pick };
   };
 
   // ---------------------------------------------------------------- an asset, set or shot's versions
@@ -2989,38 +2989,38 @@ const WBViewer = (() => {
   // What is said about them is live: everyone who has the entity open, here or on any board a version is
   // on, sees it as it is written, and what is written here is there on those boards.
   // `title` is where the entity is (its project), for the bar.
-  // Somebody watching a presentation (watch.js) has it `follow`ed instead: { page, view, room } (the entity
-  // as the link gives it, the view the presenter shows, and where the notes come from); nothing is theirs to do.
+  // Somebody watching a presentation (watch.js) has it `follow`ed instead: { page, pass, room } (the entity
+  // as the link gives it, the pass the presenter shows, and where the notes come from); nothing is theirs to do.
   async function openEntity(viewer, entityId, { version = null, me, title = null, onClose = () => {}, follow = null } = {}) {
     const page = follow ? follow.page : await WB.api('GET', `/api/entities/${entityId}`);
     const versions = page.versions.filter((v) => !v.hidden || v.id === version);
     if (!versions.length) throw new Error('There is nothing filed under it yet');
     // Oldest first, so the arrows go forward in time; the newest of each task last.
     versions.sort((a, b) => (a.task || '').localeCompare(b.task || '') || a.number - b.number);
-    // Each in the view last chosen in this project, where it has that view.
-    const viewKey = `wb:view:${page.entity.projectId}`;
-    let view = follow ? follow.view || '' : WB.store(viewKey) || '';
+    // Each in the pass last chosen in this project, where it has that pass.
+    const passKey = `wb:pass:${page.entity.projectId}`;
+    let pass = follow ? follow.pass || '' : WB.store(passKey) || '';
     // Each played from its phone copy on a phone (WB.playable); `full` is its review copy.
     const piecesIn = (name) => versions.map((v) => {
-      const look = inView(v.look, name);
+      const look = inPass(v.look, name);
       return { ...look, src: WB.playable(look), full: look.src, id: v.id, type: look.type || v.kind, label: v.label, name: look.name || v.originalName };
     });
-    // In 3D, each is shown in the view the project puts on its model (its main one unless the project says).
+    // In 3D, each is shown in the pass the project puts on its model (its main one unless the project says).
     const preview3d = page.project && page.project.settings && page.project.settings.preview3d;
     let in3d = false;
-    let pieces = piecesIn(view);
+    let pieces = piecesIn(pass);
     // A version shown more than one way has the way to choose in the bar; one shown one way, nothing.
     const showPicker = (id) => {
       const p = pieces.find((x) => x.id === id);
-      const names = p ? p.viewNames : [];
-      const list = page.project && page.project.settings && Array.isArray(page.project.settings.views) ? page.project.settings.views : null;
-      viewer.extras.replaceChildren(...(names.length > 1 && !follow ? [optionsButton(() => [viewGroup(names, p.shownView, (name) => {
-        view = name;
-        WB.store(viewKey, name);
-        pieces = piecesIn(in3d ? preview3d.view : view);
+      const names = p ? p.passNames : [];
+      const list = page.project && page.project.settings && Array.isArray(page.project.settings.passes) ? page.project.settings.passes : null;
+      viewer.extras.replaceChildren(...(names.length > 1 && !follow ? [optionsButton(() => [passGroup(names, p.shownPass, (name) => {
+        pass = name;
+        WB.store(passKey, name);
+        pieces = piecesIn(in3d ? preview3d.pass : pass);
         viewer.refresh();
         showPicker(p.id);
-      }, list)], { title: 'Which view' })].map((b) => (b.classList.add('v-viewpick'), b)) : []));
+      }, list)], { title: 'Which pass' })].map((b) => (b.classList.add('v-passpick'), b)) : []));
     };
     const shape = (list) => list.map((n) => (n.type === 'comment' ? n : { ...n, type: 'comment', on: n.versionId, obn: n.board && n.board.id ? n.board.name : 'the catalogue' }));
     let notes = shape(page.notes);
@@ -3037,19 +3037,19 @@ const WBViewer = (() => {
       can: follow ? { read: () => follow.read } : { member: () => true },
       ...roomNotes(viewer, () => room, () => notes, (next) => { notes = next; }),
       ...(follow && { download: null }),
-      scene: () => ({ k: 'entity', entity: entityId, view: in3d ? '' : view }),
-      // Seen another way (by the person presenting, say): each in that view.
-      setView: (name) => {
-        if ((name || '') === view) return;
-        view = name || '';
-        if (!in3d) pieces = piecesIn(view);
+      scene: () => ({ k: 'entity', entity: entityId, pass: in3d ? '' : pass }),
+      // Seen another way (by the person presenting, say): each in that pass.
+      setPass: (name) => {
+        if ((name || '') === pass) return;
+        pass = name || '';
+        if (!in3d) pieces = piecesIn(pass);
         viewer.refresh();
       },
       ...(preview3d && preview3d.model && {
         view3d: { ...preview3d, key: page.entity.projectId },
         onMode3d: (on) => {
           in3d = on;
-          pieces = piecesIn(on ? preview3d.view : view);
+          pieces = piecesIn(on ? preview3d.pass : pass);
           viewer.refresh();
         },
       }),
@@ -3127,7 +3127,7 @@ const WBViewer = (() => {
   }
 
   return {
-    create, openEntity, openPlaylist, entityRoom, inView, optionsButton, viewGroup, ICON, INK, inkColor, pathData, outlinePath, strokeNode, fmtTime, fmtMoment, timeLabel, cycleTimeMode,
+    create, openEntity, openPlaylist, entityRoom, inPass, optionsButton, passGroup, ICON, INK, inkColor, pathData, outlinePath, strokeNode, fmtTime, fmtMoment, timeLabel, cycleTimeMode,
     frameTime, frameIndex, lastFrame, goTo, whereOf, changing, switchSource, fetchWhole, releaseWhole, showWave, venue,
     timeMode: () => timeMode,
   };

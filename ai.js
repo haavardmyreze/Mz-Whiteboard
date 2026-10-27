@@ -26,7 +26,7 @@ class AiError extends Error {
 }
 
 // What an instruction can name to fill in. The type goes with the entity, and so does its chapter.
-const FIELDS = ['entity', 'task', 'version', 'view'];
+const FIELDS = ['entity', 'task', 'version', 'pass'];
 const clip = (text, n) => String(text == null ? '' : text).slice(0, n);
 const versionOf = (n) => (Number.isSafeInteger(n) && n >= 1 && n <= 9999 ? n : null);
 
@@ -97,11 +97,11 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
     return call.input;
   }
 
-  // What each file should be filed as. `files`: [{ key, filename, now: { entity, task, version, view } }] where
-  // `now` is what its row says at the moment; `views` are the views the project's versions are shown in
-  // already. Returns { key -> { entity, type, task, version, view, note, fits } }, with only the fields the
+  // What each file should be filed as. `files`: [{ key, filename, now: { entity, task, version, pass } }] where
+  // `now` is what its row says at the moment; `passes` are the passes the project's versions are shown in
+  // already. Returns { key -> { entity, type, task, version, pass, note, fits } }, with only the fields the
   // instruction asked to fill in when it named some.
-  async function fileNames({ instruction, files, entities, tasks, views = [], useViews = true, useTasks = true }) {
+  async function fileNames({ instruction, files, entities, tasks, passes = [], usePasses = true, useTasks = true }) {
     const list = (files || []).slice(0, MAX_FILES).filter((f) => f && f.key != null && f.filename);
     if (!list.length) throw new AiError('No files to ask about', 400);
     const types = naming.TYPES;
@@ -116,9 +116,9 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
         useTasks ? '- task: the task, from the project\'s tasks when one fits; a new task only when the file name or the instruction clearly names one; otherwise null.'
           : '- task: always null: this project does not count its versions by task, whatever a file name says.',
         '- version: the version number, only when the original file name or the instruction gives one (v3, v003, _003 at the end); otherwise null, and the catalogue numbers it.',
-        useViews
-          ? `- view: which view of its version the file is. This project shows each version these ways: ${views.slice(0, 12).join(', ')}; the first, ${views[0]}, is the main one, so a file that is a new version is null, and only a file that is one of the others gets its name. Use only these names. Give one when the instruction asks for it or the file name says it (a word after the version, as in _v012_${views[1] || 'bty'}). Two files that are views of the same version get the same version number.`
-          : '- view: always null: this project shows each version one way, whatever a file name says.',
+        usePasses
+          ? `- pass: which pass of its version the file is. This project shows each version these ways: ${passes.slice(0, 12).join(', ')}; the first, ${passes[0]}, is the main one, so a file that is a new version is null, and only a file that is one of the others gets its name. Use only these names. Give one when the instruction asks for it or the file name says it (a word after the version, as in _v012_${passes[1] || 'bty'}). Two files that are passes of the same version get the same version number.`
+          : '- pass: always null: this project shows each version one way, whatever a file name says.',
         '- note: a few words on why, for the person checking your answer.',
         'Read everything the original file name says. The person\'s instruction comes first where it says otherwise, but every name keeps the shape the rules give.',
         'An instruction is always about how the files are named, never about which files are filed: every file is filed, and you answer for every one. When it says to exclude, drop, remove, strip or ignore a word (a project code, a prefix, a client name), it means leaving that word out of the names: "psh26 should be excluded" files PSH26_HAUS_0110_vr_v500.mp4 as the shot haus-0110, version 500.',
@@ -133,7 +133,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
       'Files (key, original name, and what it is set to now, if anything):',
       ...list.map((f) => {
         const now = f.now || {};
-        const said = [now.entity, now.task, now.version && `v${now.version}`, now.view && `view ${now.view}`].filter(Boolean).join(' ');
+        const said = [now.entity, now.task, now.version && `v${now.version}`, now.pass && `pass ${now.pass}`].filter(Boolean).join(' ');
         return `${clip(f.key, 40)}\t${clip(f.filename, 255)}${said ? `\tnow: ${clip(said, 120)}` : ''}`;
       }),
     ].join('\n');
@@ -154,10 +154,10 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
                 type: { type: 'string', enum: types },
                 task: { type: ['string', 'null'] },
                 version: { type: ['integer', 'null'] },
-                view: { type: ['string', 'null'] },
+                pass: { type: ['string', 'null'] },
                 note: { type: 'string' },
               },
-              required: ['key', 'entity', 'type', 'task', 'version', 'view'],
+              required: ['key', 'entity', 'type', 'task', 'version', 'pass'],
             },
           },
         },
@@ -183,7 +183,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
       }
       if (takes('task')) answer.task = (useTasks && naming.tokenize(a.task)) || null;
       if (takes('version')) answer.version = versionOf(a.version);
-      if (takes('view')) answer.view = useViews && views.slice(1).includes(naming.tokenize(a.view)) ? naming.tokenize(a.view) : null;
+      if (takes('pass')) answer.pass = usePasses && passes.slice(1).includes(naming.tokenize(a.pass)) ? naming.tokenize(a.pass) : null;
       answers[k] = answer;
     }
     return answers;

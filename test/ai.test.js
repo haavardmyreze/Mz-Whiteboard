@@ -30,7 +30,7 @@ test('ai: asks Claude with the key, the model, the rules and the files, and must
   const claude = fakeClaude({ files: [] });
   const ai = createAi({ key: 'sk-test', base: 'http://claude.local/', fetchImpl: claude.fetchImpl });
   assert.equal(ai.model, DEFAULT_MODEL);
-  await ai.fileNames({ instruction: 'These are all shots of ch02', files: [{ key: '0', filename: 'Robot walk FINAL v3.mov', now: { entity: 'robot-walk', view: 'cmp' } }], entities: ENTITIES, tasks: ['anim'], views: ['cmp', 'bty'] });
+  await ai.fileNames({ instruction: 'These are all shots of ch02', files: [{ key: '0', filename: 'Robot walk FINAL v3.mov', now: { entity: 'robot-walk', pass: 'cmp' } }], entities: ENTITIES, tasks: ['anim'], passes: ['cmp', 'bty'] });
   const [q] = claude.asked;
   assert.equal(q.url, 'http://claude.local/v1/messages');
   assert.equal(q.headers['x-api-key'], 'sk-test');
@@ -41,9 +41,9 @@ test('ai: asks Claude with the key, the model, the rules and the files, and must
   assert.match(q.body.system, /kilo-0010 \(shot\)/);
   assert.match(q.body.system, /This project has: anim/);
   assert.match(q.body.messages[0].content, /These are all shots of ch02/);
-  assert.match(q.body.messages[0].content, /0\tRobot walk FINAL v3\.mov\tnow: robot-walk view cmp/);
-  // It is asked which view each is, and told the views the project has, the main one first.
-  assert.ok(q.body.tools[0].input_schema.properties.files.items.properties.view);
+  assert.match(q.body.messages[0].content, /0\tRobot walk FINAL v3\.mov\tnow: robot-walk pass cmp/);
+  // It is asked which pass each is, and told the passes the project has, the main one first.
+  assert.ok(q.body.tools[0].input_schema.properties.files.items.properties.pass);
   assert.match(q.body.system, /shows each version these ways: cmp, bty; the first, cmp, is the main one/);
   // It says which fields the instruction asks for, when it names some.
   assert.ok(q.body.tools[0].input_schema.properties.only);
@@ -52,18 +52,18 @@ test('ai: asks Claude with the key, the model, the rules and the files, and must
 });
 
 test('ai: asked to fill in some fields only, an answer has only those, and what it has can clear', async () => {
-  const answer = (only) => ({ only, files: [{ key: '0', entity: 'kilo-0010', type: 'shot', task: 'anim', version: 4, view: 'bty', note: 'n' }, { key: '1', entity: 'kilo-0020', type: 'shot', task: null, version: null, view: null }] });
+  const answer = (only) => ({ only, files: [{ key: '0', entity: 'kilo-0010', type: 'shot', task: 'anim', version: 4, pass: 'bty', note: 'n' }, { key: '1', entity: 'kilo-0020', type: 'shot', task: null, version: null, pass: null }] });
   const files = [{ key: '0', filename: 'a.mov' }, { key: '1', filename: 'b.mov' }];
-  const ask = (only, extra = {}) => createAi({ key: 'k', fetchImpl: fakeClaude(answer(only)).fetchImpl }).fileNames({ files, entities: [], tasks: ['anim'], views: ['cmp', 'bty'], ...extra });
-  // Chapter, shot and version: no task and no view in the answer, so the rows keep theirs.
+  const ask = (only, extra = {}) => createAi({ key: 'k', fetchImpl: fakeClaude(answer(only)).fetchImpl }).fileNames({ files, entities: [], tasks: ['anim'], passes: ['cmp', 'bty'], ...extra });
+  // Chapter, shot and version: no task and no pass in the answer, so the rows keep theirs.
   const some = await ask(['entity', 'version']);
   assert.deepEqual(some['0'], { note: 'n', entity: 'kilo-0010', type: 'shot', fits: true, version: 4 });
-  assert.ok(!('task' in some['1']) && !('view' in some['1']));
-  // Nothing named: every field is answered, and a null is an answer (no task, the main view).
+  assert.ok(!('task' in some['1']) && !('pass' in some['1']));
+  // Nothing named: every field is answered, and a null is an answer (no task, the main pass).
   for (const only of [null, [], ['nonsense']]) {
     const all = await ask(only);
-    assert.deepEqual(all['0'], { note: 'n', entity: 'kilo-0010', type: 'shot', fits: true, task: 'anim', version: 4, view: 'bty' });
-    assert.deepEqual(all['1'], { note: '', entity: 'kilo-0020', type: 'shot', fits: true, task: null, version: null, view: null });
+    assert.deepEqual(all['0'], { note: 'n', entity: 'kilo-0010', type: 'shot', fits: true, task: 'anim', version: 4, pass: 'bty' });
+    assert.deepEqual(all['1'], { note: '', entity: 'kilo-0020', type: 'shot', fits: true, task: null, version: null, pass: null });
   }
   // Only the task asked for: a row needs no name from Claude, and one with a task of 'anim' is cleared by null.
   const task = await ask(['task']);
@@ -74,26 +74,26 @@ test('ai: asked to fill in some fields only, an answer has only those, and what 
 test('ai: what Claude says is made to fit before it is shown', async () => {
   const claude = fakeClaude({
     files: [
-      { key: '0', entity: 'CH02 0010', type: 'shot', task: 'Anim', version: 3, view: null, note: 'from the name' },
+      { key: '0', entity: 'CH02 0010', type: 'shot', task: 'Anim', version: 3, pass: null, note: 'from the name' },
       { key: '1', entity: 'ch02-10', type: 'shot', task: null, version: 0 }, // not the shape of a shot; no version 0
       { key: '0', entity: 'twice', type: 'shot', task: null, version: null }, // the first answer stands
       { key: 'x', entity: 'ch02-0030', type: 'shot', task: null, version: null }, // not asked about
       { key: '2', entity: '', type: 'shot', task: null, version: null }, // no name: no answer
-      { key: '3', entity: 'set-kitchen', type: 'nonsense', task: null, version: 12345, view: 'BTY Left' }, // type as the project's set- names are; the view as a token
+      { key: '3', entity: 'set-kitchen', type: 'nonsense', task: null, version: 12345, pass: 'BTY Left' }, // type as the project's set- names are; the pass as a token
     ],
   });
   const ai = createAi({ key: 'k', fetchImpl: claude.fetchImpl });
   const files = ['0', '1', '2', '3'].map((key) => ({ key, filename: `${key}.mov` }));
-  const out = await ai.fileNames({ files, entities: [{ id: 's', name: 'set-harbour', type: 'set' }], views: ['cmp', 'bty-left'] });
+  const out = await ai.fileNames({ files, entities: [{ id: 's', name: 'set-harbour', type: 'set' }], passes: ['cmp', 'bty-left'] });
   assert.deepEqual(Object.keys(out).sort(), ['0', '1', '3']);
-  assert.deepEqual(out['0'], { entity: 'ch02-0010', type: 'shot', task: 'anim', version: 3, view: null, note: 'from the name', fits: true });
-  assert.equal(out['3'].view, 'bty-left');
-  // A view the project does not have, or its main one, is no view; a project shown one way has none.
-  const odd = createAi({ key: 'k', fetchImpl: fakeClaude({ files: [{ key: '0', entity: 'kilo-0010', type: 'shot', task: null, version: null, view: 'top' }, { key: '1', entity: 'kilo-0010', type: 'shot', task: null, version: null, view: 'cmp' }] }).fetchImpl });
+  assert.deepEqual(out['0'], { entity: 'ch02-0010', type: 'shot', task: 'anim', version: 3, pass: null, note: 'from the name', fits: true });
+  assert.equal(out['3'].pass, 'bty-left');
+  // A pass the project does not have, or its main one, is no pass; a project shown one way has none.
+  const odd = createAi({ key: 'k', fetchImpl: fakeClaude({ files: [{ key: '0', entity: 'kilo-0010', type: 'shot', task: null, version: null, pass: 'top' }, { key: '1', entity: 'kilo-0010', type: 'shot', task: null, version: null, pass: 'cmp' }] }).fetchImpl });
   const two = [{ key: '0', filename: 'a.mov' }, { key: '1', filename: 'b.mov' }];
-  assert.deepEqual(Object.values(await odd.fileNames({ files: two, entities: [], views: ['cmp', 'bty'] })).map((a) => a.view), [null, null]);
-  const none = createAi({ key: 'k', fetchImpl: fakeClaude({ files: [{ key: '0', entity: 'kilo-0010', type: 'shot', task: null, version: null, view: 'bty' }] }).fetchImpl });
-  assert.equal((await none.fileNames({ files: [two[0]], entities: [], views: [], useViews: false }))['0'].view, null);
+  assert.deepEqual(Object.values(await odd.fileNames({ files: two, entities: [], passes: ['cmp', 'bty'] })).map((a) => a.pass), [null, null]);
+  const none = createAi({ key: 'k', fetchImpl: fakeClaude({ files: [{ key: '0', entity: 'kilo-0010', type: 'shot', task: null, version: null, pass: 'bty' }] }).fetchImpl });
+  assert.equal((await none.fileNames({ files: [two[0]], entities: [], passes: [], usePasses: false }))['0'].pass, null);
   assert.equal(out['1'].fits, false);
   assert.equal(out['1'].version, null);
   assert.deepEqual([out['3'].type, out['3'].version], ['set', null]);

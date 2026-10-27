@@ -11,7 +11,7 @@
 //   that start with the same word are (char-dog is an asset where char-robot is one).
 //   Sequences, each a run of shots: a shot is <sequence>-<four digits> (kilo-0010, ch01-0020), and its
 //   sequence is everything before the number.
-// A file's name is read by how the app writes names: <name>[_<task>][_<descriptor>][_<artist>]_v###[_<view>]
+// A file's name is read by how the app writes names: <name>[_<task>][_<descriptor>][_<artist>]_v###[_<pass>]
 // (kilo-0010_anim_erik_v012_bty.mov), the name first, `_` between the parts. The name counts only when it
 // is a shot, one the project has, or one its kind can be guessed for. A file named any other way is
 // filed by hand once, and the project learns how names like it read (see "names from elsewhere" below).
@@ -84,12 +84,12 @@
     return m ? Number(m[1]) : null;
   };
 
-  // Whatever can be read from a file name: { entity, type, task, descriptor, artist, hip, view }, each null
+  // Whatever can be read from a file name: { entity, type, task, descriptor, artist, hip, pass }, each null
   // when the name does not say. `hip` is the number after v: the version it is filed as, unless another
   // is said (otherwise the catalogue counts on from the last). `entities` are the project's ([{ name, type }]):
   // a first part that is none of them, and whose kind they do not say, is not taken for a name.
   function parse(filename, entities = []) {
-    const out = { entity: null, type: null, task: null, descriptor: null, artist: null, hip: null, view: null };
+    const out = { entity: null, type: null, task: null, descriptor: null, artist: null, hip: null, pass: null };
     const stem = String(filename || '').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '').toLowerCase().trim();
     if (!stem) return out;
     const mark = /^v(\d{1,4})$/;
@@ -100,7 +100,7 @@
       if (v) out.hip = Number(v[1]);
       return out;
     }
-    if (tokens.length > 2 && mark.test(tokens[tokens.length - 2]) && !mark.test(tokens[tokens.length - 1])) out.view = tokens.pop();
+    if (tokens.length > 2 && mark.test(tokens[tokens.length - 2]) && !mark.test(tokens[tokens.length - 1])) out.pass = tokens.pop();
     const last = mark.exec(tokens[tokens.length - 1]);
     if (last) {
       out.hip = Number(last[1]);
@@ -133,8 +133,8 @@
 
   // ---- what is typed where a piece is filed
 
-  // The views a version is most often shown in, beside those a project has.
-  const VIEWS = ['cmp', 'bty'];
+  // The passes a version is most often shown in, beside those a project has.
+  const PASSES = ['cmp', 'bty'];
 
   // The shots a sequence has, by number, and the step they go up in: the gap there is most often between
   // one and the next, the smaller of two as often (10 when they do not say).
@@ -159,30 +159,30 @@
   }
 
   // What a line typed where a piece is filed says: which asset, set or shot, and any task, version number
-  // and view after it ("kilo-0010 anim v12 bty"). A word after the version that is no view is an extra of
+  // and pass after it ("kilo-0010 anim v12 bty"). A word after the version that is no pass is an extra of
   // that version (`extra`: "kilo-0010 comp v12 light-b"). A whole file name pasted in is read as a file name is.
   // A few short ways to say a shot, read against `ctx.seq` (the sequence being filed in): `20` is shot
   // 0020 of it, `+` its next shot (`kilo+` the next of kilo), and `.` whatever was filed last
   // (`ctx.last`). `task` is left undefined where the line does not say one, so that a task field keeps its
   // own; with `ctx.useTasks` false a line never says one. Words that are read as nothing are in `rest`.
-  //   ctx: { names, entities, tasks, views, useViews, seq, last: { entity, task }, useTasks, rules }
+  //   ctx: { names, entities, tasks, passes, usePasses, seq, last: { entity, task }, useTasks, rules }
   function readLine(text, ctx = {}) {
-    const out = { entity: null, task: undefined, number: null, view: null, extra: null, short: null, rest: [] };
+    const out = { entity: null, task: undefined, number: null, pass: null, extra: null, short: null, rest: [] };
     const raw = String(text || '').trim();
     if (!raw) return out;
     const useTasks = ctx.useTasks !== false;
     const names = ctx.names || [];
-    // The project's views when it says them (`ctx.views`, the main one first), none when it shows each
-    // version one way (`ctx.useViews` false), and the usual ones otherwise.
-    const views = ctx.useViews === false ? [] : ctx.views && ctx.views.length ? ctx.views : VIEWS;
+    // The project's passes when it says them (`ctx.passes`, the main one first), none when it shows each
+    // version one way (`ctx.usePasses` false), and the usual ones otherwise.
+    const passes = ctx.usePasses === false ? [] : ctx.passes && ctx.passes.length ? ctx.passes : PASSES;
     if (raw.includes('_') && !/\s/.test(raw)) {
       const p = parse(raw, ctx.entities || names.map((name) => ({ name, type: typeByShape(name) || 'asset' })));
       const ruled = !p.entity && byRules(raw, ctx.rules, ctx.tasks);
       if (p.entity || ruled) {
         out.entity = p.entity || ruled.entity;
         if (useTasks && (p.task || (ruled && ruled.task))) out.task = p.task || ruled.task;
-        out.view = ctx.useViews === false ? null : (ruled && ruled.view) || (views.includes(p.view) ? p.view : null);
-        if (p.view && !out.view) out.extra = p.view;
+        out.pass = ctx.usePasses === false ? null : (ruled && ruled.pass) || (passes.includes(p.pass) ? p.pass : null);
+        if (p.pass && !out.pass) out.extra = p.pass;
         out.number = (ruled ? ruled.number : p.hip) || null;
         if (ruled) out.short = 'read as names like it are';
         return out;
@@ -207,7 +207,7 @@
       out.entity = shotName(ctx.seq, Number(first));
       out.short = `shot ${pad(Number(first))} of ${ctx.seq}`;
     } else out.entity = tokenize(first) || null;
-    // A word after the name is a version number, a view or a task, by what it is. Any other word is more
+    // A word after the name is a version number, a pass or a task, by what it is. Any other word is more
     // of the name ("living room", "set living room") for as long as that makes it more of a name: not
     // once it is one the project has, or a shot. After the version, it is an extra.
     const tasks = ctx.tasks || [];
@@ -222,7 +222,7 @@
       if (!t) continue;
       const v = /^(?:v|#)(\d{1,5})$/.exec(w) || (whole() && /^(\d{1,5})$/.exec(w));
       if (v && out.number == null) out.number = Number(v[1]) || null;
-      else if (views.includes(t) && !out.view) out.view = t;
+      else if (passes.includes(t) && !out.pass) out.pass = t;
       else if (useTasks && out.task === undefined && tasks.includes(t)) out.task = t;
       else if (more && longer(t)) {
         out.entity = tokenize(`${out.entity}-${t}`);
@@ -289,7 +289,7 @@
   // name as a pattern: NHMoc_CHAP01_010_cmp_v111 filed as chap01-0010 v111 teaches
   //   { pattern: ['nhmoc', '{seq}', '{shot}', '*', '{version}'], like, as }
   // each word being one to find in every name like it (nhmoc), where the sequence, the shot, the version,
-  // the task or the view is ({seq}...), or anything (*: what changes from file to file, an artist, say).
+  // the task or the pass is ({seq}...), or anything (*: what changes from file to file, an artist, say).
   // NHMoc_CHAP03_040_cmp_v009 is then chap03-0040 v9. A sequence named otherwise there than here (KLO for
   // kilo) is kept as `seqs: { klo: 'kilo' }`; a shot's number run on after letters (sh010) as `{shot:sh}`.
   // A pattern needs a word of its own to know its names by (nhmoc, or a sequence it renames). Without one,
@@ -300,12 +300,12 @@
     'movie', 'clip', 'frame', 'still', 'playblast', 'test', 'new', 'copy', 'scan', 'photo', 'dsc', 'pxl', 'vid', 'mov', 'output', 'out', 'preview', 'wip']);
   const stem = (filename) => String(filename || '').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
   const stemWords = (filename) => stem(filename).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-  const PATTERN_TOKEN = /^(?:[a-z0-9]{1,40}|\*|\{(?:seq|version|task|view)\}|\{shot(?::[a-z]{1,10})?\})$/;
+  const PATTERN_TOKEN = /^(?:[a-z0-9]{1,40}|\*|\{(?:seq|version|task|pass)\}|\{shot(?::[a-z]{1,10})?\})$/;
 
-  // The pattern a file's name teaches by being filed as `filed` ({ entity, task, number, view, views }:
-  // what it was filed as, `views` the project's, the main one first), or null.
+  // The pattern a file's name teaches by being filed as `filed` ({ entity, task, number, pass, passes }:
+  // what it was filed as, `passes` the project's, the main one first), or null.
   function patternFrom(filename, filed) {
-    const { entity, task = null, number = null, view = null, views = [] } = filed;
+    const { entity, task = null, number = null, pass = null, passes = [] } = filed;
     if (typeByShape(entity) !== 'shot') return null;
     const words = stemWords(filename);
     const seq = seqOf(entity);
@@ -326,7 +326,7 @@
       if (i === at) return prefix ? `{shot:${prefix}}` : '{shot}';
       if (i > at && number != null && /^v?\d{1,5}$/.test(w) && Number(w.replace(/^v/, '')) === number) return '{version}';
       if (i > at && task && w === task) return '{task}';
-      if (i > at && (views || []).includes(w) && (w === (view || views[0]))) return '{view}';
+      if (i > at && (passes || []).includes(w) && (w === (pass || passes[0]))) return '{pass}';
       return i < at ? w : '*';
     });
     const seqs = words[at - 1] === seq ? null : { [words[at - 1]]: seq };
@@ -334,8 +334,8 @@
     return { pattern, ...(seqs && { seqs }), like: stem(filename).slice(0, 120), as: label(entity, task, number || '') .replace(/ v$/, '') };
   }
 
-  // The rule a file teaches by being filed as `filed` (what it was filed as: { entity, task, number, view,
-  // views }, or just the entity's name), or null when it teaches none (its name says it already, as the
+  // The rule a file teaches by being filed as `filed` (what it was filed as: { entity, task, number, pass,
+  // passes }, or just the entity's name), or null when it teaches none (its name says it already, as the
   // app writes it, or says nothing that could be learned).
   function ruleFrom(filename, filed) {
     const f = typeof filed === 'string' ? { entity: filed } : filed || {};
@@ -360,12 +360,12 @@
   // A rule's key: two rules with the same are the same rule.
   const ruleKey = (rule) => (rule.pattern ? `p:${rule.pattern.join('_')}:${JSON.stringify(rule.seqs || {})}` : `w:${rule.word}`);
 
-  // What a name reads as by a pattern: { entity, task, number, view }, or null when it is not one like it.
+  // What a name reads as by a pattern: { entity, task, number, pass }, or null when it is not one like it.
   function byPattern(words, rule) {
     if (words.length !== rule.pattern.length) return null;
     // A pattern with no word of its own is known only by the sequences it renames (KLO for kilo).
     const anchored = rule.pattern.some((t) => !t.startsWith('{') && t !== '*');
-    const out = { entity: null, task: null, number: null, view: null };
+    const out = { entity: null, task: null, number: null, pass: null };
     let seq = null;
     let shot = null;
     for (let i = 0; i < words.length; i++) {
@@ -383,14 +383,14 @@
         if (!/^v?\d{1,5}$/.test(w)) return null;
         out.number = Number(w.replace(/^v/, '')) || null;
       } else if (t === '{task}') out.task = w;
-      else if (t === '{view}') out.view = w;
+      else if (t === '{pass}') out.pass = w;
       else if (t !== w) return null;
     }
     if (!seq || shot == null) return null;
     out.entity = shotName(tokenize(seq), shot);
     return out;
   }
-  // What a project's rules make of a file name: { entity, task, number, view, rule }, or null. Patterns
+  // What a project's rules make of a file name: { entity, task, number, pass, rule }, or null. Patterns
   // first, being the surer. Read by a word rule, a word of the name that is one of `tasks` is its task.
   function byRules(filename, rules = [], tasks = []) {
     const words = stemWords(filename);
@@ -409,7 +409,7 @@
       } else if (rule.seq) {
         if (words[0] === rule.word && /^\d{1,4}$/.test(words[1] || '')) entity = shotName(rule.seq, Number(words[1]));
       } else if (rule.name && words[0] === rule.word) entity = rule.name;
-      if (entity) return { entity, task: words.slice(1).find((w) => (tasks || []).includes(w)) || null, number: null, view: null, rule };
+      if (entity) return { entity, task: words.slice(1).find((w) => (tasks || []).includes(w)) || null, number: null, pass: null, rule };
     }
     return null;
   }
@@ -419,7 +419,7 @@
     : rule.seq ? `${rule.word}${rule.glued ? '' : ' '}010 → ${shotName(rule.seq, 10)}` : `${rule.word} → ${rule.name}`);
 
   return {
-    TYPES, TYPE_LIST, TASKS, TOKEN, VIEWS, DIGITS, tokenize, typeByShape, entityTypeOf, seqOf, seqOrder, shotOrder, parse, label,
+    TYPES, TYPE_LIST, TASKS, TOKEN, PASSES, DIGITS, tokenize, typeByShape, entityTypeOf, seqOf, seqOrder, shotOrder, parse, label,
     pad, shotName, shotNumber, sequence, nextShot, readLine, corrections, distance, nearMisses, ruleFrom, byRules, ruleText, ruleKey, PATTERN_TOKEN,
   };
 });

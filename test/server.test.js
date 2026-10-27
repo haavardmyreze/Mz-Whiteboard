@@ -1383,16 +1383,16 @@ test('a board is kept as it was before each round of changes, and can be put bac
 const naming = require('../public/naming');
 
 test('a file name fills in what it can, and a name that says nothing is no trouble', () => {
-  assert.deepEqual(naming.parse('kilo-0010_anim_erik_v012.mov'), { entity: 'kilo-0010', type: 'shot', task: 'anim', descriptor: null, artist: 'erik', hip: 12, view: null });
+  assert.deepEqual(naming.parse('kilo-0010_anim_erik_v012.mov'), { entity: 'kilo-0010', type: 'shot', task: 'anim', descriptor: null, artist: 'erik', hip: 12, pass: null });
   // An asset or a set is read when the project has it, or names like it.
   const known = [{ name: 'char-dog', type: 'asset' }, { name: 'set-harbour', type: 'set' }];
-  assert.deepEqual(naming.parse('char-robot_lookdev_metal_worn_anna_v3.png', known), { entity: 'char-robot', type: 'asset', task: 'lookdev', descriptor: 'metal_worn', artist: 'anna', hip: 3, view: null });
+  assert.deepEqual(naming.parse('char-robot_lookdev_metal_worn_anna_v3.png', known), { entity: 'char-robot', type: 'asset', task: 'lookdev', descriptor: 'metal_worn', artist: 'anna', hip: 3, pass: null });
   assert.equal(naming.parse('char-robot_lookdev_metal_worn_anna_v3.png').entity, null);
   assert.equal(naming.parse('set-living-room_dressing_v001.jpg', known).task, 'dressing');
   assert.equal(naming.parse('set-living-room_erik_v001.jpg', known).artist, 'erik');
-  assert.deepEqual(naming.parse('screenshoot_090126.png'), { entity: null, type: null, task: null, descriptor: null, artist: null, hip: null, view: null });
-  // A word after the version is the view the file shows.
-  assert.equal(naming.parse('ch04-0030_comp_erik_v110_bty-left.mp4').view, 'bty-left');
+  assert.deepEqual(naming.parse('screenshoot_090126.png'), { entity: null, type: null, task: null, descriptor: null, artist: null, hip: null, pass: null });
+  // A word after the version is the pass the file shows.
+  assert.equal(naming.parse('ch04-0030_comp_erik_v110_bty-left.mp4').pass, 'bty-left');
   assert.equal(naming.parse('ch04-0030_comp_erik_v110_bty-left.mp4').hip, 110);
   assert.equal(naming.parse('Robot Final v3.png').hip, 3);
   assert.equal(naming.typeByShape('kilo-0010'), 'shot');
@@ -1975,7 +1975,7 @@ test('a project can count without tasks, learn how names from elsewhere read, an
   assert.equal(e.heads.anim.id, anim.id);
   // A whole name's pattern is kept as it is, with what was learned it renames; one with no sequence and
   // shot in it, or a word that is not one, is not.
-  const nh = { pattern: ['nhmoc', '{seq}', '{shot}', '{view}', '{version}'], like: 'NHMoc_CHAP01_010_cmp_v111', as: 'chap01-0010 v111' };
+  const nh = { pattern: ['nhmoc', '{seq}', '{shot}', '{pass}', '{version}'], like: 'NHMoc_CHAP01_010_cmp_v111', as: 'chap01-0010 v111' };
   await call('PATCH', `/api/folders/${project.id}`, { settings: { rules: [
     nh, { pattern: ['{seq}', '{shot}', '*'], seqs: { klo: 'kilo', 'Bad!': 'x' } },
     { pattern: ['nhmoc', '{version}'] }, { pattern: ['NH MOC', '{seq}', '{shot}'] }, { pattern: ['{seq}', '{shot}', '{nonsense}'] },
@@ -2031,7 +2031,7 @@ test('a project can count without tasks, learn how names from elsewhere read, an
   assert.deepEqual(like.body.answers.still, []);
 });
 
-test('a version can be shown more than one way: each view is filed with it, by name, and none twice', async (t) => {
+test('a version can be shown more than one way: each pass is filed with it, by name, and none twice', async (t) => {
   const s = start(4898);
   t.after(s.stop);
   await s.ready;
@@ -2045,51 +2045,51 @@ test('a version can be shown more than one way: each view is filed with it, by n
   const up = async () => (await (await fetch(`${s.base}/api/upload?name=a.mp4`, { method: 'POST', body: crypto.randomBytes(300) })).json()).url;
   const file = async (files) => call('POST', `/api/projects/${project.id}/versions`, { entity: { name: 'kilo-0010' }, task: 'comp', files });
   const look = async (name) => ({ type: 'video', src: await up(), name, dur: 4 });
-  // Shown one way (as every project starts), a view asked for is no view: each file is a version. Nor is
-  // one its look carries of its own (a piece copied from a view, say), nor views it says it has.
-  assert.equal((await call('GET', `/api/projects/${project.id}`)).body.viewList, null);
-  const plain = (await file([{ view: 'bty', look: await look('z_bty.mp4') }])).body.versions[0];
+  // Shown one way (as every project starts), a pass asked for is no pass: each file is a version. Nor is
+  // one its look carries of its own (a piece copied from a pass, say), nor passes it says it has.
+  assert.equal((await call('GET', `/api/projects/${project.id}`)).body.passList, null);
+  const plain = (await file([{ pass: 'bty', look: await look('z_bty.mp4') }])).body.versions[0];
   assert.equal(plain.label, 'kilo-0010 comp v1');
-  assert.equal(plain.look.view, undefined);
-  const carried = (await file([{ look: { ...(await look('y.mp4')), view: 'bty', views: [{ ...(await look('x.mp4')), view: 'top' }] } }])).body.versions[0];
+  assert.equal(plain.look.pass, undefined);
+  const carried = (await file([{ look: { ...(await look('y.mp4')), pass: 'bty', passes: [{ ...(await look('x.mp4')), pass: 'top' }] } }])).body.versions[0];
   assert.equal(carried.label, 'kilo-0010 comp v2');
-  assert.equal(carried.look.view, undefined);
-  assert.equal(carried.look.views, undefined);
+  assert.equal(carried.look.pass, undefined);
+  assert.equal(carried.look.passes, undefined);
   await call('POST', `/api/versions/${carried.id}/unfile`, {});
-  // Its views named, the main one first: a file of the main one is a version of its own.
-  await call('PATCH', `/api/folders/${project.id}`, { settings: { views: ['CMP', 'bty', 'top', 'bty'] } });
-  assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.viewList, ['cmp', 'bty', 'top']);
-  const cmp = (await file([{ view: 'cmp', look: await look('a_cmp.mp4') }])).body.versions[0];
+  // Its passes named, the main one first: a file of the main one is a version of its own.
+  await call('PATCH', `/api/folders/${project.id}`, { settings: { passes: ['CMP', 'bty', 'top', 'bty'] } });
+  assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.passList, ['cmp', 'bty', 'top']);
+  const cmp = (await file([{ pass: 'cmp', look: await look('a_cmp.mp4') }])).body.versions[0];
   assert.equal(cmp.label, 'kilo-0010 comp v2');
-  assert.equal(cmp.look.view, undefined);
+  assert.equal(cmp.look.pass, undefined);
   // A bty of the same number goes with it rather than being refused.
-  const bty = (await file([{ view: 'bty', number: 2, look: await look('a_bty.mp4') }])).body.versions[0];
+  const bty = (await file([{ pass: 'bty', number: 2, look: await look('a_bty.mp4') }])).body.versions[0];
   assert.equal(bty.id, cmp.id);
-  assert.equal(bty.filedView, 'bty');
-  assert.deepEqual(bty.look.views.map((v) => v.view), ['bty']);
-  // A view it has already, a number taken without saying a view, or a view the project has not got, is refused.
-  assert.equal((await file([{ view: 'BTY', number: 2, look: await look('b.mp4') }])).status, 409);
+  assert.equal(bty.filedPass, 'bty');
+  assert.deepEqual(bty.look.passes.map((v) => v.pass), ['bty']);
+  // A pass it has already, a number taken without saying a pass, or a pass the project has not got, is refused.
+  assert.equal((await file([{ pass: 'BTY', number: 2, look: await look('b.mp4') }])).status, 409);
   assert.equal((await file([{ number: 2, look: await look('c.mp4') }])).status, 409);
-  const odd = await file([{ view: 'side', look: await look('s.mp4') }]);
+  const odd = await file([{ pass: 'side', look: await look('s.mp4') }]);
   assert.equal(odd.status, 400);
-  assert.match(odd.body.error, /“side” is not one of this project's views \(cmp, bty, top\)/);
-  // A view with no number goes with the newest version that lacks it.
-  const top = (await file([{ view: 'top', look: await look('d.mp4') }])).body.versions[0];
+  assert.match(odd.body.error, /“side” is not one of this project's passes \(cmp, bty, top\)/);
+  // A pass with no number goes with the newest version that lacks it.
+  const top = (await file([{ pass: 'top', look: await look('d.mp4') }])).body.versions[0];
   assert.equal(top.id, cmp.id);
-  // The main one and a view of a new version brought in together: one version, two ways.
-  const two = (await file([{ view: 'cmp', number: 3, look: await look('e.mp4') }, { view: 'bty', number: 3, look: await look('f.mp4') }])).body.versions;
+  // The main one and a pass of a new version brought in together: one version, two ways.
+  const two = (await file([{ pass: 'cmp', number: 3, look: await look('e.mp4') }, { pass: 'bty', number: 3, look: await look('f.mp4') }])).body.versions;
   assert.equal(two[0].id, two[1].id);
-  assert.deepEqual(two[1].look.views.map((v) => v.view), ['bty']);
-  // An animatic and the catalogue carry the views, and the project knows their names.
-  assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.views, ['bty', 'top']);
+  assert.deepEqual(two[1].look.passes.map((v) => v.pass), ['bty']);
+  // An animatic and the catalogue carry the passes, and the project knows their names.
+  assert.deepEqual((await call('GET', `/api/projects/${project.id}`)).body.passes, ['bty', 'top']);
   const cut = (await call('POST', `/api/projects/${project.id}/animatics`, { name: 'All', from: 'shots', by: 'Anna' })).body;
   const shot = Object.values(cut.shots)[0];
-  assert.equal(shot.version.look.view, undefined);
-  assert.deepEqual(shot.version.look.views.map((v) => v.view), ['bty']);
-  // Shown one way again: views filed stay, and none is filed.
-  await call('PATCH', `/api/folders/${project.id}`, { settings: { views: false } });
-  assert.equal((await call('GET', `/api/projects/${project.id}`)).body.viewList, null);
-  assert.equal((await file([{ view: 'bty', look: await look('g.mp4') }])).body.versions[0].label, 'kilo-0010 comp v4');
+  assert.equal(shot.version.look.pass, undefined);
+  assert.deepEqual(shot.version.look.passes.map((v) => v.pass), ['bty']);
+  // Shown one way again: passes filed stay, and none is filed.
+  await call('PATCH', `/api/folders/${project.id}`, { settings: { passes: false } });
+  assert.equal((await call('GET', `/api/projects/${project.id}`)).body.passList, null);
+  assert.equal((await file([{ pass: 'bty', look: await look('g.mp4') }])).body.versions[0].label, 'kilo-0010 comp v4');
 });
 
 test('a version can have extras: more files under labels of their own, added to the version, and taken back', async (t) => {
@@ -2208,8 +2208,8 @@ test('a project can hold a 3D model of its venue, uploaded as a .glb, and let it
   const glb = await up('venue.glb');
   assert.match(glb, /\.glb$/);
   const set = async (preview3d) => (await call('PATCH', `/api/folders/${project.id}`, { settings: { preview3d } })).body.settings;
-  // the model, the screen's material (screen unless said) and the view that goes on it (as a token)
-  assert.deepEqual((await set({ model: glb, name: 'venue.glb', screen: ' ', view: 'CMP' })).preview3d, { model: glb, name: 'venue.glb', screen: 'screen', view: 'cmp', camera: '' });
+  // the model, the screen's material (screen unless said) and the pass that goes on it (as a token)
+  assert.deepEqual((await set({ model: glb, name: 'venue.glb', screen: ' ', pass: 'CMP' })).preview3d, { model: glb, name: 'venue.glb', screen: 'screen', pass: 'cmp', camera: '' });
   // and the camera it opens through, by its name in the model
   assert.equal((await set({ model: glb, name: 'venue.glb', camera: 'booth' })).preview3d.camera, 'booth');
   // anything that is not an uploaded .glb is not a model, and leaves the setting as it was
@@ -2738,7 +2738,7 @@ test('Claude suggests names for files and renames, through the server, without c
       const body = JSON.parse(raw);
       asked.push({ key: req.headers['x-api-key'], body });
       const input = body.tool_choice.name === 'file_versions'
-        ? { files: [{ key: 'r0', entity: 'ch02-0010', type: 'shot', task: 'anim', version: 4, view: 'bty', note: 'v4 in the name' }] }
+        ? { files: [{ key: 'r0', entity: 'ch02-0010', type: 'shot', task: 'anim', version: 4, pass: 'bty', note: 'v4 in the name' }] }
         : { entities: [{ id: body.messages[0].content.match(/\n(\S+)\topening/)[1], name: 'ch02-0020', type: 'shot', note: 'the opening shot' }] };
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ stop_reason: 'tool_use', content: [{ type: 'tool_use', name: body.tool_choice.name, input }] }));
@@ -2756,22 +2756,22 @@ test('Claude suggests names for files and renames, through the server, without c
   assert.deepEqual((await call('GET', '/api/me')).body.ai, { model: 'claude-haiku-5-5' });
   const kilo = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
   await call('PATCH', `/api/folders/${kilo.id}`, { project: true });
-  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { views: ['cmp', 'bty'] } });
+  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { passes: ['cmp', 'bty'] } });
   const made = (await call('POST', `/api/projects/${kilo.id}/entities`, { names: ['opening', 'char-robot', 'set-kitchen'], type: 'asset' })).body.made;
   const [opening, robot, kitchen] = ['opening', 'char-robot', 'set-kitchen'].map((n) => made.find((e) => e.name === n));
 
   const files = await call('POST', `/api/projects/${kilo.id}/ai/files`, { instruction: 'all shots of ch02', files: [{ key: 'r0', filename: 'Robot walk v4.mov' }] });
   assert.equal(files.status, 200);
-  assert.deepEqual(files.body.answers.r0, { entity: 'ch02-0010', type: 'shot', task: 'anim', version: 4, view: 'bty', note: 'v4 in the name', fits: true });
+  assert.deepEqual(files.body.answers.r0, { entity: 'ch02-0010', type: 'shot', task: 'anim', version: 4, pass: 'bty', note: 'v4 in the name', fits: true });
   assert.equal(asked[0].key, 'sk-test');
   assert.match(asked[0].body.system, /char-robot \(asset\)/, 'the project\'s names go along');
   assert.match(asked[0].body.messages[0].content, /all shots of ch02/);
-  // With views off, a view Claude names is no view, and it is told there are none.
-  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { views: false } });
+  // With passes off, a pass Claude names is no pass, and it is told there are none.
+  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { passes: false } });
   const plain = await call('POST', `/api/projects/${kilo.id}/ai/files`, { files: [{ key: 'r0', filename: 'Robot walk v4.mov' }] });
-  assert.equal(plain.body.answers.r0.view, null);
-  assert.match(asked[1].body.system, /view: always null/);
-  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { views: ['cmp', 'bty'] } });
+  assert.equal(plain.body.answers.r0.pass, null);
+  assert.match(asked[1].body.system, /pass: always null/);
+  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { passes: ['cmp', 'bty'] } });
 
   const ren = await call('POST', `/api/projects/${kilo.id}/ai/entities`, { instruction: 'opening is the first shot', ids: [opening.id] });
   assert.equal(ren.status, 200);
@@ -2907,10 +2907,10 @@ test('a project is presented through a link of its presenter: live only while th
   assert.deepEqual((await call(ben, 'GET', '/api/library')).body.presenting.map((p) => [p.projectId, p.name, p.token]), [[kilo.id, 'Anna', token]], 'the team sees who presents');
 
   // She opens a shot's versions: those watching are shown it, and only it.
-  host.ws.send(JSON.stringify({ t: 'scene', scene: { k: 'entity', entity: e10.id, view: '' }, p: { f: v10, m: [v10, 1.5, 1], evil: 'x' } }));
+  host.ws.send(JSON.stringify({ t: 'scene', scene: { k: 'entity', entity: e10.id, pass: '' }, p: { f: v10, m: [v10, 1.5, 1], evil: 'x' } }));
   await wait(200);
   const scene = last(carla, 'scene');
-  assert.deepEqual(scene.scene, { k: 'entity', entity: e10.id, view: '' });
+  assert.deepEqual(scene.scene, { k: 'entity', entity: e10.id, pass: '' });
   assert.deepEqual(scene.p, { f: v10, m: [v10, 1.5, 1] });
   assert.deepEqual(last(host, 'watchers').list[0].cache, { wait: true }, 'a new scene: what they had cached was for the one before');
   const shown = await call(null, 'GET', `/api/watch/${token}/entity/${e10.id}`);
@@ -3003,7 +3003,7 @@ test('a project is presented through a link of its presenter: live only while th
   editor.ws.close();
 });
 
-test("on a board in a project with a model of its venue, a catalogued piece that has the model's view can be seen on it", async (t) => {
+test("on a board in a project with a model of its venue, a catalogued piece that has the model's pass can be seen on it", async (t) => {
   const WebSocket = require('ws');
   const port = 4932;
   const s = start(port);
@@ -3029,20 +3029,20 @@ test("on a board in a project with a model of its venue, a catalogued piece that
 
   const kilo = (await call('POST', '/api/folders', { name: 'Kilo' })).body;
   await call('PATCH', `/api/folders/${kilo.id}`, { project: true });
-  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { views: ['cmp', 'bty'] } });
+  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { passes: ['cmp', 'bty'] } });
   const board = (await call('POST', '/api/boards', { name: 'Review', folderId: kilo.id })).body;
   const [cmp, bty, other, model] = [await upload('cmp.webm'), await upload('bty.webm'), await upload('other.webm'), await upload('venue.glb')];
   const look = (src, name) => ({ type: 'video', src, nw: 1920, nh: 1080, name });
-  // kilo-0010 v1 in two views, cmp and bty; kilo-0020 v1 in bty only.
+  // kilo-0010 v1 in two passes, cmp and bty; kilo-0020 v1 in bty only.
   await call('POST', `/api/projects/${kilo.id}/versions`, { files: [
-    { look: look(cmp, 'kilo-0010_comp_v001_cmp.webm'), entity: { name: 'kilo-0010', type: 'shot' }, task: 'comp', number: 1, view: 'cmp' },
-    { look: look(bty, 'kilo-0010_comp_v001_bty.webm'), entity: { name: 'kilo-0010', type: 'shot' }, task: 'comp', number: 1, view: 'bty' },
-    { look: look(other, 'kilo-0020_comp_v001_bty.webm'), entity: { name: 'kilo-0020', type: 'shot' }, task: 'comp', number: 1, view: 'bty' },
+    { look: look(cmp, 'kilo-0010_comp_v001_cmp.webm'), entity: { name: 'kilo-0010', type: 'shot' }, task: 'comp', number: 1, pass: 'cmp' },
+    { look: look(bty, 'kilo-0010_comp_v001_bty.webm'), entity: { name: 'kilo-0010', type: 'shot' }, task: 'comp', number: 1, pass: 'bty' },
+    { look: look(other, 'kilo-0020_comp_v001_bty.webm'), entity: { name: 'kilo-0020', type: 'shot' }, task: 'comp', number: 1, pass: 'bty' },
   ] });
   const shots = (await call('GET', `/api/projects/${kilo.id}`)).body.entities;
   const versionOf = async (name) => (await call('GET', `/api/entities/${shots.find((e) => e.name === name).id}`)).body.versions[0];
   const [v10, v20] = [await versionOf('kilo-0010'), await versionOf('kilo-0020')];
-  assert.deepEqual(v10.look.views.map((x) => x.view), ['bty']);
+  assert.deepEqual(v10.look.passes.map((x) => x.pass), ['bty']);
 
   // Without a model, nothing is said of 3D.
   await call('POST', `/api/projects/${kilo.id}/place`, { board: board.id, versions: [v10.id, v20.id] });
@@ -3051,25 +3051,25 @@ test("on a board in a project with a model of its venue, a catalogued piece that
   assert.equal(init0.view3d, null);
   assert.ok(init0.versions.every((v) => !v.look3d));
 
-  // With one that shows the cmp view, the board is told so, and kilo-0010 is seen in its cmp view; kilo-0020,
+  // With one that shows the cmp pass, the board is told so, and kilo-0010 is seen in its cmp pass; kilo-0020,
   // which has none, is not seen in 3D.
-  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { preview3d: { model, screen: 'screen', view: 'cmp' } } });
+  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { preview3d: { model, screen: 'screen', pass: 'cmp' } } });
   await wait(150);
   const told = before.seen.find((m) => m.t === 'view3d');
   assert.equal(told.view3d.model, model);
-  assert.equal(told.view3d.view, 'cmp');
+  assert.equal(told.view3d.pass, 'cmp');
   const byId = (list) => Object.fromEntries(list.map((v) => [v.id, v]));
   assert.equal(byId(told.versions)[v10.id].look3d.src, cmp);
-  // (The main view's file is the version's own, named by the project: it carries no view of its own.)
-  assert.equal(byId(told.versions)[v10.id].look3d.view, undefined);
+  // (The main pass's file is the version's own, named by the project: it carries no pass of its own.)
+  assert.equal(byId(told.versions)[v10.id].look3d.pass, undefined);
   assert.equal(byId(told.versions)[v20.id].look3d, undefined);
   const after = await open(`board=${board.id}`);
   const init1 = after.seen.find((m) => m.t === 'init');
   assert.equal(init1.view3d.key, kilo.id);
   assert.equal(byId(init1.versions)[v10.id].look3d.src, cmp);
 
-  // A project whose model takes the main view shows every catalogued picture and video in it.
-  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { preview3d: { model, screen: 'screen', view: '' } } });
+  // A project whose model takes the main pass shows every catalogued picture and video in it.
+  await call('PATCH', `/api/folders/${kilo.id}`, { settings: { preview3d: { model, screen: 'screen', pass: '' } } });
   await wait(150);
   const main = byId(before.seen.filter((m) => m.t === 'view3d').pop().versions);
   assert.equal(main[v20.id].look3d.src, other);

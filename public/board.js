@@ -1736,9 +1736,9 @@
   }
 
   // In a project with a model of its venue, a catalogued piece can be seen on it in the player: in 3D it
-  // shows the version's view the project puts on the model (see boardVersion in server.js), which may be
-  // another file than the one on the board. A piece that is not a version, or has no such view, is not.
-  let board3d = null;  // the project's model: { model, screen, view, key }, or null
+  // shows the version's pass the project puts on the model (see boardVersion in server.js), which may be
+  // another file than the one on the board. A piece that is not a version, or has no such pass, is not.
+  let board3d = null;  // the project's model: { model, screen, pass, key }, or null
   let shown3d = false; // the player is in 3D
   const look3dOf = (it) => (it && it.ver && versionInfo.get(it.ver) && versionInfo.get(it.ver).look3d) || null;
   const pieceOf = (it) => {
@@ -1753,7 +1753,7 @@
     if (files) Object.assign(piece, { files, ex: it.ex || '' });
     const look = shown3d && look3dOf(it);
     if (!look || look.src === it.src || look.type !== it.type) return piece;
-    const { view, ...media } = look;
+    const { pass, ...media } = look;
     return { ...piece, prev: undefined, pw: undefined, th: undefined, poster: undefined, ...media, src: WB.playable(look), full: look.src, wf: undefined, orig: undefined, shownView: view || '3d' };
   };
 
@@ -4676,7 +4676,7 @@
     // The fields are the catalogue importer's too (filing.js).
     const rows = [];
     const shared = {
-      useTasks, remembered, getEntities: () => cat.entities, getTasks: () => cat.tasks, views: cat.viewList || null,
+      useTasks, remembered, getEntities: () => cat.entities, getTasks: () => cat.tasks, passes: cat.passList || null,
       peers: () => rows.map((row) => row.f), rules: () => rules, onChange: () => paint(),
     };
 
@@ -4707,7 +4707,7 @@
         task: before ? before.task || '' : parsed.task || (ruled && ruled.task) || (entity && remembered && entity === remembered.entity && entity === lastOne ? remembered.task || '' : ''),
         named: !before && !!(parsed.entity || ruled), piece: () => it,
         number: before ? before.number : (ruled && ruled.number) || (parsed.entity && parsed.hip) || null,
-        view: before ? before.view : parsed.view || (ruled && ruled.view),
+        pass: before ? before.pass : parsed.pass || (ruled && ruled.pass),
       });
       const row = { it, f, ent: f.ent, task: f.task, type: f.type, taught: !parsed.entity && !(ruled && ruled.rule.pattern) };
       row.node = el('div', { class: 'file-row' },
@@ -4765,7 +4765,7 @@
     list.length > 1 && fill,
     el('div', { class: 'file-rows' },
       // What each part of the rows' lines is, said once over them.
-      el('div', { class: 'file-row file-labels-row' }, el('span'), el('span'), el('span', { class: 'file-fields' }, WBFiling.lineHead({ useTasks, views: cat.viewList || null }))),
+      el('div', { class: 'file-row file-labels-row' }, el('span'), el('span'), el('span', { class: 'file-fields' }, WBFiling.lineHead({ useTasks, passes: cat.passList || null }))),
       rows.map((row) => row.node)),
     status,
     el('div', { class: 'dlg-actions' }, hint,
@@ -4773,15 +4773,15 @@
     dlg.addEventListener('close', async () => {
       dlg.remove();
       if (!confirmed) return;
-      // A version number typed on a row's line goes with it, and so does the version another view goes
-      // with; otherwise the next. Its view is said (null for the main one), and so is an extra's label: the
+      // A version number typed on a row's line goes with it, and so does the version another pass goes
+      // with; otherwise the next. Its pass is said (null for the main one), and so is an extra's label: the
       // server finds the version it goes with as the row does, unless a number is typed.
       const files = rows.map((row) => ({
-        board: boardId, item: row.it.id, entity: row.f.entity(), task: row.f.taskName(), view: row.f.viewName(),
+        board: boardId, item: row.it.id, entity: row.f.entity(), task: row.f.taskName(), pass: row.f.passName(),
         ...(row.f.extraName() && { extra: row.f.extraName() }),
-        ...((row.f.typedNumber() || row.f.viewName()) && { number: row.f.number() }),
+        ...((row.f.typedNumber() || row.f.passName()) && { number: row.f.number() }),
       }));
-      const said = new Map(rows.map((row) => [row.it.id, { entity: nameOf(row), task: row.f.taskName(), number: row.f.typedNumber(), view: row.f.viewName() || row.f.extraName() }]));
+      const said = new Map(rows.map((row) => [row.it.id, { entity: nameOf(row), task: row.f.taskName(), number: row.f.typedNumber(), pass: row.f.passName() || row.f.extraName() }]));
       try {
         const res = await WB.api('POST', `/api/projects/${project.id}/versions`, { files, by: me.name });
         const last = rows[rows.length - 1];
@@ -4805,7 +4805,7 @@
         if (taught) {
           WBFiling.offerRule({
             filename: taught.it.name, rules, tasks: cat.tasks,
-            filed: { entity: nameOf(taught), task: taught.f.taskName(), number: res.versions[rows.indexOf(taught)].number, view: taught.f.viewName(), views: cat.viewList || [] },
+            filed: { entity: nameOf(taught), task: taught.f.taskName(), number: res.versions[rows.indexOf(taught)].number, pass: taught.f.passName(), passes: cat.passList || [] },
             save: (rule) => WB.api('PATCH', `/api/folders/${project.id}`, { settings: { addRules: [rule] } }),
           });
         }

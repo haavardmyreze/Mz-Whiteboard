@@ -872,11 +872,11 @@ function holdsProject(folder) {
 }
 // A project's settings: its 3D preview: the model of the venue its work is shown
 // on (an uploaded .glb), the name of the material its projection surface has (`screen` unless said),
-// which view of a version goes on it (its main one unless said), the camera it opens through, and the
+// which pass of a version goes on it (its main one unless said), the camera it opens through, and the
 // field of view it flies through (`fov`, degrees across; unless said, the lens of the view it left). `banner` is the picture
 // over the title of its home page, and `bannerAt` the point of it kept in sight. `preview3d: null` takes the 3D preview away.
 // `tasks: false` says its versions are not counted by task: each asset, set or shot has one count.
-// `views` says how its versions are shown: false, one way only; or the names of the ways, the main one
+// `passes` says how its versions are shown: false, one way only; or the names of the ways, the main one
 // first (["cmp", "bty"]: each version is its cmp, and may have a bty beside it). `rules` are what its
 // people taught it about file names from elsewhere (see ruleFrom in naming.js), the whole list each time.
 function cleanProjectSettings(asked, was = {}) {
@@ -884,11 +884,11 @@ function cleanProjectSettings(asked, was = {}) {
   if (!asked || typeof asked !== 'object') return out;
   if (asked.tasks === false) out.tasks = false;
   else if (asked.tasks === true) delete out.tasks;
-  if (asked.views === false) out.views = false;
-  else if (Array.isArray(asked.views)) {
-    const names = [...new Set(asked.views.map(viewName).filter(Boolean))].slice(0, 12);
+  if (asked.passes === false) out.passes = false;
+  else if (Array.isArray(asked.passes)) {
+    const names = [...new Set(asked.passes.map(passName).filter(Boolean))].slice(0, 12);
     // One name is no more than the one way every version is shown.
-    out.views = names.length > 1 ? names : false;
+    out.passes = names.length > 1 ? names : false;
   }
   const seqName = (v) => typeof v === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(v) && v.length <= 80;
   // The order its sequences go in (in the catalogue, a new animatic, wherever they are listed), first to last.
@@ -944,7 +944,7 @@ function cleanProjectSettings(asked, was = {}) {
         model,
         name: typeof p.name === 'string' ? p.name.slice(0, 200) : '',
         screen: typeof p.screen === 'string' && p.screen.trim() ? p.screen.trim().slice(0, 80) : 'screen',
-        view: viewName(p.view) || '',
+        pass: passName(p.pass) || '',
         // The camera of the model's that the 3D view opens through (its name); none, the one named main, or its first.
         camera: typeof p.camera === 'string' ? p.camera.slice(0, 120) : '',
       };
@@ -1057,15 +1057,15 @@ function holdsAnything(folder) {
 // catalogue page. A piece on a board that shows a version says which (`ver`); the board shows what it is
 // called, and when there is a newer one.
 
-const LOOK_KEYS = ['type', 'src', 'lo', 'orig', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'wf', 'name', 'view'];
-const MAX_VIEWS = 16;
+const LOOK_KEYS = ['type', 'src', 'lo', 'orig', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'wf', 'name', 'pass'];
+const MAX_PASSES = 16;
 const MAX_EXTRAS = 64;
 const UPLOAD_KEYS = new Set(['src', 'lo', 'orig', 'prev', 'th', 'poster']);
 
 // What a board needs to show a file, taken from a piece on a board or from a file brought into the catalogue, keeping
 // only what such a piece has: addresses of uploaded files, its size, length and rate, its name.
-// A version's look may also say which view it is (`view`: cmp, bty, top...) and carry its other views
-// (`views`: a look each, every one named and none twice); a view itself carries no more views. It may also
+// A version's look may also say which pass it is (`pass`: cmp, bty, top...) and carry its other passes
+// (`passes`: a look each, every one named and none twice); a pass itself carries no more passes. It may also
 // carry extras (`extras`): more files that belong to the version without being another way of showing it,
 // full-size stills or another lighting, say, each with a `label` of its own and none twice.
 function cleanLook(asked, nested = false) {
@@ -1080,9 +1080,9 @@ function cleanLook(asked, nested = false) {
       if (v === 'image' || v === 'video') look.type = v;
     } else if (key === 'name') {
       if (typeof v === 'string') look.name = v.slice(0, 200);
-    } else if (key === 'view') {
-      const view = viewName(v);
-      if (view) look.view = view;
+    } else if (key === 'pass') {
+      const pass = passName(v);
+      if (pass) look.pass = pass;
     } else if (key === 'wf') {
       // The timeline strip: the colours of the picture and the loudness of the sound, each packed small.
       if (v && typeof v === 'object' && typeof v.c === 'string' && v.c.length < 100000 && (v.p === undefined || (typeof v.p === 'string' && v.p.length < 100000))) look.wf = { c: v.c, ...(v.p && { p: v.p }) };
@@ -1091,13 +1091,13 @@ function cleanLook(asked, nested = false) {
     }
   }
   if (!look.src || !look.type || !store.media(uploadName(look.src))) return null;
-  if (!nested && Array.isArray(asked.views)) {
-    const views = [];
-    for (const x of asked.views.slice(0, MAX_VIEWS)) {
+  if (!nested && Array.isArray(asked.passes)) {
+    const passes = [];
+    for (const x of asked.passes.slice(0, MAX_PASSES)) {
       const c = cleanLook(x, true);
-      if (c && c.view && c.view !== look.view && !views.some((y) => y.view === c.view)) views.push(c);
+      if (c && c.pass && c.pass !== look.pass && !passes.some((y) => y.pass === c.pass)) passes.push(c);
     }
-    if (views.length) look.views = views;
+    if (passes.length) look.passes = passes;
   }
   if (!nested && Array.isArray(asked.extras)) {
     const extras = [];
@@ -1105,7 +1105,7 @@ function cleanLook(asked, nested = false) {
       const c = cleanLook(x, true);
       const label = x && extraName(x.label);
       if (c && label && !extras.some((y) => y.label === label)) {
-        delete c.view;
+        delete c.pass;
         extras.push({ ...c, label });
       }
     }
@@ -1113,11 +1113,11 @@ function cleanLook(asked, nested = false) {
   }
   return look;
 }
-// What a view is called: a token (bty, bty-left, cmp), short.
-const viewName = (v) => (typeof v === 'string' ? naming.tokenize(v).slice(0, 40) || null : null);
-const hasView = (look, view) => look.view === view || (look.views || []).some((x) => x.view === view);
+// What a pass is called: a token (bty, bty-left, cmp), short.
+const passName = (v) => (typeof v === 'string' ? naming.tokenize(v).slice(0, 40) || null : null);
+const hasPass = (look, pass) => look.pass === pass || (look.passes || []).some((x) => x.pass === pass);
 // What an extra is called: a token too (still-1043, light-b, warm).
-const extraName = viewName;
+const extraName = passName;
 const hasExtra = (look, label) => (look.extras || []).some((x) => x.label === label);
 
 // A version as a board and the catalogue show it: what it is called, and the newest of its entity and
@@ -1185,15 +1185,15 @@ function boardReadingVersions(board) {
 function board3d(board) {
   const p = boardProject(board);
   const preview3d = p && p.settings && p.settings.preview3d;
-  // `main` is the name of the project's main view: a model set to show it shows each version's own file.
-  return preview3d && preview3d.model ? { ...preview3d, key: p.id, main: (viewsOf(p) || [])[0] || null } : null;
+  // `main` is the name of the project's main pass: a model set to show it shows each version's own file.
+  return preview3d && preview3d.model ? { ...preview3d, key: p.id, main: (passesOf(p) || [])[0] || null } : null;
 }
 // A version as a board shows it, and in a project with a model of its venue, what goes on the model's
-// screens (`look3d`): the version's view the project puts there (its main one, unless the project names
-// one). A version without that view is not seen in 3D. Only what the player needs, not its timeline strip.
+// screens (`look3d`): the version's pass the project puts there (its main one, unless the project names
+// one). A version without that pass is not seen in 3D. Only what the player needs, not its timeline strip.
 // A version with extras has its files too (`files`): its own (`ex` ''), then each extra (`ex` its label),
 // so the player can show any of them in place of the piece.
-const LOOK3D_KEYS = ['type', 'src', 'lo', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'name', 'view'];
+const LOOK3D_KEYS = ['type', 'src', 'lo', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'name', 'pass'];
 const FILE_KEYS = ['type', 'src', 'lo', 'orig', 'prev', 'pw', 'th', 'poster', 'nw', 'nh', 'fps', 'dur', 'wf', 'name'];
 const fileOf = (look, ex) => {
   const out = { ex };
@@ -1208,9 +1208,9 @@ function boardVersion(ref, model) {
   if (info) info = { ...info, ...versionFiles(look) };
   if (!info || !model) return info;
   if (!look || (look.type !== 'image' && look.type !== 'video')) return info;
-  // Its own file is its main view, unless it was filed as another (a version that is only a bty, say).
-  const own = !model.view || look.view === model.view || (model.view === model.main && !look.view);
-  const shown = own ? look : (look.views || []).find((x) => x.view === model.view);
+  // Its own file is its main pass, unless it was filed as another (a version that is only a bty, say).
+  const own = !model.pass || look.pass === model.pass || (model.pass === model.main && !look.pass);
+  const shown = own ? look : (look.passes || []).find((x) => x.pass === model.pass);
   if (!shown) return info;
   const look3d = {};
   for (const k of LOOK3D_KEYS) if (shown[k] !== undefined) look3d[k] = shown[k];
@@ -1234,18 +1234,18 @@ const retellEntity = (entityId) => retellEntities(new Set([entityId]));
 const usesTasks = (project) => !(project.settings && project.settings.tasks === false);
 // The ways a project's versions are shown, the main one first, or null for one way (see
 // cleanProjectSettings).
-function viewsOf(project) {
-  const set = project.settings && project.settings.views;
+function passesOf(project) {
+  const set = project.settings && project.settings.passes;
   return Array.isArray(set) && set.length > 1 ? set : null;
 }
-// Which view a file is filed as: null for the main one (a version of its own), else one of the project's
-// views, to go with a version that has not got it. A project shown one way has none at all.
-function viewFor(project, asked) {
-  const list = viewsOf(project);
-  const view = viewName(asked);
-  if (!list || !view || view === list[0]) return null;
-  if (!list.includes(view)) throw refusal(400, `“${view}” is not one of this project's views (${list.join(', ')})`);
-  return view;
+// Which pass a file is filed as: null for the main one (a version of its own), else one of the project's
+// passes, to go with a version that has not got it. A project shown one way has none at all.
+function passFor(project, asked) {
+  const list = passesOf(project);
+  const pass = passName(asked);
+  if (!list || !pass || pass === list[0]) return null;
+  if (!list.includes(pass)) throw refusal(400, `“${pass}” is not one of this project's passes (${list.join(', ')})`);
+  return pass;
 }
 
 // The entity a file is to go under, without making anything yet: one the project has, by its id or its
@@ -1326,20 +1326,20 @@ function fileVersions(req, project, body) {
     // A number may be asked for (one a file says on its own); otherwise it is the next.
     const asked = f.number ?? null;
     if (asked != null && !validNumber(asked)) throw refusal(400, 'A version number is a whole number from 1');
-    // Which view it is files it as that, and nothing else does: a view the file's look carries of its own
-    // (a piece copied from another version's view, say) counts only as the project allows, and a new
-    // version is its one file, whatever other views a look sent along says it has.
+    // Which pass it is files it as that, and nothing else does: a pass the file's look carries of its own
+    // (a piece copied from another version's pass, say) counts only as the project allows, and a new
+    // version is its one file, whatever other passes a look sent along says it has.
     // An extra is neither: it is said in so many words, and a file brought in is filed as one file.
     const extra = f.extra != null ? extraName(f.extra) : null;
     if (f.extra != null && !extra) throw refusal(400, 'An extra needs a name');
-    const view = extra ? null : viewFor(project, f.view !== undefined ? f.view : look.view);
+    const pass = extra ? null : passFor(project, f.pass !== undefined ? f.pass : look.pass);
     look = { ...look };
-    delete look.views;
+    delete look.passes;
     delete look.extras;
-    if (view) look.view = view;
-    else delete look.view;
+    if (pass) look.pass = pass;
+    else delete look.pass;
     return {
-      board, item, look, asked, view, extra,
+      board, item, look, asked, pass, extra,
       entity: entityFor(project, pick('entity') ?? (parsed.entity && { name: parsed.entity, type: parsed.type })),
       task: !usesTasks(project) ? null : pick('task') !== undefined ? tokenOrNull(pick('task')) : parsed.task,
       descriptor: pick('descriptor') !== undefined ? tokenOrNull(pick('descriptor')) : parsed.descriptor,
@@ -1347,9 +1347,9 @@ function fileVersions(req, project, body) {
     };
   });
   // A number asked for that another version has, or that two of these ask for, is refused now too.
-  // Unless it is another view of that version (a file saying which view it is, bty to go with the cmp
-  // there): then it goes with that version, as long as the version has no view of that name yet. One
-  // saying its view and no number goes with the newest version of its entity and task that lacks that view.
+  // Unless it is another pass of that version (a file saying which pass it is, bty to go with the cmp
+  // there): then it goes with that version, as long as the version has no pass of that name yet. One
+  // saying its pass and no number goes with the newest version of its entity and task that lacks that pass.
   // An extra goes with a version that is there, or that a file before it in this lot makes: the one
   // its number says, else the nearest before it going to the same entity and task, else the newest.
   const asking = new Map();
@@ -1371,25 +1371,25 @@ function fileVersions(req, project, body) {
       }
       continue;
     }
-    if (p.view && p.asked == null && !p.entity.make) {
+    if (p.pass && p.asked == null && !p.entity.make) {
       const newest = store.newestVersion(p.entity.id, p.task);
       const v = newest && store.version(newest.id);
-      if (v && !hasView(v.look, p.view)) p.onto = v;
+      if (v && !hasPass(v.look, p.pass)) p.onto = v;
     }
     if (p.asked == null) continue;
     const taken = !p.entity.make && store.numberHolder(p.entity.id, p.task, p.asked);
     if (taken) {
-      if (!p.view || taken.deletedAt) throw refusal(409, takenMessage(taken));
-      if (hasView(taken.look, p.view)) throw refusal(409, `${label(p.asked)} has a ${p.view} view already`);
+      if (!p.pass || taken.deletedAt) throw refusal(409, takenMessage(taken));
+      if (hasPass(taken.look, p.pass)) throw refusal(409, `${label(p.asked)} has a ${p.pass} pass already`);
       p.onto = taken;
     }
     const key = `${p.entity.make ? `+${p.entity.name}` : p.entity.id}|${p.task || ''}|${p.asked}`;
     const before = asking.get(key);
     if (before) {
-      // Two views of one version brought in together: the first makes it (the main one, or a view), the
+      // Two passes of one version brought in together: the first makes it (the main one, or a pass), the
       // others go with it.
-      const views = [before.view, ...plan.filter((o) => o.with === before).map((o) => o.view)];
-      if (!p.view || views.includes(p.view)) throw refusal(409, `${label(p.asked)} is asked for twice`);
+      const passes = [before.pass, ...plan.filter((o) => o.with === before).map((o) => o.pass)];
+      if (!p.pass || passes.includes(p.pass)) throw refusal(409, `${label(p.asked)} is asked for twice`);
       if (!p.onto) p.with = before;
     } else asking.set(key, p);
   }
@@ -1405,13 +1405,13 @@ function fileVersions(req, project, body) {
       return { p, v };
     }
     if (onto) {
-      v = store.addView(onto.id, { ...p.look, view: p.view });
-      // Said about the piece, it is said about the version it is now a view of.
+      v = store.addPass(onto.id, { ...p.look, pass: p.pass });
+      // Said about the piece, it is said about the version it is now a pass of.
       if (p.board) store.fileNotes(p.board.id, p.item.id, v.id);
       p.made = v;
       return { p, v };
     }
-    if (p.view) p.look.view = p.view;
+    if (p.pass) p.look.pass = p.pass;
     try {
       v = store.addVersion({
         id: newId(), entityId: entity.id, task: p.task, number: p.asked, descriptor: p.descriptor, artist: p.artist,
@@ -1435,7 +1435,7 @@ function fileVersions(req, project, body) {
     note(p.board, by || 'Somebody', 'file');
   }
   retellEntities(new Set(filed.map(({ v }) => v.entityId)));
-  return filed.map(({ p, v }) => ({ ...publicVersion(v, req.user), ...(p.view && { filedView: p.view }), ...(p.extra && { filedExtra: p.extra }) }));
+  return filed.map(({ p, v }) => ({ ...publicVersion(v, req.user), ...(p.pass && { filedPass: p.pass }), ...(p.extra && { filedExtra: p.extra }) }));
 }
 
 // Who did something: the person signed in, or the name the page gives, without sign-in.
@@ -1647,7 +1647,7 @@ function cleanAnimatic(asked, project) {
   const task = typeof a.task === 'string' ? naming.tokenize(a.task).slice(0, 40) || null : null;
   return {
     fps: ANIMATIC_RATES.includes(a.fps) ? a.fps : 25, w: wholeIn(a.w, 16, 8192, 1920), h: wholeIn(a.h, 16, 8192, 1080),
-    task, view: viewName(a.view) || '', tracks, clips, sounds,
+    task, pass: passName(a.pass) || '', tracks, clips, sounds,
   };
 }
 
@@ -1662,7 +1662,7 @@ function shotsInOrder(projectId, task) {
 }
 // The newest version of each of some shots, as an animatic of `task` plays them: { shot id: { id, name, seq,
 // version: { id, task, number, label, kind, look } or null } }. The look is the version's whole one, as the
-// player needs it (its phone copy, its colour strip, its views).
+// player needs it (its phone copy, its colour strip, its passes).
 function animaticShots(ids, task) {
   const list = [...new Set(ids)].map((id) => store.entity(id)).filter(Boolean);
   const cards = task ? null : store.entityCards(list.map((e) => e.id));
@@ -1765,7 +1765,7 @@ async function handleCatalogue(req, res, parts) {
       return {
         id: v.id, entityId: v.entityId, entity: v.entityName, type: v.entityType, task: v.task, number: v.number,
         label: naming.label(v.entityName, v.task, v.number), kind: v.kind, thumb: v.thumb, look: full ? v.look : { type, src, poster, th, dur, fps, nw, nh },
-        views: [v.look.view || '', ...(v.look.views || []).map((x) => x.view)].filter((x, i) => i || (v.look.views || []).length),
+        passes: [v.look.pass || '', ...(v.look.passes || []).map((x) => x.pass)].filter((x, i) => i || (v.look.passes || []).length),
         extras: (v.look.extras || []).map((x) => x.label),
         artist: v.artist, createdAt: v.createdAt, createdBy: v.createdBy, hidden: v.hidden, originalName: v.originalName, boards: boardsSeen(on.get(v.id)),
       };
@@ -1788,9 +1788,9 @@ async function handleCatalogue(req, res, parts) {
         entities: store.entities(project.id),
         tasks: [...new Set([...naming.TASKS, ...store.projectTasks(project.id)])],
         artists: store.projectArtists(project.id),
-        views: store.projectViews(project.id),
-        // How its versions are shown: its views, the main one first, or null for one way.
-        viewList: viewsOf(project),
+        passes: store.projectPasses(project.id),
+        // How its versions are shown: its passes, the main one first, or null for one way.
+        passList: passesOf(project),
         boards: [...boards.values()].filter((b) => visible(req.user, b) && boardProject(b) === project).map((b) => ({ id: b.id, name: b.name })),
         playlists: store.playlists(project.id).map(playlistCard),
         animatics: store.animatics(project.id).map(animaticCard),
@@ -2171,7 +2171,7 @@ async function handleCatalogue(req, res, parts) {
           const files = (Array.isArray(body.files) ? body.files : []).filter((f) => f && typeof f === 'object')
             .map((f) => ({ key: String(f.key), filename: String(f.filename || ''), now: f.now && typeof f.now === 'object' ? f.now : null }));
           if (files.length > ai.MAX_FILES) return sendJson(res, 400, { error: `Ask about at most ${ai.MAX_FILES} files at a time` });
-          const answers = await ai.fileNames({ instruction: body.instruction, files, entities, tasks, views: viewsOf(project) || [], useViews: !!viewsOf(project), useTasks: usesTasks(project) });
+          const answers = await ai.fileNames({ instruction: body.instruction, files, entities, tasks, passes: passesOf(project) || [], usePasses: !!passesOf(project), useTasks: usesTasks(project) });
           return sendJson(res, 200, { model: ai.model, answers });
         }
         const ids = Array.isArray(body.ids) ? [...new Set(body.ids.map(String))] : [];
@@ -2269,11 +2269,11 @@ async function handleCatalogue(req, res, parts) {
       const by = actor(req, body);
       const looks = (Array.isArray(body.files) ? body.files.slice(0, 50) : []).map((f) => cleanLook(f && f.look));
       if (!looks.length || looks.some((look) => !look)) return sendJson(res, 400, { error: 'That file is not on the server' });
-      // Each is the next number of the playlist's one entity, in the order they were sent; a view or an
+      // Each is the next number of the playlist's one entity, in the order they were sent; a pass or an
       // extra has no meaning here, so only the file itself is kept.
       const made = store.transaction(() => looks.map((look) => store.addVersion({
         id: newId(), entityId: p.entityId, media: uploadName(look.src), thumb: look.th || (look.type === 'image' ? look.prev || look.src : look.poster) || null,
-        kind: look.type, originalName: look.name || null, look: { ...look, views: undefined, extras: undefined }, by,
+        kind: look.type, originalName: look.name || null, look: { ...look, passes: undefined, extras: undefined }, by,
       })));
       store.setPlaylist(p.id, { versions: [...p.versions, ...made.map((v) => v.id)].slice(0, 1000) });
       flushAll();
@@ -2408,7 +2408,7 @@ async function handleCatalogue(req, res, parts) {
     }
     if (Date.now() - v.createdAt > UNFILE_WITHIN) return sendJson(res, 409, { error: `${label} was filed a while ago: archive or delete it instead` });
     if (req.user && v.createdBy && v.createdBy !== actor(req, body)) return sendJson(res, 409, { error: `${label} was filed by ${v.createdBy}` });
-    if (Array.isArray(v.look.views) && v.look.views.length) return sendJson(res, 409, { error: `${label} has more views since` });
+    if (Array.isArray(v.look.passes) && v.look.passes.length) return sendJson(res, 409, { error: `${label} has more passes since` });
     if (Array.isArray(v.look.extras) && v.look.extras.length) return sendJson(res, 409, { error: `${label} has extras since` });
     flushAll();
     const on = store.boardsWithVersion(v.id);
@@ -2984,7 +2984,7 @@ async function sendBoardZip(req, res, board) {
 //
 // One zip: the cut as OpenTimelineIO and as a CMX 3600 edit decision list for each track (cutfiles.js), a list
 // of the version each file is, and the files: the newest version of each shot it plays (the file it was made
-// from where that was kept, in the view the animatic shows), named by the shot, and its sound files by their
+// from where that was kept, in the pass the animatic shows), named by the shot, and its sound files by their
 // names. Named by shot, a newer version can be put over the old file without a new cut.
 async function sendAnimaticZip(req, res, a) {
   const doc = a.doc;
@@ -2992,7 +2992,7 @@ async function sendAnimaticZip(req, res, a) {
   const lookOf = (c) => {
     const v = c.shot && shots[c.shot] && shots[c.shot].version;
     if (!v) return null;
-    return (doc.view && doc.view !== v.look.view && (v.look.views || []).find((x) => x.view === doc.view)) || v.look;
+    return (doc.pass && doc.pass !== v.look.pass && (v.look.passes || []).find((x) => x.pass === doc.pass)) || v.look;
   };
   const lengthOf = (c) => {
     if (c.media) return c.dur ? c.dur * doc.fps : Infinity;
@@ -4046,7 +4046,7 @@ function joinRoom(ws, entity, user) {
 // A browser asks first (claim), so two do not make the same one; the server says to go ahead, that it is
 // somebody else's for now, or that there is one already (which it then puts everywhere it belongs). Once
 // made and uploaded it says so (POST /api/phone-copy { src, lo }), and the server puts `lo` on every piece
-// on every board, and every version (and view of one), showing that file.
+// on every board, and every version (and pass of one), showing that file.
 const PHONE_CLAIM_FOR = 20 * 60e3;
 const phoneClaims = new Map(); // upload name -> when a browser said it would make its phone copy
 
@@ -4081,7 +4081,7 @@ function spreadPhoneCopy(src, lo) {
       look.lo = lo;
       touched = true;
     }
-    for (const key of ['views', 'extras']) {
+    for (const key of ['passes', 'extras']) {
       if (Array.isArray(look[key])) look[key] = look[key].map((x) => (x.src === src && x.lo !== lo ? ((touched = true), { ...x, lo }) : x));
     }
     if (touched && store.setLook(id, look)) versions++;
@@ -4259,7 +4259,7 @@ function closeExpiredPresentations() {
 function cleanScene(pres, user, s) {
   const idle = { k: 'idle' };
   if (!s || typeof s !== 'object') return idle;
-  const token = (v) => (typeof v === 'string' ? viewName(v) || '' : '');
+  const token = (v) => (typeof v === 'string' ? passName(v) || '' : '');
   if (s.k === 'board') {
     const board = typeof s.board === 'string' && boards.get(s.board);
     if (!board || !visible(user, board) || boardProject(board)?.id !== pres.projectId) return idle;
@@ -4268,7 +4268,7 @@ function cleanScene(pres, user, s) {
   if (s.k === 'entity') {
     const e = typeof s.entity === 'string' && store.entity(s.entity);
     if (!e || e.projectId !== pres.projectId) return idle;
-    return { k: 'entity', entity: e.id, view: token(s.view) };
+    return { k: 'entity', entity: e.id, pass: token(s.pass) };
   }
   if (s.k === 'animatic') {
     const a = typeof s.animatic === 'string' && store.animatic(s.animatic);
@@ -4347,7 +4347,7 @@ function presentedFiles(pres) {
     if (!look) return;
     for (const key of ['src', 'lo', 'th', 'poster', 'prev']) add(look[key]);
     if (look.wf && typeof look.wf === 'object') Object.values(look.wf).forEach(add);
-    for (const v of look.views || []) addLook(v);
+    for (const v of look.passes || []) addLook(v);
   };
   const project = folders.get(pres.projectId);
   add(project && project.settings && project.settings.preview3d && project.settings.preview3d.model);

@@ -263,7 +263,7 @@
     cacheSoon(true);
     if (!key) return paintWaiting();
     if (key === shownKey || (mounting && mounting.key === key)) {
-      if (next.k === 'entity' && shownKey === key) viewer.host().setView?.(next.view);
+      if (next.k === 'entity' && shownKey === key) viewer.host().setPass?.(next.pass);
       paintNote();
       return apply();
     }
@@ -288,7 +288,7 @@
         }
         await WBViewer.openEntity(viewer, next.entity, {
           version: typeof state.f === 'string' ? state.f : null, me, title: info.project.name,
-          follow: { page, view: next.view, room: noteRoom, read: info.access === 'comments' },
+          follow: { page, pass: next.pass, room: noteRoom, read: info.access === 'comments' },
         });
       } else if (next.k === 'animatic') {
         // The animatic's own page, read-only, its edit from the link: it plays where the presenter's plays.

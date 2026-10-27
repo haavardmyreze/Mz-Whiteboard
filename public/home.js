@@ -563,9 +563,9 @@
   }
 
   // A project's settings: whether its versions are counted by task, whether they are shown more than one
-  // way and which ways (its views, the main one first), the names from elsewhere it has learned to read,
+  // way and which ways (its passes, the main one first), the names from elsewhere it has learned to read,
   // and its 3D preview: the model of the venue its work is shown on, the material its projection
-  // surface has, and which view of a version goes on it. Set here once, they are never asked about
+  // surface has, and which pass of a version goes on it. Set here once, they are never asked about
   // again: the player just has a 2D / 3D switch.
   async function projectSettings(project) {
     const was = (project.settings && project.settings.preview3d) || null;
@@ -576,7 +576,7 @@
     // there are some.
     let rules = [...((project.settings && project.settings.rules) || [])];
     const ruleList = el('ul', { class: 'ps-rules' });
-    const PART = { '{seq}': 'sequence', '{version}': 'version', '{task}': 'task', '{view}': 'view' };
+    const PART = { '{seq}': 'sequence', '{version}': 'version', '{task}': 'task', '{pass}': 'pass' };
     const reads = (r) => (r.pattern
       ? r.pattern.map((t) => (PART[t] ? el('i', { text: PART[t] }) : t.startsWith('{shot') ? el('i', { text: `${t.slice(6, -1)}shot` }) : t === '*' ? '…' : t))
       : [r.word, el('i', { text: r.seq ? 'shot' : 'anything' })]);
@@ -699,17 +699,17 @@
     }));
     const seqReset = el('button', { type: 'button', class: 'btn small ghost', text: 'By name', title: 'Put them in the order their names sort', onclick: () => { seqs = seqNames.slice().sort(N.seqOrder()); paintSeqs(); } });
     paintSeqs();
-    // Its views, as set.
-    const list = (cat && cat.viewList) || null;
-    const byView = el('input', { type: 'checkbox', class: 'switch', ...(list && { checked: true }), 'aria-label': 'Several views of each version' });
-    const viewNames = el('input', { type: 'text', value: (list || []).join(', '), placeholder: 'cmp, bty', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Its views, the main one first' });
-    const named = () => [...new Set(viewNames.value.split(/[\s,]+/).map((v) => N.tokenize(v)).filter(Boolean))];
+    // Its passes, as set.
+    const list = (cat && cat.passList) || null;
+    const byPass = el('input', { type: 'checkbox', class: 'switch', ...(list && { checked: true }), 'aria-label': 'Several passes of each version' });
+    const passNames = el('input', { type: 'text', value: (list || []).join(', '), placeholder: 'cmp, bty', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Its passes, the main one first' });
+    const named = () => [...new Set(passNames.value.split(/[\s,]+/).map((v) => N.tokenize(v)).filter(Boolean))];
     const file = el('span', { class: 'ps-file' });
     const picker = el('input', { type: 'file', accept: '.glb,model/gltf-binary', hidden: true });
     const choose = el('button', { type: 'button', class: 'btn small', onclick: () => picker.click() });
     const remove = el('button', { type: 'button', class: 'btn small ghost', text: 'Remove', onclick: () => { model = null; paint(); } });
     const screen = el('input', { type: 'text', value: (was && was.screen) || 'screen', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Material of the projection surface' });
-    const view = el('select', { 'aria-label': 'Which view goes on the model' });
+    const pass = el('select', { 'aria-label': 'Which pass goes on the model' });
     // Which of the model's cameras the 3D view opens through, from those its file names.
     const camera = el('select', { 'aria-label': 'The camera the 3D view opens through' });
     let cameras = []; // { name, across }: its lens in degrees across
@@ -739,20 +739,20 @@
       camerasRead = !!from;
       paintCameras();
     };
-    // The ways it can show a version on the model: its views as they are being set here, the main one first.
-    const paintViews = () => {
-      const now = byView.checked && named().length > 1 ? named() : null;
-      const chosen = view.value || (was ? was.view || '' : '');
-      view.replaceChildren(...[['', now ? `${now[0]} (main)` : 'Main view'], ...(now || []).slice(1).map((v) => [v, v])]
+    // The ways it can show a version on the model: its passes as they are being set here, the main one first.
+    const paintPasses = () => {
+      const now = byPass.checked && named().length > 1 ? named() : null;
+      const chosen = pass.value || (was ? was.pass || '' : '');
+      pass.replaceChildren(...[['', now ? `${now[0]} (main)` : 'Main pass'], ...(now || []).slice(1).map((v) => [v, v])]
         .map(([v, t]) => el('option', { value: v, text: t, ...(chosen === v && { selected: true }) })));
-      if (viewsRow) viewsRow.hidden = !byView.checked;
+      if (passesRow) passesRow.hidden = !byPass.checked;
       if (pictureRow) pictureRow.hidden = !model || !now;
     };
-    let viewsRow = null;
+    let passesRow = null;
     let pictureRow = null;
-    byView.addEventListener('change', paintViews);
-    viewNames.addEventListener('input', paintViews);
-    paintViews();
+    byPass.addEventListener('change', paintPasses);
+    passNames.addEventListener('input', paintPasses);
+    paintPasses();
     const save = el('button', { type: 'submit', class: 'btn primary', text: 'Save' });
     const paint = () => {
       file.textContent = model ? model.name : 'No model';
@@ -762,7 +762,7 @@
       // What goes with a model, only once there is one.
       surfaceRow.hidden = fovRow.hidden = !model;
       paintCameras();
-      paintViews();
+      paintPasses();
     };
     picker.addEventListener('change', async () => {
       const f = picker.files[0];
@@ -786,12 +786,12 @@
     const heading = (label, hint) => el('div', { class: 'ps-label' }, el('b', { text: label }), hint && el('span', { text: hint }));
     const row = (label, hint, ...control) => el('div', { class: 'ps-row' }, heading(label, hint), el('div', { class: 'ps-control' }, ...control));
     const field = (label, hint, control, act = null) => el('div', { class: 'ps-field' }, el('div', { class: 'ps-field-head' }, heading(label, hint), act), control);
-    viewsRow = field('Views', 'The main one first: a file of it is a version, the others go with one', viewNames);
+    passesRow = field('Passes', 'The main one first: a file of it is a version, the others go with one', passNames);
     const surfaceRow = field('Screen material', 'What the screens are called in the model', screen);
     cameraRow = field('Main camera', 'Where the work is judged from: the 3D view opens through it', camera);
     const fovRow = el('div', { class: 'ps-row' }, el('div', { class: 'ps-label' }, el('b', { text: 'Field of view flying' }), fovSays),
       el('div', { class: 'ps-control' }, fov, el('span', { class: 'ps-unit', text: '°' })));
-    pictureRow = field('On the screens', 'Which view of a version is shown', view);
+    pictureRow = field('On the screens', 'Which pass of a version is shown', pass);
     rulesRow = field('Learned file names', 'Names from elsewhere, read this way when filing. Forget one with its ×', ruleList);
     paintRules();
     // The settings go in tabs, one to each part of the project they set, listed down the side (across the
@@ -805,7 +805,7 @@
         id: 'versions', label: 'Versions', icon: 'stack', hint: 'How versions are counted, shown and read from file names',
         rows: [
           row('Count by task', 'anim v1, lighting v1… rather than one count', byTask),
-          row('Several views of each version', 'Each version as more than one file: cmp and bty, say', byView),
+          row('Several passes of each version', 'Each version as more than one file: cmp and bty, say', byPass),
           viewsRow,
           rulesRow,
         ],
@@ -836,15 +836,15 @@
         method: 'dialog',
         onsubmit: async (e) => {
           e.preventDefault();
-          if (byView.checked && named().length < 2) {
-            WB.toast('Name at least two views, the main one first: cmp, bty', { ms: 6000 });
+          if (byPass.checked && named().length < 2) {
+            WB.toast('Name at least two passes, the main one first: cmp, bty', { ms: 6000 });
             tabs.show('versions');
-            viewNames.focus();
+            passNames.focus();
             return;
           }
           save.disabled = true;
           try {
-            await api('PATCH', `/api/folders/${project.id}`, { settings: { banner, ...(banner && { bannerAt: bannerAt.map((v) => Math.round(v * 10) / 10) }), tasks: byTask.checked, views: byView.checked ? named() : false, rules, seqs, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', view: view.value, camera: camera.value, fov: Number(fov.value) || 0 } : null } });
+            await api('PATCH', `/api/folders/${project.id}`, { settings: { banner, ...(banner && { bannerAt: bannerAt.map((v) => Math.round(v * 10) / 10) }), tasks: byTask.checked, passes: byPass.checked ? named() : false, rules, seqs, preview3d: model ? { model: model.url, name: model.name, screen: screen.value.trim() || 'screen', pass: pass.value, camera: camera.value, fov: Number(fov.value) || 0 } : null } });
             catalogues.delete(project.id);
             await refresh();
             dlg.close();
@@ -3404,9 +3404,9 @@
   const verBoards = (v, max) => v.boards.length > 0 && el('div', { class: 'ver-boards' },
     v.boards.slice(0, max).map((b) => el('a', { class: 'ver-board', href: WB.href.board(b.id), text: b.name, title: b.name })),
     v.boards.length > max && el('span', { class: 'ver-more', text: `+${v.boards.length - max}`, title: v.boards.slice(max).map((b) => b.name).join(', ') }));
-  const verViews = (v) => {
-    const views = v.views || (v.look && (v.look.views || []).length ? [v.look.view || 'main', ...v.look.views.map((x) => x.view)] : []);
-    return views.length ? views.map((x) => x || 'main') : null;
+  const verPasses = (v) => {
+    const passes = v.passes || (v.look && (v.look.passes || []).length ? [v.look.pass || 'main', ...v.look.passes.map((x) => x.pass)] : []);
+    return passes.length ? passes.map((x) => x || 'main') : null;
   };
   // A version's extras, by label: said only of one that has some.
   const verExtras = (v) => {
@@ -3422,7 +3422,7 @@
   // an asset, set or shot (`types`), is said only where the list has more than one.
   // Listed on a playlist, `open` is how it opens (the playlist playing from it) and `menu` comes first in its menu.
   function versionObj(project, entity, v, { list = false, typeName = (t) => t, day = false, kinds = false, types = false, open, menu = [] } = {}) {
-    const views = verViews(v);
+    const passes = verPasses(v);
     const extras = verExtras(v);
     const about = [
       list && clock(v.createdAt),
@@ -3438,14 +3438,14 @@
       name: verName(project, entity, v, list), title: v.label,
       lines: [
         about,
-        // Shown more than one way: its views, the main one first.
-        views && `Views: ${views.join(', ')}`,
+        // Shown more than one way: its passes, the main one first.
+        passes && `Passes: ${passes.join(', ')}`,
         extras && `Extras: ${extras.join(', ')}`,
         !list && `Filed ${ago(v.createdAt)}${v.createdBy ? ` by ${v.createdBy}` : ''}${v.hidden ? ' · archived' : ''}`,
         list && v.hidden && 'Archived',
         verBoards(v, 4),
       ],
-      aside: [v.hidden && 'Archived', views && el('span', { text: plural(views.length, 'view'), title: `Views: ${views.join(', ')}` }),
+      aside: [v.hidden && 'Archived', passes && el('span', { text: plural(passes.length, 'pass', 'passes'), title: `Passes: ${passes.join(', ')}` }),
         extras && el('span', { text: plural(extras.length, 'extra'), title: `Extras: ${extras.join(', ')}` })].filter(Boolean),
       cells: {
         kind: 'Version', where: entity.name,
@@ -3991,11 +3991,11 @@
   // each as filed with its own comments, to move between with the strip down the left or the arrows. It is
   // not an edit: nothing plays on into the next. Going elsewhere closes it.
   async function playPlaylist(project, data, startId) {
-    // On the venue (a project with a model of it, as in an animatic) each is shown in the view the project
+    // On the venue (a project with a model of it, as in an animatic) each is shown in the pass the project
     // puts on its model; otherwise as filed.
     const preview3d = project.settings && project.settings.preview3d;
     const load = async (in3d) => data.versions.map((v) => {
-      const shown = WBViewer.inView(v.look, in3d ? preview3d.view : '');
+      const shown = WBViewer.inPass(v.look, in3d ? preview3d.pass : '');
       return { ...shown, src: WB.playable(shown), full: shown.src, id: v.id, type: shown.type, label: v.label, name: v.entity, entityId: v.entityId };
     });
     if (!data.versions.length) return;
@@ -4315,16 +4315,16 @@
     if (ai) ai.node.hidden = true;
     // The ways the project shows its versions, the main one first, or null for one way (its settings):
     // each row then says which it is (filing.js).
-    const viewList = () => (cat ? cat.viewList : Array.isArray(settings().views) ? settings().views : null) || null;
+    const passList = () => (cat ? cat.passList : Array.isArray(settings().passes) ? settings().passes : null) || null;
     const head = el('div', { class: 'imp-head' }, title, fillAll, el('span', { class: 'imp-gap' }), WBFiling.keysButton(), aiBtn, clearBtn, fileAll);
     // What each part of the rows' lines is, said once over them, as the project's settings have them.
     const labels = el('div', { class: 'imp-row imp-labels', hidden: true });
     let labelsFor = '';
     const paintLabels = () => {
-      const key = JSON.stringify([useTasks(), viewList()]);
+      const key = JSON.stringify([useTasks(), passList()]);
       if (key !== labelsFor) {
         labelsFor = key;
-        labels.replaceChildren(el('span'), el('span'), el('span', { class: 'imp-fields' }, WBFiling.lineHead({ useTasks: useTasks(), views: viewList() }), el('span', { class: 'imp-go' })), el('span', { class: 'imp-end' }));
+        labels.replaceChildren(el('span'), el('span'), el('span', { class: 'imp-fields' }, WBFiling.lineHead({ useTasks: useTasks(), passes: passList() }), el('span', { class: 'imp-go' })), el('span', { class: 'imp-end' }));
       }
       labels.hidden = !rows.some(unfiled);
     };
@@ -4339,56 +4339,56 @@
 
     const PHASE = { enc: 'Preparing', up: 'Uploading', strip: 'Building timeline', orig: 'Keeping the original' };
     const choiceOf = (r) => ({ name: r.fields.f.name(), task: r.fields.f.taskName() });
-    const viewOf = (r) => r.fields.f.viewName();
+    const passOf = (r) => r.fields.f.passName();
     const extraOf = (r) => r.fields.f.extraName();
     // The next number for a row: one past the highest its asset, set or shot and task has, counting the
-    // rows above it still to be filed to the same. Another view of the row just above (the same name and
+    // rows above it still to be filed to the same. Another pass of the row just above (the same name and
     // task, from the same version of the file) is the same version, and has its number.
-    // The row a view goes with: another of the same asset, set or shot and task, from the same version of
+    // The row a pass goes with: another of the same asset, set or shot and task, from the same version of
     // the file (by the version its name says, when both say one), the main one first, above or below it.
     // Without a version in the names, the nearest row above going there.
     // An extra goes with such a row too, one that is no extra, or else with the newest version there is.
     function partnerOf(r) {
-      const view = viewOf(r);
+      const pass = passOf(r);
       const extra = extraOf(r);
-      if (!view && !extra) return null;
+      if (!pass && !extra) return null;
       const { name, task } = choiceOf(r);
-      const others = rows.filter((o) => o !== r && o.fields && o.status !== 'failed' && (extra ? !extraOf(o) : viewOf(o) !== view && !extraOf(o))
+      const others = rows.filter((o) => o !== r && o.fields && o.status !== 'failed' && (extra ? !extraOf(o) : passOf(o) !== pass && !extraOf(o))
         && choiceOf(o).name === name && choiceOf(o).task === task);
       if (r.parsed.hip != null) {
         const same = others.filter((o) => o.parsed.hip === r.parsed.hip);
-        return same.find((o) => !viewOf(o)) || same[0] || null;
+        return same.find((o) => !passOf(o)) || same[0] || null;
       }
       const above = others.filter((o) => rows.indexOf(o) < rows.indexOf(r));
       return above[above.length - 1] || null;
     }
     function nextNumber(r) {
       const { name, task } = choiceOf(r);
-      const view = viewOf(r);
+      const pass = passOf(r);
       if (extraOf(r)) {
         const partner = partnerOf(r);
         if (partner) return partner.status === 'filed' && partner.version ? partner.version.number : Number(partner.fields.num.value) || nextNumber(partner);
         const head = known(name) && known(name).heads && known(name).heads[task || ''];
         return head ? head.number : '';
       }
-      if (view) {
+      if (pass) {
         const partner = partnerOf(r);
         if (partner) {
           const n = partner.status === 'filed' && partner.version ? partner.version.number
-            : partner.numTouched || viewOf(partner) ? Number(partner.fields.num.value) : nextNumber(partner);
+            : partner.numTouched || passOf(partner) ? Number(partner.fields.num.value) : nextNumber(partner);
           if (n) return n;
         }
-        // On its own, it goes with the newest version there is of that, if that has no such view yet.
+        // On its own, it goes with the newest version there is of that, if that has no such pass yet.
         const newest = !partner && known(name) && known(name).newest;
-        if (newest && (newest.task || null) === task && !WBViewer.inView(newest.look, '').viewNames.includes(view)) return newest.number;
+        if (newest && (newest.task || null) === task && !WBViewer.inPass(newest.look, '').passNames.includes(pass)) return newest.number;
       }
       const have = known(name);
       let n = (have && have.tops ? have.tops[task || ''] || 0 : 0) + 1;
       for (const o of rows) {
         if (o === r) break;
         if (o.status === 'filed' || !o.fields) continue;
-        // A view that goes with another row makes no version of its own, nor does an extra.
-        if ((viewOf(o) && partnerOf(o)) || extraOf(o)) continue;
+        // A pass that goes with another row makes no version of its own, nor does an extra.
+        if ((passOf(o) && partnerOf(o)) || extraOf(o)) continue;
         const c = choiceOf(o);
         if (c.name === name && c.task === task) n = Math.max(n, (Number(o.fields.num.value) || n) + 1);
       }
@@ -4404,7 +4404,7 @@
         if (!p.entity) continue;
         o.parsed = p;
         o.fields.f.setLine(p.entity, p.task || undefined);
-        o.fields.f.take({ number: p.hip, view: p.view, named: true });
+        o.fields.f.take({ number: p.hip, pass: p.pass, named: true });
       }
     };
 
@@ -4417,7 +4417,7 @@
         instruction,
         files: asked.map((r) => ({
           key: r.key, filename: r.file.name,
-          now: { entity: r.fields.ent.value.trim() || null, task: r.fields.task.value.trim() || null, version: r.numTouched ? Number(r.fields.num.value) || null : null, view: viewOf(r) },
+          now: { entity: r.fields.ent.value.trim() || null, task: r.fields.task.value.trim() || null, version: r.numTouched ? Number(r.fields.num.value) || null : null, pass: passOf(r) },
         })),
       });
       await catalogue().catch(() => {});
@@ -4427,16 +4427,16 @@
         const a = res.answers[r.key];
         if (!a || !unfiled(r)) continue;
         const f = r.fields;
-        before.push({ r, ent: f.ent.value, task: f.task.value, type: f.type.value, num: f.num.value, numTouched: r.numTouched, view: f.f.viewName() });
+        before.push({ r, ent: f.ent.value, task: f.task.value, type: f.type.value, num: f.num.value, numTouched: r.numTouched, pass: f.f.passName() });
         // Only the fields in its answer: asked to fill in the shot and the version and nothing more, the rest
-        // are not there, and stay as they are. What is there may clear a field (no task, the main view).
+        // are not there, and stay as they are. What is there may clear a field (no task, the main pass).
         if ('entity' in a) {
           f.ent.value = a.entity;
           f.type.value = a.type;
         }
         if ('task' in a) f.task.value = a.task || '';
         WBFiling.changed();
-        if ('view' in a && viewList()) f.f.setView(a.view || viewList()[0]);
+        if ('pass' in a && passList()) f.f.setPass(a.pass || passList()[0]);
         if ('version' in a) {
           r.numTouched = !!a.version;
           if (a.version) f.num.value = String(a.version);
@@ -4444,7 +4444,7 @@
         setMark(r, WBClaude.mark(a.note, a.fits));
         n++;
       }
-      // Views given show their boxes, so what was filled in is seen and can be checked.
+      // Passes given show their boxes, so what was filled in is seen and can be checked.
       resyncAll();
       if (!n) return { text: 'Claude had nothing to suggest for these' };
       const missed = asked.length - n;
@@ -4457,7 +4457,7 @@
             WBFiling.changed();
             b.r.fields.type.value = b.type;
             b.r.fields.num.value = b.num;
-            if (viewList()) b.r.fields.f.setView(b.view || viewList()[0]);
+            if (passList()) b.r.fields.f.setPass(b.pass || passList()[0]);
             b.r.numTouched = b.numTouched;
             setMark(b.r, null);
           }
@@ -4482,7 +4482,7 @@
       // Named some other way, and not by a pattern the project has: filing it may teach one.
       r.taught = !r.entity && !r.parsed.entity && !(ruled && ruled.rule.pattern);
       const f = WBFiling.fields({
-        getEntities: () => (cat ? cat.entities : []), getTasks: tasks, views: viewList(), view: r.parsed.view || (ruled && ruled.view), label: r.file.name,
+        getEntities: () => (cat ? cat.entities : []), getTasks: tasks, passes: passList(), pass: r.parsed.pass || (ruled && ruled.pass), label: r.file.name,
         entity: r.entity ? r.entity.name : r.parsed.entity || (ruled && ruled.entity) || '', task: r.parsed.task || (ruled && ruled.task) || '', onChange: resyncAll,
         named: !!(r.entity || r.parsed.entity || ruled), piece: () => r.look,
         useTasks: useTasks(), rules, peers, remembered: store(`wb:file:${project.id}`) || null,
@@ -4519,18 +4519,18 @@
         }
         f.sync();
         go.disabled = !canFile(r);
-        // Another view of the version the row above is: shown as going with it.
+        // Another pass of the version the row above is: shown as going with it.
         const above = rows[rows.indexOf(r) - 1];
         const { task } = choiceOf(r);
-        r.node?.classList.toggle('with-above', !!(above && above.fields && (viewOf(r) || extraOf(r)) && unfiled(r) && unfiled(above)
-          && choiceOf(above).name === name && choiceOf(above).task === task && (extraOf(r) || viewOf(above) !== viewOf(r)) && Number(above.fields.num.value) === Number(num.value)));
+        r.node?.classList.toggle('with-above', !!(above && above.fields && (passOf(r) || extraOf(r)) && unfiled(r) && unfiled(above)
+          && choiceOf(above).name === name && choiceOf(above).task === task && (extraOf(r) || passOf(above) !== passOf(r)) && Number(above.fields.num.value) === Number(num.value)));
         paintHead();
       };
       for (const input of [ent, task, num]) {
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.defaultPrevented && canFile(r)) fileRow(r); });
         input.addEventListener('input', () => { r.touched = true; setMark(r, null); });
       }
-      r.fields = { f, ent, task, num, view: f.viewSel, type, go, status, bar, thumb, said, undo, box: fields, sync };
+      r.fields = { f, ent, task, num, pass: f.passSel, type, go, status, bar, thumb, said, undo, box: fields, sync };
       // Taken back: whatever is under way for it stops, and the row goes.
       const drop = el('button', {
         type: 'button', class: 'iconbtn imp-x', html: icon('close', 14), title: `Take ${r.file.name} back`,
@@ -4573,8 +4573,8 @@
       f.box.hidden = r.status === 'filed';
       f.said.hidden = r.status !== 'filed';
       f.said.textContent = r.label ? `Filed as ${r.label}` : '';
-      // Only while the server would take it back: a view put with a version there already is not.
-      f.undo.hidden = !(r.status === 'filed' && r.version && !r.version.filedView && Date.now() - r.filedAt < WBFiling.UNFILE_WITHIN);
+      // Only while the server would take it back: a pass put with a version there already is not.
+      f.undo.hidden = !(r.status === 'filed' && r.version && !r.version.filedPass && Date.now() - r.filedAt < WBFiling.UNFILE_WITHIN);
       f.go.textContent = r.status === 'filing' ? 'Filing…' : 'File';
       f.drop.hidden = r.status === 'filed' || r.status === 'filing';
       f.retry.hidden = !(r.status === 'failed' && !r.look);
@@ -4623,7 +4623,7 @@
       showFiled();
     }
 
-    // Filed once however often it is asked (a view's row asks for the row it goes with, which may be on its way already).
+    // Filed once however often it is asked (a pass's row asks for the row it goes with, which may be on its way already).
     function fileRow(r) {
       if (!r.inflight) r.inflight = fileRowNow(r).finally(() => { r.inflight = null; });
       return r.inflight;
@@ -4634,9 +4634,9 @@
       // A new sequence is said out loud once before it is made.
       if (!(await WBFiling.confirmSequences([r.fields.f], seqsAsked))) return;
       if (!canFile(r)) return;
-      // A view or an extra goes with its version, so the row that makes that version is filed first, then this counts from it.
+      // A pass or an extra goes with its version, so the row that makes that version is filed first, then this counts from it.
       const partner = partnerOf(r);
-      if (partner && !viewOf(partner) && !extraOf(partner) && unfiled(partner) && (canFile(partner) || partner.inflight)) {
+      if (partner && !passOf(partner) && !extraOf(partner) && unfiled(partner) && (canFile(partner) || partner.inflight)) {
         await fileRow(partner);
         r.fields.sync();
       }
@@ -4651,11 +4651,11 @@
       r.status = 'filing';
       paintRow(r);
       try {
-        const view = viewOf(r);
+        const pass = passOf(r);
         const extra = extraOf(r);
-        const res = await api('POST', `/api/projects/${project.id}/versions`, { files: [{ look: r.look, entity, task, view, ...(extra && { extra }), ...(Number.isSafeInteger(number) && number >= 1 && { number }) }], by: me.name });
+        const res = await api('POST', `/api/projects/${project.id}/versions`, { files: [{ look: r.look, entity, task, pass, ...(extra && { extra }), ...(Number.isSafeInteger(number) && number >= 1 && { number }) }], by: me.name });
         const v = res.versions[0];
-        Object.assign(r, { status: 'filed', label: v.filedView || v.filedExtra ? `${v.label} · ${v.filedView || v.filedExtra}` : v.label, version: v, filedAt: Date.now() });
+        Object.assign(r, { status: 'filed', label: v.filedPass || v.filedExtra ? `${v.label} · ${v.filedPass || v.filedExtra}` : v.label, version: v, filedAt: Date.now() });
         store(`wb:file:${project.id}`, { entity: name, task });
         // What is filed now has its number: the rows still to go count on from it.
         cat = null;
@@ -4667,7 +4667,7 @@
         if (r.taught) {
           WBFiling.offerRule({
             filename: r.file.name, rules: rules(), tasks: tasks(),
-            filed: { entity: name, task, number: r.version.number, view: viewOf(r), views: viewList() || [] },
+            filed: { entity: name, task, number: r.version.number, pass: passOf(r), passes: passList() || [] },
             others: rows.filter((o) => o !== r && o.fields && unfiled(o)).map((o) => ({ filename: o.file.name, fields: o.fields.f })),
             save: async (rule) => {
               await api('PATCH', `/api/folders/${project.id}`, { settings: { addRules: [rule] } });
@@ -4720,7 +4720,7 @@
     }
 
     // `entity`, when the files are added on an entity's page, is what they are filled in as.
-    // (The catalogue is had first: what the project is set to, its views among it, shapes each row.)
+    // (The catalogue is had first: what the project is set to, its passes among it, shapes each row.)
     async function add(files, entity = null) {
       // A new lot is read against the project as it is now (its settings may have changed since the last).
       if (!rows.some(unfiled)) cat = null;

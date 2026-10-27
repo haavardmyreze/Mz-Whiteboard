@@ -12,37 +12,37 @@ const read = (text, ctx = {}) => {
   return { ...out, ...(short && { short }), ...(rest.length && { rest }), ...(extra && { extra }) };
 };
 
-test('filing: a typed line says the name, and the task, version and view after it', () => {
-  assert.deepEqual(read('kilo-0010 anim v12 bty'), { entity: 'kilo-0010', task: 'anim', number: 12, view: 'bty' });
-  assert.deepEqual(read('kilo-0010'), { entity: 'kilo-0010', task: undefined, number: null, view: null });
+test('filing: a typed line says the name, and the task, version and pass after it', () => {
+  assert.deepEqual(read('kilo-0010 anim v12 bty'), { entity: 'kilo-0010', task: 'anim', number: 12, pass: 'bty' });
+  assert.deepEqual(read('kilo-0010'), { entity: 'kilo-0010', task: undefined, number: null, pass: null });
   // A number after a whole name is its version; anything else after one is a task, new or not.
   assert.equal(read('kilo-0010 12').number, 12);
   assert.equal(read('kilo-0010 turntable').task, 'turntable');
   assert.equal(read('char-robot turntable').entity, 'char-robot');
   // Until the name is one, more words are more of it.
-  assert.deepEqual(read('Living Room anim'), { entity: 'living-room', task: 'anim', number: null, view: null });
-  assert.deepEqual(read('set living room dressing'), { entity: 'set-living-room', task: 'dressing', number: null, view: null });
+  assert.deepEqual(read('Living Room anim'), { entity: 'living-room', task: 'anim', number: null, pass: null });
+  assert.deepEqual(read('set living room dressing'), { entity: 'set-living-room', task: 'dressing', number: null, pass: null });
   assert.equal(read('char robot rig').entity, 'char-robot');
   // A file name pasted in is read as a file name is.
-  assert.deepEqual(read('kilo-0010_anim_erik_v012_bty.mov'), { entity: 'kilo-0010', task: 'anim', number: 12, view: 'bty' });
-  // A word after the version that is no view is an extra of that version, typed or in a file's name.
-  assert.deepEqual(read('kilo-0010 anim v12 light-b'), { entity: 'kilo-0010', task: 'anim', number: 12, view: null, extra: 'light-b' });
-  assert.deepEqual(read('kilo-0010 v12 light-b'), { entity: 'kilo-0010', task: undefined, number: 12, view: null, extra: 'light-b' });
-  assert.deepEqual(read('kilo-0010 v12 anim'), { entity: 'kilo-0010', task: 'anim', number: 12, view: null });
-  assert.deepEqual(read('kilo-0010 anim v12 bty', { useViews: false }), { entity: 'kilo-0010', task: 'anim', number: 12, view: null, extra: 'bty' });
-  assert.deepEqual(read('kilo-0010_comp_erik_v012_warm.png', { views: ['cmp', 'bty'] }), { entity: 'kilo-0010', task: 'comp', number: 12, view: null, extra: 'warm' });
+  assert.deepEqual(read('kilo-0010_anim_erik_v012_bty.mov'), { entity: 'kilo-0010', task: 'anim', number: 12, pass: 'bty' });
+  // A word after the version that is no pass is an extra of that version, typed or in a file's name.
+  assert.deepEqual(read('kilo-0010 anim v12 light-b'), { entity: 'kilo-0010', task: 'anim', number: 12, pass: null, extra: 'light-b' });
+  assert.deepEqual(read('kilo-0010 v12 light-b'), { entity: 'kilo-0010', task: undefined, number: 12, pass: null, extra: 'light-b' });
+  assert.deepEqual(read('kilo-0010 v12 anim'), { entity: 'kilo-0010', task: 'anim', number: 12, pass: null });
+  assert.deepEqual(read('kilo-0010 anim v12 bty', { usePasses: false }), { entity: 'kilo-0010', task: 'anim', number: 12, pass: null, extra: 'bty' });
+  assert.deepEqual(read('kilo-0010_comp_erik_v012_warm.png', { passes: ['cmp', 'bty'] }), { entity: 'kilo-0010', task: 'comp', number: 12, pass: null, extra: 'warm' });
   // A project that does not count by task never reads one, and says what it did not read.
-  assert.deepEqual(read('kilo-0010 anim', { useTasks: false }), { entity: 'kilo-0010', task: undefined, number: null, view: null, rest: ['anim'] });
+  assert.deepEqual(read('kilo-0010 anim', { useTasks: false }), { entity: 'kilo-0010', task: undefined, number: null, pass: null, rest: ['anim'] });
 });
 
 test('filing: a shot can be said short, by the sequence it is filed in', () => {
-  assert.deepEqual(read('20 anim', { seq: 'kilo' }), { entity: 'kilo-0020', task: 'anim', number: null, view: null, short: 'shot 0020 of kilo' });
+  assert.deepEqual(read('20 anim', { seq: 'kilo' }), { entity: 'kilo-0020', task: 'anim', number: null, pass: null, short: 'shot 0020 of kilo' });
   assert.equal(read('+', { seq: 'kilo' }).entity, 'kilo-0040');
   // The rows above count too: two pluses in a row are two new shots.
   assert.equal(read('+', { seq: 'kilo', taken: ['kilo-0040'] }).entity, 'kilo-0050');
   assert.equal(read('ch01+').entity, 'ch01-0020');
   assert.equal(read('newseq+').entity, 'newseq-0010');
-  assert.deepEqual(read('.', { last: { entity: 'char-robot', task: 'rig' } }), { entity: 'char-robot', task: 'rig', number: null, view: null, short: 'the same as the last' });
+  assert.deepEqual(read('.', { last: { entity: 'char-robot', task: 'rig' } }), { entity: 'char-robot', task: 'rig', number: null, pass: null, short: 'the same as the last' });
   // Without a sequence to go by, a number is only a name.
   assert.equal(read('20').entity, '20');
   // A sequence goes up in its own step.
@@ -75,7 +75,7 @@ test('filing: a file named some other way teaches how such names are read, and w
   assert.equal(naming.byRules('KLO_020_anim_v1.mov', [klo], TASKS).entity, 'kilo-0020');
   // Rules learned before patterns still read: the first word as a sequence, run on or not, or as one asset.
   const word = { word: 'klo', seq: 'kilo' };
-  assert.deepEqual(naming.byRules('KLO_020_anim_v1.mov', [word], TASKS), { entity: 'kilo-0020', task: 'anim', number: null, view: null, rule: word });
+  assert.deepEqual(naming.byRules('KLO_020_anim_v1.mov', [word], TASKS), { entity: 'kilo-0020', task: 'anim', number: null, pass: null, rule: word });
   assert.equal(naming.byRules('XYZ_020.mov', [word], TASKS), null);
   const glued = naming.ruleFrom('klo010.mov', 'kilo-0010');
   assert.deepEqual(glued, { word: 'klo', seq: 'kilo', glued: true });
@@ -89,31 +89,31 @@ test('filing: a file named some other way teaches how such names are read, and w
   assert.equal(naming.readLine('KLO_070_anim_v1.mov', { rules: [word], tasks: TASKS }).entity, 'kilo-0070');
 });
 
-test('filing: a whole name filed by hand teaches its pattern: the sequence, shot, version and view each in its place', () => {
-  const rule = naming.ruleFrom('NHMoc_CHAP01_010_cmp_v111.mp4', { entity: 'chap01-0010', task: null, number: 111, view: null, views: ['cmp', 'bty'] });
-  assert.deepEqual(rule.pattern, ['nhmoc', '{seq}', '{shot}', '{view}', '{version}']);
+test('filing: a whole name filed by hand teaches its pattern: the sequence, shot, version and pass each in its place', () => {
+  const rule = naming.ruleFrom('NHMoc_CHAP01_010_cmp_v111.mp4', { entity: 'chap01-0010', task: null, number: 111, pass: null, passes: ['cmp', 'bty'] });
+  assert.deepEqual(rule.pattern, ['nhmoc', '{seq}', '{shot}', '{pass}', '{version}']);
   assert.equal(naming.ruleText(rule), 'NHMoc_CHAP01_010_cmp_v111 → chap01-0010 v111');
   const read = (name) => {
     const r = naming.byRules(name, [rule]);
-    return r && { entity: r.entity, number: r.number, view: r.view };
+    return r && { entity: r.entity, number: r.number, pass: r.pass };
   };
-  assert.deepEqual(read('NHMoc_CHAP03_040_cmp_v009.mp4'), { entity: 'chap03-0040', number: 9, view: 'cmp' });
-  assert.deepEqual(read('NHMoc_CHAP03_040_bty_v009.mp4'), { entity: 'chap03-0040', number: 9, view: 'bty' });
+  assert.deepEqual(read('NHMoc_CHAP03_040_cmp_v009.mp4'), { entity: 'chap03-0040', number: 9, pass: 'cmp' });
+  assert.deepEqual(read('NHMoc_CHAP03_040_bty_v009.mp4'), { entity: 'chap03-0040', number: 9, pass: 'bty' });
   // Not one like it: another studio's word, or another shape.
   assert.equal(read('Other_CHAP03_040_cmp_v009.mp4'), null);
   assert.equal(read('NHMoc_CHAP03_040_v009.mp4'), null);
-  // Without views, the word where the view was is anything; a shot's number may run on after letters.
+  // Without passes, the word where the pass was is anything; a shot's number may run on after letters.
   const plain = naming.ruleFrom('ABC_ep2_sh010_comp_erik_v004.mov', { entity: 'ep2-0010', task: 'comp', number: 4 });
   assert.deepEqual(plain.pattern, ['abc', '{seq}', '{shot:sh}', '{task}', '*', '{version}']);
-  assert.deepEqual(naming.byRules('ABC_ep3_sh120_lighting_anna_v011.mov', [plain]), { entity: 'ep3-0120', task: 'lighting', number: 11, view: null, rule: plain });
+  assert.deepEqual(naming.byRules('ABC_ep3_sh120_lighting_anna_v011.mov', [plain]), { entity: 'ep3-0120', task: 'lighting', number: 11, pass: null, rule: plain });
   // A sequence named otherwise there is kept as such; with no word of its own, the pattern is known by it alone.
   const klo = naming.ruleFrom('KLO_010_anim_v3.mov', { entity: 'kilo-0010', task: 'anim', number: 3 });
   assert.deepEqual(klo.seqs, { klo: 'kilo' });
   assert.equal(naming.byRules('KLO_020_anim_v7.mov', [klo]).entity, 'kilo-0020');
   assert.equal(naming.byRules('ABC_020_anim_v1.mov', [klo]), null);
   // A pasted name is read by it, number and all.
-  const line = naming.readLine('NHMoc_CHAP02_030_cmp_v004', { rules: [rule], views: ['cmp', 'bty'] });
-  assert.deepEqual([line.entity, line.number, line.view], ['chap02-0030', 4, 'cmp']);
+  const line = naming.readLine('NHMoc_CHAP02_030_cmp_v004', { rules: [rule], passes: ['cmp', 'bty'] });
+  assert.deepEqual([line.entity, line.number, line.pass], ['chap02-0030', 4, 'cmp']);
   // Patterns go before the first-word rules, being surer.
   assert.equal(naming.byRules('NHMoc_CHAP03_040_cmp_v009.mp4', [{ word: 'nhmoc', name: 'char-robot' }, rule]).entity, 'chap03-0040');
 });

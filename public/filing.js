@@ -7,8 +7,8 @@
 //
 // Each row is one line of parts, labelled once above the rows (lineHead): what it is (an icon, with a
 // dot when it is new, or a question when nothing says), its name, the task, the version it follows (its
-// still, which shows the two side by side), the version it is to be, the view, the extra it is of that
-// version (a label, empty for a version of its own), and what there is to say about it. What the page filled in itself, and nobody said (the next number, the main view), is faint,
+// still, which shows the two side by side), the version it is to be, the pass, the extra it is of that
+// version (a label, empty for a version of its own), and what there is to say about it. What the page filled in itself, and nobody said (the next number, the main pass), is faint,
 // so that it reads as the guess it is. The name takes a whole line, read by WBNaming.readLine:
 // "kilo-0010 anim v12 bty", a file name pasted in, or a short way to say a shot (20, +, .); a space after
 // a name the project has, or a shot, moves on to the task, and a line that reads one way only goes into
@@ -132,7 +132,7 @@ const WBFiling = (() => {
     for (const o of out) {
       if (o.task === undefined && line.task !== undefined) o.task = line.task;
       o.number = line.number;
-      o.view = line.view;
+      o.pass = line.pass;
       o.extra = line.extra;
     }
     return out;
@@ -251,14 +251,14 @@ const WBFiling = (() => {
   }
 
   // The parts of a row's line, as columns, the same on every row and in the labels over them.
-  const lineColumns = ({ useTasks, views }) => ['34px', 'minmax(120px, 1fr)', useTasks && 'minmax(64px, 110px)', '72px', '62px', views && 'minmax(56px, 84px)', 'minmax(64px, 96px)', '30px'].filter(Boolean).join(' ');
+  const lineColumns = ({ useTasks, passes }) => ['34px', 'minmax(120px, 1fr)', useTasks && 'minmax(64px, 110px)', '72px', '62px', passes && 'minmax(56px, 84px)', 'minmax(64px, 96px)', '30px'].filter(Boolean).join(' ');
   // The labels over the rows' lines, once: what each part of them is.
-  function lineHead({ useTasks = true, views = null } = {}) {
+  function lineHead({ useTasks = true, passes = null } = {}) {
     const node = el('span', { class: 'file-line file-labels', 'aria-hidden': 'true' },
       el('span'), el('span', { text: 'Asset, set or shot' }), useTasks && el('span', { text: 'Task' }),
-      el('span', { text: 'Follows' }), el('span', { text: 'Version' }), views && el('span', { text: 'View', title: `${views[0]} is the main one: a version of its own` }),
+      el('span', { text: 'Follows' }), el('span', { text: 'Version' }), passes && el('span', { text: 'Pass', title: `${passes[0]} is the main one: a version of its own` }),
       el('span', { text: 'Extra', title: 'A label here adds the file to that version as an extra, rather than making a version of its own' }), el('span'));
-    node.style.gridTemplateColumns = lineColumns({ useTasks, views });
+    node.style.gridTemplateColumns = lineColumns({ useTasks, passes });
     return node;
   }
   const TYPE_ICON = { asset: 'cube', set: 'set', shot: 'film' };
@@ -271,18 +271,18 @@ const WBFiling = (() => {
   // `numberOf()`, when the page has a number field of its own (`numInput`, put in the line, faint while
   // `numAuto()` says the page filled it in), is its number, and `onLine(line)` hears a line's number to
   // put in it; otherwise the line has one here, and what is typed in it or said by a line is kept in
-  // `typedNumber()`, starting from `number`. `views` are the project's views, the main one first (null when it shows each
-  // version one way): the row then has a View picker (`viewSel`, starting at `view`, the one its name
-  // says), and `viewName()` is the one picked, null for the main one. A word after the version that is no
-  // view (in a project shown one way, any word) makes the piece an extra of that version instead:
-  // `extraName()` is its label, null for a version or view of its own. `named` says the entity given
+  // `typedNumber()`, starting from `number`. `passes` are the project's passes, the main one first (null when it shows each
+  // version one way): the row then has a Pass picker (`passSel`, starting at `pass`, the one its name
+  // says), and `passName()` is the one picked, null for the main one. A word after the version that is no
+  // pass (in a project shown one way, any word) makes the piece an extra of that version instead:
+  // `extraName()` is its label, null for a version or pass of its own. `named` says the entity given
   // was read from the piece's own file name. `rules` let the project's learned rules read pasted names;
   // `say(text, undo)` tells the person something the keys did (a toast unless the page says otherwise).
   // `piece()` is the look of what is being filed (to compare it with the version it follows).
   function fields({
     entity = '', task = '', getEntities, getTasks, label = 'it', onChange = () => {},
     useTasks = true, peers = () => [], remembered = null, numberOf = null, onLine = null, rules = () => [],
-    number: typedNumber = null, view: namedView = null, views = null, named = false, say = null, piece = () => null,
+    number: typedNumber = null, pass: namedPass = null, passes = null, named = false, say = null, piece = () => null,
     numInput = null, numAuto = null,
   }) {
     const readout = el('div', { class: 'file-says', id: `fs-${WB.uid()}` });
@@ -319,11 +319,11 @@ const WBFiling = (() => {
     const verIn = numInput || el('input', { type: 'text', inputmode: 'numeric', value: typedNumber ? String(typedNumber) : '', spellcheck: 'false', 'aria-label': 'Version', title: 'Version: the next one, unless you say another' });
     verIn.classList.add('file-ver');
     const verSeg = el('span', { class: 'file-vseg' }, el('span', { class: 'file-vmark', text: 'v' }), verIn);
-    // Which view of its version the piece is: the main one (a version of its own) or one of the others,
-    // to go with a version. A name that says a view the project does not have is asked about, not guessed.
-    const viewSel = views && el('select', { class: 'file-view', 'aria-label': 'View', title: `Which way of its version it shows. ${views[0]}, the main one, is a version of its own; the others go with one` },
-      el('option', { value: '', text: views[0] }), views.slice(1).map((v) => el('option', { value: v, text: v })));
-    // Which extra of its version it is: a label, or nothing for a version (or view) of its own. Filled
+    // Which pass of its version the piece is: the main one (a version of its own) or one of the others,
+    // to go with a version. A name that says a pass the project does not have is asked about, not guessed.
+    const passSel = passes && el('select', { class: 'file-pass', 'aria-label': 'Pass', title: `Which way of its version it shows. ${passes[0]}, the main one, is a version of its own; the others go with one` },
+      el('option', { value: '', text: passes[0] }), passes.slice(1).map((v) => el('option', { value: v, text: v })));
+    // Which extra of its version it is: a label, or nothing for a version (or pass) of its own. Filled
     // in from its name, or typed.
     const extraIn = el('input', { type: 'text', class: 'file-extra', placeholder: '', spellcheck: 'false', 'aria-label': 'Extra', title: 'A label (light-a, still-1043) adds it to the version as an extra. Empty: a version of its own' });
     // What there is to say about it, behind a mark at the end of the line (see paintReadout).
@@ -333,30 +333,30 @@ const WBFiling = (() => {
       if (popped && popped.button === info) return shutPop();
       if (readout.childNodes.length) popOver(info, () => readout);
     });
-    const line_ = el('span', { class: 'file-line' }, el('span', { class: 'file-is' }, kind, type), ent, useTasks ? taskIn : null, prevSlot, verSeg, viewSel || null, extraIn, el('span', { class: 'file-info-cell' }, info));
-    line_.style.gridTemplateColumns = lineColumns({ useTasks, views });
+    const line_ = el('span', { class: 'file-line' }, el('span', { class: 'file-is' }, kind, type), ent, useTasks ? taskIn : null, prevSlot, verSeg, passSel || null, extraIn, el('span', { class: 'file-info-cell' }, info));
+    line_.style.gridTemplateColumns = lineColumns({ useTasks, passes });
     // Which extra of its version it is, if it is one (see readout: it says so, with the way back).
     let extra = null;
     const setExtra = (x) => {
       extra = N.tokenize(x || '') || null;
       extraIn.value = extra || '';
     };
-    function setView(v) {
+    function setPass(v) {
       if (!v) return;
-      if (!views || !views.includes(v)) return setExtra(v);
+      if (!passes || !passes.includes(v)) return setExtra(v);
       setExtra(null);
-      viewSel.value = v === views[0] ? '' : v;
+      passSel.value = v === passes[0] ? '' : v;
     }
-    setView(namedView);
-    const viewName = () => (!extra && viewSel && viewSel.value) || null;
+    setPass(namedPass);
+    const passName = () => (!extra && passSel && passSel.value) || null;
     const extraName = () => extra;
     let likely = [];
     let fromName = named && !!entity;
     // What a line said of the number, on a page with no field for it. Said by a line, it goes when the
-    // name is changed (it was said of that one); given by the page, it stays. A view said goes to the picker.
+    // name is changed (it was said of that one); given by the page, it stays. A pass said goes to the picker.
     const own = { number: typedNumber, said: false };
     const toLine = (l) => {
-      if (l.view) setView(l.view);
+      if (l.pass) setPass(l.pass);
       if (l.extra) setExtra(l.extra);
       if (l.number == null) return;
       if (onLine) return onLine(l);
@@ -388,7 +388,7 @@ const WBFiling = (() => {
       const prev = above.length ? above[above.length - 1] : null;
       const last = () => (prev && prev.name() ? { entity: prev.name(), task: prev.taskName() } : remembered);
       return {
-        entities: entities(), names: entities().map((e) => e.name), tasks: getTasks() || [], views: views || [], useViews: !!views, useTasks, rules: rules(), above: !!prev,
+        entities: entities(), names: entities().map((e) => e.name), tasks: getTasks() || [], passes: passes || [], usePasses: !!passes, useTasks, rules: rules(), above: !!prev,
         get last() { return last(); },
         get taken() { return above.map((p) => p.name()).filter(Boolean); },
         get seq() {
@@ -418,16 +418,16 @@ const WBFiling = (() => {
       return taskRead.name;
     };
 
-    // The line, said in the fields: the name in the first, the task in its own, and a number and view
+    // The line, said in the fields: the name in the first, the task in its own, and a number and pass
     // to the page (or kept here). A line with words it could not read stays as it is, said under the
     // row, rather than lose them.
     function settle() {
       const l = line();
-      if (!l.entity || l.rest.length || (ent.value === l.entity && l.task === undefined && l.number == null && !l.view && !l.extra)) return;
+      if (!l.entity || l.rest.length || (ent.value === l.entity && l.task === undefined && l.number == null && !l.pass && !l.extra)) return;
       changed();
       ent.value = l.entity;
       if (useTasks && l.task !== undefined) taskIn.value = l.task || '';
-      if (l.number != null || l.view || l.extra) toLine(l);
+      if (l.number != null || l.pass || l.extra) toLine(l);
       sync();
       onChange();
     }
@@ -458,7 +458,7 @@ const WBFiling = (() => {
         changed();
         fromName = false;
         if (useTasks && o.task !== undefined) taskIn.value = o.task || '';
-        if (o.number != null || o.view || o.extra) toLine({ number: o.number, view: o.view, extra: o.extra });
+        if (o.number != null || o.pass || o.extra) toLine({ number: o.number, pass: o.pass, extra: o.extra });
         settle();
         sync();
         onChange();
@@ -525,7 +525,7 @@ const WBFiling = (() => {
     let likelyAt = 0;
     function checks() {
       const { list, at } = around();
-      const key = [edits, list.length, at, entities().length, likelyAt, ent.value, taskIn.value, type.value, own.number, numberOf && numberOf(), viewName(), extra, (piece() || {}).dur];
+      const key = [edits, list.length, at, entities().length, likelyAt, ent.value, taskIn.value, type.value, own.number, numberOf && numberOf(), passName(), extra, (piece() || {}).dur];
       if (!judged || !same(judged.key, key)) judged = { key, out: judge() };
       return judged.out;
     }
@@ -539,27 +539,27 @@ const WBFiling = (() => {
       const e = have(n);
       const typed = ent.value.trim();
       if (l.short) out.push({ text: `${typed} is ${l.short}: ${n}` });
-      else if (typed !== n && l.task === undefined && l.number == null && !l.view && !l.extra && !l.rest.length) out.push({ text: `Called ${n}` });
+      else if (typed !== n && l.task === undefined && l.number == null && !l.pass && !l.extra && !l.rest.length) out.push({ text: `Called ${n}` });
       if (l.rest.length) out.push({ text: `Not read: ${l.rest.join(' ')}. Take it out${useTasks ? ' or put it in the task' : ''} to file`, warn: true, rank: 0 });
-      // An extra: which version it goes with, or that there is none; a view it may have been meant as; and
+      // An extra: which version it goes with, or that there is none; a pass it may have been meant as; and
       // the way back to a version of its own.
       if (extra) {
         const at = number();
         const head = headOf();
         const ahead = around().list.slice(0, Math.max(0, around().at)).some((p) => p.name() === n && p.taskName() === taskName() && !p.extraName());
-        const fixes = [...(views || []).filter((x) => x !== views[0]).map((x) => ({ label: `the ${x} view`, run: () => { changed(); setView(x); sync(); } })),
+        const fixes = [...(passes || []).filter((x) => x !== passes[0]).map((x) => ({ label: `the ${x} pass`, run: () => { changed(); setPass(x); sync(); } })),
           { label: 'A version of its own', run: () => { changed(); setExtra(null); sync(); } }];
         if (!at || (!ahead && !(e && at <= ((e.tops || {})[taskName() || ''] || 0)))) out.push({ text: `An extra, “${extra}”, but there is no ${at ? N.label(n, taskName(), at) : `version of ${N.label(n, taskName(), '').replace(/ v$/, '')}`} to add it to`, fixes, warn: true, rank: 0 });
         else if (head && head.number === at && (head.look.extraNames || []).includes(extra)) out.push({ text: `${N.label(n, taskName(), at)} has an extra called “${extra}” already`, fixes, warn: true, rank: 0 });
         else out.push({ text: `Adds it to ${N.label(n, taskName(), at)} as an extra, “${extra}”`, fixes, extra: true });
       }
-      const v = viewName();
+      const v = passName();
       if (v) {
         const at = number();
         const head = headOf();
         // Another row (above or below) that makes the version it goes with.
-        const ahead = around().list.some((p) => p !== self && p.name() === n && p.taskName() === taskName() && p.viewName() !== v && p.number() === at);
-        if (head && head.number === at && (head.look.viewNames || []).includes(v)) out.push({ text: `${N.label(n, taskName(), at)} has its ${v} already`, warn: true, rank: 0 });
+        const ahead = around().list.some((p) => p !== self && p.name() === n && p.taskName() === taskName() && p.passName() !== v && p.number() === at);
+        if (head && head.number === at && (head.look.passNames || []).includes(v)) out.push({ text: `${N.label(n, taskName(), at)} has its ${v} already`, warn: true, rank: 0 });
         else out.push({ text: ahead || (e && at <= ((e.tops || {})[taskName() || ''] || 0)) ? `Adds its ${v} to ${N.label(n, taskName(), at)}` : `A new ${N.label(n, taskName(), at)}, shown as ${v} only` });
       }
       if (!e) {
@@ -649,19 +649,19 @@ const WBFiling = (() => {
     // counting what the rows above going there will get (as the server numbers them, in order).
     // (Kept until something changes, as a line is: each row asks those above.)
     let counted = null;
-    // Another view (not the main one) goes with a version rather than making one: that of the nearest
-    // row above going to the same that is not this view, else the newest there is if it lacks this view.
+    // Another pass (not the main one) goes with a version rather than making one: that of the nearest
+    // row above going to the same that is not this pass, else the newest there is if it lacks this pass.
     // An extra goes with that of the nearest row above going to the same that is no extra, else the newest.
     function number() {
       if (numberOf) return numberOf();
       if (own.number) return own.number;
       const { list, at } = around();
-      const key = [edits, list.length, at, entities().length, ent.value, taskIn.value, viewName(), extra];
+      const key = [edits, list.length, at, entities().length, ent.value, taskIn.value, passName(), extra];
       if (counted && same(counted.key, key)) return counted.n;
       const n = name();
       const t = taskName();
       const above = list.slice(0, Math.max(0, at)).filter((p) => p.name() === n && p.taskName() === t);
-      const v = viewName();
+      const v = passName();
       let joins = null;
       if (extra) {
         const row = [...above].reverse().find((p) => !p.extraName());
@@ -670,9 +670,9 @@ const WBFiling = (() => {
         return counted.n;
       }
       if (v) {
-        const row = [...above].reverse().find((p) => p.viewName() !== v);
+        const row = [...above].reverse().find((p) => p.passName() !== v);
         const head = headOf();
-        joins = row ? row.number() : head && !(head.look.viewNames || []).includes(v) ? head.number : null;
+        joins = row ? row.number() : head && !(head.look.passNames || []).includes(v) ? head.number : null;
       }
       let top = nextOf(have(n), t) - 1;
       for (const p of above) if (!p.extraName()) top = Math.max(top, p.number());
@@ -755,7 +755,7 @@ const WBFiling = (() => {
         verIn.placeholder = n ? String(number()) : '';
       }
       verSeg.classList.toggle('auto', numberOf ? !!(numAuto && numAuto()) : !own.number);
-      if (viewSel) viewSel.classList.toggle('auto', !viewSel.value);
+      if (passSel) passSel.classList.toggle('auto', !passSel.value);
     }
 
     const sync = () => {
@@ -775,7 +775,7 @@ const WBFiling = (() => {
     // ---- typing through the line, as a date's parts are typed through
 
     // The parts typed in, in order, and the one after or before one.
-    const parts = () => [ent, useTasks && taskIn, verIn, viewSel, extraIn].filter(Boolean);
+    const parts = () => [ent, useTasks && taskIn, verIn, passSel, extraIn].filter(Boolean);
     const step = (from, by) => parts()[parts().indexOf(from) + by] || null;
     const toEnd = (input) => {
       input.focus();
@@ -790,7 +790,7 @@ const WBFiling = (() => {
       const l = N.readLine(ent.value, lineContext());
       if (!l.entity || l.rest.length) return;
       const whole = !!have(l.entity) || !!l.short || N.typeByShape(l.entity) === 'shot';
-      const more = l.task !== undefined || l.number != null || !!l.view || !!l.extra;
+      const more = l.task !== undefined || l.number != null || !!l.pass || !!l.extra;
       if (!more && !whole) return;
       combo.hide();
       if (more) settle();
@@ -801,19 +801,19 @@ const WBFiling = (() => {
         sync();
         onChange();
       }
-      const next = [useTasks && !(more && l.task !== undefined) && taskIn, l.number == null && verIn, viewSel].find(Boolean);
+      const next = [useTasks && !(more && l.task !== undefined) && taskIn, l.number == null && verIn, passSel].find(Boolean);
       if (next) toEnd(next);
     });
-    // A task part with a version or a view in it puts it where it goes: on a space, or when left.
+    // A task part with a version or a pass in it puts it where it goes: on a space, or when left.
     function settleTask() {
       const w = taskIn.value.trim();
       const v = /^(?:v|#)?(\d{1,5})$/i.exec(w);
-      const asView = views && views.includes(N.tokenize(w)) ? N.tokenize(w) : null;
-      if (!v && !asView) return false;
+      const asPass = passes && passes.includes(N.tokenize(w)) ? N.tokenize(w) : null;
+      if (!v && !asPass) return false;
       changed();
       taskIn.value = '';
       if (v) toLine({ number: Number(v[1]) || null });
-      else setView(asView);
+      else setPass(asPass);
       sync();
       onChange();
       return true;
@@ -832,12 +832,12 @@ const WBFiling = (() => {
     });
     taskIn.addEventListener('blur', settleTask);
     taskIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') settleTask(); }, true);
-    // The version: a number, typed over what the page put in; a space goes on to the view (or the extra).
+    // The version: a number, typed over what the page put in; a space goes on to the pass (or the extra).
     verIn.addEventListener('focus', () => { if (verSeg.classList.contains('auto') && verIn.select) verIn.select(); });
     verIn.addEventListener('keydown', (e) => {
       if (e.key === ' ') {
         e.preventDefault();
-        (viewSel || extraIn).focus();
+        (passSel || extraIn).focus();
       }
     });
     if (!numberOf) {
@@ -861,12 +861,12 @@ const WBFiling = (() => {
       });
     }
 
-    if (viewSel) viewSel.addEventListener('change', () => { changed(); setExtra(null); sync(); onChange(); });
+    if (passSel) passSel.addEventListener('change', () => { changed(); setExtra(null); sync(); onChange(); });
     // Typed as it is, read as a label: the box keeps what was typed until it is left.
     extraIn.addEventListener('input', () => {
       changed();
       extra = N.tokenize(extraIn.value) || null;
-      if (extra && viewSel) viewSel.value = '';
+      if (extra && passSel) passSel.value = '';
       sync();
       onChange();
     });
@@ -874,13 +874,13 @@ const WBFiling = (() => {
     sync();
     return Object.assign(self, {
       ent, task: taskIn, type, readout, sync, line: line_, version: verIn, name, have, taskName, settle, setLine, checks, ready, number,
-      typedNumber: () => (numberOf ? null : own.number), viewSel, viewName, setView, extraName, setExtra,
-      // A number and view read for it from elsewhere (a learned rule), as if typed on its line; `named`
+      typedNumber: () => (numberOf ? null : own.number), passSel, passName, setPass, extraName, setExtra,
+      // A number and pass read for it from elsewhere (a learned rule), as if typed on its line; `named`
       // when what it is was read from its own file's name so.
       take: (l) => {
         changed();
         if (l.named) fromName = true;
-        toLine({ number: l.number ?? null, view: l.view || null, extra: l.extra || null });
+        toLine({ number: l.number ?? null, pass: l.pass || null, extra: l.extra || null });
         sync();
       },
       // Its name was read from its own file's name, and has not been changed since.
@@ -996,7 +996,7 @@ const WBFiling = (() => {
 
   // After a piece named some other way is filed: the rule it teaches, if it teaches one the project does
   // not have, offered to be kept, and to fill in the rows still to go that it reads. `filed` is what it
-  // was filed as ({ entity, task, number, view, views }: see ruleFrom in naming.js). `others` are those
+  // was filed as ({ entity, task, number, pass, passes }: see ruleFrom in naming.js). `others` are those
   // rows, each { filename, fields }; `save(rule)` keeps the rule beside those the project has by then.
   // A pattern is offered once while the page is open, however many files like it are filed (several at
   // once, say), and whatever was answered: Not now is not asked again until the page is opened anew.
@@ -1006,7 +1006,7 @@ const WBFiling = (() => {
     if (!rule || (rules || []).some((r) => N.ruleKey(r) === N.ruleKey(rule)) || offered.has(N.ruleKey(rule))) return;
     offered.add(N.ruleKey(rule));
     const reads = others.filter((o) => !o.fields.name() && N.byRules(o.filename, [rule], tasks));
-    const said = (r) => N.label(r.entity, r.task, r.number || '').replace(/ v$/, '') + (r.view ? ` ${r.view}` : '');
+    const said = (r) => N.label(r.entity, r.task, r.number || '').replace(/ v$/, '') + (r.pass ? ` ${r.pass}` : '');
     const stem = (f) => String(f).replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
     // Asked in the middle of the page, not in a corner: what is learned here reads every name like it.
     const fill = async () => {
@@ -1014,7 +1014,7 @@ const WBFiling = (() => {
       for (const o of reads) {
         const r = N.byRules(o.filename, [rule], tasks);
         o.fields.setLine(r.entity, r.task || undefined);
-        o.fields.take({ number: r.number, view: r.view, named: true });
+        o.fields.take({ number: r.number, pass: r.pass, named: true });
       }
     };
     const shown = reads.slice(0, 6);

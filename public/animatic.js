@@ -91,12 +91,12 @@ const WBAnimatic = (() => {
     // ---- what each clip plays
 
     const versionOf = (c) => (c.shot && shots[c.shot] ? shots[c.shot].version : null);
-    // On the venue, each shot shows the view the project puts on its model (its main one unless it says).
+    // On the venue, each shot shows the pass the project puts on its model (its main one unless it says).
     const venue = project.settings && project.settings.preview3d && project.settings.preview3d.model ? project.settings.preview3d : null;
     let in3d = false;
     const lookOf = (c) => {
       const v = versionOf(c);
-      return v ? V.inView(v.look, in3d ? venue.view || '' : doc.view) : null;
+      return v ? V.inPass(v.look, in3d ? venue.pass || '' : doc.pass) : null;
     };
     const srcOf = (look) => (look ? WB.playable(look) : null);
     const sounds = new Map(); // a sound file's address -> { buffer, peaks } once read, or 'loading' / 'failed'
@@ -503,7 +503,7 @@ const WBAnimatic = (() => {
         if (!e) continue;
         const p = provisional(e);
         shots[sid] = shots[sid] || p;
-        const look = p.version ? V.inView(p.version.look, doc.view) : null;
+        const look = p.version ? V.inPass(p.version.look, doc.pass) : null;
         const len = look && look.type === 'video' && look.dur > 0 ? frames(look.dur) : frames(3);
         out.push({ id: newId(), track, start: at, len, in: 0, fadeIn: 0, fadeOut: 0, dissolve: 0, gain: 1, shot: sid, loop: false });
         at += len;
@@ -1160,16 +1160,16 @@ const WBAnimatic = (() => {
       if ('d' in p) follow3d(p.d);
     }
 
-    // The task each clip plays the newest of, and the view, where there is a choice. Watching, the edit plays as
+    // The task each clip plays the newest of, and the pass, where there is a choice. Watching, the edit plays as
     // the presenter has it.
     function paintOptions() {
       if (!doc || watching) return;
       const tasks = (catalogue && catalogue.tasks) || [];
-      const views = catalogue && Array.isArray(catalogue.viewList) ? catalogue.viewList : [];
+      const passes = catalogue && Array.isArray(catalogue.passList) ? catalogue.passList : [];
       options = V.optionsButton(() => [
         { name: 'Task', value: doc.task || '', def: '', options: tasks.length > 1 || doc.task ? [['', 'Newest of any task'], ...tasks.map((x) => [x, `Newest ${x}`])] : [], pick: (v) => setChoice({ task: v || null }) },
-        // On the venue the view is the one the project puts on its model, so there is none to choose.
-        ...(views.length > 1 && !in3d ? [V.viewGroup(['', ...views.slice(1)], doc.view || '', (v) => setChoice({ view: v }), views)] : []),
+        // On the venue the pass is the one the project puts on its model, so there is none to choose.
+        ...(passes.length > 1 && !in3d ? [V.passGroup(['', ...passes.slice(1)], doc.pass || '', (v) => setChoice({ pass: v }), passes)] : []),
       ], { title: 'What the edit plays' });
       optionsSlot.replaceChildren(options);
     }
@@ -2734,7 +2734,7 @@ const WBAnimatic = (() => {
       fitFrame();
       paintOptions();
       venue3d.paint();
-      // Each shot shows another view of its version on the venue: the videos are put on their files.
+      // Each shot shows another pass of its version on the venue: the videos are put on their files.
       render(ph);
       draw();
       venue3d.remember();

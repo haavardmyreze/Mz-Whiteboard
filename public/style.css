@@ -2706,7 +2706,7 @@ body.viewonly #hint .hint-guest { display: inline; }
    the frame for drawings, with no picture, ground or edge of its own), letterboxed; flying, edge to edge.
    The pointer goes through the piece box to the stage. */
 .viewer.in3d .v-piece { background: transparent; box-shadow: none; pointer-events: none; }
-.viewer.in3d .v-viewpick { display: none; }
+.viewer.in3d .v-passpick { display: none; }
 .v-dims .iconbtn[aria-pressed="true"], .v-cams .iconbtn[aria-pressed="true"] { background: var(--surface-1); color: var(--text); box-shadow: var(--shadow-1); }
 /* While the venue is on its way: how much has come, beside the cube. */
 .v-3d-btn.loading { width: auto; gap: 4px; padding: 0 8px; color: var(--text); }

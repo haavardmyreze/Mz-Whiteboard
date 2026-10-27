@@ -77,7 +77,7 @@
     search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4-4"/>',
     select: '<path d="M5 3l5.5 16 2.5-6.5L19.5 10z"/>',
     set: '<path d="M3 20h18M5 20V9.5L12 5l7 4.5V20"/><path d="M9.5 20v-5h5v5"/>',
-    // A choice of one among several: what a player or an edit shows (which task, which view).
+    // A choice of one among several: what a player or an edit shows (which task, which pass).
     pick: '<circle cx="6" cy="7" r="2"/><circle cx="6" cy="17" r="2" fill="currentColor"/><path d="M11 7h9M11 17h9"/>',
     settings: '<path d="M4 7h9M19 7h1M4 17h3M13 17h7"/><circle cx="16" cy="7" r="2.5"/><circle cx="10" cy="17" r="2.5"/>',
     shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/>',

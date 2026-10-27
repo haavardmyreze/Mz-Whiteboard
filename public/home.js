@@ -806,7 +806,7 @@
         rows: [
           row('Count by task', 'anim v1, lighting v1… rather than one count', byTask),
           row('Several passes of each version', 'Each version as more than one file: cmp and bty, say', byPass),
-          viewsRow,
+          passesRow,
           rulesRow,
         ],
       },
@@ -1967,7 +1967,7 @@
       el('h2', { text: chosen.length === 1 ? `Edit ${names[0]}` : `Edit ${chosen.length} versions` }),
       el('p', { class: 'be-which', text: names.length > 8 ? `${names.slice(0, 8).join(', ')} and ${names.length - 8} more` : names.join(', ') }),
       ent.node, task && task.node, artist.node, hide.node,
-      el('p', { class: 'be-note', text: 'Moved, each gets the next number where it goes, in the order they were filed. Their notes, and every board they are on, go with them.' }),
+      el('p', { class: 'be-note', text: 'Moved, each gets the next number where it goes, in the order they were filed. Their comments, and every board they are on, go with them.' }),
       error,
       el('div', { class: 'dlg-actions' },
         el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => dlg.close() }),
@@ -2468,10 +2468,10 @@
     const moved = new Set(thisWeek.filter((x) => x.kind === 'version').map((x) => x.entity.id)).size;
     const fig = (value, name, sub) => el('div', { class: 'ph-fig' }, el('b', { text: value.toLocaleString() }), el('span', { text: name }), sub && el('small', { text: sub }));
     const filed = n(thisWeek, 'version');
-    const said = n(thisWeek, 'note');
+    const said = n(thisWeek, 'comment');
     return el('div', { class: 'ph-figs', role: 'group', 'aria-label': 'This week' },
       fig(filed, filed === 1 ? 'version this week' : 'versions this week', versus(filed, n(lastWeek, 'version'))),
-      fig(said, said === 1 ? 'comment' : 'comments', versus(said, n(lastWeek, 'note'))),
+      fig(said, said === 1 ? 'comment' : 'comments', versus(said, n(lastWeek, 'comment'))),
       fig(moved, moved === 1 ? 'asset, set or shot moved on' : 'moved on'));
   }
 
@@ -2574,7 +2574,7 @@
     }
   }
   // What was done, at a glance, before who did it: filed, said, or a playlist or an animatic made.
-  const KIND = { version: ['import', 'Filed'], note: ['comment', 'Comment'], playlist: ['playlist', 'Playlist'], animatic: ['animatic', 'Animatic'] };
+  const KIND = { version: ['import', 'Filed'], comment: ['comment', 'Comment'], playlist: ['playlist', 'Playlist'], animatic: ['animatic', 'Animatic'] };
   const kindMark = (kind) => el('span', { class: 'pa-kind', html: icon(KIND[kind][0], 16), title: KIND[kind][1] });
   const WHY = { mention: 'Mentions you', reply: 'Replies to you', work: 'On your work', artist: 'You make it', cc: 'You are cc’d on it' };
   function activityView(project, sig) {
@@ -2623,7 +2623,7 @@
     const going = new Map(); // `${who}|${kind}` -> the run they are in now
     for (const x of lines) {
       const key = `${String(x.by || '').toLowerCase()}|${x.kind}`;
-      const run = (x.kind === 'version' || x.kind === 'note') && going.get(key);
+      const run = (x.kind === 'version' || x.kind === 'comment') && going.get(key);
       if (run && run.lines[run.lines.length - 1].at - x.at <= RUN_GAP) run.lines.push(x);
       else {
         const fresh = { lines: [x] };
@@ -2676,7 +2676,7 @@
     const thing = (text) => el('span', { class: 'pa-thing', text });
     const what = {
       version: () => ['filed ', thing(x.version.label || x.entity.name)],
-      note: () => [x.note.reply ? 'replied on ' : 'commented on ', thing(x.version.label || x.entity.name)],
+      comment: () => [x.comment.reply ? 'replied on ' : 'commented on ', thing(x.version.label || x.entity.name)],
       playlist: () => ['made the playlist ', thing(x.playlist.name)],
       animatic: () => ['made the animatic ', thing(x.animatic.name)],
     }[x.kind]();
@@ -2686,7 +2686,7 @@
       WB.avatar(x.by || '?', x.color),
       el('div', { class: 'pa-body' },
         el('p', { class: 'pa-what' }, el('b', { text: x.by || 'Somebody' }), ' ', ...what),
-        x.kind === 'note' && x.note.text && el('p', { class: 'pa-quote', text: x.note.text }),
+        x.kind === 'comment' && x.comment.text && el('p', { class: 'pa-quote', text: x.comment.text }),
         x.why && el('span', { class: 'pa-why', text: WHY[x.why] })),
       x.kind === 'version' && x.version.thumb && el('img', { class: 'pa-pic', src: x.version.thumb, alt: '', loading: 'lazy', draggable: 'false' }),
       el('time', { class: 'pa-time', datetime: at.toISOString(), title: at.toLocaleString(), text: at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) }),
@@ -2783,7 +2783,7 @@
             node: el('label', { class: 'be-ai-row' }, take,
               el('span', { class: 'be-ai-old', text: e.name, title: e.type }), el('span', { class: 'be-ai-to', text: '→' }), name,
               el('span', { class: 'be-ai-type', text: a.type !== e.type ? `${typeLabel(e.type)} → ${typeLabel(a.type)}` : '' }),
-              WBClaude.mark(a.note, a.fits)),
+              WBClaude.mark(a.reason, a.fits)),
           };
         });
         aiList.replaceChildren(...renames.map((x) => x.node));
@@ -3158,7 +3158,7 @@
   // version of the same thing beside it, and what has been said about them, live.
   let player = null;
   let lookingAt = null; // the asset, set or shot open in the player
-  const thePlayer = () => player || (player = WBViewer.create({ me: () => me, title: () => '', media: () => [], notes: () => [], add() {}, set() {}, remove() {} }));
+  const thePlayer = () => player || (player = WBViewer.create({ me: () => me, title: () => '', media: () => [], comments: () => [], add() {}, set() {}, remove() {} }));
   async function lookAt(entityId, versionId) {
     thePlayer();
     try {
@@ -3223,7 +3223,7 @@
         },
       },
       el('h2', { text: `Edit ${v.label}` }),
-      el('p', { text: 'Its notes, and every board it is on, go with it.' }),
+      el('p', { text: 'Its comments, and every board it is on, go with it.' }),
       el('div', { class: 've-grid' },
         // A project that does not count by task asks for none (one filed with a task before still shows it, so it can be taken off).
         field('Asset, set or shot', ent), (v.task || !(project.settings && project.settings.tasks === false)) && field('Task', task), field('Version', num), field('Artist', artist), field('Description', desc)),
@@ -3467,8 +3467,8 @@
     const versions = page.versions.filter((v) => showHidden || !v.hidden);
     const byVersion = new Map(page.versions.map((v) => [v.id, v]));
     // What was said, by thread, newest version first.
-    const roots = page.notes.filter((n) => !n.re);
-    const replies = (id) => page.notes.filter((n) => n.re === id).sort((a, b) => a.t - b.t);
+    const roots = page.comments.filter((n) => !n.re);
+    const replies = (id) => page.comments.filter((n) => n.re === id).sort((a, b) => a.t - b.t);
     const order = new Map(page.versions.map((v, i) => [v.id, i]));
     roots.sort((a, b) => (order.get(a.versionId) ?? 0) - (order.get(b.versionId) ?? 0) || a.t - b.t);
     const msg = (n, first) => el('div', { class: `ent-msg${first ? '' : ' reply'}` },
@@ -3498,7 +3498,7 @@
         grid: 'board-grid ent-grid',
         lead: { name: 'Add versions', meta: 'Choose files, or drop them here', title: `Add new versions of ${entity.name}: choose files, or drop them anywhere here`, onclick: () => importer(project).pick(entity) },
       }),
-      label('Notes', roots.length),
+      label('Comments', roots.length),
       roots.length ? el('div', { class: 'ent-threads' }, threads) : el('p', { class: 'home-empty', text: 'Nothing said about it yet. Notes made on any board it is on show here.' }));
   }
 
@@ -4441,7 +4441,7 @@
           r.numTouched = !!a.version;
           if (a.version) f.num.value = String(a.version);
         }
-        setMark(r, WBClaude.mark(a.note, a.fits));
+        setMark(r, WBClaude.mark(a.reason, a.fits));
         n++;
       }
       // Passes given show their boxes, so what was filled in is seen and can be checked.

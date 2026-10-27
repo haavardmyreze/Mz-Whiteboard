@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS activity (
 CREATE INDEX IF NOT EXISTS activity_by_board ON activity (board_id, at);
 
 -- A board as it was before a round of changes, to go back to: everything on it, packed small. The
--- files themselves are not copied; they stay in uploads/ whatever happens to the board. Notes are not
+-- files themselves are not copied; they stay in uploads/ whatever happens to the board. Comments are not
 -- in it either: putting a board back moves what is on it, never what was said.
 CREATE TABLE IF NOT EXISTS snapshots (
   board_id TEXT NOT NULL,
@@ -172,12 +172,12 @@ CREATE TABLE IF NOT EXISTS versions (
 CREATE INDEX IF NOT EXISTS versions_by_entity ON versions (entity_id, task, number);
 CREATE INDEX IF NOT EXISTS versions_by_filer ON versions (lower(created_by));
 
--- What people say about the work. A note belongs to a version, so it is there on every board the
+-- What people say about the work. A comment belongs to a version, so it is there on every board the
 -- version is on, or, while a piece of media is not filed as a version, to that piece on its board.
--- board_id and item_id are where it was made; data is the note as the boards show it (its text,
--- who wrote it, the frame it is about, whether it is resolved). A deleted note is kept, marked, so that
+-- board_id and item_id are where it was made; data is the comment as the boards show it (its text,
+-- who wrote it, the frame it is about, whether it is resolved). A deleted comment is kept, marked, so that
 -- undo can bring it back as its author wrote it.
-CREATE TABLE IF NOT EXISTS notes (
+CREATE TABLE IF NOT EXISTS comments (
   id TEXT PRIMARY KEY,
   board_id TEXT NOT NULL,
   item_id TEXT NOT NULL,
@@ -189,10 +189,10 @@ CREATE TABLE IF NOT EXISTS notes (
   updated_at INTEGER NOT NULL,
   deleted_at INTEGER
 );
-CREATE INDEX IF NOT EXISTS notes_by_version ON notes (version_id);
-CREATE INDEX IF NOT EXISTS notes_by_item ON notes (board_id, item_id);
-CREATE INDEX IF NOT EXISTS notes_by_thread ON notes (re);
-CREATE INDEX IF NOT EXISTS notes_by_time ON notes (created_at);
+CREATE INDEX IF NOT EXISTS comments_by_version ON comments (version_id);
+CREATE INDEX IF NOT EXISTS comments_by_item ON comments (board_id, item_id);
+CREATE INDEX IF NOT EXISTS comments_by_thread ON comments (re);
+CREATE INDEX IF NOT EXISTS comments_by_time ON comments (created_at);
 
 -- Small things kept per person, such as which notifications they have read.
 CREATE TABLE IF NOT EXISTS user_state (
@@ -408,7 +408,7 @@ function openStore(dataDir) {
     transaction(() => {
       putBoard.run(...boardValues(board));
       for (const id of removed) dropItem.run(board.id, id);
-      // Notes are kept apart (see below), whatever the board holds of them to show.
+      // Comments are kept apart (see below), whatever the board holds of them to show.
       for (const it of changed) if (it.type !== 'comment') writeItem(board.id, it, creators.get(it.id), now);
     });
   }
@@ -446,7 +446,7 @@ function openStore(dataDir) {
   const readSnapshot = db.prepare('SELECT items FROM snapshots WHERE board_id = ? AND at = ?');
   const trimSnapshots = db.prepare('DELETE FROM snapshots WHERE board_id = ? AND at NOT IN (SELECT at FROM snapshots WHERE board_id = ? ORDER BY at DESC LIMIT ?)');
   // Keeps the board as it is now, unless that is exactly what was kept last. Says whether it did.
-  // Notes are left out: they are not the board's to put back.
+  // Comments are left out: they are not the board's to put back.
   function addSnapshot(boardId, list, who, count, now = Date.now()) {
     const json = JSON.stringify(list.filter((it) => it.type !== 'comment'));
     const sig = crypto.createHash('sha1').update(json).digest('hex');
@@ -500,7 +500,7 @@ function openStore(dataDir) {
   // ---- a project deleted (by an admin): its catalogue goes with it, every version and what was said about
   // them, its playlists, animatics and links to present it. Its boards are deleted as boards are (server.js).
   const dropProject = [
-    'DELETE FROM notes WHERE version_id IN (SELECT v.id FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ?)',
+    'DELETE FROM comments WHERE version_id IN (SELECT v.id FROM versions v JOIN entities e ON e.id = v.entity_id WHERE e.project_id = ?)',
     'DELETE FROM versions WHERE entity_id IN (SELECT id FROM entities WHERE project_id = ?)',
     'DELETE FROM entity_people WHERE entity_id IN (SELECT id FROM entities WHERE project_id = ?)',
     'DELETE FROM entities WHERE project_id = ?',
@@ -931,31 +931,31 @@ function openStore(dataDir) {
     return { ok: true, entity: entity(id) };
   }
   // What happened in a project, newest first, from `upTo` (a time) back to `since`:
-  // versions filed and notes written on them, at most `limit` of each. Each note says whose work its
+  // versions filed and comments written on them, at most `limit` of each. Each comment says whose work its
   // version is (who filed it, and the artist it names). The server makes the pages of its Activity of these.
-  // Those made at `upTo` itself are only the ones whose id is below `versionBelow` or `noteBelow` (none unless
+  // Those made at `upTo` itself are only the ones whose id is below `versionBelow` or `commentBelow` (none unless
   // said), so that a page ending among many made at one moment goes on from the one it ended at.
   const readFiled = db.prepare(`SELECT v.* FROM versions v JOIN entities e ON e.id = v.entity_id
     WHERE e.project_id = ? AND v.deleted_at IS NULL AND (v.created_at < ? OR (v.created_at = ? AND v.id < ?)) AND v.created_at >= ?
     ORDER BY v.created_at DESC, v.id DESC LIMIT ?`);
   const readSaid = db.prepare(`SELECT n.*, v.entity_id AS entity_id, v.created_by AS version_by, v.artist AS version_artist
-    FROM notes n JOIN versions v ON v.id = n.version_id JOIN entities e ON e.id = v.entity_id
+    FROM comments n JOIN versions v ON v.id = n.version_id JOIN entities e ON e.id = v.entity_id
     WHERE e.project_id = ? AND v.deleted_at IS NULL AND n.deleted_at IS NULL AND (n.created_at < ? OR (n.created_at = ? AND n.id < ?)) AND n.created_at >= ?
     ORDER BY n.created_at DESC, n.id DESC LIMIT ?`);
-  function happenings(projectId, { upTo = Number.MAX_SAFE_INTEGER, since = 0, limit = 100, versionBelow = '', noteBelow = '' } = {}) {
+  function happenings(projectId, { upTo = Number.MAX_SAFE_INTEGER, since = 0, limit = 100, versionBelow = '', commentBelow = '' } = {}) {
     return {
       versions: readFiled.all(projectId, upTo, upTo, versionBelow, since, limit).map(versionOf),
-      notes: readSaid.all(projectId, upTo, upTo, noteBelow, since, limit).map((row) => ({ ...noteOf(row), entityId: row.entity_id, versionBy: row.version_by, versionArtist: row.version_artist })),
+      comments: readSaid.all(projectId, upTo, upTo, commentBelow, since, limit).map((row) => ({ ...commentOf(row), entityId: row.entity_id, versionBy: row.version_by, versionArtist: row.version_artist })),
     };
   }
-  // The names of everyone who has written in a thread (its first note's id), in lower case.
-  const readThread = db.prepare('SELECT data FROM notes WHERE (id = ? OR re = ?) AND deleted_at IS NULL');
+  // The names of everyone who has written in a thread (its first comment's id), in lower case.
+  const readThread = db.prepare('SELECT data FROM comments WHERE (id = ? OR re = ?) AND deleted_at IS NULL');
   const threadNames = (root) => new Set(readThread.all(root, root).map((r) => String(JSON.parse(r.data).name || '').trim().toLowerCase()).filter(Boolean));
   // Everyone the app knows by name: who signed in, who filed or wrote something, who is named on an entity.
   function people() {
     const out = new Set();
     for (const u of readUsers.all()) if (u.name) out.add(u.name);
-    for (const r of db.prepare('SELECT DISTINCT created_by AS n FROM versions WHERE created_by IS NOT NULL UNION SELECT DISTINCT created_by FROM notes WHERE created_by IS NOT NULL').all()) out.add(r.n);
+    for (const r of db.prepare('SELECT DISTINCT created_by AS n FROM versions WHERE created_by IS NOT NULL UNION SELECT DISTINCT created_by FROM comments WHERE created_by IS NOT NULL').all()) out.add(r.n);
     for (const r of db.prepare('SELECT artists, cc FROM entities WHERE artists IS NOT NULL OR cc IS NOT NULL').all()) for (const n of [...names(r.artists), ...names(r.cc)]) out.add(n);
     return [...out].filter(Boolean).sort((a, b) => a.localeCompare(b));
   }
@@ -1072,62 +1072,62 @@ function openStore(dataDir) {
   }
   const boardsWithVersion = (versionId) => boardsWithVersions([versionId]).get(versionId);
 
-  // ---------------------------------------------------------------- notes
+  // ---------------------------------------------------------------- comments
 
-  const noteOf = (r) => ({
+  const commentOf = (r) => ({
     id: r.id, boardId: r.board_id, itemId: r.item_id, versionId: r.version_id, re: r.re, data: JSON.parse(r.data),
     createdAt: r.created_at, createdBy: r.created_by, updatedAt: r.updated_at, deletedAt: r.deleted_at,
   });
-  const readNote = db.prepare('SELECT * FROM notes WHERE id = ?');
-  const note = (id) => {
-    const r = readNote.get(id);
-    return r ? noteOf(r) : null;
+  const readComment = db.prepare('SELECT * FROM comments WHERE id = ?');
+  const comment = (id) => {
+    const r = readComment.get(id);
+    return r ? commentOf(r) : null;
   };
-  const putNote = db.prepare(`INSERT INTO notes (id, board_id, item_id, version_id, re, data, created_at, created_by, updated_at)
+  const putComment = db.prepare(`INSERT INTO comments (id, board_id, item_id, version_id, re, data, created_at, created_by, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  function addNote({ id, boardId, itemId, versionId = null, re = null, data, by = null, at = Date.now() }) {
-    putNote.run(id, boardId, itemId, versionId, re, JSON.stringify(data), at, by, at);
-    return note(id);
+  function addComment({ id, boardId, itemId, versionId = null, re = null, data, by = null, at = Date.now() }) {
+    putComment.run(id, boardId, itemId, versionId, re, JSON.stringify(data), at, by, at);
+    return comment(id);
   }
-  const putNoteData = db.prepare('UPDATE notes SET data = ?, updated_at = ? WHERE id = ?');
-  const setNote = (id, data) => putNoteData.run(JSON.stringify(data), Date.now(), id).changes > 0;
-  const putNoteGone = db.prepare('UPDATE notes SET deleted_at = ? WHERE id = ?');
-  const putRepliesGone = db.prepare('UPDATE notes SET deleted_at = ? WHERE re = ? AND deleted_at IS NULL');
-  const putRepliesBack = db.prepare('UPDATE notes SET deleted_at = NULL WHERE re = ? AND deleted_at = ?');
-  // Deleting the note a thread starts with deletes the thread: its replies go with it, marked at the
-  // same moment, so that bringing the first note back brings back those replies too (and not ones
+  const putCommentData = db.prepare('UPDATE comments SET data = ?, updated_at = ? WHERE id = ?');
+  const setComment = (id, data) => putCommentData.run(JSON.stringify(data), Date.now(), id).changes > 0;
+  const putCommentGone = db.prepare('UPDATE comments SET deleted_at = ? WHERE id = ?');
+  const putRepliesGone = db.prepare('UPDATE comments SET deleted_at = ? WHERE re = ? AND deleted_at IS NULL');
+  const putRepliesBack = db.prepare('UPDATE comments SET deleted_at = NULL WHERE re = ? AND deleted_at = ?');
+  // Deleting the comment a thread starts with deletes the thread: its replies go with it, marked at the
+  // same moment, so that bringing the first comment back brings back those replies too (and not ones
   // deleted on their own before). Says whether anything was deleted.
-  function deleteNote(id) {
-    const n = note(id);
+  function deleteComment(id) {
+    const n = comment(id);
     if (!n || n.deletedAt) return false;
     const now = Date.now();
     transaction(() => {
-      putNoteGone.run(now, id);
+      putCommentGone.run(now, id);
       if (!n.re) putRepliesGone.run(now, id);
     });
     return true;
   }
-  function restoreNote(id) {
-    const n = note(id);
+  function restoreComment(id) {
+    const n = comment(id);
     if (!n || !n.deletedAt) return false;
     transaction(() => {
-      putNoteGone.run(null, id);
+      putCommentGone.run(null, id);
       if (!n.re) putRepliesBack.run(id, n.deletedAt);
     });
     return true;
   }
-  // A piece filed as a version takes the notes made on it with it: from then on they are the version's.
-  // Filed as an attachment of one, they say which (`att` in a note's data, as a note made on it there does).
-  const putNotesFiled = db.prepare('UPDATE notes SET version_id = ? WHERE board_id = ? AND item_id = ? AND version_id IS NULL');
-  const putNotesFiledOn = db.prepare("UPDATE notes SET version_id = ?, data = json_set(data, '$.att', ?) WHERE board_id = ? AND item_id = ? AND version_id IS NULL");
-  const fileNotes = (boardId, itemId, versionId, att = null) => (att ? putNotesFiledOn.run(versionId, att, boardId, itemId) : putNotesFiled.run(versionId, boardId, itemId)).changes;
-  // Notes on a version that were not written on the piece it was filed from: written since, elsewhere.
-  const readNotesSince = db.prepare('SELECT count(*) AS n FROM notes WHERE version_id = ? AND NOT (board_id IS ? AND item_id IS ?)');
-  const notesBesides = (versionId, boardId, itemId) => readNotesSince.get(versionId, boardId, itemId).n;
-  // A version taken back just after it was filed from a board, as if it never had been: the notes that
+  // A piece filed as a version takes the comments made on it with it: from then on they are the version's.
+  // Filed as an attachment of one, they say which (`att` in a comment's data, as a comment made on it there does).
+  const putCommentsFiled = db.prepare('UPDATE comments SET version_id = ? WHERE board_id = ? AND item_id = ? AND version_id IS NULL');
+  const putCommentsFiledOn = db.prepare("UPDATE comments SET version_id = ?, data = json_set(data, '$.att', ?) WHERE board_id = ? AND item_id = ? AND version_id IS NULL");
+  const fileComments = (boardId, itemId, versionId, att = null) => (att ? putCommentsFiledOn.run(versionId, att, boardId, itemId) : putCommentsFiled.run(versionId, boardId, itemId)).changes;
+  // Comments on a version that were not written on the piece it was filed from: written since, elsewhere.
+  const readCommentsSince = db.prepare('SELECT count(*) AS n FROM comments WHERE version_id = ? AND NOT (board_id IS ? AND item_id IS ?)');
+  const commentsBesides = (versionId, boardId, itemId) => readCommentsSince.get(versionId, boardId, itemId).n;
+  // A version taken back just after it was filed from a board, as if it never had been: the comments that
   // went with it are the piece's again, and it is gone, number and all, so the next one filed there has
   // its number. So is the entity it was filed under, when that was made for it and has nothing else.
-  const putNotesUnfiled = db.prepare('UPDATE notes SET version_id = NULL WHERE version_id = ? AND board_id = ? AND item_id = ?');
+  const putCommentsUnfiled = db.prepare('UPDATE comments SET version_id = NULL WHERE version_id = ? AND board_id = ? AND item_id = ?');
   const dropVersion = db.prepare('DELETE FROM versions WHERE id = ?');
   const countVersions = db.prepare('SELECT count(*) AS n FROM versions WHERE entity_id = ?');
   const dropEntity = db.prepare('DELETE FROM entities WHERE id = ?');
@@ -1135,23 +1135,23 @@ function openStore(dataDir) {
     return transaction(() => {
       const v = version(id);
       if (!v) return null;
-      putNotesUnfiled.run(id, v.boardId, itemId);
+      putCommentsUnfiled.run(id, v.boardId, itemId);
       dropVersion.run(id);
       const e = entity(v.entityId);
       const dropped = !!e && e.createdAt >= madeSince && !e.artists.length && !e.cc.length && countVersions.get(e.id).n === 0 && dropEntity.run(e.id).changes > 0;
       return { entityId: v.entityId, entityDropped: dropped };
     });
   }
-  // An attachment taken back just after it was added (see unfileVersion): the notes that went with it are the
-  // piece's again. Notes made on it since are counted first, and refuse it (`notesOnAttachment`).
-  const putAttachmentNotesUnfiled = db.prepare("UPDATE notes SET version_id = NULL, data = json_remove(data, '$.att') WHERE version_id = ? AND board_id = ? AND item_id = ? AND json_extract(data, '$.att') = ?");
-  const readAttachmentNotes = db.prepare("SELECT count(*) AS n FROM notes WHERE version_id = ? AND json_extract(data, '$.att') = ? AND NOT (board_id IS ? AND item_id IS ?)");
-  const notesOnAttachment = (versionId, label, boardId, itemId) => readAttachmentNotes.get(versionId, label, boardId, itemId).n;
+  // An attachment taken back just after it was added (see unfileVersion): the comments that went with it are the
+  // piece's again. Comments made on it since are counted first, and refuse it (`commentsOnAttachment`).
+  const putAttachmentCommentsUnfiled = db.prepare("UPDATE comments SET version_id = NULL, data = json_remove(data, '$.att') WHERE version_id = ? AND board_id = ? AND item_id = ? AND json_extract(data, '$.att') = ?");
+  const readAttachmentComments = db.prepare("SELECT count(*) AS n FROM comments WHERE version_id = ? AND json_extract(data, '$.att') = ? AND NOT (board_id IS ? AND item_id IS ?)");
+  const commentsOnAttachment = (versionId, label, boardId, itemId) => readAttachmentComments.get(versionId, label, boardId, itemId).n;
   function unfileAttachment(id, label, boardId, itemId) {
     return transaction(() => {
       const v = version(id);
       if (!v || !hasAttachment(v.look, label)) return false;
-      if (boardId) putAttachmentNotesUnfiled.run(id, boardId, itemId, label);
+      if (boardId) putAttachmentCommentsUnfiled.run(id, boardId, itemId, label);
       const attachments = v.look.attachments.filter((x) => x.label !== label);
       const look = { ...v.look, attachments };
       if (!attachments.length) delete look.attachments;
@@ -1159,28 +1159,28 @@ function openStore(dataDir) {
       return true;
     });
   }
-  // Every note a board shows: those on its media that is not filed, and those on the versions it holds.
-  const readLooseNotes = db.prepare('SELECT * FROM notes WHERE board_id = ? AND version_id IS NULL AND deleted_at IS NULL');
-  function notesForBoard(boardId, versionIds = []) {
+  // Every comment a board shows: those on its media that is not filed, and those on the versions it holds.
+  const readLooseComments = db.prepare('SELECT * FROM comments WHERE board_id = ? AND version_id IS NULL AND deleted_at IS NULL');
+  function commentsForBoard(boardId, versionIds = []) {
     const ids = [...new Set(versionIds)];
-    const rows = readLooseNotes.all(boardId);
-    if (ids.length) rows.push(...db.prepare(`SELECT * FROM notes WHERE version_id IN (${ids.map(() => '?').join(', ')}) AND deleted_at IS NULL`).all(...ids));
-    return rows.sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1)).map(noteOf);
+    const rows = readLooseComments.all(boardId);
+    if (ids.length) rows.push(...db.prepare(`SELECT * FROM comments WHERE version_id IN (${ids.map(() => '?').join(', ')}) AND deleted_at IS NULL`).all(...ids));
+    return rows.sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1)).map(commentOf);
   }
-  // The notes on some versions, with the name and workspace of the board each was made on.
-  function notesOfVersions(versionIds) {
+  // The comments on some versions, with the name and workspace of the board each was made on.
+  function commentsOfVersions(versionIds) {
     if (!versionIds.length) return [];
-    return db.prepare(`SELECT n.*, b.name AS board_name, b.workspace AS board_workspace FROM notes n LEFT JOIN boards b ON b.id = n.board_id
+    return db.prepare(`SELECT n.*, b.name AS board_name, b.workspace AS board_workspace FROM comments n LEFT JOIN boards b ON b.id = n.board_id
       WHERE n.deleted_at IS NULL AND n.version_id IN (${versionIds.map(() => '?').join(', ')}) ORDER BY n.created_at`).all(...versionIds)
-      .map((r) => ({ ...noteOf(r), boardName: r.board_name, boardWorkspace: r.board_workspace }));
+      .map((r) => ({ ...commentOf(r), boardName: r.board_name, boardWorkspace: r.board_workspace }));
   }
 
   // ---------------------------------------------------------------- notifications
 
-  // Every note whose thread has had one since `since`, made on a board in these workspaces or, in the
+  // Every comment whose thread has had one since `since`, made on a board in these workspaces or, in the
   // catalogue (on no board), on a version of a project in them; with what each was made on and who
-  // added that (for a note in the catalogue, who filed the version), who made the board, and the
-  // version, entity and project when it is about one. Older notes in those threads come too: a new
+  // added that (for a comment in the catalogue, who filed the version), who made the board, and the
+  // version, entity and project when it is about one. Older comments in those threads come too: a new
   // reply needs the thread it is in.
   function commentsForNotices(spaces, since) {
     const list = spaces.map(() => '?').join(', ');
@@ -1189,7 +1189,7 @@ function openStore(dataDir) {
         coalesce(h.created_by, CASE WHEN n.board_id = '' THEN v.created_by END) AS host_by, h.type AS host_type, h.label AS host_label,
         v.id AS version_id, v.task AS version_task, v.number AS version_number, e.id AS entity_id, e.name AS entity_name, e.project_id,
         pl.id AS playlist_id
-      FROM notes n
+      FROM comments n
       LEFT JOIN boards b ON b.id = n.board_id
       LEFT JOIN items h ON h.board_id = n.board_id AND h.id = n.item_id
       LEFT JOIN versions v ON v.id = n.version_id
@@ -1199,7 +1199,7 @@ function openStore(dataDir) {
       WHERE n.deleted_at IS NULL
         AND ((b.id IS NOT NULL AND b.deleted_at IS NULL AND b.workspace IN (${list}))
           OR (n.board_id = '' AND v.deleted_at IS NULL AND coalesce(f.workspace, pl.workspace) IN (${list})))
-        AND coalesce(n.re, n.id) IN (SELECT coalesce(re, id) FROM notes WHERE deleted_at IS NULL AND created_at > ?)`).all(...spaces, ...spaces, since)
+        AND coalesce(n.re, n.id) IN (SELECT coalesce(re, id) FROM comments WHERE deleted_at IS NULL AND created_at > ?)`).all(...spaces, ...spaces, since)
       .map((r) => ({ ...r, version_task: r.version_task || null, comment: { ...JSON.parse(r.data), id: r.id, ...(r.re && { re: r.re }) } }));
   }
 
@@ -1235,7 +1235,7 @@ function openStore(dataDir) {
     addSnapshot, snapshots, snapshot, lastSnapshotAt,
     transaction, entities, streamHeads, findVersions, projectFilers, entityCards, newestOfTask, projectVersions, entity, entityNamed, addEntity, setEntity, happenings, threadNames, people, entityCount,
     addVersion, addPass, addAttachment, projectPasses, version, versionsOf, hideVersion, editVersion, placeFor, numberHolder: holder, deleteVersion, restoreVersion, newestVersion, projectTasks, projectArtists, boardsWithVersion, boardsWithVersions,
-    note, addNote, setNote, deleteNote, restoreNote, fileNotes, notesBesides, unfileVersion, notesOnAttachment, unfileAttachment, notesForBoard, notesOfVersions,
+    comment, addComment, setComment, deleteComment, restoreComment, fileComments, commentsBesides, unfileVersion, commentsOnAttachment, unfileAttachment, commentsForBoard, commentsOfVersions,
     find, commentsForNotices, getState, setState, backup, close, isOpen: () => !closed,
     users, user, addUser, setAdmin, seeUser, removeUser, groups, addGroup, renameGroup, removeGroup, addMember, removeMember,
     grants, setGrant, removeGrant, removeGrantsOn,

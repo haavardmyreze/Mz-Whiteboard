@@ -1754,7 +1754,7 @@
     const look = shown3d && look3dOf(it);
     if (!look || look.src === it.src || look.type !== it.type) return piece;
     const { pass, ...media } = look;
-    return { ...piece, prev: undefined, pw: undefined, th: undefined, poster: undefined, ...media, src: WB.playable(look), full: look.src, wf: undefined, orig: undefined, shownView: view || '3d' };
+    return { ...piece, prev: undefined, pw: undefined, th: undefined, poster: undefined, ...media, src: WB.playable(look), full: look.src, wf: undefined, orig: undefined, shownPass: pass || '3d' };
   };
 
   let openId = null; // what is open in the viewer
@@ -1762,7 +1762,7 @@
     me: () => me,
     title: () => $('boardname').value || 'Board',
     media: () => mediaOrder().map(pieceOf),
-    notes: () => [...comments.values()],
+    comments: () => [...comments.values()],
     drawings: drawingsOn,
     can: { read: () => canRead(), write: () => canWrite(), draw: () => !viewOnly, member: () => !viewOnly },
     add: (c) => exec([{ t: 'add', item: c }]),
@@ -3879,7 +3879,7 @@
       ['Time, frame or timecode', '~click the time'],
     ] },
     { id: 'guide', label: 'Guide', icon: ICON.help, guide: [
-      [ICON.stack, 'Versions', 'On a board in a project, select images or videos and file them as versions of an asset, set or shot (Shift+V). Their notes go with them, and show on every board the version is on. The catalogue button adds versions to the board.'],
+      [ICON.stack, 'Versions', 'On a board in a project, select images or videos and file them as versions of an asset, set or shot (Shift+V). Their comments go with them, and show on every board the version is on. The catalogue button adds versions to the board.'],
       [ICON.comment, 'Comments with drawings', 'Draw on the open image or video while writing a comment, and the drawing belongs to it: it shows when the comment is read, on the frame it is about.'],
       [ICON.kept, 'Video cache', `The videos on boards you open, and the newest of your work, of what you are cc'd on and of what you pinned, are saved on this computer, so they open and scrub at once. Up to ${KEPT_MAX / 1024 ** 3} GB in all; the ones opened longest ago make room.`],
       [ICON.activity, 'Snapshots', 'Before each round of changes the board is kept as it was. Putting one back keeps what is there now as a snapshot too, so nothing is lost. Comments and catalogue versions are not touched; sticky notes go back with everything else.'],
@@ -4563,7 +4563,7 @@
   // A board in a project folder can file its images and videos as versions of the project's assets,
   // sets and shots, and take versions from the catalogue onto itself. A piece that shows a version says
   // which in its corner ("kilo-0010 anim v5"), and says so when a newer one has been filed since. What
-  // is said about a version is said about it on every board it is on (see the notes in server.js).
+  // is said about a version is said about it on every board it is on (see the comments in server.js).
   //
   // Nothing has to be named for this: filing asks only which asset, set or shot it is (and the task, if
   // the project uses them). What the file's name, the frame it is in, and the last choice made here say

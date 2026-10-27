@@ -27,14 +27,14 @@
   let mounting = null;  // the scene being put up, while its pieces load
   let state = {};       // what the presenter's player is doing (see cleanPlayer in server.js)
   let stateAt = 0;      // when that was said, for a video playing on since
-  let notes = [];
-  const noteListeners = new Set();
+  let comments = [];
+  const commentListeners = new Set();
   let frame = null;     // the board's page, when a board is shown
   let cut = null;       // the animatic's page, when an animatic is shown
   let cutItems = [];    // the files it plays, as it says them
   let soundOn = false;
 
-  const viewer = WBViewer.create({ me: () => me, title: () => '', media: () => [], notes: () => [], locked: true, add() {}, set() {}, remove() {} });
+  const viewer = WBViewer.create({ me: () => me, title: () => '', media: () => [], comments: () => [], locked: true, add() {}, set() {}, remove() {} });
   viewer.watch((type, k) => {
     if (type === '3dload') return void loading3d(k);
     if (type === 'open') keptRing.paint();
@@ -288,7 +288,7 @@
         }
         await WBViewer.openEntity(viewer, next.entity, {
           version: typeof state.f === 'string' ? state.f : null, me, title: info.project.name,
-          follow: { page, pass: next.pass, room: noteRoom, read: info.access === 'comments' },
+          follow: { page, pass: next.pass, room: commentRoom, read: info.access === 'comments' },
         });
       } else if (next.k === 'animatic') {
         // The animatic's own page, read-only, its edit from the link: it plays where the presenter's plays.
@@ -299,7 +299,7 @@
         if (venue3d && venue3d.model) modelSrc = venue3d.model;
         cut = WBAnimatic.open(stage, {
           project: page.project, id: page.animatic.id, me,
-          watched: { source, room: noteRoom, comments: info.access === 'comments' },
+          watched: { source, room: commentRoom, comments: info.access === 'comments' },
           onScope: (scope) => {
             cutItems = scope ? scope.items : [];
             fetchAhead();
@@ -344,15 +344,15 @@
     if ('z' in patch) requestAnimationFrame(() => viewer.followZoom(patch.z));
   }
 
-  // The notes on what is shown, when the link shows them: as a room would have them (see openEntity).
-  function noteRoom(entityId, who, onNotes) {
-    noteListeners.add(onNotes);
-    onNotes(notes);
-    return { send() {}, close: () => noteListeners.delete(onNotes) };
+  // The comments on what is shown, when the link shows them: as a room would have them (see openEntity).
+  function commentRoom(entityId, who, onComments) {
+    commentListeners.add(onComments);
+    onComments(comments);
+    return { send() {}, close: () => commentListeners.delete(onComments) };
   }
-  function setNotes(list) {
-    notes = Array.isArray(list) ? list : [];
-    for (const fn of noteListeners) fn(notes);
+  function setComments(list) {
+    comments = Array.isArray(list) ? list : [];
+    for (const fn of commentListeners) fn(comments);
   }
 
   // ---- the connection
@@ -392,7 +392,7 @@
       away = msg.away;
       state = msg.p || {};
       stateAt = performance.now() - (msg.mAge || 0);
-      setNotes(msg.notes);
+      setComments(msg.comments);
       document.title = `${msg.project.name} · Boards`;
       if (live && msg.scene) show(msg.scene);
       else paintWaiting();
@@ -406,8 +406,8 @@
       apply(msg.p);
     } else if (msg.t === 'laser') {
       if (viewer.isOpen()) viewer.laser('presenter', (info.presenter && info.presenter.color) || '#ffffff', msg.on, msg.pts);
-    } else if (msg.t === 'notes') {
-      setNotes(msg.notes);
+    } else if (msg.t === 'comments') {
+      setComments(msg.comments);
     } else if (msg.t === 'live') {
       live = true;
       away = false;
@@ -421,7 +421,7 @@
       live = false;
       scene = null;
       state = {};
-      setNotes([]);
+      setComments([]);
       paintWaiting();
     } else if (msg.t === 'access') {
       info.access = msg.access;

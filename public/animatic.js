@@ -137,21 +137,21 @@ const WBAnimatic = (() => {
     const emptyNote = el('div', { class: 'an-empty', hidden: true });
     const stage = el('div', { class: 'an-stage' }, frame, emptyNote);
 
-    const notesTitle = el('div', { class: 'an-notes-title' });
-    const notesList = el('div', { class: 'an-notes-list' });
-    const noteBox = el('textarea', { class: 'an-note-box', rows: 2, placeholder: 'Comment on this shot', 'aria-label': 'Comment on the shot on screen' });
-    const noteAt = el('span', { class: 'an-note-at' });
-    const noteSend = el('button', { type: 'button', class: 'btn small primary', text: 'Send', onclick: () => sendNote() });
-    const notesEdge = el('div', { class: 'an-edge left', role: 'separator', 'aria-orientation': 'vertical', title: 'Drag to make the comments wider or narrower' });
+    const commentsTitle = el('div', { class: 'an-comments-title' });
+    const commentsList = el('div', { class: 'an-comments-list' });
+    const commentBox = el('textarea', { class: 'an-comment-box', rows: 2, placeholder: 'Comment on this shot', 'aria-label': 'Comment on the shot on screen' });
+    const commentAt = el('span', { class: 'an-comment-at' });
+    const commentSend = el('button', { type: 'button', class: 'btn small primary', text: 'Send', onclick: () => sendComment() });
+    const commentsEdge = el('div', { class: 'an-edge left', role: 'separator', 'aria-orientation': 'vertical', title: 'Drag to make the comments wider or narrower' });
     // Watching, the comments are there to read, and only where the link shows them.
-    const notes = el('aside', { class: 'an-notes', 'aria-label': 'Comments on the shot on screen', hidden: (watched && !watched.comments) || store('wb:an:notes') === false },
-      notesEdge,
-      el('div', { class: 'an-notes-head' }, notesTitle),
-      notesList,
-      !watching && el('div', { class: 'an-note-compose' }, noteBox, el('div', { class: 'an-note-row' }, noteAt, el('span', { class: 'spacer' }), noteSend)));
+    const comments = el('aside', { class: 'an-comments', 'aria-label': 'Comments on the shot on screen', hidden: (watched && !watched.comments) || store('wb:an:comments') === false },
+      commentsEdge,
+      el('div', { class: 'an-comments-head' }, commentsTitle),
+      commentsList,
+      !watching && el('div', { class: 'an-comment-compose' }, commentBox, el('div', { class: 'an-comment-row' }, commentAt, el('span', { class: 'spacer' }), commentSend)));
 
-    const notesWidth = store('wb:an:notesw');
-    if (Number.isFinite(notesWidth)) notes.style.width = `${notesWidth}px`;
+    const commentsWidth = store('wb:an:commentsw');
+    if (Number.isFinite(commentsWidth)) comments.style.width = `${commentsWidth}px`;
     const binBtn = el('button', { type: 'button', class: `iconbtn an-binbtn${bin.hidden ? '' : ' active'}`, html: ICON.rows, title: 'The library: shots and sounds (Shift+L)', 'aria-label': 'The library', 'aria-pressed': String(!bin.hidden), onclick: () => toggleBin() });
     const playBtn = el('button', { type: 'button', class: 'iconbtn', html: ICON.play, title: 'Play (Space)', 'aria-label': 'Play', onclick: () => (playing || starting ? stop() : play()) });
     const timeBtn = el('button', { type: 'button', class: 'an-time', title: 'Click to switch between minutes, frames and timecode', onclick: () => V.cycleTimeMode() });
@@ -171,7 +171,7 @@ const WBAnimatic = (() => {
     ];
     const toolBtns = new Map(TOOLS.map(([k, html, title]) => [k, el('button', { type: 'button', class: `iconbtn${k === tool ? ' active' : ''}`, html, title, 'aria-label': title.split(' (')[0], 'aria-pressed': String(k === tool), onclick: () => setTool(k) })]));
     const miniBtn = el('button', { type: 'button', class: 'iconbtn', html: ICON.strip, title: 'The timeline as a thin strip, to watch the edit with the most room (T)', 'aria-label': 'Timeline as a strip', 'aria-pressed': 'false', onclick: () => setMini(!mini) });
-    const notesBtn = el('button', { type: 'button', class: `iconbtn an-wide${notes.hidden ? '' : ' active'}`, html: ICON.comment, title: 'Comments on the shot on screen (Shift+C)', 'aria-pressed': String(!notes.hidden), onclick: () => toggleNotes() });
+    const commentsBtn = el('button', { type: 'button', class: `iconbtn an-wide${comments.hidden ? '' : ' active'}`, html: ICON.comment, title: 'Comments on the shot on screen (Shift+C)', 'aria-pressed': String(!comments.hidden), onclick: () => toggleComments() });
     // The edit on the venue, as the player shows a piece on it (venue in viewer.js): its switch, how the venue is
     // drawn and the model's cameras, the same controls and keys, and the page's one 3D view.
     const venue3d = V.venue({
@@ -193,7 +193,7 @@ const WBAnimatic = (() => {
     // Watching, the sound is the watching page's to turn on and off, and the comments are there only if shown.
     const vbar = el('div', { class: 'an-vbar' },
       !watching && binBtn, onNow, el('span', { class: 'spacer' }),
-      el('span', { class: 'an-dims' }, venue3d.cams), optionsSlot, el('span', { class: 'an-dims' }, venue3d.dims), !watching && soundBtn, !(watched && !watched.comments) && notesBtn);
+      el('span', { class: 'an-dims' }, venue3d.cams), optionsSlot, el('span', { class: 'an-dims' }, venue3d.dims), !watching && soundBtn, !(watched && !watched.comments) && commentsBtn);
     // Under it, the timeline's own bar: its tools and snapping on the left, playing it in the middle, and how the
     // timeline is drawn on the right.
     const bar = el('div', { class: 'an-bar' },
@@ -219,7 +219,7 @@ const WBAnimatic = (() => {
     const strip = el('canvas', { class: 'an-strip', role: 'slider', 'aria-label': 'The whole edit: click or drag to move through it' });
     const tl = el('div', { class: `an-tl${compact ? ' compact' : ''}` }, heads, scroller, strip);
     const view = el('div', { class: 'an-view' }, vbar, stage);
-    const top = el('div', { class: 'an-top' }, bin, view, notes);
+    const top = el('div', { class: 'an-top' }, bin, view, comments);
     const page = el('div', { class: `an${watching ? ' an-watched' : ''}` }, top, bar, grip, tl);
     host.replaceChildren(page);
     document.body.classList.add('an-on');
@@ -2192,7 +2192,7 @@ const WBAnimatic = (() => {
 
     let room = null;
     let roomOf = null;
-    let roomNotes = [];
+    let roomComments = [];
     let joinTimer = 0;
     let nowVersion = null;
     let nowShotClip = null;
@@ -2200,7 +2200,7 @@ const WBAnimatic = (() => {
       const v = c && c.shot ? versionOf(c) : null;
       nowShotClip = v ? c : null;
       nowVersion = v;
-      paintNotes();
+      paintComments();
       clearTimeout(joinTimer);
       const shot = v ? c.shot : null;
       if (shot === roomOf) return;
@@ -2210,14 +2210,14 @@ const WBAnimatic = (() => {
         if (room) room.close();
         room = null;
         roomOf = shot;
-        roomNotes = [];
+        roomComments = [];
         if (shot) {
           room = (watched ? watched.room : V.entityRoom)(shot, me, (list) => {
-            roomNotes = list;
-            paintNotes();
+            roomComments = list;
+            paintComments();
           });
         }
-        paintNotes();
+        paintComments();
       }, roomOf ? 400 : 0);
     }
     function toggleBin(on = bin.hidden) {
@@ -2252,15 +2252,15 @@ const WBAnimatic = (() => {
       });
     }
     edgeDrag(binEdge, bin, 'wb:an:binw', 1, 160, 520);
-    edgeDrag(notesEdge, notes, 'wb:an:notesw', -1, 220, 560);
-    function toggleNotes() {
+    edgeDrag(commentsEdge, comments, 'wb:an:commentsw', -1, 220, 560);
+    function toggleComments() {
       if (watched && !watched.comments) return;
-      notes.hidden = !notes.hidden;
-      store('wb:an:notes', !notes.hidden);
-      notesBtn.classList.toggle('active', !notes.hidden);
-      notesBtn.setAttribute('aria-pressed', String(!notes.hidden));
+      comments.hidden = !comments.hidden;
+      store('wb:an:comments', !comments.hidden);
+      commentsBtn.classList.toggle('active', !comments.hidden);
+      commentsBtn.setAttribute('aria-pressed', String(!comments.hidden));
       fitFrame();
-      paintNotes();
+      paintComments();
     }
     // Where in its version a frame of the edit is: { at (seconds), fr (its own frame) }.
     function momentIn(c, f) {
@@ -2270,37 +2270,37 @@ const WBAnimatic = (() => {
       return { at, fr: look && look.fps ? Math.floor(at * look.fps + 1e-3) : null };
     }
     // The frame of the edit a comment is about, where its clip shows that moment, or null.
-    function frameOfNote(n) {
+    function frameOfComment(n) {
       if (!nowShotClip || !Number.isFinite(n.at)) return null;
       const c = nowShotClip;
       const f = c.start + Math.floor(n.at * doc.fps) - c.in;
       return f >= c.start && f < c.start + C.filled(c, lengthOf(c)) ? f : null;
     }
-    function paintNotes() {
-      if (notes.hidden) return;
+    function paintComments() {
+      if (comments.hidden) return;
       const v = nowVersion;
       const p = nowShotClip ? shots[nowShotClip.shot] : null;
-      notesTitle.replaceChildren(...(p && v ? [el('b', { text: p.name }), el('span', { text: versionPart(v.label, p.name) })] : [el('span', { text: 'Comments on the shot on screen' })]));
-      noteBox.disabled = !v;
-      noteSend.disabled = !v;
-      noteBox.placeholder = v ? `Comment on ${p.name}` : 'Nothing filed is on screen to comment on';
+      commentsTitle.replaceChildren(...(p && v ? [el('b', { text: p.name }), el('span', { text: versionPart(v.label, p.name) })] : [el('span', { text: 'Comments on the shot on screen' })]));
+      commentBox.disabled = !v;
+      commentSend.disabled = !v;
+      commentBox.placeholder = v ? `Comment on ${p.name}` : 'Nothing filed is on screen to comment on';
       if (v) {
         const m = momentIn(nowShotClip, ph);
-        noteAt.textContent = `at ${V.fmtMoment(m.at, lookOf(nowShotClip)?.fps || doc.fps)} in ${versionPart(v.label, p.name) || 'it'}`;
-      } else noteAt.textContent = '';
-      if (!v) return void notesList.replaceChildren();
-      const mine = roomNotes.filter((n) => n.type === 'comment' && n.on === v.id);
+        commentAt.textContent = `at ${V.fmtMoment(m.at, lookOf(nowShotClip)?.fps || doc.fps)} in ${versionPart(v.label, p.name) || 'it'}`;
+      } else commentAt.textContent = '';
+      if (!v) return void commentsList.replaceChildren();
+      const mine = roomComments.filter((n) => n.type === 'comment' && n.on === v.id);
       const roots = mine.filter((n) => !n.re).sort((a, b) => (a.at ?? -1) - (b.at ?? -1) || a.t - b.t);
-      if (!roots.length) return void notesList.replaceChildren(el('p', { class: 'an-notes-empty', text: roomOf === nowShotClip.shot ? 'Nothing said about this version yet.' : 'Loading…' }));
-      notesList.replaceChildren(...roots.map((n) => {
+      if (!roots.length) return void commentsList.replaceChildren(el('p', { class: 'an-comments-empty', text: roomOf === nowShotClip.shot ? 'Nothing said about this version yet.' : 'Loading…' }));
+      commentsList.replaceChildren(...roots.map((n) => {
         const replies = mine.filter((x) => x.re === n.id).sort((a, b) => a.t - b.t);
-        const f = frameOfNote(n);
-        const line = (x) => el('div', { class: 'an-note' },
-          el('div', { class: 'an-note-who' },
-            el('i', { class: 'an-note-dot', style: { background: x.color || '#888' } }),
+        const f = frameOfComment(n);
+        const line = (x) => el('div', { class: 'an-comment' },
+          el('div', { class: 'an-comment-who' },
+            el('i', { class: 'an-comment-dot', style: { background: x.color || '#888' } }),
             el('b', { text: x.name || 'Somebody' }),
             el('span', { text: WB.ago(x.t) }),
-            x === n && Number.isFinite(x.at) && el('span', { class: 'an-note-when', text: V.fmtMoment(x.at, lookOf(nowShotClip)?.fps || doc.fps) })),
+            x === n && Number.isFinite(x.at) && el('span', { class: 'an-comment-when', text: V.fmtMoment(x.at, lookOf(nowShotClip)?.fps || doc.fps) })),
           el('p', { text: x.text }));
         return el('div', {
           class: `an-thread${n.done ? ' done' : ''}${f !== null ? ' seekable' : ''}`,
@@ -2315,17 +2315,17 @@ const WBAnimatic = (() => {
         !watching && el('div', { class: 'an-thread-acts' },
           el('button', { type: 'button', class: 'an-act', text: 'Reply', onclick: () => replyTo(n) }),
           el('button', { type: 'button', class: 'an-act', text: n.done ? 'Open again' : 'Resolve', onclick: () => room && room.send([{ t: 'set', id: n.id, patch: { done: !n.done } }]) }),
-          n.name === me.name && el('button', { type: 'button', class: 'an-act danger', text: 'Delete', onclick: () => deleteNote(n) })));
+          n.name === me.name && el('button', { type: 'button', class: 'an-act danger', text: 'Delete', onclick: () => deleteComment(n) })));
       }));
     }
     let replyRoot = null;
     function replyTo(n) {
       replyRoot = n;
-      noteBox.placeholder = `Reply to ${n.name}`;
-      noteBox.focus();
+      commentBox.placeholder = `Reply to ${n.name}`;
+      commentBox.focus();
     }
-    function sendNote() {
-      const text = noteBox.value.trim();
+    function sendComment() {
+      const text = commentBox.value.trim();
       if (!text || !nowVersion || !nowShotClip) return;
       const c = { id: WB.uid(), type: 'comment', text: text.slice(0, 2000), name: me.name, color: me.color, t: Date.now(), done: false, on: nowVersion.id };
       if (replyRoot && replyRoot.on === nowVersion.id) c.re = replyRoot.id;
@@ -2336,41 +2336,41 @@ const WBAnimatic = (() => {
         if (pov) c.pov = pov;
       }
       if (c.fr === null) delete c.fr;
-      roomNotes = [...roomNotes, c];
+      roomComments = [...roomComments, c];
       if (!room || roomOf !== nowShotClip.shot) {
         if (room) room.close();
         roomOf = nowShotClip.shot;
         room = V.entityRoom(roomOf, me, (list) => {
-          roomNotes = list;
-          paintNotes();
+          roomComments = list;
+          paintComments();
         });
       }
       room.send([{ t: 'add', item: c }]);
-      noteBox.value = '';
+      commentBox.value = '';
       replyRoot = null;
-      noteBox.blur();
-      paintNotes();
+      commentBox.blur();
+      paintComments();
     }
-    async function deleteNote(n) {
+    async function deleteComment(n) {
       const sure = await WB.dialog({ title: 'Delete it?', text: 'It goes for everyone, on every board the version is on.', ok: 'Delete', danger: true });
       if (!sure || !room) return;
-      roomNotes = roomNotes.filter((x) => x.id !== n.id && x.re !== n.id);
+      roomComments = roomComments.filter((x) => x.id !== n.id && x.re !== n.id);
       room.send([{ t: 'del', ids: [n.id] }]);
-      paintNotes();
+      paintComments();
     }
     // Beginning a comment on the venue holds the view still where it is, framed as a comment's view is.
-    noteBox.addEventListener('focus', () => {
+    commentBox.addEventListener('focus', () => {
       stop();
       if (in3d && three && !replyRoot) venue3d.look();
     });
-    noteBox.addEventListener('keydown', (e) => {
+    commentBox.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        sendNote();
+        sendComment();
       } else if (e.key === 'Escape') {
         replyRoot = null;
-        noteBox.blur();
-        paintNotes();
+        commentBox.blur();
+        paintComments();
       }
       e.stopPropagation();
     });
@@ -2412,7 +2412,7 @@ const WBAnimatic = (() => {
         gapSel = null;
         draw();
       } else if ((k === 'm' || k === 'M') && !mod && !watching) setSound(!soundOn);
-      else if ((k === 'C') && e.shiftKey && !mod) toggleNotes();
+      else if ((k === 'C') && e.shiftKey && !mod) toggleComments();
       else if ((k === 'L') && e.shiftKey && !mod) toggleBin();
       else if ((k === 't' || k === 'T') && !mod && !e.shiftKey) setMini(!mini);
       else if (k === 'T' && e.shiftKey && !mod) setCompact(!compact);
@@ -2421,8 +2421,8 @@ const WBAnimatic = (() => {
       else if ((k === 'b' || k === 'B') && !mod && !e.shiftKey) setTool('blade');
       else if ((k === 'h' || k === 'H') && !mod && !e.shiftKey) setTool('hand');
       else if ((k === 'c' || k === 'C') && !mod && !e.shiftKey) {
-        if (notes.hidden) toggleNotes();
-        if (nowVersion) noteBox.focus();
+        if (comments.hidden) toggleComments();
+        if (nowVersion) commentBox.focus();
       } else if ((k === 'Z') && e.shiftKey && !mod) fitAll();
       else if ((k === '=' || k === '+') && !mod) zoomTo(ppf * 1.5);
       else if ((k === '-' || k === '_') && !mod) zoomTo(ppf / 1.5);
@@ -2437,7 +2437,7 @@ const WBAnimatic = (() => {
     const onTimeMode = () => {
       paintTime();
       draw();
-      paintNotes();
+      paintComments();
     };
     window.addEventListener('wb:timemode', onTimeMode);
     // The theme changed: the timeline is drawn again in its colours.

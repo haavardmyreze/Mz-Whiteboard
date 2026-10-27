@@ -215,7 +215,7 @@ function openItems(board) {
     }
   }
   if (mended) scheduleSave(board, false);
-  syncNotes(board);
+  syncComments(board);
   return board;
 }
 
@@ -282,26 +282,26 @@ function writeBoard(board) {
 // And before a round of changes begins, the board is kept as it was: a snapshot it can be put back to.
 // A round is whatever follows a quiet spell, so there is at most one snapshot every few minutes.
 const SNAPSHOT_EVERY = Number(process.env.WIPBOARD_SNAPSHOT_MS || process.env.WIPBOARD_VERSION_MS) || 10 * 60 * 1000;
-const noted = new Map(); // board|who|what -> { board, who, what, n }
+const pendingActivity = new Map(); // board|who|what -> { board, who, what, n }
 
-function note(board, who, what, n = 1) {
+function recordActivity(board, who, what, n = 1) {
   const key = `${board.id}|${who}|${what}`;
-  const line = noted.get(key);
+  const line = pendingActivity.get(key);
   if (line) line.n += n;
-  else noted.set(key, { board: board.id, who, what, n });
+  else pendingActivity.set(key, { board: board.id, who, what, n });
 }
 
-function writeNoted() {
-  if (!noted.size || !store.isOpen()) return;
-  const lines = [...noted.values()];
-  noted.clear();
+function writeActivity() {
+  if (!pendingActivity.size || !store.isOpen()) return;
+  const lines = [...pendingActivity.values()];
+  pendingActivity.clear();
   try {
     for (const l of lines) store.logActivity(l.board, l.who, l.what, l.n);
   } catch (err) {
-    console.error(`Failed to note activity: ${err.message}`);
+    console.error(`Failed to comment activity: ${err.message}`);
   }
 }
-setInterval(writeNoted, 5000).unref();
+setInterval(writeActivity, 5000).unref();
 
 // `force` keeps one whatever the time since the last, as before a board is put back to an older one.
 function keepSnapshot(board, who, force = false) {
@@ -319,7 +319,7 @@ function keepSnapshot(board, who, force = false) {
 
 // Everything still waiting, written now: before a search, so it sees the latest, and on the way out.
 function flushAll() {
-  writeNoted();
+  writeActivity();
   for (const board of boards.values()) {
     clearTimeout(board.saveTimer);
     board.saveTimer = null;
@@ -364,27 +364,27 @@ function boardMeta(board) {
   };
 }
 
-// ---------------------------------------------------------------- notes
+// ---------------------------------------------------------------- comments
 //
-// What people say about the work is kept in the notes table, not on the board. A note on a piece of
+// What people say about the work is kept in the comments table, not on the board. A comment on a piece of
 // media that is filed as a version belongs to the version, so it shows on every board the version is
-// on, and it says which board it was made on. A note on media that is not filed belongs to that piece
-// on its board. The boards still show notes as comment items on what they are about, so the browser
-// and everything it does with comments is as it was: each board holds the comment items its notes
-// come to, worked out afresh whenever what is on it changes (see syncNotes).
+// on, and it says which board it was made on. A comment on media that is not filed belongs to that piece
+// on its board. The boards still show comments as comment items on what they are about, so the browser
+// and everything it does with comments is as it was: each board holds the comment items its comments
+// come to, worked out afresh whenever what is on it changes (see syncComments).
 //
-// A note goes only when somebody deletes it. A piece taken off a board, or a board put back to an
-// earlier snapshot, takes the notes out of sight, never out of the table: they come back with it.
+// A comment goes only when somebody deletes it. A piece taken off a board, or a board put back to an
+// earlier snapshot, takes the comments out of sight, never out of the table: they come back with it.
 
-// What a note keeps of a comment, besides where it is (which the board works out).
-function noteData(c) {
+// What a comment keeps of a comment, besides where it is (which the board works out).
+function commentData(c) {
   const { id, type, on, re, ob, obn, ...data } = c;
   return data;
 }
 
-// The comment item a board shows for a note, on the piece `host`.
-function noteItem(board, n, host) {
-  const c = { ...noteData(n.data), id: n.id, type: 'comment', on: host };
+// The comment item a board shows for a comment, on the piece `host`.
+function commentItem(board, n, host) {
+  const c = { ...commentData(n.data), id: n.id, type: 'comment', on: host };
   if (n.re) c.re = n.re;
   // Made on another board: which one, so the thread can say so. Its name only when everybody who can
   // see this board can see that one too (null otherwise): a personal board's name stays its owner's.
@@ -403,18 +403,18 @@ const boardNameFor = (user, id, name, workspace) => {
   return (live ? canSee(user, live.workspace) && live.name : workspace && canSee(user, workspace) && name) || null;
 };
 
-// The comment items a board should hold now: the notes on its media that is not filed, on the piece
-// they were made on, and the notes on the versions it holds, on the piece showing that version (the one
+// The comment items a board should hold now: the comments on its media that is not filed, on the piece
+// they were made on, and the comments on the versions it holds, on the piece showing that version (the one
 // it was made on, when that is here, otherwise the first). Replies sit with their thread.
-function notesWanted(board) {
+function commentsWanted(board) {
   const placed = new Map(); // version id -> the pieces showing it, in board order
   for (const it of board.items.values()) {
     if (it.type === 'comment' || typeof it.ver !== 'string') continue;
     (placed.get(it.ver) || placed.set(it.ver, []).get(it.ver)).push(it.id);
   }
-  const notes = store.notesForBoard(board.id, [...placed.keys()]);
+  const comments = store.commentsForBoard(board.id, [...placed.keys()]);
   const want = new Map();
-  for (const n of notes) {
+  for (const n of comments) {
     if (n.re) continue;
     let host = null;
     if (n.versionId) {
@@ -423,20 +423,20 @@ function notesWanted(board) {
     } else if (board.items.has(n.itemId) && board.items.get(n.itemId).type !== 'comment') {
       host = n.itemId;
     }
-    if (host) want.set(n.id, noteItem(board, n, host));
+    if (host) want.set(n.id, commentItem(board, n, host));
   }
-  for (const n of notes) {
+  for (const n of comments) {
     const root = n.re && want.get(n.re);
-    if (root && !root.re) want.set(n.id, noteItem(board, n, root.on));
+    if (root && !root.re) want.set(n.id, commentItem(board, n, root.on));
   }
   return want;
 }
 
-// Brings the comment items a board holds in line with its notes. Returns the ops that did it, for
-// everybody on the board (whoever made the change too: the server may have put a note elsewhere).
-function syncNotes(board) {
+// Brings the comment items a board holds in line with its comments. Returns the ops that did it, for
+// everybody on the board (whoever made the change too: the server may have put a comment elsewhere).
+function syncComments(board) {
   if (!board.items) return [];
-  const want = notesWanted(board);
+  const want = commentsWanted(board);
   const gone = [];
   for (const [id, it] of board.items) {
     if (it.type === 'comment' && !want.has(id)) {
@@ -454,13 +454,13 @@ function syncNotes(board) {
   return ops;
 }
 
-// Notes on these versions have changed: every other board that is open and holds one of them is told.
-function spreadNotes(versionIds, from) {
+// Comments on these versions have changed: every other board that is open and holds one of them is told.
+function spreadComments(versionIds, from) {
   if (!versionIds.size) return;
   for (const board of boards.values()) {
     if (board === from || !board.items) continue;
     if (![...board.items.values()].some((it) => it.type !== 'comment' && versionIds.has(it.ver))) continue;
-    const ops = syncNotes(board);
+    const ops = syncComments(board);
     if (ops.length) broadcast(board, { t: 'op', ops, from: null });
   }
   tellRooms(versionIds);
@@ -558,19 +558,19 @@ function commentPatch(it, asked, peer) {
   return Object.keys(patch).length ? patch : null;
 }
 
-// A new note from a comment somebody sent: on the version the piece shows, if it shows one, and a
+// A new comment from a comment somebody sent: on the version the piece shows, if it shows one, and a
 // reply in the thread it answers.
-function addNote(board, c, peer) {
+function addComment(board, c, peer) {
   let versionId = null;
   if (c.re) {
-    const root = store.note(c.re);
+    const root = store.comment(c.re);
     if (!root || root.deletedAt || root.re) return null;
     versionId = root.versionId;
   } else {
     const host = board.items.get(c.on);
     if (host && typeof host.ver === 'string') versionId = host.ver;
   }
-  return store.addNote({ id: c.id, boardId: board.id, itemId: c.on, versionId, re: c.re || null, data: noteData(c), by: peer ? peer.name : null });
+  return store.addComment({ id: c.id, boardId: board.id, itemId: c.on, versionId, re: c.re || null, data: commentData(c), by: peer ? peer.name : null });
 }
 
 // A version that is there: not one that never was, nor one deleted.
@@ -629,25 +629,25 @@ function cleanMedia(fields, type) {
   }
 }
 
-// A note this board shows, so that an undo on it may bring it back: one made on the board on a piece
+// A comment this board shows, so that an undo on it may bring it back: one made on the board on a piece
 // that is not filed, or one on a version a piece on the board shows.
 function shownOn(board, n) {
   if (n.versionId) return [...board.items.values()].some((it) => it.type !== 'comment' && it.ver === n.versionId);
   return n.boardId === board.id;
 }
 
-// Who may delete a note: whoever wrote it (known, as for editing, by the name the connection goes by),
-// and, for a note somebody holding a link wrote, anybody on the board, who look after what is said on
-// it. Never somebody holding a link. Deleting the note a thread starts with deletes its replies too.
+// Who may delete a comment: whoever wrote it (known, as for editing, by the name the connection goes by),
+// and, for a comment somebody holding a link wrote, anybody on the board, who look after what is said on
+// it. Never somebody holding a link. Deleting the comment a thread starts with deletes its replies too.
 const mayDelete = (n, peer) => !peer || (!peer.viewer && (peer.name === n.data.name || n.data.guest === true));
 
 // `touch` is false for housekeeping a browser does by itself, which must not make the board look edited.
-// What the notes then come to on this board and on others is settled by settle() below, after the ops
+// What the comments then come to on this board and on others is settled by settle() below, after the ops
 // themselves have gone out.
 function applyOps(board, ops, peer, touch = true) {
   const applied = [];
-  applied.notes = new Set(); // versions whose notes changed
-  applied.resync = false;    // whether what the board shows of its notes may have to change
+  applied.comments = new Set(); // versions whose comments changed
+  applied.resync = false;    // whether what the board shows of its comments may have to change
   applied.versions = new Set(); // versions put on the board
   if (!Array.isArray(ops)) return applied;
   const removedComments = [];
@@ -658,22 +658,22 @@ function applyOps(board, ops, peer, touch = true) {
       if (!it || typeof it !== 'object' || !ID_RE.test(it.id) || typeof it.type !== 'string') continue;
       if (it.type === 'comment') {
         if (board.items.has(it.id)) continue;
-        const known = store.note(it.id);
+        const known = store.comment(it.id);
         if (known) {
-          // Undo bringing back a note that was deleted: as its author wrote it, wherever it belongs. Only
-          // by the board's own people (or the server), and only a note this board shows; the first note
+          // Undo bringing back a comment that was deleted: as its author wrote it, wherever it belongs. Only
+          // by the board's own people (or the server), and only a comment this board shows; the first comment
           // of a thread brings back the replies deleted with it.
-          if (known.deletedAt && (!peer || !peer.viewer) && shownOn(board, known)) store.restoreNote(it.id);
-          if (known.versionId) applied.notes.add(known.versionId);
+          if (known.deletedAt && (!peer || !peer.viewer) && shownOn(board, known)) store.restoreComment(it.id);
+          if (known.versionId) applied.comments.add(known.versionId);
           applied.resync = true;
           continue;
         }
         const clean = cleanComment(it, peer);
-        const n = clean && addNote(board, clean, peer);
+        const n = clean && addComment(board, clean, peer);
         if (!n) continue;
-        if (n.versionId) applied.notes.add(n.versionId);
+        if (n.versionId) applied.comments.add(n.versionId);
         applied.resync = true;
-        it = noteItem(board, n, clean.on);
+        it = commentItem(board, n, clean.on);
         board.items.set(it.id, it);
         applied.push({ t: 'add', item: it });
         continue;
@@ -695,10 +695,10 @@ function applyOps(board, ops, peer, touch = true) {
       if (it.type === 'comment') {
         patch = commentPatch(it, op.patch, peer);
         if (!patch) continue;
-        const n = store.note(op.id);
+        const n = store.comment(op.id);
         if (!n) continue;
-        store.setNote(op.id, { ...n.data, ...patch });
-        if (n.versionId) applied.notes.add(n.versionId);
+        store.setComment(op.id, { ...n.data, ...patch });
+        if (n.versionId) applied.comments.add(n.versionId);
       } else {
         for (const key of Object.keys(op.patch)) {
           if (key === 'id' || key === 'type' || key === '__proto__') continue;
@@ -760,12 +760,12 @@ function applyOps(board, ops, peer, touch = true) {
   removedComments.sort((a, b) => (a.re ? 1 : 0) - (b.re ? 1 : 0));
   for (const c of removedComments) {
     applied.resync = true;
-    const n = store.note(c.id);
+    const n = store.comment(c.id);
     if (!n) continue;
-    if (n.versionId) applied.notes.add(n.versionId);
+    if (n.versionId) applied.comments.add(n.versionId);
     if (!board.items.has(c.on) || n.deletedAt) continue;
     if (mayDelete(n, peer)) {
-      store.deleteNote(c.id);
+      store.deleteComment(c.id);
     } else {
       board.items.set(c.id, c);
       kept.add(c.id);
@@ -819,15 +819,15 @@ function fixesFor(board, sent) {
   return fix;
 }
 
-// After ops have gone out: the board's notes as they now come out, here and on the other boards that
+// After ops have gone out: the board's comments as they now come out, here and on the other boards that
 // hold the versions they are on, and what those versions are called, for whoever does not know yet.
 function settle(board, applied) {
   if (applied.resync) {
-    const ops = syncNotes(board);
-    // What a board shows of notes it already had, worked out again: nobody has just said anything.
+    const ops = syncComments(board);
+    // What a board shows of comments it already had, worked out again: nobody has just said anything.
     if (ops.length) broadcast(board, { t: 'op', ops, from: null, sync: true });
   }
-  spreadNotes(applied.notes, board);
+  spreadComments(applied.comments, board);
   if (applied.versions.size) broadcast(board, { t: 'versions', list: [...applied.versions].map((id) => boardVersion(id, board3d(board))).filter(Boolean) });
 }
 
@@ -1401,13 +1401,13 @@ function fileVersions(req, project, body) {
       v = store.addAttachment(onto.id, { ...p.look, label: p.attachment }, by, p.board ? p.board.id : null);
       if (!v) throw refusal(409, `${naming.label(entity.name, onto.task, onto.number)} has an attachment called “${p.attachment}” already`);
       // Said about the piece, it is said about the version, on this attachment of it.
-      if (p.board) store.fileNotes(p.board.id, p.item.id, v.id, p.attachment);
+      if (p.board) store.fileComments(p.board.id, p.item.id, v.id, p.attachment);
       return { p, v };
     }
     if (onto) {
       v = store.addPass(onto.id, { ...p.look, pass: p.pass });
       // Said about the piece, it is said about the version it is now a pass of.
-      if (p.board) store.fileNotes(p.board.id, p.item.id, v.id);
+      if (p.board) store.fileComments(p.board.id, p.item.id, v.id);
       p.made = v;
       return { p, v };
     }
@@ -1423,7 +1423,7 @@ function fileVersions(req, project, body) {
       throw err.taken ? refusal(409, takenMessage(err.taken)) : err;
     }
     // What was said about the piece goes with it: from now on it is said about the version.
-    if (p.board) store.fileNotes(p.board.id, p.item.id, v.id);
+    if (p.board) store.fileComments(p.board.id, p.item.id, v.id);
     p.made = v;
     return { p, v };
   }));
@@ -1432,7 +1432,7 @@ function fileVersions(req, project, body) {
     const applied = applyOps(p.board, [{ t: 'set', id: p.item.id, patch: { ver: v.id, ...(p.attachment && { att: p.attachment }) } }], null, false);
     if (applied.length) broadcast(p.board, { t: 'op', ops: applied, from: null });
     settle(p.board, applied);
-    note(p.board, by || 'Somebody', 'file');
+    recordActivity(p.board, by || 'Somebody', 'file');
   }
   retellEntities(new Set(filed.map(({ v }) => v.entityId)));
   return filed.map(({ p, v }) => ({ ...publicVersion(v, req.user), ...(p.pass && { filedPass: p.pass }), ...(p.attachment && { filedAttachment: p.attachment }) }));
@@ -1452,11 +1452,11 @@ function versionLabels() {
     return known.get(id);
   };
 }
-// A line of a project's Activity: a version filed, a note written, a playlist or an animatic made.
+// A line of a project's Activity: a version filed, a comment written, a playlist or an animatic made.
 const versionLine = (v, entity, label) => ({ kind: 'version', id: v.id, at: v.createdAt, by: v.createdBy, entity, version: { id: v.id, label: label(v.id), thumb: v.thumb, kind: v.kind } });
-const noteLine = (n, entity, label) => ({
-  kind: 'note', id: n.id, at: n.createdAt, by: n.data.name || n.createdBy, entity,
-  version: { id: n.versionId, label: label(n.versionId) }, note: { id: n.id, text: String(n.data.text || '').slice(0, 300), reply: !!n.re },
+const commentLine = (n, entity, label) => ({
+  kind: 'comment', id: n.id, at: n.createdAt, by: n.data.name || n.createdBy, entity,
+  version: { id: n.versionId, label: label(n.versionId) }, comment: { id: n.id, text: String(n.data.text || '').slice(0, 300), reply: !!n.re },
 });
 const playlistLine = (p) => ({ kind: 'playlist', id: p.id, at: p.createdAt, by: p.createdBy, playlist: { id: p.id, name: p.name, count: p.versions.length } });
 const animaticLine = (a) => ({ kind: 'animatic', id: a.id, at: a.createdAt, by: a.createdBy, animatic: { id: a.id, name: a.name } });
@@ -1470,7 +1470,7 @@ function lineAfter(before) {
   if (!before) return { at: Number.MAX_SAFE_INTEGER, key: '\uffff' };
   try {
     const [at, key] = JSON.parse(Buffer.from(before, 'base64url').toString('utf8'));
-    if (Number.isSafeInteger(at) && typeof key === 'string' && /^[anpv]:[\w-]+$/.test(key)) return { at, key };
+    if (Number.isSafeInteger(at) && typeof key === 'string' && /^[acpv]:[\w-]+$/.test(key)) return { at, key };
   } catch {
     // not a page of this list
   }
@@ -1520,7 +1520,7 @@ function activityFor(name, entityById) {
   };
   return (line, raw) => {
     if (isMe(line.by)) return null;
-    if (line.kind === 'note') {
+    if (line.kind === 'comment') {
       if (mentions(raw.data.text, name)) return 'mention';
       const root = raw.re || raw.id;
       if (raw.re) {
@@ -2017,7 +2017,7 @@ async function handleCatalogue(req, res, parts) {
       const applied = applyOps(board, ops, null, true);
       if (applied.length) broadcast(board, { t: 'op', ops: applied, from: null });
       settle(board, applied);
-      note(board, actor(req, body, 'Somebody'), 'add', list.length);
+      recordActivity(board, actor(req, body, 'Somebody'), 'add', list.length);
       return sendJson(res, 200, { board: { id: board.id, name: board.name }, placed: ops.map((o) => o.item.id) });
     }
     // GET /api/projects/:id/activity   what happened in the project, newest first, from its start: versions
@@ -2054,14 +2054,14 @@ async function handleCatalogue(req, res, parts) {
       let more = true;
       while (items.length < limit && more) {
         const below = (k) => (k === cursor.key[0] ? cursor.key.slice(2) : k < cursor.key[0] ? '\uffff' : '');
-        const { versions, notes } = store.happenings(project.id, { upTo: cursor.at, since, limit: BATCH, versionBelow: below('v'), noteBelow: below('n') });
+        const { versions, comments } = store.happenings(project.id, { upTo: cursor.at, since, limit: BATCH, versionBelow: below('v'), commentBelow: below('c') });
         const lines = [
           ...versions.map((v) => ({ line: versionLine(v, about(v.entityId), label), raw: v })),
-          ...notes.map((n) => ({ line: noteLine(n, about(n.entityId), label), raw: n })),
+          ...comments.map((n) => ({ line: commentLine(n, about(n.entityId), label), raw: n })),
           ...made.filter((x) => comesAfter(x.line, cursor)),
         ].sort((a, b) => newerFirst(a.line, b.line));
         // A full batch of either says nothing of what is older than its last: the lines are sure up to there.
-        const ends = [versions.length === BATCH && versions[BATCH - 1], notes.length === BATCH && notes[BATCH - 1]].filter(Boolean)
+        const ends = [versions.length === BATCH && versions[BATCH - 1], comments.length === BATCH && comments[BATCH - 1]].filter(Boolean)
           .map((x) => lines.findIndex((l) => l.raw === x));
         more = ends.length > 0;
         const sure = more ? lines.slice(0, Math.min(...ends) + 1) : lines;
@@ -2221,13 +2221,13 @@ async function handleCatalogue(req, res, parts) {
     flushAll();
     const versions = store.versionsOf(entity.id);
     const on = store.boardsWithVersions(versions.map((v) => v.id));
-    const notes = store.notesOfVersions(versions.map((v) => v.id)).map((n) => ({
-      id: n.id, versionId: n.versionId, re: n.re, board: { id: n.boardId, name: boardNameFor(req.user, n.boardId, n.boardName, n.boardWorkspace) }, ...noteData(n.data),
+    const comments = store.commentsOfVersions(versions.map((v) => v.id)).map((n) => ({
+      id: n.id, versionId: n.versionId, re: n.re, board: { id: n.boardId, name: boardNameFor(req.user, n.boardId, n.boardName, n.boardWorkspace) }, ...commentData(n.data),
     }));
     return sendJson(res, 200, {
       entity, project: publicFolder(project),
       versions: versions.map((v) => ({ ...publicVersion(v, req.user), boards: boardsSeen(on.get(v.id)) })),
-      notes,
+      comments,
     });
   }
   // GET /api/people: every name the app knows, for picking artists and people to keep in the loop.
@@ -2395,7 +2395,7 @@ async function handleCatalogue(req, res, parts) {
       const board = x.board ? boards.get(x.board) : null;
       if (board) openItems(board);
       const item = board ? [...board.items.values()].find((it) => it.ver === v.id && it.att === name) || null : null;
-      if (store.notesOnAttachment(v.id, name, item ? board.id : null, item ? item.id : null)) return sendJson(res, 409, { error: `Something has been said about ${what} since` });
+      if (store.commentsOnAttachment(v.id, name, item ? board.id : null, item ? item.id : null)) return sendJson(res, 409, { error: `Something has been said about ${what} since` });
       if (item) {
         const applied = applyOps(board, [{ t: 'set', id: item.id, patch: { ver: null } }], null, false);
         if (applied.length) broadcast(board, { t: 'op', ops: applied, from: null });
@@ -2419,7 +2419,7 @@ async function handleCatalogue(req, res, parts) {
       return sendJson(res, 409, { error: `${label} is on other boards since: archive or delete it instead` });
     }
     const item = pieces[0] || null;
-    if (store.notesBesides(v.id, item ? board.id : null, item ? item.id : null)) return sendJson(res, 409, { error: `Something has been said about ${label} since: archive or delete it instead` });
+    if (store.commentsBesides(v.id, item ? board.id : null, item ? item.id : null)) return sendJson(res, 409, { error: `Something has been said about ${label} since: archive or delete it instead` });
     if (item) {
       const applied = applyOps(board, [{ t: 'set', id: item.id, patch: { ver: null } }], null, false);
       if (applied.length) broadcast(board, { t: 'op', ops: applied, from: null });
@@ -3284,7 +3284,7 @@ async function handleApi(req, res, url) {
   if (parts[1] === 'boards' && parts.length === 4 && parts[3] === 'activity' && req.method === 'GET') {
     const board = boards.get(parts[2]);
     if (!visible(req.user, board)) return sendJson(res, 404, { error: 'Board not found' });
-    writeNoted();
+    writeActivity();
     return sendJson(res, 200, { events: store.activity(board.id), snapshots: store.snapshots(board.id) });
   }
   // Puts a board back as it was. What is there now is kept first, so this can be undone the same way.
@@ -3306,9 +3306,9 @@ async function handleApi(req, res, url) {
       board.removed.delete(id);
     }
     board.items = next;
-    syncNotes(board);
+    syncComments(board);
     scheduleSave(board);
-    note(board, who, 'restore');
+    recordActivity(board, who, 'restore');
     // Everybody on the board is given it afresh, as when they opened it, marked as put back: what they
     // could undo was done to the board as it was before.
     for (const peer of board.peers.values()) sendInit(board, peer, true);
@@ -3353,8 +3353,8 @@ async function handleApi(req, res, url) {
       }
       const applied = applyOps(board, [{ t: 'meta', patch: { name: body.name } }]);
       if (applied.length) broadcast(board, { t: 'op', ops: applied, from: null });
-      // Boards showing notes made here say where they were made, by name.
-      if (applied.length) for (const other of boards.values()) if (other !== board && other.items && [...other.items.values()].some((it) => it.ob === board.id)) settle(other, Object.assign([], { resync: true, notes: new Set(), versions: new Set() }));
+      // Boards showing comments made here say where they were made, by name.
+      if (applied.length) for (const other of boards.values()) if (other !== board && other.items && [...other.items.values()].some((it) => it.ob === board.id)) settle(other, Object.assign([], { resync: true, comments: new Set(), versions: new Set() }));
       return sendJson(res, 200, boardMeta(board));
     }
     if (req.method === 'DELETE') {
@@ -3549,7 +3549,7 @@ server.requestTimeout = 5 * 60 * 1000;
 
 // ---------------------------------------------------------------- realtime
 
-// Messages over a kilobyte (a board as it is opened, a catalogue's notes) go compressed, each on its own so a
+// Messages over a kilobyte (a board as it is opened, a catalogue's comments) go compressed, each on its own so a
 // connection holds no compression state between them: tunnels pass a live connection on as it is, so
 // nothing else would.
 const wss = new WebSocketServer({
@@ -3667,18 +3667,18 @@ function send(ws, msg) {
 }
 
 // What people holding a link are shown: the board, and the team's comments only if the link includes them.
-// A link shows the notes made on its own board, not those made about the same version on others.
+// A link shows the comments made on its own board, not those made about the same version on others.
 // Somebody watching a presentation sees what it allows: the board, and its comments only if it includes them.
 const accessOf = (board, peer) => (peer.watch ? peer.watch.access : board.shareAccess);
-const hiddenNote = (access, c) => !!c && c.type === 'comment' && (access === 'view' || c.ob !== undefined);
-const hiddenFromViewers = (board, op, access) => (op.t === 'add' ? hiddenNote(access, op.item) : op.t === 'set' && hiddenNote(access, board.items.get(op.id)));
+const hiddenComment = (access, c) => !!c && c.type === 'comment' && (access === 'view' || c.ob !== undefined);
+const hiddenFromViewers = (board, op, access) => (op.t === 'add' ? hiddenComment(access, op.item) : op.t === 'set' && hiddenComment(access, board.items.get(op.id)));
 
 // All that somebody commenting through a link can send: new comments and replies on what is there.
 function guestOps(board, ops) {
   if (!Array.isArray(ops)) return [];
   return ops.filter((op) => op && op.t === 'add' && op.item && op.item.type === 'comment' && !board.items.has(op.item.id)
     && board.items.has(op.item.on) && board.items.get(op.item.on).type !== 'comment'
-    && (!op.item.re || (board.items.get(op.item.re)?.type === 'comment' && !hiddenNote(board.shareAccess, board.items.get(op.item.re)))));
+    && (!op.item.re || (board.items.get(op.item.re)?.type === 'comment' && !hiddenComment(board.shareAccess, board.items.get(op.item.re)))));
 }
 
 function broadcast(board, msg, except) {
@@ -3699,7 +3699,7 @@ function broadcast(board, msg, except) {
   }
 }
 
-// Ops as somebody holding a link may see them: no notes the link does not show, nothing of originals.
+// Ops as somebody holding a link may see them: no comments the link does not show, nothing of originals.
 const forViewers = (board, ops, access = board.shareAccess) => ops.filter((op) => !hiddenFromViewers(board, op, access))
   .map((op) => (op.t === 'add' ? { ...op, item: withoutOriginal(op.item) } : op.t === 'set' ? { ...op, patch: withoutOriginal(op.patch) } : op))
   .filter((op) => op.t !== 'set' || Object.keys(op.patch).length);
@@ -3747,7 +3747,7 @@ function sendInit(board, peer, restored = false) {
     access,
     // Watching a presentation: who presents, as their peer here is known.
     ...(peer.watch && { lead: peer.watch.lead }),
-    items: [...board.items.values()].filter((it) => !hiddenNote(access, it)).map(withoutOriginal),
+    items: [...board.items.values()].filter((it) => !hiddenComment(access, it)).map(withoutOriginal),
     versions: boardVersions(board),
     view3d: board3d(board),
     peers: [...board.peers.values()].filter((p) => p !== peer).map(publicPeer),
@@ -3799,7 +3799,7 @@ function onConnect(ws, board, user, via = null) {
         peer.name = String(msg.name || '').replace(/\s+/g, ' ').trim().slice(0, 32) || `Viewer ${board.viewerSeq}`;
         peer.color = /^#[0-9a-f]{6}$/i.test(msg.color) ? msg.color : VIEWER_COLORS[(board.viewerSeq - 1) % VIEWER_COLORS.length];
         sendInit(board, peer);
-        note(board, peer.name, peer.watch ? 'watch' : 'link');
+        recordActivity(board, peer.name, peer.watch ? 'watch' : 'link');
         board.peers.set(peer.id, peer);
         broadcast(board, { t: 'join', peer: publicPeer(peer) }, peer);
         return;
@@ -3816,7 +3816,7 @@ function onConnect(ws, board, user, via = null) {
       const pres = typeof msg.present === 'string' && presentationFor(msg.present);
       if (pres && pres.projectId === boardProject(board)?.id && ownerKey(user, peer.name) === pres.owner) peer.lead = pres.lead;
       sendInit(board, peer);
-      note(board, peer.name, 'open');
+      recordActivity(board, peer.name, 'open');
       board.peers.set(peer.id, peer);
       broadcast(board, { t: 'join', peer: publicPeer(peer) }, peer);
       return;
@@ -3846,11 +3846,11 @@ function onConnect(ws, board, user, via = null) {
       const applied = applyOps(board, peer.viewer ? guestOps(board, msg.ops) : msg.ops, peer, counts);
       if (counts && applied.length) {
         const comments = applied.every((op) => (op.t === 'add' ? op.item.type === 'comment' : op.t === 'set' && board.items.get(op.id)?.type === 'comment'));
-        note(board, peer.name, comments ? 'comment' : 'edit', applied.length);
+        recordActivity(board, peer.name, comments ? 'comment' : 'edit', applied.length);
       }
-      // What the board shows of its notes is worked out now (a note brought back by undo is only there
+      // What the board shows of its comments is worked out now (a comment brought back by undo is only there
       // after this), and goes out once the ops themselves have.
-      const synced = applied.resync ? syncNotes(board) : [];
+      const synced = applied.resync ? syncComments(board) : [];
       applied.resync = false;
       // Where the server made something else of what was sent (a comment stamped with its author, a
       // version it may not show, a change refused), the sender is given the server's version first...
@@ -3918,17 +3918,17 @@ setInterval(() => {
 // ---------------------------------------------------------------- the catalogue, live
 //
 // An asset, set or shot opened in the catalogue's viewer has a room of its own: everyone in it has all
-// the notes on all its versions, live, and what they write there is there on every board the version
-// is on, as what is written on those boards is there in the room. A note written in the catalogue was
+// the comments on all its versions, live, and what they write there is there on every board the version
+// is on, as what is written on those boards is there in the room. A comment written in the catalogue was
 // made on no board (its board is '').
 
 const rooms = new Map(); // entity id -> Set of { ws, name, color, user }
 
-// The notes of an entity as somebody in its room is shown them: which board each was made on is named
+// The comments of an entity as somebody in its room is shown them: which board each was made on is named
 // only when they can see that board (null otherwise).
-function roomNotes(entityId, user, notes = store.notesOfVersions(store.versionsOf(entityId).map((v) => v.id))) {
-  return notes.map((n) => ({
-    ...noteData(n.data), id: n.id, type: 'comment', on: n.versionId, ...(n.re && { re: n.re }),
+function roomComments(entityId, user, comments = store.commentsOfVersions(store.versionsOf(entityId).map((v) => v.id))) {
+  return comments.map((n) => ({
+    ...commentData(n.data), id: n.id, type: 'comment', on: n.versionId, ...(n.re && { re: n.re }),
     ob: n.boardId, obn: n.boardId === '' ? 'the catalogue' : boardNameFor(user, n.boardId, n.boardName, n.boardWorkspace),
   }));
 }
@@ -3936,11 +3936,11 @@ function roomNotes(entityId, user, notes = store.notesOfVersions(store.versionsO
 function tellRoom(entityId) {
   const peers = rooms.get(entityId);
   if (!peers || !peers.size) return;
-  const notes = store.notesOfVersions(store.versionsOf(entityId).map((v) => v.id));
-  for (const peer of peers) send(peer.ws, { t: 'notes', notes: roomNotes(entityId, peer.user, notes) });
+  const comments = store.commentsOfVersions(store.versionsOf(entityId).map((v) => v.id));
+  for (const peer of peers) send(peer.ws, { t: 'comments', comments: roomComments(entityId, peer.user, comments) });
 }
 
-// Notes on these versions have changed somewhere: the rooms of their entities are told.
+// Comments on these versions have changed somewhere: the rooms of their entities are told.
 function tellRooms(versionIds) {
   if (!rooms.size) return;
   const entities = new Set();
@@ -3971,18 +3971,18 @@ function joinRoom(ws, entity, user) {
         if (/^#[0-9a-f]{6}$/i.test(msg.color)) peer.color = msg.color;
       }
       (rooms.get(entity.id) || rooms.set(entity.id, new Set()).get(entity.id)).add(peer);
-      return send(ws, { t: 'init', notes: roomNotes(entity.id, user) });
+      return send(ws, { t: 'init', comments: roomComments(entity.id, user) });
     }
     if (!peer.joined || msg.t !== 'op' || !Array.isArray(msg.ops)) return;
     const touched = new Set();
     for (const op of msg.ops) {
       if (!op || typeof op !== 'object') continue;
       if (op.t === 'add' && op.item && ID_RE.test(op.item.id)) {
-        const known = store.note(op.item.id);
+        const known = store.comment(op.item.id);
         if (known) {
-          // Undo bringing a deleted note back, as its author wrote it (with the replies deleted with it).
+          // Undo bringing a deleted comment back, as its author wrote it (with the replies deleted with it).
           if (known.deletedAt && ofEntity(known.versionId)) {
-            store.restoreNote(known.id);
+            store.restoreComment(known.id);
             touched.add(known.versionId);
           }
           continue;
@@ -3991,32 +3991,32 @@ function joinRoom(ws, entity, user) {
         if (!c || !ofEntity(c.on)) continue;
         let re = null;
         if (c.re) {
-          const root = store.note(c.re);
+          const root = store.comment(c.re);
           if (!root || root.deletedAt || root.re || root.versionId !== c.on) continue;
           re = root.id;
         }
-        store.addNote({ id: c.id, boardId: '', itemId: c.on, versionId: c.on, re, data: noteData(c), by: peer.name });
+        store.addComment({ id: c.id, boardId: '', itemId: c.on, versionId: c.on, re, data: commentData(c), by: peer.name });
         touched.add(c.on);
       } else if (op.t === 'set' && typeof op.id === 'string' && op.patch && typeof op.patch === 'object') {
-        const n = store.note(op.id);
+        const n = store.comment(op.id);
         if (!n || n.deletedAt || !ofEntity(n.versionId)) continue;
         const patch = commentPatch(n.data, op.patch, peer);
         if (!patch) continue;
-        store.setNote(n.id, { ...n.data, ...patch });
+        store.setComment(n.id, { ...n.data, ...patch });
         touched.add(n.versionId);
       } else if (op.t === 'del' && Array.isArray(op.ids)) {
         // As on a board (see mayDelete): a thread first, taking its replies with it. One this person may
-        // not delete stays; the room is told its notes again all the same, so their page has it back.
-        const notes = op.ids.map((id) => typeof id === 'string' && store.note(id)).filter((n) => n && ofEntity(n.versionId));
-        notes.sort((a, b) => (a.re ? 1 : 0) - (b.re ? 1 : 0));
-        for (const n of notes) {
+        // not delete stays; the room is told its comments again all the same, so their page has it back.
+        const comments = op.ids.map((id) => typeof id === 'string' && store.comment(id)).filter((n) => n && ofEntity(n.versionId));
+        comments.sort((a, b) => (a.re ? 1 : 0) - (b.re ? 1 : 0));
+        for (const n of comments) {
           touched.add(n.versionId);
-          if (!store.note(n.id).deletedAt && mayDelete(n, peer)) store.deleteNote(n.id);
+          if (!store.comment(n.id).deletedAt && mayDelete(n, peer)) store.deleteComment(n.id);
         }
       }
     }
     send(ws, { t: 'ack' });
-    if (touched.size) spreadNotes(touched, null);
+    if (touched.size) spreadComments(touched, null);
   };
   ws.on('message', (raw) => {
     try {
@@ -4168,7 +4168,7 @@ function presentationRuntime(record) {
     shown: [],           // scenes shown since it was made live, as { k, id }
     files: null,         // what may be loaded through it, worked out from `shown` when asked (see presentedFiles)
     filesAt: 0,
-    notesOf: null,       // the entity whose notes the people watching are shown
+    commentsOf: null,       // the entity whose comments the people watching are shown
     lead: newId(6),      // how the presenter's own peer on a board is known to the people watching it
   };
 }
@@ -4229,7 +4229,7 @@ function endPresenting(pres) {
   pres.p = {};
   pres.shown = [];
   pres.files = null;
-  pres.notesOf = null;
+  pres.commentsOf = null;
   tellWatchers(pres, { t: 'ended' });
   // A board being watched through it is not, any more.
   for (const board of boards.values()) {
@@ -4305,8 +4305,8 @@ function cleanPlayer(p) {
 
 const shownKey = (s) => `${s.k}:${s.id || ''}`;
 
-// The entity whose notes go with what is shown: the one open, or in an animatic, the shot on screen.
-function notesEntity(pres) {
+// The entity whose comments go with what is shown: the one open, or in an animatic, the shot on screen.
+function commentsEntity(pres) {
   const s = pres.scene;
   if (!s || pres.access !== 'comments') return null;
   if (s.k === 'entity') return s.entity;
@@ -4314,21 +4314,21 @@ function notesEntity(pres) {
   const v = store.version(pres.p.f);
   return v && v.entityId;
 }
-// Notes as the people watching are shown them: never which board they were made on.
-const watcherNotes = (entityId) => roomNotes(entityId, null).map(({ ob, obn, ...n }) => n);
-function retellWatcherNotes(pres, force = false) {
-  const entityId = notesEntity(pres);
-  if (!force && entityId === pres.notesOf) return;
-  pres.notesOf = entityId;
-  tellWatchers(pres, { t: 'notes', notes: entityId ? watcherNotes(entityId) : [] });
+// Comments as the people watching are shown them: never which board they were made on.
+const watcherComments = (entityId) => roomComments(entityId, null).map(({ ob, obn, ...n }) => n);
+function retellWatcherComments(pres, force = false) {
+  const entityId = commentsEntity(pres);
+  if (!force && entityId === pres.commentsOf) return;
+  pres.commentsOf = entityId;
+  tellWatchers(pres, { t: 'comments', comments: entityId ? watcherComments(entityId) : [] });
 }
-// Notes on these versions changed: whoever watches them being shown is told.
+// Comments on these versions changed: whoever watches them being shown is told.
 function retellPresentations(versionIds) {
   let entities = null;
   for (const pres of presentations.values()) {
-    if (!pres.live || !pres.notesOf || !pres.watchers.size) continue;
+    if (!pres.live || !pres.commentsOf || !pres.watchers.size) continue;
     entities = entities || new Set(versionIds.map((id) => store.version(id)?.entityId).filter(Boolean));
-    if (entities.has(pres.notesOf)) retellWatcherNotes(pres, true);
+    if (entities.has(pres.commentsOf)) retellWatcherComments(pres, true);
   }
 }
 
@@ -4405,7 +4405,7 @@ function handleWatchApi(req, res, url, token, rest) {
     if (!e || e.projectId !== pres.projectId || !wasShown(pres, 'entity', e.id)) return sendJson(res, 404, { error: 'Not shown' });
     return sendJson(res, 200, {
       entity: { id: e.id, name: e.name, type: e.type, projectId: e.projectId }, project: projectOut,
-      versions: store.versionsOf(e.id).map((v) => versionOut(v, e)), notes: [],
+      versions: store.versionsOf(e.id).map((v) => versionOut(v, e)), comments: [],
     });
   }
   // An animatic as its page plays it (as GET /api/animatics/:id gives it), to be watched.
@@ -4447,9 +4447,9 @@ async function handlePresentApi(req, res, url, project, rest) {
     mine.ownerName = name;
     store.savePresentation(mine);
     if (mine.access !== before) {
-      // The people watching are shown the notes, or no longer, from now on.
-      mine.notesOf = undefined;
-      retellWatcherNotes(mine);
+      // The people watching are shown the comments, or no longer, from now on.
+      mine.commentsOf = undefined;
+      retellWatcherComments(mine);
       tellWatchers(mine, { t: 'access', access: mine.access });
       for (const board of boards.values()) {
         for (const peer of [...board.peers.values()]) if (peer.watch === mine) peer.ws.close(4006, 'Link settings changed');
@@ -4520,7 +4520,7 @@ function presentHost(ws, pres, user) {
       // What they had cached was for what was shown before: they say how it stands for this.
       for (const w of pres.watchers) w.cache = { wait: true };
       tellWatching(pres);
-      retellWatcherNotes(pres);
+      retellWatcherComments(pres);
       return;
     }
     // Only the page whose word goes: another tab of theirs, left open, says nothing to anyone.
@@ -4532,7 +4532,7 @@ function presentHost(ws, pres, user) {
       Object.assign(pres.p, p);
       if ('m' in p) pres.mAt = Date.now();
       tellWatchers(pres, { t: 'p', p });
-      if ('f' in p) retellWatcherNotes(pres);
+      if ('f' in p) retellWatcherComments(pres);
     } else if (msg.t === 'laser') {
       if (!Array.isArray(msg.pts) || typeof msg.on !== 'string' || msg.on.length > 60) return;
       const pts = msg.pts.slice(0, 200).filter((n) => Number.isFinite(n));
@@ -4588,14 +4588,14 @@ function presentWatcher(ws, pres) {
     w.name = String(msg.name || '').replace(/\s+/g, ' ').trim().slice(0, 32) || `Viewer ${pres.watchers.size + 1}`;
     w.color = /^#[0-9a-f]{6}$/i.test(msg.color) ? msg.color : VIEWER_COLORS[pres.watchers.size % VIEWER_COLORS.length];
     pres.watchers.add(w);
-    const entityId = notesEntity(pres);
+    const entityId = commentsEntity(pres);
     send(ws, {
       t: 'init',
       project: { name: folders.get(pres.projectId).name },
       presenter: { name: pres.ownerName || 'Somebody', color: pres.color },
       access: pres.access, live: pres.live, away: pres.away,
       scene: pres.live ? pres.scene : null, p: pres.live ? pres.p : {}, mAge: pres.mAt ? Date.now() - pres.mAt : 0,
-      notes: entityId ? watcherNotes(entityId) : [],
+      comments: entityId ? watcherComments(entityId) : [],
     });
     tellWatching(pres);
   });

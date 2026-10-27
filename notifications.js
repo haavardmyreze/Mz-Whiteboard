@@ -1,6 +1,6 @@
 'use strict';
 
-// What someone is told about in the bell, worked out from the notes themselves rather than
+// What someone is told about in the bell, worked out from the comments themselves rather than
 // kept as a separate list. A comment by somebody else is news to you when it
 //   mentions you        "@Anna" or "@Anna Berg" anywhere in it
 //   replies to you      it is in a thread you wrote in
@@ -8,7 +8,7 @@
 //   is on your board    it is on a board you made
 // in that order: each comment is told about once, for the first of these that fits. People are matched
 // by name, which behind a sign-in is the name it gives and otherwise the name each person typed.
-// Notes written in a project's catalogue count the same way; there "your work" is a version you filed.
+// Comments written in a project's catalogue count the same way; there "your work" is a version you filed.
 
 const naming = require('./public/naming');
 
@@ -60,7 +60,7 @@ function noticesFor(store, who, spaces, now = Date.now()) {
     else if (isMe(r.host_by)) kind = 'work';
     else if (isMe(r.board_by)) kind = 'board';
     if (!kind) continue;
-    // A note about a version says which, and its entity and project, so it can be opened in the
+    // A comment about a version says which, and its entity and project, so it can be opened in the
     // catalogue (#/f/<projectId>/catalogue/<entityId>). One written in the catalogue was made on no board.
     // One on a playlist outside any project opens that playlist (#/pl/<id>) instead.
     const version = r.version_id ? { versionId: r.version_id, entityId: r.entity_id, projectId: r.project_id, ...(r.playlist_id && { playlistId: r.playlist_id }) } : {};

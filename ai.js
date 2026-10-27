@@ -99,7 +99,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
 
   // What each file should be filed as. `files`: [{ key, filename, now: { entity, task, version, pass } }] where
   // `now` is what its row says at the moment; `passes` are the passes the project's versions are shown in
-  // already. Returns { key -> { entity, type, task, version, pass, note, fits } }, with only the fields the
+  // already. Returns { key -> { entity, type, task, version, pass, reason, fits } }, with only the fields the
   // instruction asked to fill in when it named some.
   async function fileNames({ instruction, files, entities, tasks, passes = [], usePasses = true, useTasks = true }) {
     const list = (files || []).slice(0, MAX_FILES).filter((f) => f && f.key != null && f.filename);
@@ -119,7 +119,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
         usePasses
           ? `- pass: which pass of its version the file is. This project shows each version these ways: ${passes.slice(0, 12).join(', ')}; the first, ${passes[0]}, is the main one, so a file that is a new version is null, and only a file that is one of the others gets its name. Use only these names. Give one when the instruction asks for it or the file name says it (a word after the version, as in _v012_${passes[1] || 'bty'}). Two files that are passes of the same version get the same version number.`
           : '- pass: always null: this project shows each version one way, whatever a file name says.',
-        '- note: a few words on why, for the person checking your answer.',
+        '- reason: a few words on why, for the person checking your answer.',
         'Read everything the original file name says. The person\'s instruction comes first where it says otherwise, but every name keeps the shape the rules give.',
         'An instruction is always about how the files are named, never about which files are filed: every file is filed, and you answer for every one. When it says to exclude, drop, remove, strip or ignore a word (a project code, a prefix, a client name), it means leaving that word out of the names: "psh26 should be excluded" files PSH26_HAUS_0110_vr_v500.mp4 as the shot haus-0110, version 500.',
         'Never answer a placeholder (unknown, none, n/a, <UNKNOWN>): when you cannot tell, answer what the file is set to now.',
@@ -155,7 +155,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
                 task: { type: ['string', 'null'] },
                 version: { type: ['integer', 'null'] },
                 pass: { type: ['string', 'null'] },
-                note: { type: 'string' },
+                reason: { type: 'string' },
               },
               required: ['key', 'entity', 'type', 'task', 'version', 'pass'],
             },
@@ -173,7 +173,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
     for (const a of Array.isArray(out.files) ? out.files : []) {
       const k = a && String(a.key);
       if (!keys.has(k) || answers[k]) continue;
-      const answer = { note: clip(a.note, 200) };
+      const answer = { reason: clip(a.reason, 200) };
       if (takes('entity')) {
         const entity = naming.tokenize(a.entity);
         if (!entity || placeholder(a.entity)) continue;
@@ -190,7 +190,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
   }
 
   // New names, or what they are, for some of a project's assets, sets and shots. `chosen`: [{ id, name,
-  // type, versions: [file names it was filed from] }]. Returns { id -> { name, type, note, fits } }, only for
+  // type, versions: [file names it was filed from] }]. Returns { id -> { name, type, reason, fits } }, only for
   // those it would change.
   async function renameEntities({ instruction, chosen, entities, tasks }) {
     const list = (chosen || []).slice(0, MAX_ENTITIES);
@@ -204,7 +204,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
       [
         'For each of the ones you are given, say its name and type as they should be, by the person\'s instruction and the rules above. Use what the files it was filed from were called when they say more than its name does.',
         'A name must not be one the project already has (listed above), and no two of yours may be the same.',
-        'Leave one as it is by giving its name and type unchanged. Add a note of a few words on why, for the person checking your answer.',
+        'Leave one as it is by giving its name and type unchanged. Add a few words on why, for the person checking your answer.',
         'Answer for every one, with the id it was given.',
       ].join('\n'),
     ].join('\n\n');
@@ -224,7 +224,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
             type: 'array',
             items: {
               type: 'object',
-              properties: { id: { type: 'string' }, name: { type: 'string' }, type: { type: 'string', enum: types }, note: { type: 'string' } },
+              properties: { id: { type: 'string' }, name: { type: 'string' }, type: { type: 'string', enum: types }, reason: { type: 'string' } },
               required: ['id', 'name', 'type'],
             },
           },
@@ -241,7 +241,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
       const name = naming.tokenize(a.name);
       const type = types.includes(a.type) ? a.type : e.type;
       if (!name || (name === e.name && type === e.type)) continue;
-      answers[e.id] = { name, type, note: clip(a.note, 200), fits: fitsType(name, type) };
+      answers[e.id] = { name, type, reason: clip(a.reason, 200), fits: fitsType(name, type) };
     }
     return answers;
   }

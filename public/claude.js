@@ -75,9 +75,9 @@ const WBClaude = (() => {
   }
 
   // The little mark on what Claude filled in: its reason, on hover.
-  const mark = (note, fits = true) => el('span', {
+  const mark = (reason, fits = true) => el('span', {
     class: `ai-mark${fits ? '' : ' warn'}`, html: WB.icon('sparkle', 12),
-    title: `${modelName()}: ${note || 'suggested'}${fits ? '' : ' (not the usual shape of a name: check it)'}`,
+    title: `${modelName()}: ${reason || 'suggested'}${fits ? '' : ' (not the usual shape of a name: check it)'}`,
   });
 
   return { on, modelName, box, mark };

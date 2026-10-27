@@ -1378,7 +1378,7 @@ test('a board is kept as it was before each round of changes, and can be put bac
   assert.equal((await fetch(`${s.base}/api/boards/${board.id}/snapshots/12345/restore`, { method: 'POST', headers: json, body: '{}' })).status, 404);
 });
 
-// ---------------------------------------------------------------- the catalogue: projects, versions, notes
+// ---------------------------------------------------------------- the catalogue: projects, versions, comments
 
 const naming = require('../public/naming');
 
@@ -1518,7 +1518,7 @@ test("a project's banner is an uploaded picture, kept in sight where it is chose
   assert.equal(gone.bannerAt, undefined);
 });
 
-test('media filed as a version takes its notes along, and they show on every board the version is on', async (t) => {
+test('media filed as a version takes its comments along, and they show on every board the version is on', async (t) => {
   const s = start(4837);
   t.after(s.stop);
   await s.ready;
@@ -1572,7 +1572,7 @@ test('media filed as a version takes its notes along, and they show on every boa
   const brought = ben.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).filter((o) => o.t === 'add' && o.item.type === 'comment').map((o) => o.item);
   assert.deepEqual(brought.map((c) => [c.id, c.on, c.ob, c.obn]), [['comment01', 'placed001', standup.id, 'Standup'], ['comment02', 'placed001', standup.id, 'Standup']]);
   assert.equal(ben.seen.filter((m) => m.t === 'versions').pop().list[0].label, 'kilo-0010 anim v1');
-  // a note made there is on the standup board too, live
+  // a comment made there is on the standup board too, live
   ops(ben, [{ t: 'add', item: { id: 'comment03', type: 'comment', on: 'placed001', text: 'Client likes it' } }]);
   await pause(250);
   const arrived = anna.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).find((o) => o.t === 'add' && o.item.id === 'comment03');
@@ -1587,7 +1587,7 @@ test('media filed as a version takes its notes along, and they show on every boa
   t.after(() => eve.ws.close());
   assert.deepEqual(eve.seen.find((m) => m.t === 'init').items.filter((it) => it.type === 'comment').map((c) => c.id), ['comment03']);
 
-  // taking the version off the client board leaves its notes alone; the standup board still has them all
+  // taking the version off the client board leaves its comments alone; the standup board still has them all
   ops(ben, [{ t: 'del', ids: ['placed001', 'comment01', 'comment02', 'comment03'] }]);
   await pause(250);
   const later = await open(`board=${standup.id}`, 'Cara');
@@ -1597,10 +1597,10 @@ test('media filed as a version takes its notes along, and they show on every boa
   ops(anna, [{ t: 'del', ids: ['comment01', 'comment02'] }]);
   await pause(200);
   const entity = (await call('GET', `/api/entities/${v1.entityId}`)).body;
-  assert.deepEqual(entity.notes.map((n) => n.id), ['comment03']);
+  assert.deepEqual(entity.comments.map((n) => n.id), ['comment03']);
   ops(anna, [{ t: 'add', item: { id: 'comment01', type: 'comment', on: 'imageone1', text: 'Tampered', name: 'Mallory' } }]);
   await pause(200);
-  const back = (await call('GET', `/api/entities/${v1.entityId}`)).body.notes.find((n) => n.id === 'comment01');
+  const back = (await call('GET', `/api/entities/${v1.entityId}`)).body.comments.find((n) => n.id === 'comment01');
   assert.equal(back.text, 'Darker sky');
   assert.equal(back.name, 'Anna');
   assert.equal(back.board.name, 'Standup');
@@ -1658,7 +1658,7 @@ test('putting a board back moves what is on it, never what was said', async (t) 
   assert.deepEqual(init.items.map((it) => [it.id, it.x ?? null]), [['imageone1', 0], ['comment01', null]]);
 });
 
-test('the catalogue viewer has every note on an entity live, and what is written there reaches the boards', async (t) => {
+test('the catalogue viewer has every comment on an entity live, and what is written there reaches the boards', async (t) => {
   const s = start(4839);
   t.after(s.stop);
   await s.ready;
@@ -1677,7 +1677,7 @@ test('the catalogue viewer has every note on an entity live, and what is written
   await pause(200);
   const ben = await open(`entity=${v1.entityId}`, 'Ben');
   t.after(() => ben.ws.close());
-  assert.deepEqual(ben.seen.find((m) => m.t === 'init').notes, []);
+  assert.deepEqual(ben.seen.find((m) => m.t === 'init').comments, []);
 
   // written in the catalogue, with a drawing: on the board at once, saying where it was said
   const drawing = [{ x: 10, y: 10, w: 100, h: 50, pts: [0, 0, 1, 1], ws: [0.5, 0.5], size: 4, color: '#2f7df6', junk: 1 }];
@@ -1691,7 +1691,7 @@ test('the catalogue viewer has every note on an entity live, and what is written
   // a reply on the board reaches the room
   anna.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'add', item: { id: 'reply0001', type: 'comment', on: 'placed001', re: 'catnote01', text: 'Agreed' } }] }));
   await pause(250);
-  const told = ben.seen.filter((m) => m.t === 'notes').pop().notes;
+  const told = ben.seen.filter((m) => m.t === 'comments').pop().comments;
   assert.deepEqual(told.map((n) => [n.id, n.on, n.obn]), [['catnote01', v1.id, 'the catalogue'], ['reply0001', v1.id, 'Standup']]);
   // resolved and deleted from the room, as on a board; nothing outside the entity is touched
   ben.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'set', id: 'catnote01', patch: { done: true, text: 'Reworded', name: 'X' } }] }));
@@ -1704,7 +1704,7 @@ test('the catalogue viewer has every note on an entity live, and what is written
   ben.ws.send(JSON.stringify({ t: 'op', ops: [{ t: 'del', ids: ['catnote01', 'reply0001'] }] }));
   await pause(250);
   assert.ok(anna.seen.filter((m) => m.t === 'op').flatMap((m) => m.ops).some((o) => o.t === 'del' && o.ids.includes('catnote01')));
-  assert.deepEqual(ben.seen.filter((m) => m.t === 'notes').pop().notes, []);
+  assert.deepEqual(ben.seen.filter((m) => m.t === 'comments').pop().comments, []);
 });
 
 test('a version can be filed as something else, archived, and deleted once no board shows it', async (t) => {
@@ -1735,14 +1735,14 @@ test('a version can be filed as something else, archived, and deleted once no bo
   ]);
   await pause(250);
 
-  // filed as another shot and task: its name, and the board's chip, follow; its notes go with it
+  // filed as another shot and task: its name, and the board's chip, follow; its comments go with it
   const moved = await call('PATCH', `/api/versions/${v2.id}`, { entity: { name: 'kilo-0020' }, task: 'comp', artist: 'ben' });
   assert.equal(moved.status, 200);
   assert.equal(moved.body.label, 'kilo-0020 comp v1');
   assert.equal(moved.body.artist, 'ben');
   await pause(150);
   assert.equal(anna.seen.filter((m) => m.t === 'versions').pop().list.find((v) => v.id === v2.id).label, 'kilo-0020 comp v1');
-  assert.deepEqual((await call('GET', `/api/entities/${moved.body.entityId}`)).body.notes.map((n) => n.text), ['Darker']);
+  assert.deepEqual((await call('GET', `/api/entities/${moved.body.entityId}`)).body.comments.map((n) => n.text), ['Darker']);
   // a number some other version has is refused
   const v3 = await file('x.png', { entity: { name: 'kilo-0020' }, task: 'comp' });
   assert.equal(v3.label, 'kilo-0020 comp v2');
@@ -1866,10 +1866,10 @@ test("a project's activity goes back to its start a page at a time, and For you 
     for (let i = 0; i < 250; i++) store.addVersion({ id: `shotv${String(i).padStart(4, '0')}`, entityId: shot.id, kind: 'image', look, by: 'Ben', at: now - 365 * DAY + Math.floor(i / 50) * DAY });
     const annas = store.addVersion({ id: 'annav0001', entityId: robot.id, kind: 'image', look, by: 'Anna', at: now - 3 * DAY });
     store.addVersion({ id: 'robotv002', entityId: robot.id, kind: 'image', look, by: 'Ben', at: now - 2 * DAY });
-    store.addNote({ id: 'note00001', boardId: '', itemId: annas.id, versionId: annas.id, data: { name: 'Ben', text: 'Lovely' }, by: 'Ben', at: now - DAY });
-    store.addNote({ id: 'note00002', boardId: '', itemId: 'shotv0249', versionId: 'shotv0249', data: { name: 'Anna', text: 'Tighter?' }, by: 'Anna', at: now - DAY + 1 });
-    store.addNote({ id: 'note00003', boardId: '', itemId: 'shotv0249', versionId: 'shotv0249', re: 'note00002', data: { name: 'Carl', color: '#ff0000', text: 'On it' }, by: 'Carl', at: now - DAY + 2 });
-    store.addNote({ id: 'note00004', boardId: '', itemId: 'shotv0000', versionId: 'shotv0000', data: { name: 'Carl', text: 'Ask @Anna' }, by: 'Carl', at: now - DAY + 3 });
+    store.addComment({ id: 'note00001', boardId: '', itemId: annas.id, versionId: annas.id, data: { name: 'Ben', text: 'Lovely' }, by: 'Ben', at: now - DAY });
+    store.addComment({ id: 'note00002', boardId: '', itemId: 'shotv0249', versionId: 'shotv0249', data: { name: 'Anna', text: 'Tighter?' }, by: 'Anna', at: now - DAY + 1 });
+    store.addComment({ id: 'note00003', boardId: '', itemId: 'shotv0249', versionId: 'shotv0249', re: 'note00002', data: { name: 'Carl', color: '#ff0000', text: 'On it' }, by: 'Carl', at: now - DAY + 2 });
+    store.addComment({ id: 'note00004', boardId: '', itemId: 'shotv0000', versionId: 'shotv0000', data: { name: 'Carl', text: 'Ask @Anna' }, by: 'Carl', at: now - DAY + 3 });
     store.close();
   });
   t.after(s.stop);
@@ -2430,7 +2430,7 @@ test('what is shared stays shared, rooms and boards follow who may see them, and
     { t: 'add', item: { id: 'annanote1', type: 'comment', on: 'placed001', text: 'Mine' } },
   ] }));
   await pause(250);
-  const named = async (who) => (await call(who, 'GET', `/api/entities/${v1.entityId}`)).body.notes.find((n) => n.id === 'annanote1').board;
+  const named = async (who) => (await call(who, 'GET', `/api/entities/${v1.entityId}`)).body.comments.find((n) => n.id === 'annanote1').board;
   assert.deepEqual(await named(anna), { id: hers.id, name: 'Anna secret plans' });
   assert.deepEqual(await named(ben), { id: hers.id, name: null });
   // on a shared board showing the same version, nor does the thread say where it was made
@@ -2442,7 +2442,7 @@ test('what is shared stays shared, rooms and boards follow who may see them, and
   assert.equal(brought.ob, hers.id);
   assert.equal(brought.obn, null);
   const room = await open(`entity=${v1.entityId}`, 'Ben', { headers: { cookie: ben } });
-  assert.equal(room.seen.find((m) => m.t === 'init').notes.find((n) => n.id === 'annanote1').obn, null);
+  assert.equal(room.seen.find((m) => m.t === 'init').comments.find((n) => n.id === 'annanote1').obn, null);
 
   // a version of a project in somebody's personal workspace never goes on a shared board
   const mine = (await call(anna, 'POST', '/api/folders', { name: 'Side project', workspace: 'personal' })).body;
@@ -2522,7 +2522,7 @@ test('a round of changes sent twice is applied once, and the sender is told what
   assert.deepEqual(anna.seen.filter((m) => m.t === 'p').pop().p, { c: [1, 2], s: ['imageone1'], v: [0, 0, 100, 50] });
 });
 
-test('deleting a thread takes its replies with it, undo brings them back, and only a note shown here can be brought back', async (t) => {
+test('deleting a thread takes its replies with it, undo brings them back, and only a comment shown here can be brought back', async (t) => {
   const s = start(4849);
   t.after(s.stop);
   await s.ready;
@@ -2552,7 +2552,7 @@ test('deleting a thread takes its replies with it, undo brings them back, and on
   await pause(200);
   assert.deepEqual(await shown(), ['reply0001', 'thread001']);
 
-  // a note on another board, deleted there, cannot be brought back from here by naming it
+  // a comment on another board, deleted there, cannot be brought back from here by naming it
   ops(elsewhere, [image('imagetwo1'), { t: 'add', item: { id: 'othernote', type: 'comment', on: 'imagetwo1', text: 'Elsewhere' } }]);
   await pause(150);
   ops(elsewhere, [{ t: 'del', ids: ['othernote'] }]);
@@ -2608,7 +2608,7 @@ test('filing checks everything before it files anything, and so does changing a 
   assert.equal((await call('PUT', `/api/versions/${v2.id}`, {})).status, 405);
 });
 
-test('a catalogue note that mentions somebody tells them, and says where in the catalogue it is', async (t) => {
+test('a catalogue comment that mentions somebody tells them, and says where in the catalogue it is', async (t) => {
   const s = start(4851);
   t.after(s.stop);
   await s.ready;
@@ -2627,7 +2627,7 @@ test('a catalogue note that mentions somebody tells them, and says where in the 
     [cleo.id, cleo.kind, cleo.board, cleo.entityId, cleo.projectId, cleo.versionId, cleo.on, cleo.author],
     ['catnote01', 'mention', null, v.entityId, project.id, v.id, 'kilo-0010 anim v1', 'Anna'],
   );
-  // Ben filed the version: a note on it is on his work
+  // Ben filed the version: a comment on it is on his work
   assert.deepEqual((await call('GET', '/api/notifications?name=Ben')).items.map((i) => [i.id, i.kind]), [['catnote01', 'work']]);
 });
 
@@ -2738,8 +2738,8 @@ test('Claude suggests names for files and renames, through the server, without c
       const body = JSON.parse(raw);
       asked.push({ key: req.headers['x-api-key'], body });
       const input = body.tool_choice.name === 'file_versions'
-        ? { files: [{ key: 'r0', entity: 'ch02-0010', type: 'shot', task: 'anim', version: 4, pass: 'bty', note: 'v4 in the name' }] }
-        : { entities: [{ id: body.messages[0].content.match(/\n(\S+)\topening/)[1], name: 'ch02-0020', type: 'shot', note: 'the opening shot' }] };
+        ? { files: [{ key: 'r0', entity: 'ch02-0010', type: 'shot', task: 'anim', version: 4, pass: 'bty', reason: 'v4 in the name' }] }
+        : { entities: [{ id: body.messages[0].content.match(/\n(\S+)\topening/)[1], name: 'ch02-0020', type: 'shot', reason: 'the opening shot' }] };
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ stop_reason: 'tool_use', content: [{ type: 'tool_use', name: body.tool_choice.name, input }] }));
     });
@@ -2762,7 +2762,7 @@ test('Claude suggests names for files and renames, through the server, without c
 
   const files = await call('POST', `/api/projects/${kilo.id}/ai/files`, { instruction: 'all shots of ch02', files: [{ key: 'r0', filename: 'Robot walk v4.mov' }] });
   assert.equal(files.status, 200);
-  assert.deepEqual(files.body.answers.r0, { entity: 'ch02-0010', type: 'shot', task: 'anim', version: 4, pass: 'bty', note: 'v4 in the name', fits: true });
+  assert.deepEqual(files.body.answers.r0, { entity: 'ch02-0010', type: 'shot', task: 'anim', version: 4, pass: 'bty', reason: 'v4 in the name', fits: true });
   assert.equal(asked[0].key, 'sk-test');
   assert.match(asked[0].body.system, /char-robot \(asset\)/, 'the project\'s names go along');
   assert.match(asked[0].body.messages[0].content, /all shots of ch02/);
@@ -2775,7 +2775,7 @@ test('Claude suggests names for files and renames, through the server, without c
 
   const ren = await call('POST', `/api/projects/${kilo.id}/ai/entities`, { instruction: 'opening is the first shot', ids: [opening.id] });
   assert.equal(ren.status, 200);
-  assert.deepEqual(ren.body.answers[opening.id], { name: 'ch02-0020', type: 'shot', note: 'the opening shot', fits: true });
+  assert.deepEqual(ren.body.answers[opening.id], { name: 'ch02-0020', type: 'shot', reason: 'the opening shot', fits: true });
   assert.equal((await call('GET', `/api/entities/${opening.id}`)).body.entity.name, 'opening', 'only suggested');
   assert.equal((await call('POST', `/api/projects/${kilo.id}/ai/entities`, { ids: ['nope'] })).status, 400);
 
@@ -3299,7 +3299,7 @@ test('a playlist outside a project takes files as its versions, in order, and is
   const again = await joiner(4902)(`entity=${made.body.entityId}`, 'Cleo');
   t.after(() => again.ws.close());
   await pause(200);
-  assert.deepEqual(again.seen.find((m) => m.t === 'init').notes.map((n) => [n.id, n.on, n.text]), [['plnote001', v1, 'Cut this earlier?']]);
+  assert.deepEqual(again.seen.find((m) => m.t === 'init').comments.map((n) => [n.id, n.on, n.text]), [['plnote001', v1, 'Cut this earlier?']]);
 
   // renamed, its versions are called by the new name; moved into a folder, and not into a project
   await call('PATCH', `/api/playlists/${id}`, { name: 'Titles' });

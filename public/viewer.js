@@ -20,7 +20,7 @@
 //                                         file and its attachments, each with `att`, '' for its own) with `att`
 //                                         saying which of them the piece itself is. Any of them can be shown
 //                                         in its place (see "a version's attachments" below).
-//     notes: () => [comment],             { id, on, re?, text, name, color, t, done, at?, fr?, drawing?, edited?,
+//     comments: () => [comment],             { id, on, re?, text, name, color, t, done, at?, fr?, drawing?, edited?,
 //                                           guest?, obn?, att? }, on any of the pieces (`att`: on that attachment of it)
 //     drawings: (id) => [stroke],         drawings on the piece that are not a comment's, if the host has them
 //     can: { read, write, draw, member }  functions: read comments, write them, draw, act as one of the team
@@ -697,7 +697,7 @@ const WBViewer = (() => {
     document.body.append(root);
 
     let pieces = [];
-    let notes = [];
+    let comments = [];
     let open = null;      // the piece open
     let media = null;     // its <img> or <video>
     let W = 1000;         // its size, as it is laid out
@@ -733,9 +733,9 @@ const WBViewer = (() => {
     const units = () => UNITS / W; // drawing units in one piece pixel
     const fpsOf = (id) => pieces.find((p) => p.id === id)?.fps || 0;
     const byTime = (a, b) => (a.t || 0) - (b.t || 0) || (a.id < b.id ? -1 : 1);
-    const roots = () => notes.filter((c) => !c.re).sort(byTime);
-    const repliesOf = (id) => notes.filter((c) => c.re === id).sort(byTime);
-    const noteById = (id) => notes.find((c) => c.id === id) || null;
+    const roots = () => comments.filter((c) => !c.re).sort(byTime);
+    const repliesOf = (id) => comments.filter((c) => c.re === id).sort(byTime);
+    const commentById = (id) => comments.find((c) => c.id === id) || null;
     const momentOf = (c) => (c.fr != null && fpsOf(c.on) ? frameTime(c.fr, fpsOf(c.on)) : c.at);
     const videoOpen = () => (media && media.tagName === 'VIDEO' ? media : null);
     const interact = () => opts.onInteract && opts.onInteract();
@@ -745,7 +745,7 @@ const WBViewer = (() => {
 
     function readHost() {
       pieces = (opts.media() || []).filter((p) => p && (p.type === 'image' || p.type === 'video')).map(withFile);
-      notes = can.read() ? (opts.notes() || []) : [];
+      comments = can.read() ? (opts.comments() || []) : [];
     }
 
     // ---- a version's attachments
@@ -835,7 +835,7 @@ const WBViewer = (() => {
     // `followed` is true when it opens because the person being followed opened it.
     function show(id, { followed = false, thread = null } = {}) {
       // A thread picked is shown on the file of the piece it was written on.
-      const about = thread && (opts.notes() || []).find((c) => c.id === thread);
+      const about = thread && (opts.comments() || []).find((c) => c.id === thread);
       if (about && about.on === id) shownFile.set(id, about.att || '');
       readHost();
       const piece = pieces.find((p) => p.id === id);
@@ -1118,8 +1118,8 @@ const WBViewer = (() => {
         } else {
           open = now;
         }
-        if (activeThread && !noteById(activeThread)) activeThread = null;
-        if (editingId && !noteById(editingId)) editingId = null;
+        if (activeThread && !commentById(activeThread)) activeThread = null;
+        if (editingId && !commentById(editingId)) editingId = null;
         paintAll();
       });
     }
@@ -1646,7 +1646,7 @@ const WBViewer = (() => {
         nodes.push(g);
       };
       if (!in3d) for (const s of plainDrawings()) add(s, 'plain', `p:${s.id}`);
-      const c = activeThread && noteById(activeThread);
+      const c = activeThread && commentById(activeThread);
       if (threadDrawingShows(c)) {
         const glow = calling && calling.id === c.id && performance.now() < calling.until;
         for (const s of c.drawing) add(s, glow ? 'callout' : '');
@@ -2164,7 +2164,7 @@ const WBViewer = (() => {
         if (hexOk(color)) nameColors.set(name, color);
       };
       for (const p of (opts.names ? opts.names() : [])) add(p.name, p.color);
-      for (const c of notes) if (!c.guest) add(c.name, c.color);
+      for (const c of comments) if (!c.guest) add(c.name, c.color);
       return names;
     }
     function offerNames(input) {
@@ -2258,7 +2258,7 @@ const WBViewer = (() => {
       autosize(editBox);
     }
     function endEdit(save) {
-      const c = noteById(editingId);
+      const c = commentById(editingId);
       const text = editBox.value.trim().slice(0, 2000);
       editingId = null;
       editBox.blur();
@@ -2447,24 +2447,24 @@ const WBViewer = (() => {
 
     // Picks a thread: its card is raised and, on a video, the film goes to its frame, where what was drawn for it shows.
     function pickThread(id) {
-      const c = noteById(id);
-      const rootNote = c && (c.re ? noteById(c.re) : c);
-      if (!rootNote) return;
-      if (rootNote.on !== open.id) return void show(rootNote.on, { thread: rootNote.id });
-      if ((rootNote.att || '') !== (open.shownAtt || '')) showFile(rootNote.att || '');
+      const c = commentById(id);
+      const rootComment = c && (c.re ? commentById(c.re) : c);
+      if (!rootComment) return;
+      if (rootComment.on !== open.id) return void show(rootComment.on, { thread: rootComment.id });
+      if ((rootComment.att || '') !== (open.shownAtt || '')) showFile(rootComment.att || '');
       // It is seen from where it was made: in 3D from the place it was made at, or, drawn on the picture, on
       // the picture.
-      if (rootNote.pov && has3d()) {
-        if (!in3d) set3d(true).then(() => look(rootNote.pov, false));
-        else look(rootNote.pov);
-      } else if (!rootNote.pov && Array.isArray(rootNote.drawing) && in3d) set3d(false);
-      if (activeThread !== rootNote.id) replyBox.value = '';
-      activeThread = rootNote.id;
-      calling = { id: rootNote.id, until: performance.now() + 4000 };
-      seek(momentOf(rootNote));
+      if (rootComment.pov && has3d()) {
+        if (!in3d) set3d(true).then(() => look(rootComment.pov, false));
+        else look(rootComment.pov);
+      } else if (!rootComment.pov && Array.isArray(rootComment.drawing) && in3d) set3d(false);
+      if (activeThread !== rootComment.id) replyBox.value = '';
+      activeThread = rootComment.id;
+      calling = { id: rootComment.id, until: performance.now() + 4000 };
+      seek(momentOf(rootComment));
       if (!panelShown()) togglePanel(true);
       afterThread();
-      revealCard(rootNote.id);
+      revealCard(rootComment.id);
     }
 
     // A new thread on what is open. With something drawn for it, it is the comment the drawing was
@@ -2502,14 +2502,14 @@ const WBViewer = (() => {
     }
 
     function submitReply() {
-      const rootNote = noteById(activeThread);
+      const rootComment = commentById(activeThread);
       const text = replyBox.value.trim();
-      if (!rootNote || !text || !can.write()) return;
+      if (!rootComment || !text || !can.write()) return;
       replyBox.value = '';
       autosize(replyBox);
       replyBox.blur();
-      opts.add({ id: uid(), type: 'comment', text: text.slice(0, 2000), name: me().name, color: me().color, t: Date.now(), done: false, re: rootNote.id, on: rootNote.on });
-      revealCard(rootNote.id);
+      opts.add({ id: uid(), type: 'comment', text: text.slice(0, 2000), name: me().name, color: me().color, t: Date.now(), done: false, re: rootComment.id, on: rootComment.on });
+      revealCard(rootComment.id);
     }
 
     // A thread goes with its replies, and with what was drawn for it.
@@ -2689,11 +2689,11 @@ const WBViewer = (() => {
       // Where a comment was left: what it is on opens, on the comment's frame, with its thread picked.
       openComment(id) {
         readHost();
-        const c = notes.find((n) => n.id === id);
-        const rootNote = c && (c.re ? notes.find((n) => n.id === c.re) : c);
-        if (!rootNote) return false;
-        if (!open || open.id !== rootNote.on) show(rootNote.on);
-        if (open && open.id === rootNote.on) pickThread(rootNote.id);
+        const c = comments.find((n) => n.id === id);
+        const rootComment = c && (c.re ? comments.find((n) => n.id === c.re) : c);
+        if (!rootComment) return false;
+        if (!open || open.id !== rootComment.on) show(rootComment.on);
+        if (open && open.id === rootComment.on) pickThread(rootComment.id);
         return true;
       },
       // What the person followed is doing: their piece, their moment, their thread.
@@ -2704,7 +2704,7 @@ const WBViewer = (() => {
           close();
         }
         if (open && thread !== undefined) {
-          const c = typeof thread === 'string' ? noteById(thread) : null;
+          const c = typeof thread === 'string' ? commentById(thread) : null;
           if (c && !c.re && c.on === open.id && (c.att || '') !== (open.shownAtt || '')) showFile(c.att || '', { followed: true });
           const next = c && !c.re && onShown(c) ? c.id : null;
           if (next !== activeThread) {
@@ -2903,9 +2903,9 @@ const WBViewer = (() => {
   // Opens the versions of one entity of a project's catalogue in a player, at `version` (or the newest).
   // What is said about them is live: everyone who has the entity open, here or on any board a version is
   // on, sees it as it is written, and what is written here is there on those boards.
-  // An entity's room: the live notes on its versions. `onNotes(list)` hears every change; `send(ops)`
+  // An entity's room: the live comments on its versions. `onComments(list)` hears every change; `send(ops)`
   // adds, changes and deletes them; `close()` leaves.
-  function entityRoom(entityId, me, onNotes) {
+  function entityRoom(entityId, me, onComments) {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     let ws = null;
     let closed = false;
@@ -2927,7 +2927,7 @@ const WBViewer = (() => {
         } catch {
           return;
         }
-        if (msg.t === 'init' || msg.t === 'notes') onNotes(msg.notes);
+        if (msg.t === 'init' || msg.t === 'comments') onComments(msg.comments);
       });
       // Dropped: tried again, waiting longer each time (up to half a minute), never once closed.
       ws.addEventListener('close', () => {
@@ -2951,26 +2951,26 @@ const WBViewer = (() => {
     };
   }
 
-  // What a host whose notes live in entity rooms does with them: shown at once here, and the room says
+  // What a host whose comments live in entity rooms does with them: shown at once here, and the room says
   // what it came to.
   // `getRoom(pieceId)` is the room of the piece a new comment is on.
-  function roomNotes(viewer, getRoom, getNotes, setNotes) {
+  function roomComments(viewer, getRoom, getComments, setComments) {
     return {
       add: (c) => {
         const room = getRoom(c.on);
-        setNotes([...getNotes(), c]);
+        setComments([...getComments(), c]);
         viewer.refresh();
         room?.send([{ t: 'add', item: c }]);
       },
       set: (id, patch) => {
-        setNotes(getNotes().map((n) => (n.id === id ? { ...n, ...patch } : n)));
+        setComments(getComments().map((n) => (n.id === id ? { ...n, ...patch } : n)));
         viewer.refresh();
         getRoom()?.send([{ t: 'set', id, patch }]);
       },
       remove: async (ids) => {
         const sure = await WB.dialog({ title: 'Delete it?', text: 'It goes for everyone, on every board the version is on.', ok: 'Delete', danger: true });
         if (!sure) return;
-        setNotes(getNotes().filter((n) => !ids.includes(n.id)));
+        setComments(getComments().filter((n) => !ids.includes(n.id)));
         viewer.refresh();
         getRoom()?.send([{ t: 'del', ids }]);
       },
@@ -2990,7 +2990,7 @@ const WBViewer = (() => {
   // on, sees it as it is written, and what is written here is there on those boards.
   // `title` is where the entity is (its project), for the bar.
   // Somebody watching a presentation (watch.js) has it `follow`ed instead: { page, pass, room } (the entity
-  // as the link gives it, the pass the presenter shows, and where the notes come from); nothing is theirs to do.
+  // as the link gives it, the pass the presenter shows, and where the comments come from); nothing is theirs to do.
   async function openEntity(viewer, entityId, { version = null, me, title = null, onClose = () => {}, follow = null } = {}) {
     const page = follow ? follow.page : await WB.api('GET', `/api/entities/${entityId}`);
     const versions = page.versions.filter((v) => !v.hidden || v.id === version);
@@ -3023,9 +3023,9 @@ const WBViewer = (() => {
       }, list)], { title: 'Which pass' })].map((b) => (b.classList.add('v-passpick'), b)) : []));
     };
     const shape = (list) => list.map((n) => (n.type === 'comment' ? n : { ...n, type: 'comment', on: n.versionId, obn: n.board && n.board.id ? n.board.name : 'the catalogue' }));
-    let notes = shape(page.notes);
+    let comments = shape(page.comments);
     const room = (follow ? follow.room : entityRoom)(entityId, me, (list) => {
-      notes = list;
+      comments = list;
       viewer.refresh();
     });
     viewer.use({
@@ -3033,9 +3033,9 @@ const WBViewer = (() => {
       locked: !!follow,
       title: () => (title ? `${title} · ${page.entity.name}` : page.entity.name),
       media: () => pieces,
-      notes: () => notes,
+      comments: () => comments,
       can: follow ? { read: () => follow.read } : { member: () => true },
-      ...roomNotes(viewer, () => room, () => notes, (next) => { notes = next; }),
+      ...roomComments(viewer, () => room, () => comments, (next) => { comments = next; }),
       ...(follow && { download: null }),
       scene: () => ({ k: 'entity', entity: entityId, pass: in3d ? '' : pass }),
       // Seen another way (by the person presenting, say): each in that pass.
@@ -3073,7 +3073,7 @@ const WBViewer = (() => {
   async function openPlaylist(viewer, { load, me, title, at = null, view3d = null, onClose = () => {} }) {
     let pieces = await load(false);
     if (!pieces.length) throw new Error('There is nothing in it to play yet');
-    let notes = [];
+    let comments = [];
     let room = null;
     let roomOf = null;
     let joinTimer = 0;
@@ -3082,9 +3082,9 @@ const WBViewer = (() => {
       if (entityId === roomOf) return;
       if (room) room.close();
       roomOf = entityId;
-      notes = [];
+      comments = [];
       room = entityRoom(entityId, me, (list) => {
-        notes = list;
+        comments = list;
         viewer.refresh();
       });
     };
@@ -3106,9 +3106,9 @@ const WBViewer = (() => {
       me: () => me,
       title,
       media: () => pieces,
-      notes: () => notes,
+      comments: () => comments,
       can: { member: () => true },
-      ...roomNotes(viewer, (pieceId) => (pieceId ? roomFor(pieceId) : room), () => notes, (next) => { notes = next; }),
+      ...roomComments(viewer, (pieceId) => (pieceId ? roomFor(pieceId) : room), () => comments, (next) => { comments = next; }),
       onOpen: joinShot,
       ...(view3d && {
         view3d,

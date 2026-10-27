@@ -52,29 +52,29 @@ test('ai: asks Claude with the key, the model, the rules and the files, and must
 });
 
 test('ai: asked to fill in some fields only, an answer has only those, and what it has can clear', async () => {
-  const answer = (only) => ({ only, files: [{ key: '0', entity: 'kilo-0010', type: 'shot', task: 'anim', version: 4, pass: 'bty', note: 'n' }, { key: '1', entity: 'kilo-0020', type: 'shot', task: null, version: null, pass: null }] });
+  const answer = (only) => ({ only, files: [{ key: '0', entity: 'kilo-0010', type: 'shot', task: 'anim', version: 4, pass: 'bty', reason: 'n' }, { key: '1', entity: 'kilo-0020', type: 'shot', task: null, version: null, pass: null }] });
   const files = [{ key: '0', filename: 'a.mov' }, { key: '1', filename: 'b.mov' }];
   const ask = (only, extra = {}) => createAi({ key: 'k', fetchImpl: fakeClaude(answer(only)).fetchImpl }).fileNames({ files, entities: [], tasks: ['anim'], passes: ['cmp', 'bty'], ...extra });
   // Chapter, shot and version: no task and no pass in the answer, so the rows keep theirs.
   const some = await ask(['entity', 'version']);
-  assert.deepEqual(some['0'], { note: 'n', entity: 'kilo-0010', type: 'shot', fits: true, version: 4 });
+  assert.deepEqual(some['0'], { reason: 'n', entity: 'kilo-0010', type: 'shot', fits: true, version: 4 });
   assert.ok(!('task' in some['1']) && !('pass' in some['1']));
   // Nothing named: every field is answered, and a null is an answer (no task, the main pass).
   for (const only of [null, [], ['nonsense']]) {
     const all = await ask(only);
-    assert.deepEqual(all['0'], { note: 'n', entity: 'kilo-0010', type: 'shot', fits: true, task: 'anim', version: 4, pass: 'bty' });
-    assert.deepEqual(all['1'], { note: '', entity: 'kilo-0020', type: 'shot', fits: true, task: null, version: null, pass: null });
+    assert.deepEqual(all['0'], { reason: 'n', entity: 'kilo-0010', type: 'shot', fits: true, task: 'anim', version: 4, pass: 'bty' });
+    assert.deepEqual(all['1'], { reason: '', entity: 'kilo-0020', type: 'shot', fits: true, task: null, version: null, pass: null });
   }
   // Only the task asked for: a row needs no name from Claude, and one with a task of 'anim' is cleared by null.
   const task = await ask(['task']);
-  assert.deepEqual(task['1'], { note: '', task: null });
-  assert.deepEqual(task['0'], { note: 'n', task: 'anim' });
+  assert.deepEqual(task['1'], { reason: '', task: null });
+  assert.deepEqual(task['0'], { reason: 'n', task: 'anim' });
 });
 
 test('ai: what Claude says is made to fit before it is shown', async () => {
   const claude = fakeClaude({
     files: [
-      { key: '0', entity: 'CH02 0010', type: 'shot', task: 'Anim', version: 3, pass: null, note: 'from the name' },
+      { key: '0', entity: 'CH02 0010', type: 'shot', task: 'Anim', version: 3, pass: null, reason: 'from the name' },
       { key: '1', entity: 'ch02-10', type: 'shot', task: null, version: 0 }, // not the shape of a shot; no version 0
       { key: '0', entity: 'twice', type: 'shot', task: null, version: null }, // the first answer stands
       { key: 'x', entity: 'ch02-0030', type: 'shot', task: null, version: null }, // not asked about
@@ -86,7 +86,7 @@ test('ai: what Claude says is made to fit before it is shown', async () => {
   const files = ['0', '1', '2', '3'].map((key) => ({ key, filename: `${key}.mov` }));
   const out = await ai.fileNames({ files, entities: [{ id: 's', name: 'set-harbour', type: 'set' }], passes: ['cmp', 'bty-left'] });
   assert.deepEqual(Object.keys(out).sort(), ['0', '1', '3']);
-  assert.deepEqual(out['0'], { entity: 'ch02-0010', type: 'shot', task: 'anim', version: 3, pass: null, note: 'from the name', fits: true });
+  assert.deepEqual(out['0'], { entity: 'ch02-0010', type: 'shot', task: 'anim', version: 3, pass: null, reason: 'from the name', fits: true });
   assert.equal(out['3'].pass, 'bty-left');
   // A pass the project does not have, or its main one, is no pass; a project shown one way has none.
   const odd = createAi({ key: 'k', fetchImpl: fakeClaude({ files: [{ key: '0', entity: 'kilo-0010', type: 'shot', task: null, version: null, pass: 'top' }, { key: '1', entity: 'kilo-0010', type: 'shot', task: null, version: null, pass: 'cmp' }] }).fetchImpl });
@@ -102,7 +102,7 @@ test('ai: what Claude says is made to fit before it is shown', async () => {
 test('ai: renames only what would change, and asks with what its files were called', async () => {
   const claude = fakeClaude({
     entities: [
-      { id: 'a', name: 'ch01-0010', type: 'shot', note: 'shot 1' },
+      { id: 'a', name: 'ch01-0010', type: 'shot', reason: 'shot 1' },
       { id: 'b', name: 'robot', type: 'asset' }, // unchanged
       { id: 'z', name: 'ch01-0020', type: 'shot' }, // not asked about
     ],
@@ -113,7 +113,7 @@ test('ai: renames only what would change, and asks with what its files were call
     chosen: [{ id: 'a', name: 'opening', type: 'asset', files: ['Opening_v2.mov'] }, { id: 'b', name: 'robot', type: 'asset' }],
     entities: [...ENTITIES, { id: 'a', name: 'opening', type: 'asset' }],
   });
-  assert.deepEqual(out, { a: { name: 'ch01-0010', type: 'shot', note: 'shot 1', fits: true } });
+  assert.deepEqual(out, { a: { name: 'ch01-0010', type: 'shot', reason: 'shot 1', fits: true } });
   const q = claude.asked[0].body;
   assert.match(q.messages[0].content, /a\topening\tasset\tfiles: Opening_v2\.mov/);
   // The ones being renamed are not listed as names the project already has.

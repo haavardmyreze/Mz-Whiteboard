@@ -3,6 +3,9 @@
 (async () => {
   const { el, api, ago, store } = WB;
   const $ = (id) => document.getElementById(id);
+  // What the page shows under its title. A part a view leaves out (false or null, as `x && el(...)` gives) is not
+  // there, rather than written out as the word.
+  const showContent = (...parts) => $('content').replaceChildren(...parts.filter((x) => x != null && x !== false));
 
   const icon = WB.icon; // icons.js
   const ICON_FOLDER = icon('folder', 20);
@@ -1606,12 +1609,12 @@
     const key = vlQuery(st, vlPageOf(project, st) * VL_PAGE);
     const show = (data) => {
       if (shownProject !== sig) return;
-      $('content').replaceChildren(...versionsView(project, data, st));
+      showContent(...versionsView(project, data, st));
       paintVersionPick(project);
     };
     const had = versionLists.get(project.id);
     if (had && had.key === key) show(had.data);
-    else if (fresh || !had) $('content').replaceChildren(...versionsTools(project, st, null), el('p', { class: 'home-empty', text: 'Loading…' }));
+    else if (fresh || !had) showContent(...versionsTools(project, st, null), el('p', { class: 'home-empty', text: 'Loading…' }));
     try {
       const now = await api('GET', `/api/projects/${project.id}/versions?${key}`);
       const st2 = vlState(project);
@@ -2324,7 +2327,7 @@
       ? [...boards.map((b) => ({ at: b.updatedAt, item: boardObj(b, { pickable: true, kinds }) })), ...lists.map((p) => ({ at: p.updatedAt, item: loosePlaylistObj(p, { kinds }) }))]
         .sort((a, b) => b.at - a.at).map((x) => x.item)
       : null;
-    $('content').replaceChildren(...[
+    showContent(...[
       !q && (subs.length > 0 || found > 0) && boardTools(),
       subs.length > 0 && label('Folders', subs.length),
       subs.length > 0 && objectList('folder', subs.map((f) => folderObj(f, { pickable: true })), { grid: 'folder-grid' }),
@@ -2349,7 +2352,7 @@
   // What went wrong loading a page, with a way to try again, shown only if that page is still the one up.
   function pageFailed(sig, err) {
     if (shownProject !== sig) return;
-    $('content').replaceChildren(el('div', { class: 'home-empty' },
+    showContent(el('div', { class: 'home-empty' },
       el('p', { text: err.message || 'That did not load.' }),
       el('button', { type: 'button', class: 'btn', text: 'Try again', onclick: () => { shownProject = ''; render(); } })));
   }
@@ -2373,7 +2376,7 @@
     if (view.page === 'home') return projectHome(project, fresh, sig);
     // What is being brought in shows above the catalogue, on its page and on each entity's.
     const tray = importer(project).tray;
-    if (fresh && (view.entity || !catalogues.has(project.id))) $('content').replaceChildren(el('p', { class: 'home-empty', text: 'Loading…' }));
+    if (fresh && (view.entity || !catalogues.has(project.id))) showContent(el('p', { class: 'home-empty', text: 'Loading…' }));
     try {
       if (view.entity) {
         if (searching && !fresh) return;
@@ -2383,16 +2386,16 @@
         WB.remember({ kind: 'entity', id: page.entity.id, name: page.entity.name, tier: page.entity.tier, projectId: project.id, thumb: (page.versions.find((v) => !v.hidden && v.thumb) || {}).thumb || null });
         if (!catalogues.has(project.id)) loadCatalogue(project.id);
         renderCrumbs(route());
-        return $('content').replaceChildren(tray, entityPage(project, page));
+        return showContent(tray, entityPage(project, page));
       }
       // What was fetched last shows at once (a search narrows it as it is typed); then it is brought up to date.
-      if (catalogues.has(project.id)) $('content').replaceChildren(tray, ...catalogueView(project, catalogues.get(project.id), view));
+      if (catalogues.has(project.id)) showContent(tray, ...catalogueView(project, catalogues.get(project.id), view));
       if (searching && catalogues.has(project.id)) return;
       const had = catalogues.get(project.id);
       const cat = await api('GET', `/api/projects/${project.id}`);
       catalogues.set(project.id, cat);
       if (shownProject !== sig) return;
-      $('content').replaceChildren(tray, ...catalogueView(project, cat, view));
+      showContent(tray, ...catalogueView(project, cat, view));
       // New assets, sets or shots show in the tree too.
       if (!had || JSON.stringify(had.entities.map((e) => e.id)) !== JSON.stringify(cat.entities.map((e) => e.id))) {
         renderSide(route());
@@ -2412,7 +2415,7 @@
   async function projectHome(project, fresh, sig) {
     const show = () => {
       if (shownProject !== sig) return;
-      $('content').replaceChildren(...projectHomeView(project));
+      showContent(...projectHomeView(project));
     };
     show();
     const act = activities.get(project.id);
@@ -2554,11 +2557,11 @@
   async function activityPage(project, fresh, sig) {
     const key = `${project.id}|${forYou}`;
     const show = () => {
-      if (shownProject === sig && `${project.id}|${forYou}` === key) $('content').replaceChildren(...activityView(project, sig));
+      if (shownProject === sig && `${project.id}|${forYou}` === key) showContent(...activityView(project, sig));
     };
     const had = activityLists.get(key);
     if (had) show();
-    else $('content').replaceChildren(el('p', { class: 'home-quiet', text: 'Loading…' }));
+    else showContent(el('p', { class: 'home-quiet', text: 'Loading…' }));
     if (had && !fresh) return;
     try {
       // Coming back to it, it starts again from what is newest.
@@ -2598,7 +2601,7 @@
         } catch (err) {
           WB.toast(err.message, { ms: 5000 });
         }
-        if (shownProject === sig) $('content').replaceChildren(...activityView(project, sig));
+        if (shownProject === sig) showContent(...activityView(project, sig));
       },
     });
     return [...[...days].map(([day, lines]) => el('section', { class: 'pa-day' }, label(day), el('ol', { class: 'pa-list' },
@@ -3894,12 +3897,12 @@
   async function playlistPage(project, id, fresh, sig) {
     const show = (data) => {
       if (shownProject !== sig) return;
-      $('content').replaceChildren(...playlistView(project, data));
+      showContent(...playlistView(project, data));
       paintVersionPick(project);
     };
     const had = playlistData.get(id);
     if (had) show(had);
-    else if (fresh) $('content').replaceChildren(el('p', { class: 'home-empty', text: 'Loading…' }));
+    else if (fresh) showContent(el('p', { class: 'home-empty', text: 'Loading…' }));
     try {
       const data = await api('GET', `/api/playlists/${id}`);
       playlistData.set(id, data);
@@ -4072,11 +4075,11 @@
     const fresh = shownProject !== sig;
     shownProject = sig;
     const show = (data) => {
-      if (shownProject === sig) $('content').replaceChildren(...loosePlaylistView(p, data));
+      if (shownProject === sig) showContent(...loosePlaylistView(p, data));
     };
     const had = playlistData.get(p.id);
     if (had) show(had);
-    else if (fresh) $('content').replaceChildren(el('p', { class: 'home-empty', text: 'Loading…' }));
+    else if (fresh) showContent(el('p', { class: 'home-empty', text: 'Loading…' }));
     try {
       const data = await api('GET', `/api/playlists/${p.id}`);
       playlistData.set(p.id, data);

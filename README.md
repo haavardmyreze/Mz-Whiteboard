@@ -29,8 +29,8 @@ private networks, otherwise only the host machine can connect.
 
 ## The words it uses
 
-Every page, message and line of code says these, and only these, for what they name. The Guide in the
-app (`#/guide`) lays the same out as a picture.
+Every page, message and line of code says these, and only these, for what they name. The Vocabulary in
+the app (`#/vocabulary`) lays the same out in pictures.
 
 | Word | What it is |
 | ---- | ---------- |
@@ -38,6 +38,7 @@ app (`#/guide`) lays the same out as a picture.
 | Folder | A place in a workspace for boards, folders and playlists |
 | Project | A folder with a catalogue: its entities and their versions, its reviews and its activity |
 | Catalogue | Every entity a project has |
+| Activity | Everything that happened in a project, from its start; **For you** is what concerns you |
 | Entity | What versions are filed under: an asset, a set or a shot. Which of the three is its **type** |
 | Sequence | Shots that go together, named by the start of their names (kilo in kilo-0010) |
 | Task | A stage of the work a version is for: anim, comp, light |
@@ -1103,7 +1104,7 @@ public/viewer.js   The player: one piece at a time, its strip, timeline, comment
 public/ink.js      Drawing: pen strokes, their outlines and colours; used by boards and the player
 public/ingest.js   Bringing media in: review copies of video, originals, timeline strips, stills; used by boards and the catalogue
 public/filing.js   Filing pieces as versions: the same line of parts, suggestions and notes under each row on a board (Shift+V) and in the catalogue's import
-public/guide.js    The Guide (#/guide): the words the app uses, drawn as the app has them, and each with what it is
+public/vocabulary.js  The Vocabulary (#/vocabulary): the words the app uses, a chapter at a time, each with what it is
 public/claude.js   Asking Claude: the box, what it said, and the mark on what it filled in
 public/media.js    The video cache on this computer, with sw.js (the service worker that plays from it)
 public/home.js     Workspaces and folders of boards, and a project's pages

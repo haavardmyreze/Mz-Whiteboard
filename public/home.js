@@ -1134,7 +1134,7 @@
 
   // The key of the place the page is on, as the tree names its rows.
   function hereKey(rt) {
-    if (onGuide()) return 'guide';
+    if (onVocabulary()) return 'vocabulary';
     if (rt.kind === 'space') return `w:${rt.space}`;
     const f = folderById(rt.id);
     const v = f && f.project ? currentView() : { page: 'boards' };
@@ -1331,8 +1331,8 @@
         dropTarget(head, null, ws);
         return [head, ...childrenOf(null, ws).flatMap((f) => folderRows(f, 0, ws, hereK))];
       }),
-      // The Guide, under everything: the words the app uses.
-      el('div', { class: 'side-foot' }, ...sideRow({ key: 'guide', depth: 0, icon: icon('help', 16), label: 'Guide', href: '#/guide', hereK })));
+      // The Vocabulary, under everything: the words the app uses.
+      el('div', { class: 'side-foot' }, ...sideRow({ key: 'vocabulary', depth: 0, icon: icon('help', 16), label: 'Vocabulary', href: '#/vocabulary', hereK })));
   }
 
   // On a narrow window the sidebar is a drawer, opened from the bar.
@@ -2227,28 +2227,28 @@
   window.addEventListener('pointercancel', endMarquee);
 
   let renderedFor = null;
-  // The Guide (guide.js): a page of its own, outside every workspace.
-  const onGuide = () => /^#\/guide\b/.test(location.hash);
-  function renderGuide() {
+  // The Vocabulary (vocabulary.js): a page of its own, outside every workspace.
+  const onVocabulary = () => /^#\/vocabulary\b/.test(location.hash);
+  function renderVocabulary() {
     renderSide(route());
     $('crumbs').hidden = true;
-    $('pagetitle').replaceChildren(el('span', { class: 'page-title-text', text: 'Guide' }));
+    $('pagetitle').replaceChildren(el('span', { class: 'page-title-text', text: 'Vocabulary' }));
     $('pagetools').replaceChildren();
     $('pagebanner').hidden = true;
     $('barpath').hidden = true;
     layoutSeg.hidden = true;
-    $('q').placeholder = 'Search is not used on the Guide';
+    $('q').placeholder = 'Search is not used on the Vocabulary';
     $('q').disabled = true;
     $('newsplit').hidden = true;
     $('empty').hidden = true;
-    showContent(...WBGuide.view());
+    showContent(...WBVocabulary.view(location.hash.split('/')[2]));
   }
 
   function render() {
-    if (onGuide()) {
+    if (onVocabulary()) {
       if (cutPage) closeAnimatic();
       renderedFor = location.hash;
-      return renderGuide();
+      return renderVocabulary();
     }
     const rt = route();
     if (renderedFor !== location.hash) {

@@ -3909,8 +3909,8 @@
       tab.guide
         ? el('div', { class: 'guide' }, tab.guide.map(([ic, title, text]) => el('section', {},
           el('span', { class: 'guide-ic', html: ic }), el('div', {}, el('h3', { text: title }), el('p', { text })))),
-          // Every word the app uses, and what each is, is the Guide's (guide.js).
-          el('a', { class: 'guide-more', href: '/#/guide', target: '_blank', rel: 'noopener', text: 'Every word the app uses, in the Guide' }))
+          // Every word the app uses, and what each is, is in the Vocabulary (vocabulary.js).
+          el('a', { class: 'vocab-more', href: '/#/vocabulary/words', target: '_blank', rel: 'noopener', text: 'Every word the app uses, in the Vocabulary' }))
         : el('dl', { class: 'keys' }, tab.rows.flatMap(([what, ...keys]) => [el('dt', { text: what }), el('dd', {}, keyChips(keys))])));
   }
 

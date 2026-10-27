@@ -16,6 +16,14 @@ message what a change no longer reads, so whoever tests knows to start from a fr
 - Commit titles are plain sentences saying what changed; the body explains it in prose.
 - Comments and README read as plain English about what the code does, matching what is there.
 
+## Words
+
+The app has one word for each thing, listed under "The words it uses" in README.md and drawn in the
+Guide (`public/guide.js`): an entity (an asset, a set or a shot, its type), a version, a pass, an
+attachment, a review (a board, a playlist or an animatic), a comment, a sticky note, and so on. Use them
+on the page, in messages and in the code alike (names, fields, tables, comments), never a synonym; a new
+thing gets its word added there first.
+
 ## Design: the rules every change keeps
 
 The app is made for artists judging their own work: the interface stays quiet so the work is what is

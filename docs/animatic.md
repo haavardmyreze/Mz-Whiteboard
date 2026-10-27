@@ -24,9 +24,9 @@ left open takes it in within a few seconds, and the next play is the updated edi
   where other kinds are listed beside it. It is renamed, copied ("Make a copy", for another cut of the same
   shots), set up, downloaded, pinned and deleted from the menu beside its title.
 - **Only in a project, and only shots.** A clip names a shot of the project and plays its newest version: of
-  any task, unless one task is picked for the whole animatic (the settings button in its bar). Nobody has to
+  any task, unless one task is picked for the whole animatic (the button in its bar for what it plays). Nobody has to
   choose anything for it to play. Where the project shows its versions more than one way, the same button picks
-  the view. A shot with nothing filed of that task plays as a slate.
+  the pass. A shot with nothing filed of that task plays as a slate.
 - **Added to from elsewhere.** "Add to animatic…" is in a shot's menu and a shot version's menu, and "Add to
   animatic" is beside "Add to playlist" where versions are picked and in the catalogue's selection bar: the
   shots go at the end of an animatic's V1, one after another.

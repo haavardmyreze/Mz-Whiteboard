@@ -1,13 +1,13 @@
 'use strict';
 
 // Claude, asked to sort out names: what a batch of imported files should be filed as, or what some of a
-// project's assets, sets and shots should be renamed to. It only suggests; the page shows what it said in
+// project's entities should be renamed to. It only suggests; the page shows what it said in
 // the rows and fields people already use, and nothing is filed or renamed until someone says so.
 //
 // Set ANTHROPIC_API_KEY to turn it on (the key stays on the server). AI_MODEL picks the model; Haiku is the
 // default, quick and cheap enough for names, and claude-sonnet-5-5 can be set for harder sorting.
 // What is sent: the instruction typed, the files' names (not the files), and the names of the project's
-// assets, sets and shots and its tasks.
+// entities and its tasks.
 
 const naming = require('./public/naming');
 
@@ -37,7 +37,7 @@ function rules(tasks) {
     '- Every name is lower case; words are joined by "-"; no spaces, no underscores.',
     `- A shot is <sequence>-<shot number in ${naming.DIGITS} digits> (kilo-0010, ch01-0020); its sequence is everything before the number.`,
     '- An asset or a set is named in plain words, like the project\'s own names that are like it (if it has char-robot, a new character is char-something).',
-    '- It has only assets, sets and shots: nothing is anything else.',
+    '- It has only entities: nothing is anything else.',
     `- Tasks are single tokens. This project has: ${(tasks && tasks.length ? tasks : naming.TASKS).join(', ')}.`,
   ].join('\n');
 }
@@ -48,7 +48,7 @@ const placeholder = (said) => /[<>]/.test(String(said || '')) || /^(unknown|none
 
 function knownList(entities) {
   const list = (entities || []).slice(0, MAX_KNOWN);
-  if (!list.length) return 'The project has no assets, sets or shots yet.';
+  if (!list.length) return 'The project has no entities yet.';
   const more = (entities.length > list.length) ? `\n(and ${entities.length - list.length} more)` : '';
   return `The project already has these (name, what it is):\n${list.map((e) => `${e.name} (${e.type})`).join('\n')}${more}`;
 }
@@ -106,12 +106,12 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
     if (!list.length) throw new AiError('No files to ask about', 400);
     const types = naming.TYPES;
     const system = [
-      'You file review media (renders, playblasts, stills) into an animation and VFX project\'s catalogue. Each file becomes a version of an asset, a set or a shot, under a task.',
+      'You file review media (renders, playblasts, stills) into an animation and VFX project\'s catalogue. Each file becomes a version of an entity, under a task.',
       rules(tasks),
       knownList(entities),
       [
         'For each file, say:',
-        '- entity: the asset, set or shot it is a version of, named by the rules above. When it is one the project has, use that exact name.',
+        '- entity: the entity it is a version of, named by the rules above. When it is one the project has, use that exact name.',
         '- type: what the entity is.',
         useTasks ? '- task: the task, from the project\'s tasks when one fits; a new task only when the file name or the instruction clearly names one; otherwise null.'
           : '- task: always null: this project does not count its versions by task, whatever a file name says.',
@@ -189,7 +189,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
     return answers;
   }
 
-  // New names, or what they are, for some of a project's assets, sets and shots. `chosen`: [{ id, name,
+  // New names, or what they are, for some of a project's entities. `chosen`: [{ id, name,
   // type, versions: [file names it was filed from] }]. Returns { id -> { name, type, reason, fits } }, only for
   // those it would change.
   async function renameEntities({ instruction, chosen, entities, tasks }) {
@@ -198,7 +198,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
     const types = naming.TYPES;
     const ids = new Set(list.map((e) => e.id));
     const system = [
-      'You tidy up the names of assets, sets and shots in an animation and VFX project\'s catalogue.',
+      'You tidy up the names of entities in an animation and VFX project\'s catalogue.',
       rules(tasks),
       knownList((entities || []).filter((e) => !ids.has(e.id))),
       [
@@ -211,7 +211,7 @@ function createAi({ key = process.env.ANTHROPIC_API_KEY, model = process.env.AI_
     const user = [
       `Instruction: ${clip(instruction, MAX_INSTRUCTION).trim() || '(none: make the names follow the rules)'}`,
       '',
-      'Assets, sets and shots (id, name, what it is, and what some of its files were called):',
+      'Entities (id, name, what it is, and what some of its files were called):',
       ...list.map((e) => `${e.id}\t${e.name}\t${e.type}${e.files && e.files.length ? `\tfiles: ${e.files.slice(0, 3).map((n) => clip(n, 120)).join(', ')}` : ''}`),
     ].join('\n');
     const tool = {

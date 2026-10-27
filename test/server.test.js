@@ -1780,7 +1780,7 @@ test('a version can be filed as something else, archived, and deleted once no bo
   assert.equal(added.ver, undefined);
 });
 
-test('a project is set up with its assets, sets and shots ahead, each with artists and people cc\'d', async (t) => {
+test('a project is set up with its entities ahead, each with artists and people cc\'d', async (t) => {
   const s = start(4841);
   t.after(s.stop);
   await s.ready;
@@ -2219,7 +2219,7 @@ test('a project can hold a 3D model of its venue, uploaded as a .glb, and let it
   assert.equal((await set(null)).preview3d, undefined);
 });
 
-test('many assets, sets and shots are edited at once: artists and cc added, taken off or set, and what they are', async (t) => {
+test('many entities are edited at once: artists and cc added, taken off or set, and what they are', async (t) => {
   const s = start(4844);
   t.after(s.stop);
   await s.ready;

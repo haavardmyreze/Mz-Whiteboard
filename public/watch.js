@@ -2,7 +2,7 @@
 
 // Watching somebody present a project (/p/<token>, see present.js and "presenting a project" in server.js).
 // Whatever they show is shown here, as they show it: a board (its read-only page, in a frame, following
-// them on it), an asset, set or shot's versions in the player, or an animatic, read-only. Nothing here is
+// them on it), an entity's versions in the player, or an animatic, read-only. Nothing here is
 // to be steered: no going elsewhere, no looking about. Only what is this screen's own is in reach: the
 // sound, full screen, and folding the comments and the strip away.
 (async () => {

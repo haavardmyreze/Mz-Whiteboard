@@ -27,13 +27,42 @@ Anyone on the same network opens that address in Chrome, Edge or Firefox. The fi
 you start it, Windows may ask whether Node.js is allowed through the firewall: allow it on
 private networks, otherwise only the host machine can connect.
 
+## The words it uses
+
+Every page, message and line of code says these, and only these, for what they name. The Guide in the
+app (`#/guide`) lays the same out as a picture.
+
+| Word | What it is |
+| ---- | ---------- |
+| Workspace | Myreze, shared by everyone, or your Personal one |
+| Folder | A place in a workspace for boards, folders and playlists |
+| Project | A folder with a catalogue: its entities and their versions, its reviews and its activity |
+| Catalogue | Every entity a project has |
+| Entity | What versions are filed under: an asset, a set or a shot. Which of the three is its **type** |
+| Sequence | Shots that go together, named by the start of their names (kilo in kilo-0010) |
+| Task | A stage of the work a version is for: anim, comp, light |
+| Version | One result filed of an entity and task, counted v1, v2, v3 |
+| Pass | One of a version's ways of being seen, each its own file (cmp, bty), as a project names them |
+| Attachment | Any other file filed with a version under a label of its own: a full-size still, another lighting |
+| Review | A board, a playlist or an animatic in a project; its Reviews page lists them |
+| Board | A canvas to lay work out on, with sticky notes, headings, blocks, frames and drawing |
+| Playlist | Versions in an order, played one at a time |
+| Animatic | Shots cut together on a timeline, each playing its newest version |
+| Comment | What is said about a piece of work; a **reply** answers one, and the two are a **thread**. One may carry a **drawing** |
+| Sticky note | A note on a board, part of the board, never a comment |
+| Artist, CC | Who makes an entity, and who else follows it |
+| Role, group | What somebody may do (viewer, commenter, editor, manager), and people given roles together |
+| Share link | A board opened without signing in |
+| Present link | Somebody presenting, watched |
+| Venue | The 3D model of where the work is shown; its **screens** show it, seen through its **main camera**, or **flying** |
+
 ## What it does
 
 - **Getting around.** There is no separate home page: the app opens on the workspace you were last in
   (Myreze to begin with), and the mark in the corner goes back to it. A sidebar on the left holds what
   you pinned (each a row that goes there), then each workspace with its folders and projects as a tree. A project opens to its
   Reviews (its boards, playlists and animatics, each under it), Catalogue and Versions, and the catalogue
-  to its assets, sets and shots, the shots by
+  to its entities, the shots by
   sequence, each with a count. Only what you are in is open: the way to the page you are on is opened
   for you, and the rest close as you go elsewhere (an arrow opens a row for a look in the meantime). Rows
   with nothing in them show no count. Every page opens with its title, set large: the place you are in
@@ -43,9 +72,9 @@ private networks, otherwise only the host machine can connect.
   shot. On a narrow window the sidebar is a drawer, opened with the button at the left of the bar.
 - **Pinning.** Pin from a card's `...` menu or the star beside where you are; pins are kept by this
   browser and listed in the sidebar until you unpin them.
-- **Everything is an object, shown one way.** A board, a folder, an asset, set or shot and a version
+- **Everything is an object, shown one way.** A board, a folder, an entity and a version
   are all listed the way a file manager lists files, and every list (a workspace, a folder,
-  the catalogue, Versions, an asset, set or shot's versions) can be shown three ways, chosen with the three
+  the catalogue, Versions, an entity's versions) can be shown three ways, chosen with the three
   buttons at the end of the page's title (or in Your account) and remembered per browser: as cards, as
   rows (a small still beside each name, many to a screen), or as a table. As cards, each is a print with
   its label: the picture square-cornered, as the work is judged, and its name and what is known of it
@@ -53,7 +82,7 @@ private networks, otherwise only the host machine can connect.
   holds other kinds too. A table has a row for
   each, one line high, like a compact row drawn out across the page: its still (or a folder's icon) at
   its left edge, scrubbing and playing as on a card, then its name, and in columns what its card says:
-  a board's items and when it was edited; a folder's kind, boards and folders; an asset, set or shot's
+  a board's items and when it was edited; a folder's kind, boards and folders; an entity's
   versions, artists and when the last was filed; and a version's as below. It is a plain table, its rows between hairlines, set as the
   catalogue is, under the same headings ("Shots 25", then each sequence, named as it is written), with
   its column headings staying in sight as the page scrolls; a narrower window
@@ -118,7 +147,7 @@ private networks, otherwise only the host machine can connect.
   last forty times, and any of them can be put back for everyone. What is replaced is kept as one more
   snapshot, so putting back can itself be undone. A snapshot is the board's items packed small (about
   13 KB for a board of thirty pieces); the files stay where they are. Putting one back moves what is
-  on the board only: notes, and versions in a project's catalogue, stay as they are.
+  on the board only: comments, and versions in a project's catalogue, stay as they are.
 - **Frame-accurate video.** Each video knows its frame rate, read from the file when it is added. `,` and `.` step one frame
   (with Shift, one second), Space or K plays and pauses, M turns the sound on and off,
   and scrubbing lands on whole frames. Click the time on a video to switch between minutes and seconds,
@@ -146,8 +175,8 @@ private networks, otherwise only the host machine can connect.
   frame by frame, rows first and then left to right, with loose media taking its place among the
   frames. They never scrub a video and never nudge anything in there; out on the board they nudge the
   selection. Moving through a video has its own keys (`,` and `.`), the same in the viewer and for a
-  video selected on the board, and so has moving through a version's extras (`[` and `]`). Space plays and pauses even when a dropdown just used (which sequence,
-  which view), a button or a link in the sidebar beside the timeline still has the keyboard: it lets
+  video selected on the board, and so has moving through a version's attachments (`[` and `]`). Space plays and pauses even when a dropdown just used (which sequence,
+  which pass), a button or a link in the sidebar beside the timeline still has the keyboard: it lets
   go, and the player takes the key. A dropdown gives the keyboard back once something is picked from it.
 - **The timeline.** Under an open video: play, a frame back, a frame on, the time, and a track to drag
   along, drawn as the video's picture and sound: bands of its colours with its loudness above them, on
@@ -232,7 +261,7 @@ private networks, otherwise only the host machine can connect.
   the number of open threads, or a tick once they are all resolved; click it to open the piece with
   its comments beside it. Comments belong to the viewer, so there is no button for them out on the
   board; Shift+C there still lists every thread on the board, and picking one opens what it is about. Who wrote a comment comes from the sign-in, not from the
-  browser. Comments are kept apart from the board, as notes: taking a piece off the board takes its
+  browser. Comments are kept apart from the board, in the database: taking a piece off the board takes its
   comments out of sight, and undo brings them back, still in their author's name whoever pressed undo.
   Only deleting a thread deletes it, and only whoever wrote a comment deletes it (a comment somebody
   holding a link wrote can be deleted by anyone on the board). Deleting the first comment of a thread
@@ -358,14 +387,14 @@ Whoever has a board or a catalogue page open that they can no longer see after a
 ## Projects: versions and the catalogue
 
 A folder can be made a project (the `...` menu on its card: "Make it a project"). A project keeps a
-catalogue of what the team makes for it, its **assets, sets and shots**, and every **version** of them,
+catalogue of what the team makes for it, its **entities**, and every **version** of them,
 while its boards stay what they are: playlists for one review each, a standup, a client call. A
 project cannot sit inside another one, and stays a project once something is filed in it. Only an admin
 can delete one ("Delete project…" in its menu, having typed its name): its folders and boards go with it,
 and its catalogue, every version and comment on them, its playlists and animatics are gone for good.
 
 - **Filing a version.** On a board in a project, select images or videos and press Shift+V (or the
-  button in the floating toolbar). Each piece has its own row: which asset, set or shot it is, and the
+  button in the floating toolbar). Each piece has its own row: which entity it is, and the
   task if the project counts by task. Nothing has to be named a particular way: `screenshoot_090126.png`
   is filed like anything else. What a file's name does say is filled in ahead (or what the project has
   learned about names like it, below), and so is the frame it sits in (a frame titled `kilo-0010`) and,
@@ -373,13 +402,13 @@ and its catalogue, every version and comment on them, its playlists and animatic
   every row at once to start from; each still goes where its own row says.
   - **One line, in parts.** Each row is one line, its parts labelled once over the rows: what it is
     (`shot · kilo`, `new asset`, or "what is it?" for a new name whose shape does not say), the asset,
-    set or shot, the task, the version it follows (its still), the version it is to be, and the view.
-    What the page filled in and nobody said is faint (the next number, the main view, a kind read from
+    set or shot, the task, the version it follows (its still), the version it is to be, and the pass.
+    What the page filled in and nobody said is faint (the next number, the main pass, a kind read from
     a new name's shape); what was typed or read from a file's name is not. The name takes a whole line:
-    `kilo-0010 anim v12 bty` puts the task, number and view in their own parts as soon as it reads one
+    `kilo-0010 anim v12 bty` puts the task, number and pass in their own parts as soon as it reads one
     way only, and a file name pasted in is read the way a file's name is. A space after a name the
-    project has, or a shot, moves on to the task, then the version, then the view, as a date's parts are
-    typed through; a version or view typed in the task goes where it belongs; Backspace in an empty part
+    project has, or a shot, moves on to the task, then the version, then the pass, as a date's parts are
+    typed through; a version or pass typed in the task goes where it belongs; Backspace in an empty part
     goes back. Until it is a name the project has or a shot, more words are more of the name
     (`living room` is `living-room`). A shot can be said short, by the sequence of the row above (or of
     the last filing): `20` is its shot 0020, `+` its next shot on its step (`kilo+` the next of kilo),
@@ -403,7 +432,7 @@ and its catalogue, every version and comment on them, its playlists and animatic
     the row being typed in, so nothing moves as you type. And anything that looks wrong, the worst first
     all of it behind the mark, each with its fix: a name a letter or two from one the
     project has (`klio-0010`, `kilo-010`), a shot written short (`kilo-10` is kilo-0010), a new name
-    nothing says the kind of (asset, set or shot: asked, never assumed), a shot far past its sequence's last, a new task beside versions with none (or the
+    nothing says the kind of (entity: asked, never assumed), a shot far past its sequence's last, a new task beside versions with none (or the
     other way round), and a video that looks like another shot than the one typed. A new sequence is
     said too, and asked about once before it is made, since a typo there makes a whole sequence. A
     short line with nothing to go by (`.` with nothing above or filed before) says so. A row cannot be
@@ -417,16 +446,16 @@ and its catalogue, every version and comment on them, its playlists and animatic
     behind the ? over the rows, and in the board's keyboard help.
   - **Taking it back.** On a board, the message that says what was filed has Undo and Change; in the
     import strip, a filed row has Undo, and is then as it was, to file again. Both take the
-    filing back as if it had not been: the versions are gone, numbers and all, and so is any asset,
-    set or shot made for them. Change then opens the rows again as they were. This is for straight
+    filing back as if it had not been: the versions are gone, numbers and all, and so is any
+    entity made for them. Change then opens the rows again as they were. This is for straight
     after: within half an hour, and not once a version has been talked about, put on another board or
-    given another view (archive or delete it then).
+    given another pass (archive or delete it then).
   - **Names from elsewhere.** A file not named as the app writes names and filed by hand offers to teach
     the project how names like it read, in a dialog in the middle of the page as soon as it is filed:
     the name and what it was filed as, and what each of the files still waiting would be filed as by it.
     "Remember and fill in" keeps it and fills them in at once; "Remember" only keeps it. What is learned is the whole name's
     pattern: `NHMoc_CHAP01_010_cmp_v111.mp4` filed as chap01-0010 v111 teaches that `nhmoc` names have
-    the sequence next, then the shot, then the view (with views on), then the version, so
+    the sequence next, then the shot, then the pass (with passes on), then the version, so
     `NHMoc_CHAP03_040_cmp_v009.mp4` is chap03-0040 v9. A word that changes from file to file (an artist)
     is anything; the task is learned where it was the task; a shot's number may run on after letters
     (`sh010`); a sequence named otherwise there (`KLO_010` filed as kilo-0010) is kept as that. A pattern
@@ -439,25 +468,25 @@ and its catalogue, every version and comment on them, its playlists and animatic
     forgotten with its ×.
 - **Numbering.** A version is the number its file's name says (`kilo-0010_anim_erik_v012.mov` is
   v12, and so is `NHMoc_CHAP01_010_cmp_v012` once the project has learned names like it); otherwise the
-  catalogue counts on itself: `kilo-0010 anim v1`, `v2`, `v3`, per asset, set or shot and task, in the
+  catalogue counts on itself: `kilo-0010 anim v1`, `v2`, `v3`, per entity and task, in the
   order they were filed. The newest is the highest number, so an older one filed later stays behind it. Each task has its own count (lookdev starts at v1
   beside model v10), and versions with no task have one of their own too. A project that has no use
   for tasks says so in its settings ("Count by task" off): filing then asks for none and ignores any a
-  file's name gives, and each asset, set or shot has one count. The number can always be typed over
+  file's name gives, and each entity has one count. The number can always be typed over
   before filing, and changed by hand after (see below).
 - **On the board.** A piece that is a version says which in its corner. When a newer one of the same
   thing has been filed since, the chip says so; click it to swap the newer one in, or to see them all.
   The layers button in the bar opens the project's catalogue beside the board: pick an asset, set or
   shot, then click a version to put it on the board.
-- **Notes.** Comments on a version belong to it (see Comments above). Filing a piece takes the comments
-  already made on it along. People holding a link to a board see only the notes made on that board;
+- **Comments.** Comments on a version belong to it (see Comments above). Filing a piece takes the comments
+  already made on it along. People holding a link to a board see only the comments made on that board;
   the team sees them all.
 - **A project's home.** Clicking a project opens its home page, not its boards: the big picture of
   it, how far along it is and who is on it, under its banner if its settings give it one. Its versions, boards and playlists are not there; each has
   its own page in the sidebar. Under its title, this week as one line of figures: versions filed and
-  comments written (each beside the week before), and how many assets, sets and shots moved on. Then each
+  comments written (each beside the week before), and how many entities moved on. Then each
   part of the project in turn (its assets, its sets, and its shots a row to each sequence, in order),
-  every asset, set or shot a mark toned by whether something was filed of it this week, before, or not
+  every entity a mark toned by whether something was filed of it this week, before, or not
   yet (each opens with a click), with how many of each are filed, and under them each task the part
   has, in the order work goes through them, as a bar of how many have reached it. Beside that, its
   people: everyone who works on any of it, with what they are on and how many versions each filed this
@@ -484,14 +513,14 @@ and its catalogue, every version and comment on them, its playlists and animatic
   order, scrolling sideways where they run past the edge; a shot with nothing filed keeps its place,
   empty, so the gaps in a sequence show. Assets and sets have no order, so theirs wrap. On a phone the
   sequence's name sits above its row. A sequence's own page, the assets' or the sets', and the rows and
-  the table, list them as any other list. An asset, set or shot opens on every version of it (where each is on a board, who filed it,
-  what its name said) and every note made about any of them, on any board. Click a version and it opens
+  the table, list them as any other list. An entity opens on every version of it (where each is on a board, who filed it,
+  what its name said) and every comment made about any of them, on any board. Click a version and it opens
   in the player, the same one a board uses, with the other versions in the strip beside it: comment and
   draw there, and it is on every board the version is on, live, as what is said on those boards is
   live there. The same is a click away from inside a board (the catalogue panel, or a version's chip).
-- **Editing, archiving and deleting versions.** A version's menu on its asset, set or shot's page:
-  - *Edit…* changes what it is filed as: the asset, set or shot, the task, the number, the artist and
-    the description. Its name follows, on every board it is on, and its notes go with it. Moved to
+- **Editing, archiving and deleting versions.** A version's menu on its entity's page:
+  - *Edit…* changes what it is filed as: the entity, the task, the number, the artist and
+    the description. Its name follows, on every board it is on, and its comments go with it. Moved to
     another asset or task without a number, it becomes the next version there. A number another
     version has is refused.
   - *Archive* puts it out of the way: it is left out of the catalogue (tick "Show archived" to see
@@ -503,21 +532,21 @@ and its catalogue, every version and comment on them, its playlists and animatic
 - **Bringing files in.** Drop images and videos anywhere on a project's catalogue, or press Import above
   it. Each is brought in exactly as a file dropped on a board is (`public/ingest.js`): a video gets its
   review copy, its timeline strip, its stills and its frame rate, and the file it was made from is kept
-  too. A strip above the catalogue has a row for each file, with its own asset, set or shot and task,
-  filled in ahead from its name (on an asset, set or shot's own page, from that one), with the same
+  too. A strip above the catalogue has a row for each file, with its own entity and task,
+  filled in ahead from its name (on an entity's own page, from that one), with the same
   suggestions, line under it and keys as filing on a board. Nothing is filed until you say: File on a row, Enter in its boxes,
   or "File all" for every row that says where it goes (one still on its way in is filed when it
   arrives). "For all" fills every row at once. Each row has its version number too, filled in as the
-  next one (one past the last of that asset, set or shot and task, and past the rows above it going to
+  next one (one past the last of that entity and task, and past the rows above it going to
   the same); type another to use it instead, and the rows below count on from it. A number that is
-  taken is refused, with what has it. Another view of the row above's version is marked as going with
+  taken is refused, with what has it. Another pass of the row above's version is marked as going with
   it. Nothing goes on a board. Click a filed one to open it in
   the player. What a row is doing (Preparing, Uploading...) is said under its bar, so nothing on the
   row moves while it comes in; a row that did not come in has "Try again".
 - **Project settings.** The settings button beside the star on the project's home, or Project settings
   in its menu, opens them as one dialog in tabs, listed down its side (across the top on a phone) so more
   can come: Home (its banner: a picture across the top of its home, over its title, dragged in its band, or moved
-  with the arrow keys, to choose what shows where it is cut; a double-click centres it), Versions (Count by task, Several views of each version and their names, the file names it has
+  with the arrow keys, to choose what shows where it is cut; a double-click centres it), Versions (Count by task, Several passes of each version and their names, the file names it has
   learned), Sequences (their order), 3D (the venue model and what goes with it) and Sharing: who has what
   of the project (the people and groups given a role on it or on what is in it, as in the admin area,
   recorded and not yet enforced), the boards in it open to anyone with their link, and the links to watch
@@ -527,7 +556,7 @@ and its catalogue, every version and comment on them, its playlists and animatic
   sits beside what it sets; a field or a list goes under its name, the width of the pane.
 - **3D: the work on the venue.** A project whose settings have a model of its venue (the settings button
   beside the star on the project's home, or Project settings in its menu: a `.glb`, and once there is
-  one, the name of the material its screens have and, with views, which goes on them) has a 2D / 3D switch in the
+  one, the name of the material its screens have and, with passes, which goes on them) has a 2D / 3D switch in the
   player's bar, in the catalogue and in an animatic. In 3D the picture plays on the model's screens
   (through their own UVs), seen through the model's main camera, letterboxed at that camera's frame (Main
   camera in the settings lists the cameras in the file to choose from; without a choice, the one named
@@ -562,51 +591,51 @@ and its catalogue, every version and comment on them, its playlists and animatic
   slower computer: the shade and the screens' light are worked out more roughly (a fraction of the
   samples, a few lamps, refreshed every other frame) while the picture keeps its full resolution; it holds
   with Effects on or off, and Reset leaves it.
-  On the project's boards the player has the same switch, for a piece that is a version and has the view
-  the project puts on its model (with the main view, any catalogued picture or video): in 3D it shows that
-  view's file, whichever view is on the board. A piece that is not a version, or lacks that view, shows
+  On the project's boards the player has the same switch, for a piece that is a version and has the pass
+  the project puts on its model (with the main pass, any catalogued picture or video): in 3D it shows that
+  pass's file, whichever pass is on the board. A piece that is not a version, or lacks that pass, shows
   no switch, and stepping to one goes back to 2D. Whoever follows you, there or through a presentation,
   goes into 3D with you.
-- **Views of a version.** A version can be shown more than one way, each its own file: on projection
+- **Passes of a version.** A version can be shown more than one way, each its own file: on projection
   work, say, the unwrapped picture (cmp) and how it looks projected (bty). A project says whether its
-  versions are, and which ways, in its settings ("Several views of each version", with their names, the
+  versions are, and which ways, in its settings ("Several passes of each version", with their names, the
   main one first: `cmp, bty`). Off (as a project starts), a version is one file and filing asks for no
-  view. On, every row where files are filed has a
-  View picker of just those: the main one is a version of its own, and any other goes with one. A word
+  pass. On, every row where files are filed has a
+  Pass picker of just those: the main one is a version of its own, and any other goes with one. A word
   after the version in a file's name picks it (`ch04-0030_comp_erik_v110_bty.mov`); one the project
-  has not got makes the file an extra instead (below), with the views a click away should it have been
+  has not got makes the file an extra instead (below), with the passes a click away should it have been
   meant as one. The line under the row says what happens: "Adds its bty to
-  kilo-0010 anim v2", or a new version shown that way only. A view goes with the row of the same file
+  kilo-0010 anim v2", or a new version shown that way only. A pass goes with the row of the same file
   version in the batch, above or below it (that is filed first), else with the newest version there is
-  that lacks it. A version's card lists its views. In the player, and in an animatic, a dropdown in the
-  bar picks the view, by the project's names and in its order, remembered per project; a shot without
-  that view shows its main one, and the bar says which is showing. Changing the view stays on the same
+  that lacks it. A version's card lists its passes. In the player, and in an animatic, a dropdown in the
+  bar picks the pass, by the project's names and in its order, remembered per project; a shot without
+  that pass shows its main one, and the bar says which is showing. Changing the pass stays on the same
   moment.
-- **Extras of a version.** What is sent for one version is often more than one file: beside the shot as
+- **Attachments of a version.** What is sent for one version is often more than one file: beside the shot as
   it plays, full-size stills to judge it close up (12k frames of a dome, say), or the same frame in
-  another lighting, or another cut. These are a version's extras: any number of files, images or videos,
-  each under a label of its own (`light-a`, `still-1043`, `warm`), none twice. They are not views: a
-  view is one of the ways the project shows every version, an extra belongs to this version alone, and
-  makes no version of its own. Every row where files are filed has an Extra box after the version: a
-  label typed there makes the file an extra under it, and left empty the file is a version of its own.
-  A word after the version in a file's name that is no view of the project's fills it in
+  another lighting, or another cut. These are a version's attachments: any number of files, images or videos,
+  each under a label of its own (`light-a`, `still-1043`, `warm`), none twice. They are not passes: a
+  pass is one of the ways the project shows every version, an attachment belongs to this version alone, and
+  makes no version of its own. Every row where files are filed has an Attachment box after the version: a
+  label typed there makes the file an attachment under it, and left empty the file is a version of its own.
+  A word after the version in a file's name that is no pass of the project's fills it in
   (`kilo-0010_comp_erik_v012_light-b.jpg`), as does one typed after the version on the row's line
   (`kilo-0010 v12 light-b`; one of the project's tasks there is still the task). The row says so behind its mark (as a stack
-  of layers), with what it goes with ("Adds it to kilo-0010 comp v12 as an extra, “light-b”") and the way
-  back to a version of its own. An extra goes with the version its number says, else with the version the
-  nearest row above it makes, else with the newest of its asset, set or shot and task; with none there,
+  of layers), with what it goes with ("Adds it to kilo-0010 comp v12 as an attachment, “light-b”") and the way
+  back to a version of its own. An attachment goes with the version its number says, else with the version the
+  nearest row above it makes, else with the newest of its entity and task; with none there,
   or with that label taken, it is refused. Filed straight after, it can be taken back (Undo) as a version
-  can, which takes back the extra only. A version's card says how many extras it has, and their labels.
-  In the player, the strip lists the open piece's extras under it, set in under its number, each with
+  can, which takes back the attachment only. A version's card says how many attachments it has, and their labels.
+  In the player, the strip lists the open piece's attachments under it, set in under its number, each with
   its own count of comments; on a window too narrow for the strip, a button in the bar lists them. A click,
   or `[` and `]`, shows one in the piece's place, and the bar adds its label to the name. The arrows still
   go from piece to piece. Two files of one shape (a 3K video and its 12K still, or two lightings of a
   frame) are looked at the same way: flipping between them while zoomed in stays on the same spot at the
-  same zoom, so lighting can be judged by flipping. What is said and drawn on an extra is said on it: each
-  file of a version has its own comments, and picking one shows its file. An extra is looked at as it is,
-  never on the venue in 3D. Whoever watches a presentation sees the extra the presenter shows.
+  same zoom, so lighting can be judged by flipping. What is said and drawn on an attachment is said on it: each
+  file of a version has its own comments, and picking one shows its file. An attachment is looked at as it is,
+  never on the venue in 3D. Whoever watches a presentation sees the attachment the presenter shows.
 - **Looking without choosing.** Move the pointer across a video's picture in the catalogue and it
-  scrubs through it, as if the pointer were dragging its playhead. An asset, set or shot's picture
+  scrubs through it, as if the pointer were dragging its playhead. An entity's picture
   plays its newest version at once ("Latest"); its name goes to its page, which has Play latest too.
 - **Presenting it.** Present, in the bar of a project's pages and of its boards, makes a link to
   watch you by (`/p/<link>`): whoever opens it sees what you show, as you show it, and nothing else.
@@ -652,30 +681,30 @@ and its catalogue, every version and comment on them, its playlists and animatic
     page is a moment's pause for those watching; should you be gone for more than a few seconds, they
     are told you stepped away. Another tab of yours left open says nothing to anyone.
   - *What the link can load* is only what has been shown since you started: the boards (as a read-only
-    link has them), the versions of the assets, sets and shots opened, the shots and sounds of the
+    link has them), the versions of the entities opened, the shots and sounds of the
     animatics played, and the project's model of its venue. Never the file a video was made from, and nothing once you stop.
   - *The team sees who is presenting.* Where you are in a project, the line at the top says
     "Anna is presenting · Watch" while somebody else is, a way to watch them in a new tab.
   - A browser that will not play sound unasked plays without, and the sound button says so; a click
     turns it on.
 - **Setting a project up.** "Add assets, sets & shots" above the catalogue takes names, typed or pasted
-  one a line, each an asset, a set or a shot by its shape (or all of one kind, as chosen), and a run of
+  one a line, each an entity by its shape (or all of one kind, as chosen), and a run of
   shots from a sequence and its numbers (kilo, 10 to 200 by 10). They are in the catalogue and the
   sidebar at once, with nothing filed yet.
-- **Artists and CC.** An asset, set or shot's page names its artists and who else is cc'd, picked from
-  everyone the app knows (who signed in, filed, wrote a note or was named before) or typed. Its card
+- **Artists and CC.** An entity's page names its artists and who else is cc'd, picked from
+  everyone the app knows (who signed in, filed, wrote a comment or was named before) or typed. Its card
   shows its artists.
 - **Versions, every one, as you want to see them.** A project's Versions (in the sidebar) lists every
-  version filed in it, the same way an asset, set or shot's page lists its own: its still (which scrubs
+  version filed in it, the same way an entity's page lists its own: its still (which scrubs
   under the pointer and opens in the player), its shot (a link to it) and the rest of its label, when it
   was filed, and the boards it is on. Its groups are headed as the catalogue's are: each day a section,
   and within it who filed a run of them. As a table (the buttons in the top bar), a version's row has
-  its name (archived, or in how many views, beside it), its task, its version, the artist, and who filed
+  its name (archived, or in how many passes, beside it), its task, its version, the artist, and who filed
   it and when; Name, Version and Filed sort it with a click
   (Filed again for oldest first). Double-click a version, as a card or a row, to open it in the player.
   The bar over the list has two buttons:
   - **View** (it says how it is grouped) groups by upload time (the default: by day, and within a day
-    by who filed a run of them), by sequence (assets and sets after), by asset, set or shot, by task, by
+    by who filed a run of them), by sequence (assets and sets after), by entity, by task, by
     who filed them, or not at all; and sorts by newest or oldest filed, by name, or by version number.
     The groups keep their own order (sequences as they are numbered, then assets and sets; tasks and
     people by name; days newest first, or oldest first when so sorted), and the sort orders what is in
@@ -692,14 +721,14 @@ and its catalogue, every version and comment on them, its playlists and animatic
   to the filters, the sort or the search starts again from the first page.
   Click a card to pick it (its box shows on a hover), Shift and a click for a run, or drag a box; once
   something is picked, a group's box picks all of it, and Esc lets go (as it does wherever things are
-  picked). Then "Edit…" changes them all at once: moved to another asset, set or shot (one to make, by
-  name), each the next number there in the order they were filed, their notes and boards going with
+  picked). Then "Edit…" changes them all at once: moved to another entity (one to make, by
+  name), each the next number there in the order they were filed, their comments and boards going with
   them; given a task or none, an artist or none; archived or brought back. Each field leaves them as
   they are unless it says otherwise; all of them change or none do (a number taken refuses the lot),
   and Undo puts each back as it was, number and all. "Add to board" puts them on one of the project's
   boards, in rows below what is there, or "New board" makes one in the project with them on it, laid
   out as the edit is: a column for each sequence, left to right, its shots going down from first to
-  last (assets and sets in columns after them). Either way they are those versions, with their notes.
+  last (assets and sets in columns after them). Either way they are those versions, with their comments.
   "Add to playlist" puts them at the end of one of the project's playlists, or makes a new one with them,
   and "Add to animatic" puts their shots at the end of an animatic.
 - **Reviews: boards and playlists.** Both are a compilation of the project's work to show, in two ways: a
@@ -718,7 +747,7 @@ and its catalogue, every version and comment on them, its playlists and animatic
   time, as an asset's versions are, with the strip down the left to move between them (nothing plays on
   into the next, and there is no timeline across them), each with its own comments. In a project with a
   3D model of its venue the player has the 2D / 3D switch here too, each version shown on the model in the
-  view the project puts on it. A playlist can be renamed,
+  pass the project puts on it. A playlist can be renamed,
   moved, deleted (its versions stay) and pinned to the sidebar, from the menu beside its title. A version deleted
   since is left off it.
 - **Folders in Reviews.** A project's reviews can be kept in folders: New folder (under the arrow beside New
@@ -824,7 +853,7 @@ and its catalogue, every version and comment on them, its playlists and animatic
   - *On the venue, in 3D.* In a project with a model of its venue, the 3D switch in the bar (or 3, and 2
     to come back) shows the edit on it, with the player's own 3D view and controls, the same component: the
     clips showing are laid over one
-    another, fades and dissolves and all, and the venue's screens show them, each shot in the view the
+    another, fades and dissolves and all, and the venue's screens show them, each shot in the pass the
     project puts on its model. Everything else goes on as in 2D: playing, scrubbing, the timeline, the
     sound. The model's cameras come in 3D, before what the edit plays (the main one, the others under the
     arrow, and V goes on to the next), W A S D Q E and a drag fly about, and the half-lit ball beside them
@@ -843,7 +872,7 @@ and its catalogue, every version and comment on them, its playlists and animatic
     its rate (it starts at the rate and shape most of the project's shots have), and changing it keeps each
     cut where it is in time. It can also be renamed, copied (to try another cut), pinned and deleted there. Editing
     wants a desk: on a narrow window the library, and then the comments, are left out.
-- **Changing many at once.** Select, above the catalogue, picks assets, sets and shots with a click
+- **Changing many at once.** Select, above the catalogue, picks entities with a click
   (Shift and a click for every one between), or drag on empty space to draw a box over them, as in a
   file manager (with Shift, Ctrl or Cmd it adds to what is picked; the Versions list and an asset's
   versions work the same, and in a folder a box picks boards and folders to move or delete together); the bar at the foot has Select all, Clear and Edit. Edit
@@ -854,14 +883,14 @@ and its catalogue, every version and comment on them, its playlists and animatic
   import strip has "Ask Claude" and batch edit has a line to ask in. Say what the files or names are
   ("all shots of ch02, numbered in the order of their names, anim") and Claude reads the original file
   names, how the app writes names and the names the project already has, and suggests what each should be:
-  - Importing, it fills in each row's asset, set or shot, its task and its version (a version only when
-    the file name or you give one; otherwise the next, as ever), and its view when you ask for one or the
-    name says it ("the _p files are the bty view"). Name the fields and only those are filled in
-    ("fill in chapter, shot and version" leaves each row's task and view as they are); otherwise every
-    field is Claude's to set or to clear. The View boxes then show, filled in. A small sparkle beside a row says
+  - Importing, it fills in each row's entity, its task and its version (a version only when
+    the file name or you give one; otherwise the next, as ever), and its pass when you ask for one or the
+    name says it ("the _p files are the bty pass"). Name the fields and only those are filled in
+    ("fill in chapter, shot and version" leaves each row's task and pass as they are); otherwise every
+    field is Claude's to set or to clear. The Pass boxes then show, filled in. A small sparkle beside a row says
     Claude filled it in, and why on hover; it turns amber when the name is not the usual shape. Change
     any row by hand, or Undo them all, then file as usual.
-  - In batch edit, it suggests a new name, and what each is, for each picked asset, set or shot that
+  - In batch edit, it suggests a new name, and what each is, for each picked entity that
     should change, using what its files were called. Untick or retype any, then save: they are renamed
     all at once, or not at all (a name the project already has, or two the same, is refused), and
     Undo puts the names back.
@@ -890,7 +919,7 @@ Every project is made of the same things, written one way, so there is nothing t
   sequence, its filters, and a new board laid out as the edit all list them so; a sequence the order
   does not name yet comes after those it does.
 
-A file's name is read as the app writes names: `<name>[_<task>][_<descriptor>][_<artist>]_v###[_<view>]`
+A file's name is read as the app writes names: `<name>[_<task>][_<descriptor>][_<artist>]_v###[_<pass>]`
 (`kilo-0010_anim_erik_v012_bty.mov`). Its name counts when it is a shot, one the project has, or one
 whose kind the project's names say (`char-dog_rig_v002.mov` where there is a `char-robot`); a row not
 named yet is read again whenever something is filed, so filing one file can name the others. Files named
@@ -906,7 +935,7 @@ Everything lives in `data/` next to the server:
 
 | Path            | Contents                                                        |
 | --------------- | --------------------------------------------------------------- |
-| `data/wipboard.db` | Boards, their items and snapshots, folders, projects' catalogues (assets, sets, shots and their versions) and every note, in one SQLite database (with `-wal` and `-shm` files beside it while the server runs) |
+| `data/wipboard.db` | Boards, their items and snapshots, folders, projects' catalogues (assets, sets, shots and their versions) and every comment, in one SQLite database (with `-wal` and `-shm` files beside it while the server runs) |
 | `data/uploads/` | Uploaded media, named by content hash (duplicates stored once): pictures, videos' review copies, and the files those were made from |
 | `data/backups/` | A copy of the database made each day the server runs; the last seven are kept |
 | `data/.session-secret` | Signs the sign-in cookies. Made on first start with a sign-in mode; keep it private |
@@ -950,8 +979,8 @@ describes an uploaded file (its size, original name, size in pixels, length and 
 uploaded it) and lists every board it is on. Only boards in workspaces the person asking can see are
 searched, and deleted boards never are.
 
-A project's catalogue has its own: `GET /api/projects/<folder>` (its assets, sets and shots),
-`GET /api/entities/<id>` (one of them, every version and every note), `GET`, `PATCH` and `DELETE
+A project's catalogue has its own: `GET /api/projects/<folder>` (its entities),
+`GET /api/entities/<id>` (one of them, every version and every comment), `GET`, `PATCH` and `DELETE
 /api/versions/<id>` (`PATCH` takes `entity`, `task`, `number`, `artist`, `descriptor`, `hidden`, or
 `{ "deleted": false }` to bring a deleted one back), and `POST /api/projects/<folder>/versions` to file
 versions (each file may say its own `entity`, `task` and `number`; the catalogue's `tops` says the
@@ -982,7 +1011,7 @@ one of the project's boards (`"layout": "sequences"` for a column per sequence).
 `GET /api/projects/<folder>/animatics` and `POST` with `{ "name", "doc" }`, `{ "name", "from": "shots" }` (every shot with something filed, in order),
 `{ "name", "shots": [...] }` (shots, or versions standing for their shots) or `{ "name", "copy": <id> }`, each
 with a `"folderId"` (a folder of the project's reviews) if it is to be kept in one, as a project's playlist takes;
-`GET /api/animatics/<id>` gives its `doc` (rate, shape, task, view, tracks and clips, every position in
+`GET /api/animatics/<id>` gives its `doc` (rate, shape, task, pass, tracks and clips, every position in
 frames), its `rev` and the newest version of each of its shots; `PATCH` takes `{ "name" }`, `{ "folderId" }`
 (moved among the project's reviews, as a project's playlist's `PATCH` takes too), `{ "doc", "rev" }`
 (refused with `409` and the newer one when `rev` is not the last save) or `{ "add": [...] }`, and
@@ -993,20 +1022,20 @@ files all of them or, if any one is refused, none; so does a `PATCH` of a versio
 video most likely follows, with why. `POST /api/versions/<id>/unfile` takes a version back straight
 after it was filed (see Taking it back). A project's catalogue (`GET /api/projects/<folder>`) gives each
 entity's `heads`, the newest version of each task, beside `tops`. Its settings (`PATCH /api/folders/<id>`
-with `settings`) take `tasks: false` to count without tasks, `views` (`["cmp", "bty"]`, the main one
-first, or `false`; the catalogue gives the views in force as `viewList`), and `rules`, the whole list of what it has
+with `settings`) take `tasks: false` to count without tasks, `passes` (`["cmp", "bty"]`, the main one
+first, or `false`; the catalogue gives the passes in force as `passList`), and `rules`, the whole list of what it has
 learned (patterns, `[{ "pattern": ["nhmoc", "{seq}", "{shot}", "*", "{version}"], "seqs", "like", "as" }]`, or, from a
 first word alone, `[{ "word", "seq" }]` and `[{ "word", "name" }]`).
 
-The newest version of an asset, set or shot and task is the one with the highest number (numbers can
-be set by hand); the newest of an asset, set or shot as a whole is the latest filed of those, one per
+The newest version of an entity and task is the one with the highest number (numbers can
+be set by hand); the newest of an entity as a whole is the latest filed of those, one per
 task. Archived and deleted versions are never the newest. Cards, the timeline and a board's "newer" chip
 all mean this.
 
 `GET /api/notifications` lists comments written in the catalogue too: those have `board: null`, and
 any comment about a version has its `versionId`, `entityId` and `projectId` (open it at
 `#/f/<projectId>/catalogue/<entityId>`). The name of a board somebody cannot see is never given out
-(`null` in its place), in notes, versions or the catalogue.
+(`null` in its place), in comments, versions or the catalogue.
 
 A board's live connection (`/ws?board=<id>`): the page says `{ t: 'hello', name, color, cid }`, where
 `cid` is made afresh for each page load (at most 40 characters) and kept across its reconnections, and
@@ -1057,8 +1086,8 @@ Environment variables, or lines in a `.env` file next to `server.js`. All option
 
 ```
 server.js          HTTP + WebSocket server, boards in memory
-store.js           The database: boards, items, folders, projects' catalogues and notes
-notifications.js   What each person is told about, worked out from the notes
+store.js           The database: boards, items, folders, projects' catalogues and comments
+notifications.js   What each person is told about, worked out from the comments
 ai.js              Asking Claude for names: the prompt, the Claude API, checking what it answers
 likely.js          Which shot a video is most likely a new version of, by its length and picture
 cutfiles.js        An animatic's cut written out: OpenTimelineIO, CMX 3600 edit decision lists, the list of versions
@@ -1087,5 +1116,5 @@ public/login.html  Sign-in page (password and Google modes)
 public/style.css   All styling
 public/view3d.js   The player's 3D view: a project's model of its venue, with the piece on its screens (docs/3d-preview.md)
 scripts/           restore-board.js: bring back a deleted board
-test/              npm test: sign-in, uploads, live sync, workspaces, links, presenting, the database, catalogue, versions, filing (reading what is typed, learned names, likeness), notes, notifications, snapping, animatics (their edit, their arithmetic, their cut written out) and asking Claude (against a stand-in)
+test/              npm test: sign-in, uploads, live sync, workspaces, links, presenting, the database, catalogue, versions, filing (reading what is typed, learned names, likeness), comments, notifications, snapping, animatics (their edit, their arithmetic, their cut written out) and asking Claude (against a stand-in)
 ```

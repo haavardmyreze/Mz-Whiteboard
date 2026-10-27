@@ -116,7 +116,7 @@ CREATE TRIGGER IF NOT EXISTS items_text_set AFTER UPDATE OF label ON items BEGIN
   INSERT INTO items_text (rowid, label) SELECT new.rowid, new.label WHERE new.label IS NOT NULL;
 END;
 
--- The catalogue of a project. An entity is an asset, a set or a shot; every version belongs to one. It
+-- The catalogue of a project. An entity is an entity; every version belongs to one. It
 -- can be there before anything is filed of it. artists and cc are names (JSON arrays): who makes it, and
 -- who else follows it.
 CREATE TABLE IF NOT EXISTS entities (

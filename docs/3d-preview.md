@@ -27,12 +27,12 @@ How it fits together:
   in that frame. Picking the comment glides back to it, turning the player to 3D if need be, and its
   drawing shows only there. A drawing begun and not yet sent keeps its frame: beginning again goes back to
   it. Comments drawn before this through the main camera say `pov: 'main'` and still open on it.
-- **Which view goes on the screens** is the project's setting (its main one unless said), not the
-  player's view dropdown, which hides in 3D.
+- **Which pass goes on the screens** is the project's setting (its main one unless said), not the
+  player's pass dropdown, which hides in 3D.
 - **On a board** in such a project, the player offers 3D for a piece that is a version (catalogued) and
-  has the view the project puts on the model (any version, when the project uses the main view). In 3D it
-  shows that view's file, which may not be the one on the board; a piece that is not a version, or lacks
-  that view, is shown as it is, and stepping to it turns the player back to 2D. The server sends each
+  has the pass the project puts on the model (any version, when the project uses the main pass). In 3D it
+  shows that pass's file, which may not be the one on the board; a piece that is not a version, or lacks
+  that pass, is shown as it is, and stepping to it turns the player back to 2D. The server sends each
   version a board shows with its `look3d` (boardVersion in server.js), and the board's model as `view3d`
   with its init, and again when the project's setting changes. Following someone on a board, or watching
   a presentation, follows 2D or 3D, the camera and the flight (`d` in the presence).
@@ -93,7 +93,7 @@ viewport: W and S along the view wherever it points, A and D sideways, Q/E strai
 to look, Shift for faster, the wheel to glide (or, with a button held, to set the speed), every move
 easing in and out; the model's own cameras are viewpoints, with an overview. The picture is a version
 filed in a project ("Filed version", "Preview in 3D (lab)" in a version's menu in the app, or
-`?version=…`), its main view to start with and its other views in a dropdown, or any file dropped on
+`?version=…`), its main pass to start with and its other passes in a dropdown, or any file dropped on
 the page. The model is kept in the browser for next time. The room is lit from all round (a soft
 environment, hemisphere and ambient light, and a sun for shape), and nothing in it is more than half
 metal, so no side of anything comes out black. It was tried with a small test venue (a curved 150° wall, a floor, steps) and a test video:
@@ -116,8 +116,8 @@ block after walking off and coming back, and after the window changes size.
 - **Nothing to fetch from the internet.** three.js is served from the installed package
   (`/vendor/three/…`, as mediabunny is), loaded only when the 3D view is opened. As served now it is
   about 2.1 MB (some 420 KB gzipped), and the glTF loader 120 KB more; once fetched it is cached.
-- **It ties in with views.** A model can have several projection areas (`screen-left`, `screen-floor`),
-  and a version several views (`left`, `floor`): each area can show the view of its name, and the
+- **It ties in with passes.** A model can have several projection areas (`screen-left`, `screen-floor`),
+  and a version several passes (`left`, `floor`): each area can show the pass of its name, and the
   plain `screen` the main one. A project with no model never sees any of it.
 
 ## What it takes to make it real

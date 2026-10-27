@@ -528,7 +528,7 @@
     const filed = cat && cat.entities ? cat.entities.length : 0;
     const typed = await WB.dialog({
       title: `Delete the project “${project.name}”?`,
-      text: `Its catalogue${filed ? ` (${plural(filed, 'asset, set or shot', 'assets, sets and shots')})` : ''}, every version and every comment on them, its playlists and animatics go for good, for everyone. Its boards and folders are deleted with it. Type its name to delete it.`,
+      text: `Its catalogue${filed ? ` (${plural(filed, 'entity', 'entities')})` : ''}, every version and every comment on them, its playlists and animatics go for good, for everyone. Its boards and folders are deleted with it. Type its name to delete it.`,
       value: '', placeholder: project.name, ok: 'Delete project', danger: true,
     });
     if (typed === null) return;
@@ -552,7 +552,7 @@
     if (on) {
       const sure = await WB.dialog({
         title: `Make “${folder.name}” a project?`,
-        text: 'A project keeps a catalogue: its assets, sets and shots, and every version filed of them, from its boards or dropped straight into it. It stays one once something is filed in it, and only an admin can delete it.',
+        text: 'A project keeps a catalogue: its entities, and every version filed of them, from its boards or dropped straight into it. It stays one once something is filed in it, and only an admin can delete it.',
         ok: 'Make it a project',
       });
       if (!sure) return;
@@ -1073,11 +1073,11 @@
 
   // ------------------------------------------------------------- pinned and recent
   //
-  // Both are kept by this browser. What you opened (boards, from board.js, and assets, sets and shots)
+  // Both are kept by this browser. What you opened (boards, from board.js, and entities)
   // is remembered as you go; what you pin stays in the sidebar until you unpin it.
 
   const pins = () => (Array.isArray(store(WB.KEYS.pins)) ? store(WB.KEYS.pins) : []);
-  // Pins to what has since been deleted go, once the library (and for an asset, set or shot, its
+  // Pins to what has since been deleted go, once the library (and for an entity, its
   // project's catalogue) says so: they would only lead nowhere, and take the room of real pins.
   function prunePins() {
     if (!libraryLoaded) return;
@@ -1109,7 +1109,7 @@
   //
   // Always there on a wide window, and a drawer on a narrow one: what you pinned, then each workspace with
   // its folders as a tree. A project opens to its boards and its catalogue, and
-  // the catalogue to its assets, sets and shots, the shots by sequence. Only what you are in is open.
+  // the catalogue to its entities, the shots by sequence. Only what you are in is open.
 
   const ICON_BOARDS = icon('boards', 16);
   const ICON_CAT = icon('catalogue', 16);
@@ -1357,7 +1357,7 @@
   }
 
   // Where you are: the workspace, the folders down to here, and in a catalogue the type, the sequence and
-  // the asset, set or shot. The last is the page's title; the rest are one small line above it. Every
+  // the entity. The last is the page's title; the rest are one small line above it. Every
   // part goes there, folders take drops, and the star beside the title pins what is here.
 
   function renderCrumbs(rt) {
@@ -1416,7 +1416,7 @@
         else if (v.page === 'versions') parts.push(['Versions', WB.href.versions(f.id)]);
         else if (v.page === 'activity') parts.push(['Activity', WB.href.activity(f.id)]);
         // The star pins what is here, not the project around it: a sequence, a type, the catalogue
-        // or the versions are pinned as that place (an asset, set or shot as itself).
+        // or the versions are pinned as that place (an entity as itself).
         if (v.page !== 'home' && !listsBoards(v) && !v.entity) {
           const [name, href] = parts[parts.length - 1];
           const what = v.seq ? 'sequence' : v.type ? 'type' : v.playlist ? 'playlist' : v.page;
@@ -1566,7 +1566,7 @@
   // ---- a project's Versions: every version filed, as it is asked for
   //
   // Newest filed first, by day and by who filed them, unless asked otherwise: grouped by sequence, by
-  // asset, set or shot, by task, by who filed them, or not at all; sorted by when they were filed, by name
+  // entity, by task, by who filed them, or not at all; sorted by when they were filed, by name
   // or by number; narrowed to some tasks, sequences, kinds (assets, sets, shots), people, artists, a time,
   // the newest of each, or with what is archived. The search box searches them all, on the server: the
   // name, the task, the artist, who filed it, the file's own name, "v12". How it is asked for is kept per
@@ -1574,7 +1574,7 @@
   const VL_GROUPS = [['time', 'Upload time'], ['seq', 'Sequence'], ['entity', 'Asset, set or shot'], ['task', 'Task'], ['by', 'Who filed'], ['none', 'Nothing']];
   const VL_SORTS = [['new', 'Newest filed'], ['old', 'Oldest filed'], ['name', 'Name'], ['number', 'Version number']];
   const VL_WHEN = [['', 'Any time'], ['day', 'Today'], ['week', 'Last 7 days'], ['month', 'Last 30 days']];
-  const VL_FILTERS = [['task', 'Task'], ['seq', 'Sequence'], ['type', 'Kind'], ['by', 'Filed by'], ['artist', 'Artist']];
+  const VL_FILTERS = [['task', 'Task'], ['seq', 'Sequence'], ['type', 'Type'], ['by', 'Filed by'], ['artist', 'Artist']];
   const vlDefault = () => ({ group: 'time', sort: 'new', when: '', newest: false, archived: false, task: [], seq: [], type: [], by: [], artist: [] });
   function vlState(project) {
     const key = `wb:vl:${project.id}`;
@@ -1883,7 +1883,7 @@
     countPicked(bar, shown, n - shown, 'versions');
   }
 
-  // Many versions changed at once (the Versions page's selection): moved to another asset, set or shot,
+  // Many versions changed at once (the Versions page's selection): moved to another entity,
   // given a task or none, an artist or none, archived or brought back. Each field leaves them as they are
   // unless it says otherwise. Those moved to one place go in the order they were filed, each the next
   // number there. All of it or none (PATCH /api/projects/:id/versions); Undo puts each back as it was,
@@ -2341,7 +2341,7 @@
 
   // ------------------------------------------------------------- a project: its catalogue
   //
-  // A project's catalogue is every asset, set and shot in it, each with the versions filed of it. It
+  // A project's catalogue is every entity in it, each with the versions filed of it. It
   // mirrors how the project is laid out on disk: assets, sets, and shots by sequence. Files dropped on
   // it, or added with Import, are taken many at once and filed: what a file's name says is filed at
   // once, and only what it does not say is asked. Nothing from it lands on a board.
@@ -2360,7 +2360,7 @@
   let searching = false;
 
   let shownProject = '';
-  let shownEntity = null; // the asset, set or shot whose page is showing, for the crumbs before its catalogue is in
+  let shownEntity = null; // the entity whose page is showing, for the crumbs before its catalogue is in
   async function renderProject(project, view) {
     // A project with a model of its venue: the player's 3D view is made ready as the project opens, so it is
     // there at once in the catalogue's player and in an animatic.
@@ -2396,7 +2396,7 @@
       catalogues.set(project.id, cat);
       if (shownProject !== sig) return;
       showContent(tray, ...catalogueView(project, cat, view));
-      // New assets, sets or shots show in the tree too.
+      // New entities show in the tree too.
       if (!had || JSON.stringify(had.entities.map((e) => e.id)) !== JSON.stringify(cat.entities.map((e) => e.id))) {
         renderSide(route());
         renderCrumbs(route());
@@ -2443,7 +2443,7 @@
     if (!cat) return [el('p', { class: 'home-quiet', text: 'Loading…' })];
     if (!cat.entities.length) {
       return [el('div', { class: 'home-empty' },
-        el('p', { text: 'Nothing is set up in this project yet. Add its assets, sets and shots in the catalogue, or drop files there to file them.' }),
+        el('p', { text: 'Nothing is set up in this project yet. Add its entities in the catalogue, or drop files there to file them.' }),
         el('a', { class: 'btn', href: WB.href.catalogue(project.id), text: 'Open the catalogue' }))];
     }
     const items = act ? act.items : null;
@@ -2457,7 +2457,7 @@
   }
 
   // This week at a glance, as one line of figures under the title, each beside the week before: versions
-  // filed, comments, and how many assets, sets and shots had something new.
+  // filed, comments, and how many entities had something new.
   function homePulse(items) {
     if (!items || !items.length) return null;
     const now = Date.now();
@@ -2472,18 +2472,18 @@
     return el('div', { class: 'ph-figs', role: 'group', 'aria-label': 'This week' },
       fig(filed, filed === 1 ? 'version this week' : 'versions this week', versus(filed, n(lastWeek, 'version'))),
       fig(said, said === 1 ? 'comment' : 'comments', versus(said, n(lastWeek, 'comment'))),
-      fig(moved, moved === 1 ? 'asset, set or shot moved on' : 'moved on'));
+      fig(moved, moved === 1 ? 'entity moved on' : 'moved on'));
   }
 
   // Where something is: filed this week, filed before, or nothing yet.
   const stateOf = (e, now = Date.now()) => (!e.versions ? 'none' : now - e.latestAt < WEEK ? 'fresh' : 'filed');
-  // A row of marks, one for each asset, set or shot given, in order; each opens it.
+  // A row of marks, one for each entity given, in order; each opens it.
   const homeStrip = (project, list) => el('div', { class: 'ph-strip' }, list.map((e) => el('a', {
     class: `ph-mark ${stateOf(e)}`, href: WB.href.catalogue(project.id, { entity: e.id }),
     title: `${e.name}: ${e.versions ? `${plural(e.versions, 'version')}, last ${ago(e.latestAt)}` : 'nothing filed yet'}`, 'aria-label': e.name,
   })));
 
-  // One part of the project (its assets, sets or shots): how many have something filed, each as a mark
+  // One part of the project (its entities): how many have something filed, each as a mark
   // (shots a row to each sequence, in order), then each task it has with how many have reached it.
   function homeType(project, cat, type) {
     const list = cat.entities.filter((e) => e.type === type.id);
@@ -2525,7 +2525,7 @@
   const homeKey = () => el('div', { class: 'ph-key' },
     el('span', { class: 'ph-mark fresh' }), 'filed this week', el('span', { class: 'ph-mark filed' }), 'before', el('span', { class: 'ph-mark none' }), 'nothing yet');
 
-  // Who is on the project: everyone who works on any of its assets, sets and shots, with what they are
+  // Who is on the project: everyone who works on any of its entities, with what they are
   // on, and how many versions each filed this week (everyone who filed one is here, on anything or not).
   function homePeople(cat, items) {
     const now = Date.now();
@@ -2640,7 +2640,7 @@
     const n = run.lines.length;
     const open = openRuns.has(newest.id);
     const filed = newest.kind === 'version';
-    // What they are of: the assets, sets and shots (or, for comments, the versions), the first few by name.
+    // What they are of: the entities (or, for comments, the versions), the first few by name.
     const of = [...new Set(run.lines.map((x) => (filed ? x.entity.name : x.version.label || x.entity.name)))];
     const ofText = of.length <= 3 ? of.join(', ') : `${of.slice(0, 2).join(', ')} and ${of.length - 2} more`;
     const whys = new Set(run.lines.map((x) => x.why));
@@ -2723,8 +2723,8 @@
   function catTools(project) {
     return el('div', { class: 'cat-tools' },
       el('button', { type: 'button', class: 'btn primary', html: `${ICON_IMPORT}<span>Import</span>`, title: 'Bring images and videos into the catalogue. Or drop them anywhere on the page', onclick: () => importer(project).pick() }),
-      el('button', { type: 'button', class: 'btn', html: `${ICON_PLUS}<span>Add<span class="cat-long"> assets, sets &amp; shots</span></span>`, title: 'Set up what the project has, before anything is filed of it', onclick: () => addEntities(project) }),
-      el('button', { type: 'button', class: `btn ghost pick-toggle${pickingIn(project) ? ' on' : ''}`, html: `${ICON_CHECKS}<span>Select</span>`, title: 'Select assets, sets and shots to change them together', onclick: () => setPicking(project, !pickingIn(project)) }));
+      el('button', { type: 'button', class: 'btn', html: `${ICON_PLUS}<span>Add<span class="cat-long"> entities</span></span>`, title: 'Set up what the project has, before anything is filed of it', onclick: () => addEntities(project) }),
+      el('button', { type: 'button', class: `btn ghost pick-toggle${pickingIn(project) ? ' on' : ''}`, html: `${ICON_CHECKS}<span>Select</span>`, title: 'Select entities to change them together', onclick: () => setPicking(project, !pickingIn(project)) }));
   }
 
   // Changing many at once: who works on them and who is cc'd (added, taken off, or set outright), and
@@ -2813,7 +2813,7 @@
             render();
             // Undo puts each back as it was: its own artists, cc and type, not one value for all.
             const before = chosen.map((e) => ({ id: e.id, name: e.name, artists: e.artists || [], cc: e.cc || [], type: e.type }));
-            undoable(`Changed ${plural(chosen.length, 'asset, set or shot', 'assets, sets and shots')}`, async () => {
+            undoable(`Changed ${plural(chosen.length, 'entity', 'entities')}`, async () => {
               // Names go back all at once, so names that went round among them can come back round.
               if (renaming) {
                 await api('PATCH', `/api/projects/${project.id}/entities`, {
@@ -2832,7 +2832,7 @@
           }
         },
       },
-      el('h2', { text: `Edit ${chosen.length === 1 ? names[0] : `${chosen.length} ${typeNow.length === 1 ? (types.find((t) => t.id === typeNow[0]) || { label: 'assets, sets and shots' }).label.toLowerCase() : 'assets, sets and shots'}`}` }),
+      el('h2', { text: `Edit ${chosen.length === 1 ? names[0] : `${chosen.length} ${typeNow.length === 1 ? (types.find((t) => t.id === typeNow[0]) || { label: 'entities' }).label.toLowerCase() : 'entities'}`}` }),
       el('p', { class: 'be-which', text: names.length > 8 ? `${names.slice(0, 8).join(', ')} and ${names.length - 8} more` : names.join(', ') }),
       ai && el('div', { class: 'be-ai' }, ai.node, aiList),
       artists.node, cc.node,
@@ -2899,7 +2899,7 @@
             dlg.close();
             shownProject = '';
             render();
-            undoable(`Added ${plural(res.made.length, 'asset, set or shot', 'assets, sets and shots')}`, null);
+            undoable(`Added ${plural(res.made.length, 'entity', 'entities')}`, null);
           } catch (err) {
             error.textContent = err.message;
             error.hidden = false;
@@ -2907,8 +2907,8 @@
           }
         },
       },
-      el('h2', { text: 'Add assets, sets & shots' }),
-      el('p', { text: 'What the project has, before anything is filed of it. Type or paste the names, one a line; each is an asset, a set or a shot by its name.' }),
+      el('h2', { text: 'Add entities' }),
+      el('p', { text: 'What the project has, before anything is filed of it. Type or paste the names, one a line; each is an entity by its name.' }),
       box,
       el('div', { class: 'ae-row' }, el('span', { text: 'They are' }), typeSel),
       el('div', { class: 'ae-row ae-shots' }, el('span', { text: 'Or a run of shots:' }), seq, el('span', { text: 'from' }), from, el('span', { text: 'to' }), to, el('span', { text: 'by' }), step,
@@ -2987,9 +2987,9 @@
 
   const ICON_PLAY = icon('playSolid', 14);
 
-  // An asset, set or shot's card: its picture plays the newest version at once (scrubbing through it
+  // An entity's card: its picture plays the newest version at once (scrubbing through it
   // under the pointer); its name goes to its page.
-  // Picking many assets, sets and shots in the catalogue, to change them together (batchEdit). A click
+  // Picking many entities in the catalogue, to change them together (batchEdit). A click
   // picks one, Shift and a click every one between it and the last, and the bar at the foot says how
   // many and what can be done with them.
   const picking = { project: null, on: false, ids: new Set(), last: null, order: [] };
@@ -3009,7 +3009,7 @@
     if (!bar) return;
     const seen = shownIds('.obj-entity[data-id]');
     const n = [...picking.ids].filter((id) => seen.has(id)).length;
-    countPicked(bar, n, picking.ids.size - n, 'assets, sets and shots');
+    countPicked(bar, n, picking.ids.size - n, 'entities');
     bar.querySelector('.pick-edit').disabled = !n;
     const cat = catalogues.get(picking.project);
     bar.querySelector('.pick-cut').disabled = !(cat && [...picking.ids].some((id) => seen.has(id) && cat.entities.some((e) => e.id === id && e.type === 'shot')));
@@ -3022,7 +3022,7 @@
     picking.last = null;
     $('pickbar')?.remove();
     if (on) {
-      const bar = pickBar('pickbar', 'Selected assets, sets and shots', {
+      const bar = pickBar('pickbar', 'Selected entities', {
         clear: () => { picking.ids.clear(); paintPicked(); },
         done: () => setPicking(project, false),
         actions: [
@@ -3037,7 +3037,7 @@
     paintPicked();
   }
 
-  // An asset, set or shot as an object: its newest picture (scrubbed, and the latest played with a click),
+  // An entity as an object: its newest picture (scrubbed, and the latest played with a click),
   // how many versions it has and when the last was filed, its tasks and its artists, and its menu. In the
   // catalogue (`pickable`) it is selected with a click while selecting, and its row's box starts that.
   // In the catalogue's rows (`inRow`) it is said short: its name (a shot's number alone, its sequence
@@ -3157,7 +3157,7 @@
   // A version opens in the player (viewer.js), the same one a board opens its media in: with every other
   // version of the same thing beside it, and what has been said about them, live.
   let player = null;
-  let lookingAt = null; // the asset, set or shot open in the player
+  let lookingAt = null; // the entity open in the player
   const thePlayer = () => player || (player = WBViewer.create({ me: () => me, title: () => '', media: () => [], comments: () => [], add() {}, set() {}, remove() {} }));
   async function lookAt(entityId, versionId) {
     thePlayer();
@@ -3171,7 +3171,7 @@
     }
   }
 
-  // What a version is filed as: its asset, set or shot, task and number make its name. Moved to another
+  // What a version is filed as: its entity, task and number make its name. Moved to another
   // asset or task with its number left as it was, it becomes the next one there.
   async function editVersion(project, entity, v) {
     const cat = catalogues.get(project.id) || await api('GET', `/api/projects/${project.id}`).catch(() => null);
@@ -3355,7 +3355,7 @@
       el('div', { class: 'ent-pp' }, el('span', { class: 'ent-pp-label', text: 'CC' }), namesField(entity.cc || [], save('cc'), { placeholder: 'Keep someone in the loop' })));
   }
 
-  // Picking versions, on the Versions page and an asset, set or shot's own: a click on a card picks it
+  // Picking versions, on the Versions page and an entity's own: a click on a card picks it
   // (Shift and a click, every one between it and the last), and the bar at the foot says what can be done.
   function pickVersion(project, id, range) {
     if (range && vpick.last && vpick.order.includes(vpick.last)) {
@@ -3367,8 +3367,8 @@
     paintVersionPick(project);
   }
 
-  // ---- versions: picked with a click wherever they are listed (a project's Versions, an asset, set or
-  // shot's own page), Shift and a click for every one between, as files are in a file manager.
+  // ---- versions: picked with a click wherever they are listed (a project's Versions, an entity's own page),
+  // Shift and a click for every one between, as files are in a file manager.
   const VER_NODES = '.obj-version[data-id]';
   // What picks it: a click, Space or Enter (with Shift, every one between), as on a card in a file manager.
   const verPicks = (project, entity, v, open = () => lookAt(entity.id, v.id)) => ({
@@ -3416,10 +3416,10 @@
 
   // A version as an object: its picture (scrubbed under the pointer, opened in the player with a click),
   // its shot and the rest of its label, what is known of it, the boards it is on, and its menu. On the
-  // Versions page (`list`) it says which asset, set or shot it is (a link to it) and when it was filed, as
+  // Versions page (`list`) it says which entity it is (a link to it) and when it was filed, as
   // the page groups by who filed it (and the day too, in a table not grouped by day: `day`); on the
-  // asset, set or shot's own page, who filed it and when. Whether it is an image or a video (`kinds`), and
-  // an asset, set or shot (`types`), is said only where the list has more than one.
+  // entity's own page, who filed it and when. Whether it is an image or a video (`kinds`), and
+  // an entity (`types`), is said only where the list has more than one.
   // Listed on a playlist, `open` is how it opens (the playlist playing from it) and `menu` comes first in its menu.
   function versionObj(project, entity, v, { list = false, typeName = (t) => t, day = false, kinds = false, types = false, open, menu = [] } = {}) {
     const passes = verPasses(v);
@@ -3499,7 +3499,7 @@
         lead: { name: 'Add versions', meta: 'Choose files, or drop them here', title: `Add new versions of ${entity.name}: choose files, or drop them anywhere here`, onclick: () => importer(project).pick(entity) },
       }),
       label('Comments', roots.length),
-      roots.length ? el('div', { class: 'ent-threads' }, threads) : el('p', { class: 'home-empty', text: 'Nothing said about it yet. Notes made on any board it is on show here.' }));
+      roots.length ? el('div', { class: 'ent-threads' }, threads) : el('p', { class: 'home-empty', text: 'Nothing said about it yet. Comments made on any board it is on show here.' }));
   }
 
   // ------------------------------------------------------------- a project's animatics
@@ -4243,8 +4243,8 @@
 
 
   // What is being brought into a project's catalogue: a strip above it, one row a file. Each file says on
-  // its own row what it is to be filed as, filled in ahead from its name (or, added on an asset, set or
-  // shot's page, that one), and is filed when you say so: one at a time, or all that are ready at once.
+  // its own row what it is to be filed as, filled in ahead from its name (or, added on an entity's
+  // page, that one), and is filed when you say so: one at a time, or all that are ready at once.
   // Kept per project, so leaving the catalogue and coming back finds it as it was.
   function importer(project) {
     let state = imports.get(project.id);
@@ -4341,10 +4341,10 @@
     const choiceOf = (r) => ({ name: r.fields.f.name(), task: r.fields.f.taskName() });
     const passOf = (r) => r.fields.f.passName();
     const attachmentOf = (r) => r.fields.f.attachmentName();
-    // The next number for a row: one past the highest its asset, set or shot and task has, counting the
+    // The next number for a row: one past the highest its entity and task has, counting the
     // rows above it still to be filed to the same. Another pass of the row just above (the same name and
     // task, from the same version of the file) is the same version, and has its number.
-    // The row a pass goes with: another of the same asset, set or shot and task, from the same version of
+    // The row a pass goes with: another of the same entity and task, from the same version of
     // the file (by the version its name says, when both say one), the main one first, above or below it.
     // Without a version in the names, the nearest row above going there.
     // An attachment goes with such a row too, one that is no attachment, or else with the newest version there is.
@@ -4474,8 +4474,8 @@
     const canFile = (r) => (r.status === 'ready' || r.status === 'uploading' || r.status === 'queued' || (r.status === 'failed' && r.look)) && !r.fileWhenReady && !!r.fields && r.fields.f.ready();
 
     function makeRow(r) {
-      // Which asset, set or shot, what it is if new, and the task: the fields a board files with too.
-      // The version it is to be: the next of that asset, set or shot and task (after any rows above going
+      // Which entity, what it is if new, and the task: the fields a board files with too.
+      // The version it is to be: the next of that entity and task (after any rows above going
       // to the same), unless another is typed (in its field, or at the end of the line: kilo-0010 v12).
       const num = el('input', { type: 'number', min: '1', step: '1', class: 'imp-num', 'aria-label': 'Version', title: 'Version: the next one, unless you say another' });
       const ruled = !r.parsed.entity && N.byRules(r.file.name, rules(), tasks());
@@ -4759,7 +4759,7 @@
     return state;
   }
 
-  // Files dropped anywhere on a project's catalogue go into it; on an asset, set or shot's page, into that.
+  // Files dropped anywhere on a project's catalogue go into it; on an entity's page, into that.
   let dropTargetEntity = null;
   const catalogueOpen = () => {
     const cur = currentFolder();

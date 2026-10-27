@@ -1843,7 +1843,7 @@
     });
   }
 
-  // An asset, set or shot's versions, from the catalogue, in the same player; closed, it is the board's again.
+  // An entity's versions, from the catalogue, in the same player; closed, it is the board's again.
   async function lookAtEntity(entityId, version) {
     try {
       await WBViewer.openEntity(viewer, entityId, { version, me, onClose: () => viewer.use(boardHost) });
@@ -3879,7 +3879,7 @@
       ['Time, frame or timecode', '~click the time'],
     ] },
     { id: 'guide', label: 'Guide', icon: ICON.help, guide: [
-      [ICON.stack, 'Versions', 'On a board in a project, select images or videos and file them as versions of an asset, set or shot (Shift+V). Their comments go with them, and show on every board the version is on. The catalogue button adds versions to the board.'],
+      [ICON.stack, 'Versions', 'On a board in a project, select images or videos and file them as versions of an entity (Shift+V). Their comments go with them, and show on every board the version is on. The catalogue button adds versions to the board.'],
       [ICON.comment, 'Comments with drawings', 'Draw on the open image or video while writing a comment, and the drawing belongs to it: it shows when the comment is read, on the frame it is about.'],
       [ICON.kept, 'Video cache', `The videos on boards you open, and the newest of your work, of what you are cc'd on and of what you pinned, are saved on this computer, so they open and scrub at once. Up to ${KEPT_MAX / 1024 ** 3} GB in all; the ones opened longest ago make room.`],
       [ICON.activity, 'Snapshots', 'Before each round of changes the board is kept as it was. Putting one back keeps what is there now as a snapshot too, so nothing is lost. Comments and catalogue versions are not touched; sticky notes go back with everything else.'],
@@ -4565,7 +4565,7 @@
   // which in its corner ("kilo-0010 anim v5"), and says so when a newer one has been filed since. What
   // is said about a version is said about it on every board it is on (see the comments in server.js).
   //
-  // Nothing has to be named for this: filing asks only which asset, set or shot it is (and the task, if
+  // Nothing has to be named for this: filing asks only which entity it is (and the task, if
   // the project uses them). What the file's name, the frame it is in, and the last choice made here say
   // is filled in ahead.
 
@@ -4661,7 +4661,7 @@
     openFiling(list, cat);
   }
 
-  // The dialog that files pieces as versions. Each piece says on its own row which asset, set or shot it
+  // The dialog that files pieces as versions. Each piece says on its own row which entity it
   // is, and the task if any: filled in ahead from its name (or what the project has learned about names
   // like it), else the frame it is in, else (for one piece) the last choice, and its task with that only
   // when it is the last choice's. Several pieces are never lumped together: each goes where its row
@@ -4835,7 +4835,7 @@
     (first ? first.ent : rows.length === 1 && useTasks ? rows[0].task : ok).focus();
   }
 
-  // ---- the catalogue beside the board: the project's assets, sets and shots, and their versions, to
+  // ---- the catalogue beside the board: the project's entities, and their versions, to
   // put on the board with a click
 
   const catPanel = $('catpanel');
@@ -4843,7 +4843,7 @@
   let catEntity = null;   // the entity open in the panel, by id
   let catQuery = '';
   const catBody = el('div', { class: 'cat-body' });
-  const catSearch = el('input', { type: 'search', placeholder: 'Find an asset, set or shot', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Find' });
+  const catSearch = el('input', { type: 'search', placeholder: 'Find an entity', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Find' });
   catSearch.addEventListener('input', () => { catQuery = catSearch.value.trim().toLowerCase(); paintCatalogue(); });
   // Escape in the search clears it, and once it is clear puts the panel away.
   catSearch.addEventListener('keydown', (e) => {

@@ -644,7 +644,7 @@ const WBViewer = (() => {
     const clearBtn = el('button', { class: 'iconbtn v-clear', html: ICON.eraser, title: 'Clear what is drawn on it (not what was drawn for a comment)', 'aria-label': 'Clear drawing', onclick: () => clearDrawing() });
     const barSlot = el('span', { class: 'v-slot' });
     // On a window too narrow for the strip, the open piece's other files are a menu here (see showFile).
-    const filesBtn = el('button', { class: 'iconbtn v-files', html: ICON.stack, title: 'Its other files ([ and ])', 'aria-label': 'Its other files', 'aria-haspopup': 'menu', hidden: true, onclick: () => filesMenu() });
+    const filesBtn = el('button', { class: 'iconbtn v-files', html: ICON.stack, title: 'Its attachments ([ and ])', 'aria-label': 'Its attachments', 'aria-haspopup': 'menu', hidden: true, onclick: () => filesMenu() });
     const dlBtn = el('button', { class: 'iconbtn', html: ICON.download, title: 'Download the original media', onclick: () => opts.download && open && opts.download(open) });
     const zoomBtn = el('button', { class: 'btn ghost v-zoom', html: ICON.fit, title: 'Fitted to the screen. Click for actual size', onclick: () => toggleZoom() });
     const doneBtn = el('button', { class: 'btn primary', text: 'Done', title: 'Close (Esc)', onclick: () => close() });
@@ -2898,7 +2898,7 @@ const WBViewer = (() => {
     return { name: 'Pass', value, def: value, options: shown.map((n) => [n, passLabel(n, list)]), pick };
   };
 
-  // ---------------------------------------------------------------- an asset, set or shot's versions
+  // ---------------------------------------------------------------- an entity's versions
   //
   // Opens the versions of one entity of a project's catalogue in a player, at `version` (or the newest).
   // What is said about them is live: everyone who has the entity open, here or on any board a version is
@@ -2983,7 +2983,7 @@ const WBViewer = (() => {
     };
   }
 
-  // ---------------------------------------------------------------- an asset, set or shot's versions
+  // ---------------------------------------------------------------- an entity's versions
   //
   // Opens the versions of one entity of a project's catalogue in a player, at `version` (or the newest).
   // What is said about them is live: everyone who has the entity open, here or on any board a version is

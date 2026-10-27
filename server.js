@@ -875,7 +875,7 @@ function holdsProject(folder) {
 // which pass of a version goes on it (its main one unless said), the camera it opens through, and the
 // field of view it flies through (`fov`, degrees across; unless said, the lens of the view it left). `banner` is the picture
 // over the title of its home page, and `bannerAt` the point of it kept in sight. `preview3d: null` takes the 3D preview away.
-// `tasks: false` says its versions are not counted by task: each asset, set or shot has one count.
+// `tasks: false` says its versions are not counted by task: each entity has one count.
 // `passes` says how its versions are shown: false, one way only; or the names of the ways, the main one
 // first (["cmp", "bty"]: each version is its cmp, and may have a bty beside it). `rules` are what its
 // people taught it about file names from elsewhere (see ruleFrom in naming.js), the whole list each time.
@@ -1052,7 +1052,7 @@ function holdsAnything(folder) {
 
 // ---------------------------------------------------------------- the catalogue of a project
 //
-// A project folder keeps a catalogue: its entities (assets, sets and shots) and the versions filed under
+// A project folder keeps a catalogue: its entities (entities) and the versions filed under
 // them. A version is filed from a piece of media on a board in the project, or from the project's
 // catalogue page. A piece on a board that shows a version says which (`ver`); the board shows what it is
 // called, and when there is a newer one.
@@ -1256,9 +1256,9 @@ function entityFor(project, spec) {
     if (!e || e.projectId !== project.id) throw refusal(400, 'That entity is not in this project');
     return e;
   }
-  if (!spec || typeof spec !== 'object') throw refusal(400, 'Say which asset, set or shot it is');
+  if (!spec || typeof spec !== 'object') throw refusal(400, 'Say which entity it is');
   const name = naming.tokenize(spec.name);
-  if (!name) throw refusal(400, 'An asset, set or shot needs a name');
+  if (!name) throw refusal(400, 'An entity needs a name');
   const have = store.entityNamed(project.id, name);
   if (have) return have;
   const type = naming.TYPES.includes(spec.type) ? spec.type : naming.entityTypeOf(name, store.entities(project.id)) || 'asset';
@@ -1499,7 +1499,7 @@ function peopleColours() {
 //   mention   comments naming them ("@Anna"), as in the bell (notifications.js)
 //   reply     replies in a thread they wrote in
 //   work      comments on a version they filed or that names them its artist, and playlists of their work
-//   artist    versions filed and comments written on what they make (the artists of an asset, set or shot)
+//   artist    versions filed and comments written on what they make (the artists of an entity)
 //   cc        and on what they are cc'd on
 // each line for the first of these that fits.
 function activityFor(name, entityById) {
@@ -1849,7 +1849,7 @@ async function handleCatalogue(req, res, parts) {
       return sendJson(res, 200, playlistCard(p));
     }
     // POST /api/projects/:id/likely { looks: [{ key, type, dur, fps, nw, nh, wf }] }: for each video about
-    // to be filed, the assets, sets and shots (and tasks) whose newest version it most likely follows,
+    // to be filed, the entities (and tasks) whose newest version it most likely follows,
     // by its length, frame rate, size and picture (likely.js): { answers: { key: [{ entityId, entity,
     // task, number, score, why }] } }. `wf` is its colour strip's colours (the `c` of its strip).
     if (parts.length === 4 && parts[3] === 'likely' && req.method === 'POST') {
@@ -1905,7 +1905,7 @@ async function handleCatalogue(req, res, parts) {
       return sendJson(res, 200, { versions: shape(list), more, next: more ? pageCursor(list.at(-1)) : null });
     }
     // PATCH /api/projects/:id/versions { edits: [{ id, entity, task, number, artist, hidden }] }: many versions
-    // changed at once, each as its edit says (what it leaves out stays): moved to another asset, set or shot
+    // changed at once, each as its edit says (what it leaves out stays): moved to another entity
     // (one to make, by name) or task, with the next number there unless one is given, an artist, archived or
     // brought back. In the order given, so several moved to one place keep their order. Everything is
     // checked as it is done, in one write: a number taken anywhere changes nothing.
@@ -2090,21 +2090,21 @@ async function handleCatalogue(req, res, parts) {
       const body = await readJson(req, 1024 * 1024);
       const ids = Array.isArray(body.ids) ? [...new Set(body.ids)].slice(0, 2000) : [];
       const list = ids.map((id) => store.entity(id));
-      if (!list.length || list.some((e) => !e || e.projectId !== project.id)) return sendJson(res, 400, { error: 'Pick assets, sets or shots of this project' });
-      if (body.type !== undefined && !naming.TYPES.includes(body.type)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
+      if (!list.length || list.some((e) => !e || e.projectId !== project.id)) return sendJson(res, 400, { error: 'Pick entities of this project' });
+      if (body.type !== undefined && !naming.TYPES.includes(body.type)) return sendJson(res, 400, { error: 'A type is asset, set or shot' });
       // { names: { id: name }, types: { id: type } }: each its own (as Claude suggests in batch edit).
       const own = (map) => (map && typeof map === 'object' && !Array.isArray(map) ? map : {});
       const names = new Map();
       for (const [id, n] of Object.entries(own(body.names))) {
         if (!ids.includes(id)) return sendJson(res, 400, { error: 'Rename only what is picked' });
         const name = naming.tokenize(n);
-        if (!name) return sendJson(res, 400, { error: 'An asset, set or shot needs a name' });
+        if (!name) return sendJson(res, 400, { error: 'An entity needs a name' });
         names.set(id, name);
       }
       const types = own(body.types);
       for (const [id, t] of Object.entries(types)) {
         if (!ids.includes(id)) return sendJson(res, 400, { error: 'Change only what is picked' });
-        if (!naming.TYPES.includes(t)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
+        if (!naming.TYPES.includes(t)) return sendJson(res, 400, { error: 'A type is asset, set or shot' });
       }
       // The names as they will all be: none twice, and none another of the project's has.
       const after = new Map(list.map((e) => [e.id, names.get(e.id) || e.name]));
@@ -2177,7 +2177,7 @@ async function handleCatalogue(req, res, parts) {
         const ids = Array.isArray(body.ids) ? [...new Set(body.ids.map(String))] : [];
         if (ids.length > ai.MAX_ENTITIES) return sendJson(res, 400, { error: `Ask about at most ${ai.MAX_ENTITIES} at a time` });
         const chosen = ids.map((id) => entities.find((e) => e.id === id));
-        if (!chosen.length || chosen.some((e) => !e)) return sendJson(res, 400, { error: 'Pick assets, sets or shots of this project' });
+        if (!chosen.length || chosen.some((e) => !e)) return sendJson(res, 400, { error: 'Pick entities of this project' });
         const withFiles = chosen.map((e) => ({
           id: e.id, name: e.name, type: e.type,
           files: [...new Set(store.versionsOf(e.id).map((v) => v.originalName).filter(Boolean))].slice(0, 3),
@@ -2199,10 +2199,10 @@ async function handleCatalogue(req, res, parts) {
     const edit = {};
     if (body.name !== undefined) {
       edit.name = naming.tokenize(body.name);
-      if (!edit.name) return sendJson(res, 400, { error: 'An asset, set or shot needs a name' });
+      if (!edit.name) return sendJson(res, 400, { error: 'An entity needs a name' });
     }
     if (body.type !== undefined) {
-      if (!naming.TYPES.includes(body.type)) return sendJson(res, 400, { error: 'An asset, a set or a shot' });
+      if (!naming.TYPES.includes(body.type)) return sendJson(res, 400, { error: 'A type is asset, set or shot' });
       edit.type = body.type;
     }
     if (body.artists !== undefined) edit.artists = cleanPeople(body.artists);
@@ -2904,7 +2904,7 @@ function dropStrangers(board) {
 }
 
 // The same for the catalogue's rooms (see joinRoom): after a project changes workspace, whoever has one
-// of its assets, sets or shots open but may no longer see the project is shown the door.
+// of its entities open but may no longer see the project is shown the door.
 function dropRoomStrangers() {
   for (const [entityId, peers] of rooms) {
     const e = store.entity(entityId);
@@ -3917,7 +3917,7 @@ setInterval(() => {
 
 // ---------------------------------------------------------------- the catalogue, live
 //
-// An asset, set or shot opened in the catalogue's viewer has a room of its own: everyone in it has all
+// An entity opened in the catalogue's viewer has a room of its own: everyone in it has all
 // the comments on all its versions, live, and what they write there is there on every board the version
 // is on, as what is written on those boards is there in the room. A comment written in the catalogue was
 // made on no board (its board is '').
@@ -4127,7 +4127,7 @@ async function handlePhoneCopy(req, res, rest) {
 // project, kept, so it can be sent ahead of every review; it is live only while they present.
 //
 // The presenter's pages (present.js) keep a connection here while they present (`hosts`), each page in
-// turn, and say what they show (`scene`): a board, an asset, set or shot's versions in the player, an
+// turn, and say what they show (`scene`): a board, an entity's versions in the player, an
 // animatic, or nothing that can be shown (a list of the catalogue, say: `idle`). With it goes what the
 // player is doing (`p`: the piece open, its moment, the thread read, the zoom, 3D; in an animatic the moment
 // is the edit's, and the piece the version on screen) and the laser. The people
@@ -4136,7 +4136,7 @@ async function handlePhoneCopy(req, res, rest) {
 // presenter's own place on it (their peer there carries `lead`).
 //
 // What the people watching can load is what has been shown since the link was made live (`shown`): the
-// boards' files as a read-only link has them, the versions of the assets, sets and shots opened, the
+// boards' files as a read-only link has them, the versions of the entities opened, the
 // versions and sound files of an animatic played, and the project's model of its venue. Never a file a video
 // was made from.
 

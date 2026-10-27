@@ -1,6 +1,6 @@
 'use strict';
 
-// Which asset, set or shot a video is most likely a new version of, by the video itself. A new version of
+// Which entity a video is most likely a new version of, by the video itself. A new version of
 // a shot is most often as long as the one before it, at the same frame rate and size, and looks much like
 // it along its length: its colour strip (the colours of the top and bottom of its picture at 512 moments,
 // made as it was brought in; see ingest.js) rises and falls in the same places. Nothing is decided here:

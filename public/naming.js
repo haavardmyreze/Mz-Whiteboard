@@ -158,7 +158,7 @@
     return shotName(seq, Math.floor(last / step) * step + step);
   }
 
-  // What a line typed where a piece is filed says: which asset, set or shot, and any task, version number
+  // What a line typed where a piece is filed says: which entity, and any task, version number
   // and pass after it ("kilo-0010 anim v12 bty"). A word after the version that is no pass is an attachment of
   // that version (`attachment`: "kilo-0010 comp v12 light-b"). A whole file name pasted in is read as a file name is.
   // A few short ways to say a shot, read against `ctx.seq` (the sequence being filed in): `20` is shot

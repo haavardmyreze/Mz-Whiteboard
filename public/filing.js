@@ -2,7 +2,7 @@
 
 // Filing pieces as versions, the same wherever it is done: a board's "File as a version" (Shift+V) and
 // the catalogue's import strip ask the same questions, with the same fields. Each piece has a row:
-// which asset, set or shot it is, and the task (when the project counts its versions by task). Several
+// which entity it is, and the task (when the project counts its versions by task). Several
 // pieces can be given one answer to start from ("For all").
 //
 // Each row is one line of parts, labelled once above the rows (lineHead): what it is (an icon, with a
@@ -52,7 +52,7 @@ const WBFiling = (() => {
   }
   const newOption = (name, kinds, hint) => ({ value: name, task: undefined, label: `New: ${name}`, hint: hint || N.entityTypeOf(name, kinds || []) || 'say what it is', make: true });
 
-  // Suggestions for "which asset, set or shot", as a line is typed, best first. `ctx` is what the row
+  // Suggestions for "which entity", as a line is typed, best first. `ctx` is what the row
   // knows besides: { entities, tasks, useTasks, line context (see readLine), likely, above }.
   function suggest(ctx, typed, max = 9) {
     const list = ctx.entities || [];
@@ -598,7 +598,7 @@ const WBFiling = (() => {
         out.push({ text: `${N.label(n, taskName(), own.number)} is probably taken: the count is at v${top}`, fixes: [{ label: 'The next instead', run: () => { changed(); own.number = null; sync(); } }], warn: true, rank: 0 });
       }
       if (e && useTasks) {
-        // A second count for one asset, set or shot: with a task beside one without, or the other way.
+        // A second count for one entity: with a task beside one without, or the other way.
         const t = taskName();
         const tops = e.tops || {};
         const counted = Object.keys(tops).filter((k) => k);

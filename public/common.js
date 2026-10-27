@@ -49,7 +49,19 @@ const WB = (() => {
     const prev = user();
     const u = { name: String(name).trim().slice(0, 32), color: hexOk(color) ? color : prev ? prev.color : anyColor() };
     store('wb:user', u);
+    tellProfile(u);
     return u;
+  }
+
+  // The server keeps each person's name and colour, so the colour chosen in Your account is the one their
+  // avatar has everywhere, for everyone. Told once a page, and again whenever either changes. Behind a
+  // sign-in, the server keeps the sign-in's own instead.
+  let told = '';
+  function tellProfile(u) {
+    const key = u ? `${u.name}|${u.color}` : '';
+    if (!key || key === told) return;
+    told = key;
+    api('PUT', '/api/me/profile', { name: u.name, color: u.color }).catch(() => { told = ''; });
   }
 
   // In-page replacement for prompt() and confirm(). Resolves with the entered text
@@ -105,9 +117,15 @@ const WB = (() => {
 
   async function askName(force) {
     const managed = await identity();
-    if (managed) return managed;
+    if (managed) {
+      tellProfile(managed);
+      return managed;
+    }
     const existing = user();
-    if (existing && !force) return existing;
+    if (existing && !force) {
+      tellProfile(existing);
+      return existing;
+    }
     for (;;) {
       const name = await dialog({
         title: existing ? 'Change your name' : 'What should we call you?',

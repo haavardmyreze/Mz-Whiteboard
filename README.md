@@ -963,8 +963,10 @@ lists the names the app knows.
 `GET /api/projects/<folder>/activity` what happened in the project from its start, newest first (versions
 filed, comments, playlists and animatics made), `limit` lines a page (50, at most 600), `before` the `next`
 of the page before when `more` is true, `since` a time to go back no further than, and `for=me` only what
-is for whoever asks (`name` without sign-in), each line with its `why`, and each with the `color` its person
-goes by (the one they last commented in, else their sign-in's, else one picked by their name),
+is for whoever asks (`name` without sign-in), each line with its `why`, and each with the `color` of its
+person's avatar (their profile's, else their sign-in's, else one picked by their name),
+`PUT /api/me/profile` `{ name, color }` who a page's person is and the colour chosen in Your account, which
+every avatar of theirs then has (behind a sign-in, the sign-in's name and colour, whatever is sent),
 `GET /api/folders/<project>/sharing` who has what of a project (its permissions, the boards in it open by
 link, the links to watch it presented; an admin is given the people and groups to choose from too),
 `GET /api/projects/<folder>/versions?before=` the project's versions newest first, 300 a page, each with

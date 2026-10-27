@@ -1478,15 +1478,20 @@ function lineAfter(before) {
 }
 const comesAfter = (x, c) => x.at < c.at || (x.at === c.at && lineKey(x) < c.key);
 
-// The colour somebody goes by, by name: the one they last wrote a note in (the one they chose, or with sign-in
-// the one it gives them), else their sign-in's, else one of the palette picked by their name, so a name
-// always has the same one.
+// The colour somebody's avatar has, by name: the one in their profile (chosen in Your account, or behind a
+// sign-in the one it gives them; see /api/me/profile), else for somebody signed in whose pages have not said it
+// yet their sign-in's, else one of the palette picked by their name, so a name always has the same one.
 function peopleColours() {
   const signedIn = new Map(store.users().filter((u) => u.name).map((u) => [u.name.trim().toLowerCase(), colorFor(u.email)]));
-  const wrote = store.noteColours();
+  const known = new Map();
   return (name) => {
     const k = String(name || '').trim().toLowerCase();
-    return k ? wrote.get(k) || signedIn.get(k) || colorFor(k) : null;
+    if (!k) return null;
+    if (!known.has(k)) {
+      const profile = store.getState(`name:${k}`, 'profile');
+      known.set(k, (profile && profile.color) || signedIn.get(k) || colorFor(k));
+    }
+    return known.get(k);
   };
 }
 
@@ -3111,6 +3116,16 @@ function shareBases() {
 
 async function handleApi(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean); // ['api', ...]
+  // PUT /api/me/profile { name, color }: who a page's person is and the colour they chose (see peopleColours).
+  // Behind a sign-in it is the sign-in's name and colour, whatever the page says.
+  if (parts[1] === 'me' && parts[2] === 'profile' && req.method === 'PUT') {
+    const body = await readJson(req);
+    const name = req.user ? req.user.name : cleanName(body.name, null);
+    const color = req.user ? req.user.color : body.color;
+    if (!name || !/^#[0-9a-f]{6}$/i.test(color || '')) return sendJson(res, 400, { error: 'A name and a colour' });
+    store.setState(`name:${name.trim().toLowerCase()}`, 'profile', { name, color });
+    return sendJson(res, 200, { ok: true });
+  }
   if (parts[1] === 'me') {
     return sendJson(res, 200, { auth: auth.mode, user: req.user || null, admin: admin.allows(req), canShare: SHARING, maxUpload: MAX_UPLOAD, publicUrl: auth.publicUrl || null, shareBases: shareBases(), signOut: !!auth.interactive, ai: ai.enabled ? { model: ai.model } : null });
   }

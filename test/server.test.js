@@ -1868,7 +1868,7 @@ test("a project's activity goes back to its start a page at a time, and For you 
     store.addVersion({ id: 'robotv002', entityId: robot.id, kind: 'image', look, by: 'Ben', at: now - 2 * DAY });
     store.addNote({ id: 'note00001', boardId: '', itemId: annas.id, versionId: annas.id, data: { name: 'Ben', text: 'Lovely' }, by: 'Ben', at: now - DAY });
     store.addNote({ id: 'note00002', boardId: '', itemId: 'shotv0249', versionId: 'shotv0249', data: { name: 'Anna', text: 'Tighter?' }, by: 'Anna', at: now - DAY + 1 });
-    store.addNote({ id: 'note00003', boardId: '', itemId: 'shotv0249', versionId: 'shotv0249', re: 'note00002', data: { name: 'Carl', text: 'On it' }, by: 'Carl', at: now - DAY + 2 });
+    store.addNote({ id: 'note00003', boardId: '', itemId: 'shotv0249', versionId: 'shotv0249', re: 'note00002', data: { name: 'Carl', color: '#ff0000', text: 'On it' }, by: 'Carl', at: now - DAY + 2 });
     store.addNote({ id: 'note00004', boardId: '', itemId: 'shotv0000', versionId: 'shotv0000', data: { name: 'Carl', text: 'Ask @Anna' }, by: 'Carl', at: now - DAY + 3 });
     store.close();
   });
@@ -1888,9 +1888,14 @@ test("a project's activity goes back to its start a page at a time, and For you 
   assert.equal(new Set(seen.map((x) => x.id)).size, 256);
   assert.ok(seen.every((x, i) => !i || seen[i - 1].at >= x.at));
   assert.equal(seen[0].id, 'note00004');
-  // each in a colour: a person's always the same one
+  // each in its person's colour: the one in their profile, whatever their comments were written in; a person
+  // the server has not heard from has one picked by their name, always the same
   assert.ok(seen.every((x) => /^#[0-9a-f]{6}$/i.test(x.color)));
   assert.equal(new Set(seen.filter((x) => x.by === 'Ben').map((x) => x.color)).size, 1);
+  const profile = (body) => fetch(`${s.base}/api/me/profile`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await profile({ name: 'Carl', color: 'red' })).status, 400);
+  assert.equal((await profile({ name: 'Carl', color: '#123456' })).status, 200);
+  assert.ok((await get('limit=600')).items.filter((x) => x.by === 'Carl').every((x) => x.color === '#123456'));
   // as far back as asked
   assert.equal((await get(`since=${now - 7 * DAY}&limit=600`)).items.length, 6);
   assert.equal((await get('before=nonsense')).items, undefined);

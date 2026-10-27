@@ -3,7 +3,7 @@
 // The Vocabulary (#/vocabulary): the words the app uses, each for one thing. Four short chapters, one shown at a
 // time (#/vocabulary/<chapter>): where things are, what a version's name says, the three kinds of review, and
 // every word. The first three are each a picture whose words can be picked; the one picked is said
-// under it, so each word is explained in one place only, WORDS. Each word has the icon it has elsewhere
+// beside it, so each word is explained in one place only, WORDS. Each word has the icon it has elsewhere
 // in the app. README.md lists the same words ("The words it uses"); a new word goes in both. Loaded
 // after icons.js, before home.js.
 const WBVocabulary = (() => {
@@ -48,70 +48,86 @@ const WBVocabulary = (() => {
       ['pan', 'Flying', 'Moving freely, once the view leaves a camera.'],
     ]],
   ];
-  const ABOUT = new Map(WORDS.flatMap(([, list]) => list.map(([ic, word, say]) => [word, { ic, say }])));
+  const ABOUT = new Map(WORDS.flatMap(([group, list]) => list.map(([ic, word, say]) => [word, { ic, say, group }])));
 
-  // A chapter's picture and what is said under it. `pick(word, text)` is a word in the picture; picking
-  // it says what it is, below. The first word of the picture is said to begin with.
-  function pictured(draw) {
+  // A chapter's figure: its picture on a plate, and beside it (under it on a narrow window) the word picked
+  // in the picture and what it is, as a caption is. `pick(word, text)` is a word in the picture, and
+  // `marks(word)` makes anything else stand for it (a place's outline, a bracket, a sketch): picking either
+  // lights both. The picture's first word, as it is read, is said to begin with.
+  function figure(draw) {
     const say = el('div', { class: 'vc-say', 'aria-live': 'polite' });
-    const picks = [];
+    const parts = [];
     const show = (word) => {
-      const { ic, say: text } = ABOUT.get(word);
-      for (const p of picks) {
-        const on = p.dataset.word === word;
-        p.classList.toggle('on', on);
-        p.setAttribute('aria-pressed', String(on));
+      const { ic, say: text, group } = ABOUT.get(word);
+      for (const n of parts) {
+        const on = n.dataset.word === word;
+        n.classList.toggle('on', on);
+        if (n.tagName === 'BUTTON') n.setAttribute('aria-pressed', String(on));
       }
       say.replaceChildren(
-        el('span', { class: 'vc-say-ic', html: icon(ic, 18) }),
-        el('div', {}, el('b', { text: word }), el('p', { text })));
+        el('span', { class: 'vc-say-group', text: group }),
+        el('div', { class: 'vc-say-word' }, el('span', { html: icon(ic) }), el('b', { text: word })),
+        el('p', { text }));
     };
     const pick = (word, text = word) => {
-      const b = el('button', { type: 'button', class: 'vc-pick', 'data-word': word, text, onclick: () => show(word) });
-      picks.push(b);
+      const b = el('button', { type: 'button', class: 'vc-pick', 'data-word': word, text, onclick: (e) => { e.stopPropagation(); show(word); } });
+      parts.push(b);
       return b;
     };
-    const picture = draw(pick);
-    show(picks[0].dataset.word);
-    return [picture, say];
+    const marks = (node, word) => {
+      node.dataset.word = word;
+      node.addEventListener('click', (e) => { e.stopPropagation(); show(word); });
+      parts.push(node);
+      return node;
+    };
+    const picture = draw(pick, marks);
+    show(picture.querySelector('[data-word]').dataset.word);
+    return [el('div', { class: 'vc-figure' }, el('div', { class: 'vc-plate' }, picture), say)];
   }
 
-  // Where things are: places inside places, each a hairline around the next, and a project's three parts.
-  const places = (pick) => el('div', { class: 'vc-nest' },
-    pick('Workspace'),
-    el('div', { class: 'vc-nest' },
-      pick('Folder'),
-      el('div', { class: 'vc-nest' },
-        pick('Project'),
-        el('div', { class: 'vc-parts' },
-          el('div', { class: 'vc-part' }, pick('Catalogue')),
-          el('div', { class: 'vc-part' }, pick('Review', 'Reviews')),
-          el('div', { class: 'vc-part' }, pick('Activity'))))));
+  // Where things are: each place an outline around the next, its word in its corner, and a project's three
+  // parts side by side in it. Picking a place lights its outline.
+  function places(pick, marks) {
+    const place = (word, text, cls, ...kids) => marks(el('div', { class: `vc-place ${cls}` }, pick(word, text), ...kids), word);
+    return el('div', { class: 'vc-places' },
+      place('Workspace', 'Workspace', 'vc-ws',
+        place('Folder', 'Folder', 'vc-folder',
+          place('Project', 'Project', 'vc-project',
+            el('div', { class: 'vc-parts' },
+              place('Catalogue', 'Catalogue', 'vc-part'),
+              place('Review', 'Reviews', 'vc-part'),
+              place('Activity', 'Activity', 'vc-part'))))));
+  }
 
-  // A version's name, taken apart: the sequence over its start, the entity, task and count under it,
-  // and what goes with every version beside.
-  function version(pick) {
-    const mark = (col, word, at) => el('div', { class: `vc-brace vc-${at}`, style: { gridColumn: col } }, pick(word));
+  // A version's name, taken apart: the sequence over its start; the entity, task and count under it, each
+  // on a bracket; and what comes with every version beneath.
+  function version(pick, marks) {
+    const brace = (col, word, at) => marks(el('div', { class: `vc-brace vc-${at}`, style: { gridColumn: col } }, pick(word)), word);
     return el('div', { class: 'vc-version' },
       el('div', { class: 'vc-name' },
-        mark('1', 'Sequence', 'over'),
+        brace('1', 'Sequence', 'over'),
         ...['kilo', '-0010', 'comp', 'v3'].map((t, i) => el('span', { class: 'vc-tok', style: { gridColumn: String([1, 2, 4, 6][i]) }, text: t })),
-        mark('1 / 3', 'Entity', 'under'),
-        mark('4', 'Task', 'under'),
-        mark('6', 'Version', 'under')),
+        brace('1 / 3', 'Entity', 'under'),
+        brace('4', 'Task', 'under'),
+        brace('6', 'Version', 'under')),
       el('div', { class: 'vc-with' },
-        el('span', { class: 'vc-with-head', text: 'With each version' }),
-        pick('Pass', 'Passes'), pick('Attachment', 'Attachments'), pick('Comment', 'Comments')));
+        el('span', { text: 'With each version' }),
+        pick('Pass', 'passes'), pick('Attachment', 'attachments'), pick('Comment', 'comments')));
   }
 
-  // The three kinds of review, each drawn small with its word beneath, as a print is.
-  function reviews(pick) {
+  // The three kinds of review, each drawn small with its word beneath, as a print is: a board's pieces
+  // laid out on its dots, a playlist's versions in order, an animatic's shots on a timeline under the
+  // playhead.
+  function reviews(pick, marks) {
+    const n = (cls, k = 'i') => el(k, { class: cls });
     const sketch = {
-      Board: () => el('div', { class: 'vc-sk vc-sk-board' }, el('i', { class: 'a' }), el('i', { class: 'b' }), el('i', { class: 'n' })),
-      Playlist: () => el('div', { class: 'vc-sk vc-sk-list' }, [1, 2, 3].map((n) => el('i', { text: String(n) }))),
-      Animatic: () => el('div', { class: 'vc-sk vc-sk-cut' }, el('i', { class: 'a' }), el('i', { class: 'b' }), el('i', { class: 'c' }), el('b')),
+      Board: () => [n('h'), n('p a'), n('p b'), n('p c'), n('t a'), n('t b'), n('t c')],
+      Playlist: () => [1, 2, 3, 4].map((k) => el('div', { class: 'r' }, el('span', { text: String(k) }), n('th'), n('ln'))),
+      Animatic: () => [n('ruler'), el('div', { class: 'track' }, n('s a'), n('s b'), n('s c'), n('s d')), n('ph', 'b')],
     };
-    return el('div', { class: 'vc-reviews' }, Object.keys(sketch).map((word) => el('div', { class: 'vc-review' }, sketch[word](), pick(word))));
+    return el('div', { class: 'vc-reviews' }, Object.keys(sketch).map((word) => el('div', { class: 'vc-review' },
+      marks(el('div', { class: `vc-sk vc-sk-${word.toLowerCase()}` }, sketch[word]()), word),
+      pick(word))));
   }
 
   // Every word, by what it is about.
@@ -123,9 +139,9 @@ const WBVocabulary = (() => {
     ])))));
 
   const CHAPTERS = [
-    { id: 'places', label: 'Places', lead: 'Places inside places. Pick one to read what it is.', body: () => pictured(places) },
-    { id: 'version', label: 'A version', lead: 'A version’s name says what it is. Pick a part of it.', body: () => pictured(version) },
-    { id: 'reviews', label: 'Reviews', lead: 'Three ways to look at versions together.', body: () => pictured(reviews) },
+    { id: 'places', label: 'Places', lead: 'Places inside places. Pick one to read what it is.', body: () => figure(places) },
+    { id: 'version', label: 'A version', lead: 'A version’s name says what it is. Pick a part of it.', body: () => figure(version) },
+    { id: 'reviews', label: 'Reviews', lead: 'Three ways to look at versions together. Pick one to read what it is.', body: () => figure(reviews) },
     { id: 'words', label: 'Every word', lead: 'Each word the app uses, and what it is.', body: () => [words()] },
   ];
 

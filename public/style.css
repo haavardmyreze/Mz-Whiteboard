@@ -3234,65 +3234,87 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 .pa-pics .pa-pic { width: 48px; height: 27px; }
 @media (max-width: 560px) { .pa-pic, .pa-pics { display: none; } }
 
-/* The Vocabulary (vocabulary.js): the words the app uses, a chapter at a time. A row of chapters, a line saying
-   what the chapter shows, its picture, and under it the word picked in the picture (in blue: this one).
-   Greys only besides: the words are what is seen. */
+/* The Vocabulary (vocabulary.js): the words the app uses, a chapter at a time. A row of chapters, a line
+   saying what the chapter shows, then its figure: a picture on a plate and, beside it, the word picked in
+   the picture and what it is. A word in a picture reads as a word, underlined in dots; the one picked,
+   and whatever stands for it in the picture, is blue: this one. Greys besides. */
 .vc-tabs { display: flex; gap: 4px; margin-top: 8px; overflow-x: auto; scrollbar-width: none; }
 .vc-tab { display: inline-flex; flex: none; align-items: center; height: var(--h-sm); padding: 0 10px; border-radius: var(--r-2); color: var(--text-2); font-size: var(--fs-ui); text-decoration: none; white-space: nowrap; }
 .vc-tab:hover { background: var(--hover); color: var(--text); }
 .vc-tab.on { background: var(--surface-2); color: var(--text); font-weight: 600; }
 .vc-tab:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent); }
 .vc-lead { margin: 24px 0 0; color: var(--text-2); font-size: var(--fs-ui); line-height: 1.6; }
-.vc-body { display: flex; flex-direction: column; gap: 24px; max-width: 720px; margin-top: 20px; }
-/* A word in a picture: picked, it is said under the picture. */
-.vc-pick { flex: none; padding: 4px 8px; border: 0; border-radius: var(--r-2); background: transparent; color: var(--text); font: inherit; font-size: var(--fs-ui); font-weight: 600; white-space: nowrap; cursor: pointer; }
-.vc-pick:hover { background: var(--hover); }
-.vc-pick.on { background: var(--accent-soft); color: var(--accent); }
-.vc-pick:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent); }
-.vc-say { display: flex; gap: 12px; min-height: 88px; padding-top: 16px; border-top: 1px solid var(--line); }
-.vc-say-ic { display: grid; flex: none; place-items: center; width: 24px; height: 24px; color: var(--muted); }
-.vc-say b { font-size: var(--fs-lg); font-weight: 600; line-height: 24px; }
-.vc-say p { max-width: 560px; margin: 4px 0 0; color: var(--text-2); font-size: var(--fs-ui); line-height: 1.6; }
-/* Places: each a hairline around the next, a project's three parts side by side in it. */
-.vc-nest { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 12px 16px 16px 12px; border: 1px solid var(--line); border-radius: var(--r-3); }
-.vc-nest > .vc-nest, .vc-parts { align-self: stretch; }
-.vc-nest .vc-nest .vc-nest { background: var(--surface-1); }
+.vc-body { max-width: 1040px; margin-top: 16px; }
+.vc-figure { display: grid; grid-template-columns: minmax(0, 1fr) 264px; gap: 32px; align-items: start; }
+.vc-plate { display: grid; place-items: center; min-height: 320px; padding: 40px 32px; border-radius: var(--r-3); background: var(--surface-1); }
+.vc-say { padding-top: 8px; }
+.vc-say-group { color: var(--muted); font-size: var(--fs-sm); }
+.vc-say-word { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.vc-say-word span { display: inline-grid; color: var(--muted); }
+.vc-say-word b { font-size: var(--fs-xl); font-weight: 600; letter-spacing: -0.01em; }
+.vc-say p { margin: 8px 0 0; color: var(--text-2); font-size: var(--fs-ui); line-height: 1.6; text-wrap: pretty; }
+/* A word in a picture. */
+.vc-pick { flex: none; padding: 0; border: 0; background: none; color: var(--text); font: inherit; font-size: var(--fs-ui); font-weight: 500; line-height: 20px; white-space: nowrap; text-decoration: underline dotted var(--muted); text-underline-offset: 4px; cursor: pointer; }
+.vc-pick:hover { text-decoration-color: var(--text); }
+.vc-pick.on { color: var(--accent); text-decoration: underline solid var(--accent); }
+.vc-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--r-1); }
+/* Places: each an outline around the next, its word in its corner; the one picked is outlined in blue. */
+.vc-places { width: 100%; max-width: 560px; }
+.vc-place { display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding: 14px 16px 16px; border: 1px solid var(--line-strong); border-radius: var(--r-3); cursor: pointer; }
+.vc-place > .vc-place, .vc-parts { align-self: stretch; }
+.vc-project { background: var(--surface-2); }
 .vc-parts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.vc-part { padding: 12px 8px; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--bg); }
-/* A version's name, taken apart: its parts in a row, the word for each over or under it on a bracket. The
-   words hang off their brackets, so the name keeps its own spacing. */
-.vc-version { display: flex; flex-direction: column; gap: 32px; padding: 8px 0 0 32px; }
-.vc-name { display: grid; grid-template-columns: auto auto 20px auto 20px auto; justify-content: start; row-gap: 6px; }
+.vc-part { justify-content: flex-end; min-height: 72px; padding: 12px; border-radius: var(--r-2); background: var(--surface-1); }
+.vc-place.on { border-color: var(--accent); }
+/* A version's name, taken apart: its parts in a row, a word over or under each on a bracket. The words
+   hang off their brackets, so the name keeps its own spacing; the picked one's bracket is blue. */
+.vc-version { display: flex; flex-direction: column; align-items: center; gap: 40px; }
+.vc-name { display: grid; grid-template-columns: auto auto 24px auto 24px auto; row-gap: 8px; }
 .vc-tok { grid-row: 2; color: var(--text); font-size: var(--fs-xl); font-weight: 500; line-height: 1.2; }
-.vc-brace { position: relative; margin: 0 2px; }
+.vc-brace { position: relative; margin: 0 1px; cursor: pointer; }
 .vc-brace .vc-pick { position: absolute; left: 50%; transform: translateX(-50%); }
-.vc-over { grid-row: 1; padding-top: 36px; }
-.vc-over::after, .vc-under::before { content: ''; display: block; height: 6px; border: 1px solid var(--line-strong); }
+.vc-over { grid-row: 1; padding-top: 32px; }
+.vc-under { grid-row: 3; padding-bottom: 32px; }
+.vc-over::after, .vc-under::before { content: ''; display: block; height: 8px; border: 1px solid var(--muted); }
 .vc-over::after { border-bottom: 0; }
-.vc-over .vc-pick { top: 0; }
-.vc-under { grid-row: 3; padding-bottom: 36px; }
 .vc-under::before { border-top: 0; }
+.vc-over .vc-pick { top: 0; }
 .vc-under .vc-pick { bottom: 0; }
-.vc-with { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-.vc-with-head { margin-right: 8px; color: var(--muted); font-size: var(--fs-sm); }
-/* Reviews: each drawn small, its word beneath, as a print is. */
-.vc-reviews { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.vc-review { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
-.vc-review .vc-pick { margin-left: -8px; }
-.vc-sk { position: relative; align-self: stretch; height: 96px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-1); }
+.vc-brace.on::before, .vc-brace.on::after { border-color: var(--accent); }
+.vc-with { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 6px 16px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: var(--fs-sm); }
+/* Reviews: each drawn small, square and on a hairline, as a print is, its word beneath. Picked, its
+   edge is blue. */
+.vc-reviews { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; width: 100%; }
+.vc-review { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.vc-sk { position: relative; align-self: stretch; aspect-ratio: 4 / 3; overflow: hidden; border: 1px solid var(--line-strong); background: var(--surface-1); cursor: pointer; }
+.vc-sk.on { border-color: var(--accent); }
 .vc-sk i, .vc-sk b { position: absolute; display: block; }
-.vc-sk-board i { background: var(--surface-3); }
-.vc-sk-board .a { left: 10%; top: 16%; width: 36%; height: 44%; }
-.vc-sk-board .b { left: 52%; top: 28%; width: 30%; height: 52%; }
-.vc-sk-board .n { left: 22%; top: 66%; width: 16%; height: 22%; background: var(--text-2); opacity: 0.35; }
-.vc-sk-list { display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 0 14px; }
-.vc-sk-list i { position: static; height: 18px; padding-left: 8px; border-radius: var(--r-1); background: var(--surface-3); color: var(--text-2); font-size: var(--fs-micro); font-style: normal; line-height: 18px; }
-.vc-sk-cut i { bottom: 22%; height: 26%; background: var(--surface-3); }
-.vc-sk-cut .a { left: 6%; width: 30%; }
-.vc-sk-cut .b { left: 37%; width: 22%; }
-.vc-sk-cut .c { left: 60%; width: 34%; }
-.vc-sk-cut b { left: 46%; top: 14%; bottom: 10%; width: 1px; background: var(--accent); }
+.vc-sk-board { background-image: radial-gradient(var(--line-strong) 1px, transparent 1.2px); background-size: 8px 8px; }
+.vc-sk-board .h { left: 10%; top: 10%; width: 28%; height: 4px; border-radius: var(--r-1); background: var(--text-2); opacity: 0.6; }
+.vc-sk-board .p { background: var(--surface-3); }
+.vc-sk-board .t { height: 3px; border-radius: var(--r-1); background: var(--muted); opacity: 0.6; }
+.vc-sk-board .p.a { left: 10%; top: 22%; width: 38%; height: 32%; }
+.vc-sk-board .t.a { left: 10%; top: 58%; width: 20%; }
+.vc-sk-board .p.b { left: 56%; top: 22%; width: 34%; height: 24%; }
+.vc-sk-board .t.b { left: 56%; top: 50%; width: 16%; }
+.vc-sk-board .p.c { left: 56%; top: 60%; width: 24%; height: 20%; }
+.vc-sk-board .t.c { left: 56%; top: 84%; width: 12%; }
+.vc-sk-playlist { display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 0 10%; }
+.vc-sk-playlist .r { display: grid; grid-template-columns: 10px 20% 1fr; align-items: center; gap: 8px; color: var(--muted); font-size: var(--fs-micro); }
+.vc-sk-playlist .r i { position: static; }
+.vc-sk-playlist .th { aspect-ratio: 16 / 9; background: var(--surface-3); }
+.vc-sk-playlist .ln { width: 70%; height: 3px; border-radius: var(--r-1); background: var(--muted); opacity: 0.6; }
+.vc-sk-playlist .r:nth-child(2n) .ln { width: 50%; }
+.vc-sk-animatic .ruler { left: 0; right: 0; top: 0; height: 14%; border-bottom: 1px solid var(--line); background: repeating-linear-gradient(90deg, var(--muted) 0 1px, transparent 1px 6.25%) bottom / 100% 35% repeat-x; }
+.vc-sk-animatic .track { position: absolute; left: 6%; right: 6%; top: 40%; height: 30%; display: flex; gap: 2px; }
+.vc-sk-animatic .s { position: static; height: 100%; background: var(--surface-3); }
+.vc-sk-animatic .s.a { flex: 3; }
+.vc-sk-animatic .s.b { flex: 2; }
+.vc-sk-animatic .s.c { flex: 4; }
+.vc-sk-animatic .s.d { flex: 2; }
+.vc-sk-animatic .ph { left: 44%; top: 6%; bottom: 14%; width: 1px; background: var(--accent); }
 /* Every word: a word to a row between hairlines, by what it is about. */
+.vc-all { max-width: 720px; }
 .vc-group-head { margin: 0 0 4px; font-size: var(--fs-lg); font-weight: 600; letter-spacing: -0.01em; }
 .vc-words { display: grid; grid-template-columns: 160px minmax(0, 1fr); margin: 0 0 24px; border-top: 1px solid var(--line); }
 .vc-words dt, .vc-words dd { margin: 0; padding: 10px 0; border-bottom: 1px solid var(--line); }
@@ -3306,13 +3328,15 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 .vocab-more:hover { color: var(--text); }
 /* The Vocabulary, under everything in the sidebar. */
 .side-foot { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line); }
+@media (max-width: 900px) {
+  .vc-figure { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .vc-say { min-height: 120px; padding-top: 0; }
+}
 @media (max-width: 560px) {
-  .vc-nest { padding: 8px 8px 12px 8px; }
-  .vc-parts { gap: 4px; }
-  .vc-part { padding: 8px 2px; }
-  .vc-reviews { gap: 8px; }
-  .vc-sk { height: 64px; }
-  .vc-sk-list { padding: 0 6px; gap: 4px; }
-  .vc-sk-list i { height: 12px; line-height: 12px; }
+  .vc-plate { min-height: 0; padding: 24px 12px; }
+  .vc-place { gap: 10px; padding: 10px 10px 12px; }
+  .vc-parts { gap: 6px; }
+  .vc-part { min-height: 56px; padding: 8px; }
+  .vc-reviews { gap: 12px; }
   .vc-words { grid-template-columns: 120px minmax(0, 1fr); }
 }

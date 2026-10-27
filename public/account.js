@@ -9,7 +9,7 @@ const WBAccount = (() => {
   const icon = WB.icon;
   const ICON = {
     pen: icon('pen', 16), moon: icon('moon', 16), sun: icon('sun', 16), kept: icon('kept', 18), out: icon('out', 16),
-    shield: icon('shield', 16),
+    shield: icon('shield', 16), help: icon('help', 16),
   };
   const size = WB.bytes;
 
@@ -134,6 +134,8 @@ const WBAccount = (() => {
         el('div', { class: 'ps-head' }, el('span', { class: 'ps-where', text: me.name }), el('h2', { text: 'Your account' })),
         el('div', { class: 'ps-body' }, tabs.nav, tabs.panes),
         el('div', { class: 'dlg-actions' },
+          // The words the app uses (guide.js), from wherever you are.
+          el('a', { class: 'btn', href: '/#/guide', html: `${ICON.help}<span>Guide</span>`, onclick: () => dlg.close() }),
           WB.info().admin && el('a', { class: 'btn', href: '/admin', html: `${ICON.shield}<span>Admin</span>` }),
           WB.info().signOut && el('button', {
             type: 'button', class: 'btn', html: `${ICON.out}<span>Sign out</span>`,

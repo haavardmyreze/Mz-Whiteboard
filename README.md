@@ -1103,6 +1103,7 @@ public/viewer.js   The player: one piece at a time, its strip, timeline, comment
 public/ink.js      Drawing: pen strokes, their outlines and colours; used by boards and the player
 public/ingest.js   Bringing media in: review copies of video, originals, timeline strips, stills; used by boards and the catalogue
 public/filing.js   Filing pieces as versions: the same line of parts, suggestions and notes under each row on a board (Shift+V) and in the catalogue's import
+public/guide.js    The Guide (#/guide): the words the app uses, drawn as the app has them, and each with what it is
 public/claude.js   Asking Claude: the box, what it said, and the mark on what it filled in
 public/media.js    The video cache on this computer, with sw.js (the service worker that plays from it)
 public/home.js     Workspaces and folders of boards, and a project's pages

@@ -1134,6 +1134,7 @@
 
   // The key of the place the page is on, as the tree names its rows.
   function hereKey(rt) {
+    if (onGuide()) return 'guide';
     if (rt.kind === 'space') return `w:${rt.space}`;
     const f = folderById(rt.id);
     const v = f && f.project ? currentView() : { page: 'boards' };
@@ -1329,7 +1330,9 @@
           el('span', { class: 'side-count', text: String(everything.boards.filter((b) => b.workspace === ws).length || '') }));
         dropTarget(head, null, ws);
         return [head, ...childrenOf(null, ws).flatMap((f) => folderRows(f, 0, ws, hereK))];
-      }));
+      }),
+      // The Guide, under everything: the words the app uses.
+      el('div', { class: 'side-foot' }, ...sideRow({ key: 'guide', depth: 0, icon: icon('help', 16), label: 'Guide', href: '#/guide', hereK })));
   }
 
   // On a narrow window the sidebar is a drawer, opened from the bar.
@@ -2224,7 +2227,29 @@
   window.addEventListener('pointercancel', endMarquee);
 
   let renderedFor = null;
+  // The Guide (guide.js): a page of its own, outside every workspace.
+  const onGuide = () => /^#\/guide\b/.test(location.hash);
+  function renderGuide() {
+    renderSide(route());
+    $('crumbs').hidden = true;
+    $('pagetitle').replaceChildren(el('span', { class: 'page-title-text', text: 'Guide' }));
+    $('pagetools').replaceChildren();
+    $('pagebanner').hidden = true;
+    $('barpath').hidden = true;
+    layoutSeg.hidden = true;
+    $('q').placeholder = 'Search is not used on the Guide';
+    $('q').disabled = true;
+    $('newsplit').hidden = true;
+    $('empty').hidden = true;
+    showContent(...WBGuide.view());
+  }
+
   function render() {
+    if (onGuide()) {
+      if (cutPage) closeAnimatic();
+      renderedFor = location.hash;
+      return renderGuide();
+    }
     const rt = route();
     if (renderedFor !== location.hash) {
       // A link to a folder or project that is not there any more says so, rather than landing quietly

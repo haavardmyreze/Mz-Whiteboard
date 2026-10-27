@@ -3327,7 +3327,10 @@ body.an-carrying, body.an-carrying * { cursor: grabbing !important; }
 .vocab-more { align-self: flex-start; color: var(--text-2); font-size: var(--fs-sm); text-decoration: underline; text-underline-offset: 2px; }
 .vocab-more:hover { color: var(--text); }
 /* The Vocabulary, under everything in the sidebar. */
-.side-foot { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line); }
+.side-foot { margin-top: 24px; padding-top: 8px; border-top: 1px solid var(--line); }
+.side-foot-link { display: flex; align-items: center; height: var(--h-sm); padding: 0 10px; border-radius: var(--r-2); color: var(--muted); font-size: var(--fs-sm); text-decoration: none; }
+.side-foot-link:hover { background: var(--hover); color: var(--text); }
+.side-foot-link.here { background: var(--hover); color: var(--text); font-weight: 500; }
 @media (max-width: 900px) {
   .vc-figure { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .vc-say { min-height: 120px; padding-top: 0; }

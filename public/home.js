@@ -1331,8 +1331,11 @@
         dropTarget(head, null, ws);
         return [head, ...childrenOf(null, ws).flatMap((f) => folderRows(f, 0, ws, hereK))];
       }),
-      // The Vocabulary, under everything: the words the app uses.
-      el('div', { class: 'side-foot' }, ...sideRow({ key: 'vocabulary', depth: 0, icon: icon('help', 16), label: 'Vocabulary', href: '#/vocabulary', hereK })));
+      // The Vocabulary, under everything: the words the app uses, a plain link in the sidebar's foot.
+      el('div', { class: 'side-foot' }, el('a', {
+        class: `side-foot-link${hereK === 'vocabulary' ? ' here' : ''}`, href: '#/vocabulary', text: 'Vocabulary',
+        'aria-current': hereK === 'vocabulary' ? 'page' : null, onclick: () => closeDrawer(),
+      })));
   }
 
   // On a narrow window the sidebar is a drawer, opened from the bar.

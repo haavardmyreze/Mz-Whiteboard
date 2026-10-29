@@ -2540,6 +2540,16 @@ const WBViewer = (() => {
     // Space plays even when a control clicked a moment ago (a dropdown in the bar, a button) still has the
     // keyboard (WB.heldControl).
     const { isTyping, heldControl } = WB;
+    // Ctrl+C copies the image open, at its full size, or the frame of a video on screen, for pasting into
+    // another program (WB.copyImage), wherever the host lets its pieces be downloaded. Whether it took the key.
+    function copyOpen() {
+      if (!opts.download || !media) return false;
+      const say = (text, o) => (opts.toast || WB.toast)(text, o);
+      if (!WB.media.keepable(open.src)) say('This one is not kept here: it was added by its address, so it cannot be copied.', { ms: 4000, key: 'copy' });
+      else if (open.type === 'video' && media.readyState < 2) say('The video has no frame to copy yet', { ms: 2500, key: 'copy' });
+      else return !!WB.copyImage(open.type === 'video' ? media : open.full || open.src, { name: open.name || '', say });
+      return true;
+    }
     window.addEventListener('keydown', (e) => {
       let released = false;
       if (open && e.code === 'Space' && !e.ctrlKey && !e.metaKey && !e.altKey && heldControl(e.target) && !document.querySelector('dialog[open]')
@@ -2593,6 +2603,7 @@ const WBViewer = (() => {
         else if (k === 'y' && can.draw()) redo();
         else if (k === '0') zoomAt(innerWidth / 2, innerHeight / 2, actualS() / cam.s);
         else if (k === 'a') { /* nothing to select in here */ }
+        else if (WB.copyKey(e) && copyOpen()) { /* copying the picture */ }
         else return;
         return done();
       }

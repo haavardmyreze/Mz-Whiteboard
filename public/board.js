@@ -3349,15 +3349,37 @@
     if (viewOnly || isTyping(e.target) || !e.clipboardData) return;
     e.preventDefault();
     const at = pointer.inside ? s2w(pointer.sx, pointer.sy) : viewCenter();
+    // An image copied off a board is the piece itself, though the clipboard holds its picture too.
+    const ours = WB.copiedPieces(e.clipboardData.getData('text/html'));
+    if (ours && ours.wipboard === 1 && Array.isArray(ours.items)) return pasteItems(ours.items, at);
     if (e.clipboardData.files.length) return addFiles(e.clipboardData.files, at);
     pasteText(e.clipboardData.getData('text/plain'), at);
   });
 
+  // What is selected goes onto the clipboard as text the board reads back. Text selected on the page is
+  // the browser's to copy.
+  const copied = () => ({ wipboard: 1, items: [...withDependents(sel)].map((id) => items.get(id)).filter(Boolean) });
   function copySel(e) {
-    if (isTyping(e.target) || !sel.size) return false;
-    e.clipboardData.setData('text/plain', JSON.stringify({ wipboard: 1, items: [...withDependents(sel)].map((id) => items.get(id)).filter(Boolean) }));
+    if (isTyping(e.target) || !sel.size || String(getSelection()).trim()) return false;
+    e.clipboardData.setData('text/plain', JSON.stringify(copied()));
     e.preventDefault();
     return true;
+  }
+  // Ctrl+C on one image or video on its own puts its picture on the clipboard instead (a video's frame on
+  // screen, or its still before it has played), for pasting into another program, with the board's copy
+  // kept beside it (WB.copyImage). It is done from the key, whose own copy is then held back: in Firefox
+  // that would cancel the picture on its way. If the picture cannot be had, the board's copy goes on as
+  // text after all. Whether it took the key.
+  function copyPicture() {
+    const it = sel.size === 1 && items.get([...sel][0]);
+    if (!it || (it.type !== 'image' && it.type !== 'video') || !onServer(it)) return false;
+    const video = it.type === 'video' && videoOf(it.id);
+    const source = video && video.readyState >= 2 ? video : it.type === 'image' ? it.src : it.poster || it.th;
+    if (!source) return false;
+    const data = copied();
+    const writing = WB.copyImage(source, { name: it.name, data, say: toast, what: it.type === 'video' ? 'frame' : 'image' });
+    if (writing) writing.then((ok) => ok || navigator.clipboard.writeText(JSON.stringify(data)).catch(() => {}));
+    return !!writing;
   }
   document.addEventListener('copy', copySel);
   document.addEventListener('cut', (e) => {
@@ -3752,6 +3774,7 @@
       else if (k === 'a') { setTool('select'); setSel([...items.values()].filter((it) => selectable(it) && !it.pid).map((it) => it.id)); }
       else if (k === 'd') duplicate();
       else if (k === 'p') packSelection();
+      else if (WB.copyKey(e) && copyPicture()) { /* copying the picture */ }
       else if (k === '0') {
         userMovedView();
         zoomAt(vp.clientWidth / 2, vp.clientHeight / 2, 1 / cam.z);
@@ -3850,6 +3873,7 @@
     ] },
     { id: 'arrange', label: 'Arrange', icon: ICON.tidy, rows: [
       ['Duplicate', combo('mod', 'D'), '~or', combo('alt'), '~+ drag'],
+      ['Copy, an image as a picture too', combo('mod', 'C')],
       ['Tidy into a grid', combo('mod', 'P')],
       ['File as a version', combo('shift', 'V')],
       ['…then copy the row above', combo('mod', 'D')],
@@ -3864,6 +3888,7 @@
       ['Previous / next', '←', '→'],
       ['Comment', 'C'],
       ['Show comments', combo('shift', 'C')],
+      ['Copy the image or frame', combo('mod', 'C')],
     ['Show the strip', combo('shift', 'F')],
       ['Mention', '@'],
       ['Laser, then brush', 'L'],

@@ -310,6 +310,10 @@ the app (`#/vocabulary`) lays the same out in pictures.
   frames and the same shortcut tidies the frames themselves, each as one piece with its contents and
   drawings, keeping their own sizes.
 - **Undo / redo** per person, copy and paste between boards, duplicate with Alt-drag.
+- **Copying a picture out.** Ctrl+C (Cmd+C on a Mac) on one image or video selected on a board, or
+  open in the viewer, puts it on the clipboard as a picture to paste into another program: an image at
+  its full size, a video as the frame on screen. Pasted back on a board, it is the piece itself again.
+  A browser lets a page do this only over https or on this machine.
 
 Press `?` on a board for the full shortcut list.
 

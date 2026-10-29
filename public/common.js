@@ -708,6 +708,83 @@ const WB = (() => {
     return { set: (t) => { label.textContent = t; }, close, node };
   }
 
+  // ---- an image onto the clipboard, for pasting into another program (Ctrl+C on a board or in the player)
+  //
+  // `source` is the address of an image, or a <video>, whose frame on screen is what is copied. Browsers
+  // only take PNG, so anything else is drawn on a canvas and made into one. It is called from the key press
+  // itself, not from the copy that follows it (Firefox refuses an image written from there), and the
+  // clipboard is handed a promise of the image rather than the image, so the write still belongs to that key:
+  // Firefox and Safari refuse one that comes later. Beside the image goes an <img> of it, as a browser's own
+  // Copy Image does (of its address; a frame has none, so of the frame itself). `data` is kept on that <img>
+  // (the board's own copy of the piece), so pasting it back on a board finds the piece itself. Says how it
+  // went with `say`, calling it `what` (an image, a frame), and returns whether it did, as a promise; or
+  // nothing where the browser lets no page write images (one opened over plain http), so the key can do
+  // what it otherwise does.
+  function copyImage(source, { name = '', data = null, say = toast, what } = {}) {
+    const frame = source instanceof HTMLVideoElement;
+    what = what || (frame ? 'frame' : 'image');
+    if (!window.ClipboardItem || !navigator.clipboard || !navigator.clipboard.write) {
+      say(`The ${what} could not be copied: this browser only lets a page copy images when it is opened over https.`, { ms: 7000, key: 'copy' });
+      return null;
+    }
+    const toPng = (pic, w, h) => {
+      const canvas = el('canvas', { width: w, height: h });
+      canvas.getContext('2d').drawImage(pic, 0, 0, w, h);
+      return new Promise((done, fail) => canvas.toBlob((blob) => (blob ? done(blob) : fail(new Error('it is too large to draw'))), 'image/png'));
+    };
+    const png = frame ? toPng(source, source.videoWidth, source.videoHeight) : (async () => {
+      const res = await fetch(source);
+      if (!res.ok) throw new Error(`the server answered ${res.status}`);
+      const blob = await res.blob();
+      if (blob.type === 'image/png') return blob;
+      const url = URL.createObjectURL(blob);
+      try {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        return await toPng(img, img.naturalWidth || 1024, img.naturalHeight || 1024);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    })();
+    const kinds = { 'image/png': png };
+    if (!frame || data) {
+      kinds['text/html'] = (async () => {
+        // Made in a document of its own, which does not fetch it.
+        const img = document.implementation.createHTMLDocument('').createElement('img');
+        img.src = frame ? await new Promise((done) => {
+          const read = new FileReader();
+          read.onload = () => done(read.result);
+          png.then((blob) => read.readAsDataURL(blob), () => done(''));
+        }) : new URL(source, location.href).href;
+        img.alt = name;
+        if (data) img.dataset.wipboard = JSON.stringify(data);
+        return new Blob([img.outerHTML], { type: 'text/html' });
+      })();
+    }
+    return navigator.clipboard.write([new ClipboardItem(kinds)]).then(() => {
+      say(`${what[0].toUpperCase()}${what.slice(1)} copied`, { ms: 2000, key: 'copy' });
+      return true;
+    }, (err) => {
+      say(`The ${what} could not be copied: ${err.name === 'NotAllowedError' ? 'the browser did not allow it' : err.message || err}`, { ms: 6000, key: 'copy' });
+      return false;
+    });
+  }
+  // Ctrl+C (Cmd+C on a Mac) on its own, pressed where it copies what the page shows: not while typing,
+  // nor with text selected, which are the browser's to copy.
+  const copyKey = (e) => (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && !e.repeat && e.key.toLowerCase() === 'c'
+    && !isTyping(e.target) && !String(getSelection()).trim();
+  // The board's own copy of a piece, from an image copied off a board (above), or null.
+  function copiedPieces(html) {
+    if (!html || !html.includes('data-wipboard')) return null;
+    const img = new DOMParser().parseFromString(html, 'text/html').querySelector('[data-wipboard]');
+    try {
+      return img && JSON.parse(img.dataset.wipboard);
+    } catch {
+      return null;
+    }
+  }
+
   // ---- where things are: every address in the app is made here, so they read the same everywhere.
   // On the boards page they are hash routes; from a board, `abs` puts them under / as well.
   const href = {
@@ -746,6 +823,6 @@ const WB = (() => {
 
   return {
     el, store, remember, combo, rank, user, dialog, askName, info, shareBases, offline, waiting, playable, usesPhoneCopies, watchServer, initials, ago, api, theme, setTheme, themeButton, keys, layout, setLayout, layoutSwitch, settingTabs,
-    media: null, colors: USER_COLORS, saveUser, signOut, clamp, uid, hexOk, isTyping, heldControl, letGo, bytes, plural, avatar, menu, closeMenus, toast, href, KEYS,
+    media: null, colors: USER_COLORS, saveUser, signOut, clamp, uid, hexOk, isTyping, heldControl, letGo, bytes, plural, avatar, menu, closeMenus, toast, copyImage, copyKey, copiedPieces, href, KEYS,
   };
 })();

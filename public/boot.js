@@ -17,5 +17,5 @@
   const layout = read('wb:layout');
   root.dataset.layout = ['cards', 'rows', 'table'].includes(layout) ? layout : matchMedia('(max-width: 560px)').matches ? 'rows' : 'cards';
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = root.dataset.theme === 'light' ? '#f0f0f0' : '#090909';
+  if (meta) meta.content = root.dataset.theme === 'light' ? '#f0f0f0' : '#101010';
 })();

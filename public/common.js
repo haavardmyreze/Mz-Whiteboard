@@ -258,7 +258,7 @@ const WB = (() => {
     document.documentElement.dataset.theme = t;
     store('wb:theme', t);
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.content = t === 'light' ? '#f0f0f0' : '#090909'; // style.css --bg
+    if (meta) meta.content = t === 'light' ? '#f0f0f0' : '#101010'; // style.css --bg
     window.dispatchEvent(new Event('wb:theme'));
   }
 

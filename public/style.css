@@ -40,14 +40,14 @@
 
 :root {
   /* dark (default) */
-  --bg: #090909;
-  --canvas: #0e0e0e;
-  --surface-1: #161616;
-  --surface-2: #1f1f1f;
-  --surface-3: #292929;
-  --frame-fill: #161616;
+  --bg: #101010;
+  --canvas: #161616;
+  --surface-1: #1c1c1c;
+  --surface-2: #242424;
+  --surface-3: #2e2e2e;
+  --frame-fill: #1d1d1d;
   --frame-rim: rgba(255, 255, 255, 0.07);
-  --note-fill: #222222;
+  --note-fill: #282828;
 
   --line: rgba(255, 255, 255, 0.08);
   --line-strong: rgba(255, 255, 255, 0.15);
@@ -78,11 +78,11 @@
   --shadow-pop: 0 2px 4px rgba(0, 0, 0, 0.4), 0 24px 56px -12px rgba(0, 0, 0, 0.7);
 
   --dots: rgba(255, 255, 255, 0.075);
-  --viewer-bg: #0c0c0c;
+  --viewer-bg: #111111;
   --ring-c: rgba(255, 255, 255, 0.09);
   --lift-c: rgba(0, 0, 0, 0.6);
-  --thumb-bg: #0a0a0a;
-  --thumb-empty: #181818;
+  --thumb-bg: #0f0f0f;
+  --thumb-empty: #1e1e1e;
   --backdrop: rgba(0, 0, 0, 0.38);
   --tip-bg: #303030;
   --tip-fg: #f2f2f2;

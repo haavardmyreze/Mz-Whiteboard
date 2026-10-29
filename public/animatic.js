@@ -38,7 +38,7 @@ const WBAnimatic = (() => {
   // ink. What lies over a picture (its name on a shade, its fades, its loops) is white on dark in both, as it is
   // over any picture.
   const PAINT = {
-    dark: { bed: '#090909', lane: '#101010', clip: '#181818', slate: '#242424', ink: '255, 255, 255', past: 'rgba(0, 0, 0, 0.4)', quiet: 'rgba(0, 0, 0, 0.35)' },
+    dark: { bed: '#101010', lane: '#171717', clip: '#1e1e1e', slate: '#292929', ink: '255, 255, 255', past: 'rgba(0, 0, 0, 0.4)', quiet: 'rgba(0, 0, 0, 0.35)' },
     light: { bed: '#f0f0f0', lane: '#e7e7e7', clip: '#d9d9d9', slate: '#c9c9c9', ink: '0, 0, 0', past: 'rgba(0, 0, 0, 0.04)', quiet: 'rgba(240, 240, 240, 0.6)' },
   };
   const paint = () => PAINT[document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'];

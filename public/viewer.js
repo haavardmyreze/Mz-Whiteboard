@@ -38,7 +38,8 @@
 // Whoever wants to know what the player does, whatever host it has, listens with `watch(fn)`: fn('open', id),
 // ('close'), ('media', id, playing, time), ('thread', id), ('laser', id, pts), ('zoom'), ('3d'), ('muted'),
 // ('3dload', k): the venue is loading, k of it come (null while that is not known), false once it is there,
-// ('file', id, att): another of the open piece's files is shown in its place.
+// ('file', id, att): another of the open piece's files is shown in its place, ('compare'): two images
+// compared, the line between them moved or turned, or the comparison over (see `comparison`).
 //
 // Drawings are measured against the piece: its width is 1000, its height in proportion. A stroke is a
 // box (x, y, w, h), its points within the box from 0 to 1, how wide its line is along them (ws, times
@@ -1397,7 +1398,7 @@ const WBViewer = (() => {
     // one over it, in the same frame, and a line divides the two: the one open on one side of it, the other
     // on the other, each named at the line. The line is dragged across them, and stands upright or lies
     // across (X). The two move and zoom together, as one picture. A Ctrl+click on the same one again, Esc,
-    // or going to another piece ends it.
+    // or going to another piece ends it. Somebody presenting is followed into it, line and all.
     let ab = null; // { id, att, src, prev, pw, name, img, full, split }: the image laid over the one open
     let abAxis = store('wb:abaxis') === 'y' ? 'y' : 'x'; // 'x': the line upright, the two left and right
     // A piece in the strip, or one of its files, as an image to lay over the one open.
@@ -1408,14 +1409,15 @@ const WBViewer = (() => {
       const own = !p.fileList || f === p.fileList[0];
       return { id, att: p.fileList ? f.att : '', type: f.type || p.type, src: own ? f.src : WB.playable(f), prev: f.prev, pw: f.pw, name: own ? p.label || p.name || 'Image' : fileName(f) };
     }
-    function compare(id, att) {
-      if (!open || locked()) return;
-      if (ab && ab.id === id && ab.att === att) return void endCompare();
+    // `followed` is true when it is compared because the person being followed compares it.
+    function compare(id, att, { followed = false } = {}) {
+      if (!open || (locked() && !followed)) return;
+      if (ab && ab.id === id && ab.att === att) return void (followed || endCompare());
       if (id === open.id && att === (open.shownAtt || '')) return;
       const b = abImage(id, att);
       if (!b) return;
-      if (open.type !== 'image' || b.type !== 'image') return void (opts.toast || WB.toast)('Only two images can be compared', { ms: 2500, key: 'compare' });
-      interact();
+      if (open.type !== 'image' || b.type !== 'image') return void (followed || (opts.toast || WB.toast)('Only two images can be compared', { ms: 2500, key: 'compare' }));
+      if (!followed) interact();
       if (in3d) set3d(false);
       const img = ab ? ab.img : el('img', { class: 'v-ab-img', draggable: 'false', decoding: 'async' });
       img.src = b.prev || b.src;
@@ -1425,6 +1427,7 @@ const WBViewer = (() => {
       if (!img.isConnected) pieceBox.insertBefore(img, ink);
       paintFilm();
       paintAB();
+      emit('compare');
     }
     function endCompare() {
       if (!ab) return;
@@ -1432,6 +1435,7 @@ const WBViewer = (() => {
       ab = null;
       for (const node of film.querySelectorAll('.compared')) node.classList.remove('compared');
       paintAB();
+      emit('compare');
     }
     // Turned, the line starts again from the middle.
     function setAbAxis(axis) {
@@ -1439,6 +1443,7 @@ const WBViewer = (() => {
       store('wb:abaxis', axis);
       if (ab) ab.split = 0.5;
       paintAB();
+      emit('compare');
     }
     const abLineAt = () => (abAxis === 'y' ? cam.y + ab.split * H * cam.s : cam.x + ab.split * W * cam.s);
     function paintAB() {
@@ -1486,6 +1491,7 @@ const WBViewer = (() => {
         if (!ab) return;
         ab.split = abAxis === 'y' ? clamp((along(m) - off - cam.y) / (H * cam.s), 0, 1) : clamp((along(m) - off - cam.x) / (W * cam.s), 0, 1);
         paintAB();
+        emit('compare');
       };
       const onEnd = () => {
         abLine.classList.remove('held');
@@ -1502,6 +1508,7 @@ const WBViewer = (() => {
       if (!ab) return;
       ab.split = 0.5;
       paintAB();
+      emit('compare');
     });
 
     // ---- the timeline under a video
@@ -2928,6 +2935,21 @@ const WBViewer = (() => {
         cam.x = pad.l + (innerWidth - pad.l - pad.r) / 2 - (z[0] / units()) * s;
         cam.y = pad.t + (innerHeight - pad.t - pad.b) / 2 - (z[1] / units()) * s;
         applyCam();
+      },
+      // Two images compared: the image laid over the one open (f, and x: which of its files, '' its own),
+      // where the line is across them (s, from 0 to 1) and which way it runs (a: 'x' upright, 'y' across).
+      // Null when nothing is compared.
+      comparison: () => (open && ab ? { f: ab.id, x: ab.att, s: Math.round(ab.split * 1000) / 1000, a: abAxis } : null),
+      // Compares as somebody else does, or stops. Which way the line runs is theirs, not kept as this
+      // browser's own.
+      followCompare(c) {
+        if (!open) return;
+        if (!c) return void endCompare();
+        compare(c.f, c.x || '', { followed: true });
+        if (!ab) return;
+        abAxis = c.a === 'y' ? 'y' : 'x';
+        ab.split = clamp(Number(c.s) || 0, 0, 1);
+        paintAB();
       },
       // In 3D, how it is seen: { on, c: the model's camera held, q: a comment's frame held, f: flown, at }.
       // Null in 2D, or where there is no 3D.

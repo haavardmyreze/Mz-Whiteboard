@@ -1789,7 +1789,7 @@
       openId = null;
       $('topbar').querySelector('.bar-group.board-only').before($('peers'));
       renderPanel();
-      sendP({ f: null, t: null, d: null });
+      sendP({ f: null, t: null, d: null, b: null });
       sent3d = 'null';
       const leader = following && peers.get(following);
       if (leader && leader.p.v) followView(leader.p.v, 0);
@@ -1821,6 +1821,8 @@
       zoomSent = JSON.stringify(z);
     }
     if (type === '3d' && viewer.isOpen() && viewer.host() === boardHost) send3d();
+    // Two images compared, and where the line between them is, for whoever follows.
+    if (type === 'compare' && viewer.isOpen() && viewer.host() === boardHost) sendP({ b: viewer.comparison() });
     // Watching a presentation, the page around this one is told the sound had to go, and how far the venue
     // has come while 3D loads (it says so over everything).
     if (type === 'muted' && spectating) window.parent.postMessage({ wb: 'muted' }, location.origin);
@@ -3981,6 +3983,7 @@
       followFocus(peer.p.f);
       followThread(peer.p.t);
       catchUp(peer);
+      followCompare(peer.p.b);
       followZoom(peer.p.z);
       follow3d(peer.p.d);
     } else {
@@ -4005,6 +4008,11 @@
   // ...and seeing it as they do, in 2D or on the model in 3D.
   function follow3d(d) {
     if (openId) viewer.follow3d(d || null);
+  }
+
+  // ...and the two images they compare, divided where they divide them.
+  function followCompare(b) {
+    if (openId) viewer.followCompare(b || null);
   }
 
   // Following someone means seeing as much of the piece as they do: zoomed in where they are.
@@ -4403,6 +4411,7 @@
         follow3d(peer.p.d);
       }
       if ('t' in msg.p && following === peer.id) followThread(peer.p.t);
+      if ('b' in msg.p && following === peer.id) followCompare(peer.p.b);
       if ('z' in msg.p && following === peer.id) followZoom(peer.p.z);
       if ('d' in msg.p && following === peer.id) follow3d(peer.p.d);
       if ('v' in msg.p && following === peer.id && !gesture) followView(peer.p.v);

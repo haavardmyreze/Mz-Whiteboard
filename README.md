@@ -178,7 +178,9 @@ the app (`#/vocabulary`) lays the same out in pictures.
   button in the bar, turns it upright or across. The two zoom and move together as one picture, and one
   of another shape is fitted inside the frame, not stretched. The other is ringed in grey in the strip.
   Ctrl+click it again, press Esc, or go to another piece to stop. Only images are compared, never videos,
-  and never in 3D. What is said and drawn still belongs to the open one.
+  and never in 3D. What is said and drawn still belongs to the open one. Whoever follows you on a board,
+  or watches you present, sees the same two images divided where you divide them, the line moving as you
+  drag it.
 - **One meaning per key.** In the viewer the arrow keys always go to the next or previous image or
   video (so do a click in the strip, a swipe, or, on a window too narrow for the strip, the arrows in the bar), in the order the board reads:
   frame by frame, rows first and then left to right, with loose media taking its place among the
@@ -654,8 +656,8 @@ and its catalogue, every version and comment on them, its playlists and animatic
   watch you by (`/p/<link>`): whoever opens it sees what you show, as you show it, and nothing else.
   They follow you from a board, into the viewer and out, to an asset's versions in the player, to an
   animatic and back, onto the frame you are on, playing as you play, reading the thread you read (with
-  its drawing), zoomed in as far as you are, in 2D or 3D through the camera you look through, flying
-  with you, and your laser. They cannot go elsewhere or look about: the corner is no way out, and their
+  its drawing), zoomed in as far as you are, comparing the two images you compare, in 2D or 3D through
+  the camera you look through, flying with you, and your laser. They cannot go elsewhere or look about: the corner is no way out, and their
   keys, wheel and pointer move nothing. Only what is their screen's own is in reach: the sound, full
   screen, and folding the strip and the comments away. Lists (the catalogue, either way, and a project's home)
   are never shown: while you look for the next thing, what they saw last stays behind the same cover a

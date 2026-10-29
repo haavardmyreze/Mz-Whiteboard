@@ -3706,8 +3706,8 @@ const forViewers = (board, ops, access = board.shareAccess) => ops.filter((op) =
 
 // What a pointer says, as the pages send it: where it is (c), the laser held (l), and for the board's
 // own people also their view (v), what they have selected (s), the piece open (f), the thread read in it
-// (t), how far it is zoomed into (z) and how it is seen in 3D (d, see cleanPlayer), a video playing there
-// (m) and files on their way in (u). Anything else, or not of its
+// (t), how far it is zoomed into (z), two images compared there (b) and how it is seen in 3D (d, both
+// see cleanPlayer), a video playing there (m) and files on their way in (u). Anything else, or not of its
 // shape, is left out, so nobody can hand everybody else whatever they like.
 function cleanPresence(p, viewer) {
   const out = {};
@@ -3722,6 +3722,10 @@ function cleanPresence(p, viewer) {
   if ('t' in p && (p.t === null || id(p.t))) out.t = p.t;
   if ('m' in p && (p.m === null || (Array.isArray(p.m) && id(p.m[0]) && Number.isFinite(p.m[1])))) out.m = p.m && [p.m[0], p.m[1], p.m[2] ? 1 : 0];
   if ('z' in p && (p.z === null || numbers(p.z, 3))) out.z = p.z;
+  if ('b' in p) {
+    const { b } = cleanPlayer({ b: p.b });
+    if (b !== undefined) out.b = b;
+  }
   if ('d' in p && (p.d === null || (p.d && typeof p.d === 'object'))) out.d = cleanPlayer({ d: p.d }).d;
   if ('u' in p && Array.isArray(p.u)) {
     out.u = p.u.slice(0, 50).filter((u) => u && id(u.i))
@@ -4280,8 +4284,10 @@ function cleanScene(pres, user, s) {
 
 // What the player is doing, as the presenter's page says it: the piece open (f), which of its version's
 // files is shown in its place (x: an attachment's label, '' its own), the thread read (t), the
-// moment of the video (m), the zoom on the piece (z: its middle, in drawing units, and how far in), and in
-// 3D, how it is seen (d: on, the model's camera held, a comment's frame held, or the view flown).
+// moment of the video (m), the zoom on the piece (z: its middle, in drawing units, and how far in), two
+// images compared (b: the other image, its B, and which of its files, where the line is from 0 to 1, and
+// whether it runs upright, x, or across, y), and in 3D, how it is seen (d: on, the model's camera held, a comment's
+// frame held, or the view flown).
 function cleanPlayer(p) {
   const out = {};
   const id = (v) => typeof v === 'string' && v.length <= 60;
@@ -4292,6 +4298,9 @@ function cleanPlayer(p) {
   if ('t' in p && (p.t === null || id(p.t))) out.t = p.t;
   if ('m' in p && (p.m === null || (Array.isArray(p.m) && id(p.m[0]) && Number.isFinite(p.m[1])))) out.m = p.m && [p.m[0], p.m[1], p.m[2] ? 1 : 0];
   if ('z' in p && (p.z === null || numbers(p.z, 3))) out.z = p.z;
+  if ('b' in p && (p.b === null || (p.b && typeof p.b === 'object' && id(p.b.f) && typeof p.b.x === 'string' && p.b.x.length <= 40 && Number.isFinite(p.b.s)))) {
+    out.b = p.b && { f: p.b.f, x: p.b.x, s: Math.min(1, Math.max(0, p.b.s)), a: p.b.a === 'y' ? 'y' : 'x' };
+  }
   if ('d' in p && (p.d === null || (p.d && typeof p.d === 'object'))) {
     out.d = p.d && {
       on: p.d.on ? 1 : 0,

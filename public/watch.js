@@ -324,7 +324,7 @@
   }
 
   // Whoever is watching is shown what the presenter's player does: the piece, 2D or 3D, the moment, the
-  // thread, the zoom. A video playing has played on since it was said. In an animatic, where its playhead is
+  // thread, two images compared, the zoom. A video playing has played on since it was said. In an animatic, where its playhead is
   // and how the venue is seen.
   function apply(patch = state) {
     if (scene && scene.k === 'animatic') return void (cut && !mounting && cut.follow(patch, performance.now() - stateAt));
@@ -341,6 +341,8 @@
       viewer.followMedia(open, !!playing, at + (playing ? (performance.now() - stateAt) / 1000 : 0));
     }
     if ('t' in patch) viewer.follow(open, { thread: patch.t });
+    // After the file shown, since showing another ends a comparison.
+    if ('b' in patch) viewer.followCompare(patch.b);
     if ('z' in patch) requestAnimationFrame(() => viewer.followZoom(patch.z));
   }
 

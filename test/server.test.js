@@ -2520,6 +2520,13 @@ test('a round of changes sent twice is applied once, and the sender is told what
   ben.ws.send(JSON.stringify({ t: 'p', p: { c: [1, 2], s: ['imageone1', 7], v: [0, 0, 100, 50], junk: 'x'.repeat(1000), f: { not: 'an id' } } }));
   await pause(100);
   assert.deepEqual(anna.seen.filter((m) => m.t === 'p').pop().p, { c: [1, 2], s: ['imageone1'], v: [0, 0, 100, 50] });
+  // two images compared in the player, and nothing else of that shape
+  ben.ws.send(JSON.stringify({ t: 'p', p: { b: { f: 'imageone1', x: 'light-b', s: 0.25, a: 'y', junk: 1 } } }));
+  await pause(100);
+  assert.deepEqual(anna.seen.filter((m) => m.t === 'p').pop().p, { b: { f: 'imageone1', x: 'light-b', s: 0.25, a: 'y' } });
+  ben.ws.send(JSON.stringify({ t: 'p', p: { c: [3, 4], b: { f: 'imageone1' } } }));
+  await pause(100);
+  assert.deepEqual(anna.seen.filter((m) => m.t === 'p').pop().p, { c: [3, 4] });
 });
 
 test('deleting a thread takes its replies with it, undo brings them back, and only a comment shown here can be brought back', async (t) => {
@@ -2928,6 +2935,13 @@ test('a project is presented through a link of its presenter: live only while th
   host.ws.send(JSON.stringify({ t: 'laser', on: v10, pts: [1, 2, 3, 4] }));
   await wait(200);
   assert.deepEqual(last(carla, 'p').p, { t: 'thread01', z: [500, 280, 2], x: 'light-b' });
+  // Two images compared reach them too, the line kept on the pictures.
+  host.ws.send(JSON.stringify({ t: 'p', p: { b: { f: 'imageone1', x: '', s: 1.7, a: 'sideways', junk: 1 } } }));
+  await wait(150);
+  assert.deepEqual(last(carla, 'p').p, { b: { f: 'imageone1', x: '', s: 1, a: 'x' } });
+  host.ws.send(JSON.stringify({ t: 'p', p: { b: null } }));
+  await wait(150);
+  assert.deepEqual(last(carla, 'p').p, { b: null }, 'and so does its end');
   assert.deepEqual(last(carla, 'laser').pts, [1, 2, 3, 4]);
   // Another tab of hers, left open, says nothing to anyone.
   const otherTab = await open(`present=${token}`, anna, { name: 'Anna' });

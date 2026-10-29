@@ -136,7 +136,7 @@ const WBPresent = (() => {
   function playerNow() {
     const v = host && host.viewer && host.viewer();
     if (!v || !v.isOpen()) return {};
-    return { f: v.current(), t: v.thread(), m: v.moment(), z: v.zoom(), d: v.view3d() };
+    return { f: v.current(), t: v.thread(), m: v.moment(), z: v.zoom(), d: v.view3d(), b: v.comparison() };
   }
 
   function report(force = false) {
@@ -167,7 +167,7 @@ const WBPresent = (() => {
       report();
       // The new piece, and how it plays once it has started.
       if (type === 'open') {
-        tellPlayer({ f: args[0], x: v.file(), t: v.thread(), z: v.zoom(), d: v.view3d(), m: v.moment() }, true);
+        tellPlayer({ f: args[0], x: v.file(), t: v.thread(), z: v.zoom(), d: v.view3d(), m: v.moment(), b: v.comparison() }, true);
         setTimeout(() => { if (v.isOpen() && v.current() === args[0]) tellPlayer({ m: v.moment() }); }, 250);
       }
       return;
@@ -176,6 +176,7 @@ const WBPresent = (() => {
     else if (type === 'thread') tellPlayer({ t: args[0] });
     else if (type === 'file') tellPlayer({ x: args[1], z: v.zoom() });
     else if (type === 'zoom') tellPlayer({ z: v.zoom() });
+    else if (type === 'compare') tellPlayer({ b: v.comparison() });
     else if (type === '3d') tellPlayer({ d: v.view3d() });
     else if (type === 'laser') send({ t: 'laser', on: args[0], pts: args[1] });
   }

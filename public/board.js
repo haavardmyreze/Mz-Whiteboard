@@ -3893,6 +3893,8 @@
       ['Mention', '@'],
       ['Laser, then brush', 'L'],
       ['Erase a drawing', 'E'],
+      ['Compare with another image', combo('mod'), '~+ click it in the strip'],
+      ['…then turn the line', 'X'],
       ['Picture, or the venue in 3D', '2', '3'],
       ['Next camera in 3D', 'V'],
     ] },

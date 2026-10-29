@@ -635,7 +635,12 @@ const WBViewer = (() => {
     const pieceBox = el('div', { class: 'v-piece' });
     const ink = svgEl('svg', { class: 'v-ink' });
     const laserCanvas = el('canvas', { class: 'v-laser' });
-    const stage = el('div', { class: 'v-stage' }, pieceBox, laserCanvas);
+    // Two images compared (see compare): the line between them, with the name of each on its side.
+    const abNameA = el('span', { class: 'v-ab-name v-ab-a' });
+    const abNameB = el('span', { class: 'v-ab-name v-ab-b' });
+    const abLine = el('div', { class: 'v-ab', role: 'separator', 'aria-label': 'Where one image ends and the other begins', title: 'Drag to move the line. Double-click to put it back in the middle', hidden: true },
+      el('span', { class: 'v-ab-grip' }), abNameA, abNameB);
+    const stage = el('div', { class: 'v-stage' }, pieceBox, abLine, laserCanvas);
     const nameEl = el('span', { class: 'v-name' });
     const posEl = el('span', { class: 'v-pos' });
     const prevBtn = el('button', { class: 'iconbtn', html: ICON.prev, title: 'Previous (←)', onclick: () => step(-1) });
@@ -648,6 +653,9 @@ const WBViewer = (() => {
     const dlBtn = el('button', { class: 'iconbtn', html: ICON.download, title: 'Download the original media', onclick: () => opts.download && open && opts.download(open) });
     const zoomBtn = el('button', { class: 'btn ghost v-zoom', html: ICON.fit, title: 'Fitted to the screen. Click for actual size', onclick: () => toggleZoom() });
     const doneBtn = el('button', { class: 'btn primary', text: 'Done', title: 'Close (Esc)', onclick: () => close() });
+    const abAxisBtn = el('button', { class: 'iconbtn', onclick: () => setAbAxis(abAxis === 'x' ? 'y' : 'x') });
+    const abEndBtn = el('button', { class: 'iconbtn', html: ICON.close, title: 'Stop comparing (Esc)', 'aria-label': 'Stop comparing', onclick: () => endCompare() });
+    const abGroup = el('span', { class: 'bar-group', hidden: true }, abAxisBtn, abEndBtn);
     // In a project with a model of its venue, the piece can be seen on it (view3d.js), the way every player
     // shows it (venue, above): its switch, how it is drawn and its cameras are in the bar.
     const venue3d = venue({
@@ -687,7 +695,7 @@ const WBViewer = (() => {
       el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' }), crumb,
       el('span', { class: 'bar-slash', 'aria-hidden': 'true', text: '/' }),
       el('span', { class: 'stepper' }, prevBtn, posEl, nextBtn),
-      nameEl, el('div', { class: 'spacer' }), venue3d.cams, clearBtn, filesBtn, barSlot, venue3d.dims,
+      nameEl, el('div', { class: 'spacer' }), abGroup, venue3d.cams, clearBtn, filesBtn, barSlot, venue3d.dims,
       el('span', { class: 'bar-group' }, dlBtn, zoomBtn),
       WB.themeButton(), doneBtn);
     // On a phone there is no room for the panel's brush: the viewer's own few tools sit along the bottom.
@@ -906,6 +914,7 @@ const WBViewer = (() => {
     }
 
     function leavePiece(piece) {
+      endCompare();
       const video = videoOpen();
       if (video) video.pause();
       clearTimeout(wholeTimer);
@@ -988,6 +997,8 @@ const WBViewer = (() => {
         three = await venue3d.ready();
         if (!three || !open) return;
       }
+      // Two images are compared as they are, never on the venue.
+      if (on) endCompare();
       // A drawing half made belongs to the view it was made in.
       if (draft && draft.strokes.length) {
         discardDrawing();
@@ -1101,6 +1112,7 @@ const WBViewer = (() => {
         readHost();
         const now = pieces.find((p) => p.id === open.id);
         if (!now) return void close();
+        if (ab && !pieces.some((p) => p.id === ab.id)) endCompare();
         // Another file under the same piece (a newer version swapped in, a video given its original): shown afresh.
         // Another pass of the same version is the same moment seen another way: it stays on that moment.
         if (now.src !== open.src || now.type !== open.type) {
@@ -1150,6 +1162,7 @@ const WBViewer = (() => {
       syncLoaded();
       paintWave();
       syncTools();
+      paintAB();
     }
 
     // ---- the camera: where the piece is on screen
@@ -1203,6 +1216,7 @@ const WBViewer = (() => {
         fullRes.add(open.id);
         media.src = open.src;
       }
+      paintAB();
       requestLaser();
     }
 
@@ -1328,6 +1342,9 @@ const WBViewer = (() => {
         const kind = p.type === 'video' ? 'Video' : 'Image';
         return p.type === 'video' && p.dur ? `${kind} · ${fmtTime(p.dur)}` : kind;
       };
+      // While an image is open, the other images say they can be compared with it.
+      const hint = (name, f, id, att) => (open.type === 'image' && f.type === 'image' && !(id === open.id && att === (open.shownAtt || ''))
+        ? `${name}. Ctrl+click to compare it with the one open` : name);
       if (sig !== filmSig) {
         filmSig = sig;
         film.replaceChildren(...pieces.flatMap((p, i) => {
@@ -1335,14 +1352,17 @@ const WBViewer = (() => {
           const own = ownOf(p);
           const n = p.id === open.id && p.fileList ? fileCount.get(p.fileList[0].att) : openCount.get(p.id);
           const kind = p.type === 'video' ? 'Video' : 'Image';
-          const item = el('button', { class: 'fs-item', 'data-id': p.id, title: p.label || p.name || kind, onclick: () => (p.id === open.id && p.fileList ? showFile(p.fileList[0].att) : show(p.id)) },
+          const ownAtt = p.fileList ? p.fileList[0].att : '';
+          const item = el('button', { class: 'fs-item', 'data-id': p.id, 'data-file': ownAtt, title: hint(p.label || p.name || kind, own, p.id, ownAtt),
+            onclick: (e) => (e.ctrlKey || e.metaKey ? compare(p.id, ownAtt) : p.id === open.id && p.fileList ? showFile(ownAtt) : show(p.id)) },
             el('span', { class: 'fs-num', text: String(i + 1) }),
             thumb(own, stillOf(own), n),
             el('span', { class: 'fs-label' },
               el('span', { class: 'fs-name', text: p.label || p.name || kind }),
               el('span', { class: 'fs-kind', text: p.fileList ? fileName(p.fileList[0]) : kindOf(p) })));
           if (p.id !== open.id || !files.length) return [item];
-          return [item, ...files.map((f) => el('button', { class: 'fs-item fs-sub', 'data-id': p.id, 'data-att': f.att, title: fileName(f), onclick: () => showFile(f.att) },
+          return [item, ...files.map((f) => el('button', { class: 'fs-item fs-sub', 'data-id': p.id, 'data-att': f.att, title: hint(fileName(f), f, p.id, f.att),
+            onclick: (e) => (e.ctrlKey || e.metaKey ? compare(p.id, f.att) : showFile(f.att)) },
             el('span', { class: 'fs-num' }),
             thumb(f, stillOf(f), fileCount.get(f.att)),
             el('span', { class: 'fs-label' },
@@ -1359,6 +1379,7 @@ const WBViewer = (() => {
         // Of a piece with more files than its own, the one shown; of any other, the piece.
         const current = node.dataset.id === open.id && (open.fileList ? (node.dataset.att ?? open.fileList[0].att) === (open.shownAtt || '') : true);
         node.classList.toggle('holds', node.dataset.id === open.id && !current && node.dataset.att === undefined);
+        node.classList.toggle('compared', !!ab && node.dataset.id === ab.id && (node.dataset.att ?? node.dataset.file) === ab.att);
         if (current === node.classList.contains('current') && !(current && recentre)) continue;
         node.classList.toggle('current', current);
         if (!current) {
@@ -1369,6 +1390,119 @@ const WBViewer = (() => {
         film.scrollTo({ top: node.offsetTop - (film.clientHeight - node.offsetHeight) / 2, behavior: recentre || calm.matches ? 'auto' : 'smooth' });
       }
     }
+
+    // ---- two images compared
+    //
+    // With an image open, a Ctrl+click on another image in the strip (one of its attachments too) lays that
+    // one over it, in the same frame, and a line divides the two: the one open on one side of it, the other
+    // on the other, each named at the line. The line is dragged across them, and stands upright or lies
+    // across (X). The two move and zoom together, as one picture. A Ctrl+click on the same one again, Esc,
+    // or going to another piece ends it.
+    let ab = null; // { id, att, src, prev, pw, name, img, full, split }: the image laid over the one open
+    let abAxis = store('wb:abaxis') === 'y' ? 'y' : 'x'; // 'x': the line upright, the two left and right
+    // A piece in the strip, or one of its files, as an image to lay over the one open.
+    function abImage(id, att) {
+      const p = pieces.find((x) => x.id === id);
+      const f = p && (p.fileList ? p.fileList.find((x) => x.att === att) : p);
+      if (!f) return null;
+      const own = !p.fileList || f === p.fileList[0];
+      return { id, att: p.fileList ? f.att : '', type: f.type || p.type, src: own ? f.src : WB.playable(f), prev: f.prev, pw: f.pw, name: own ? p.label || p.name || 'Image' : fileName(f) };
+    }
+    function compare(id, att) {
+      if (!open || locked()) return;
+      if (ab && ab.id === id && ab.att === att) return void endCompare();
+      if (id === open.id && att === (open.shownAtt || '')) return;
+      const b = abImage(id, att);
+      if (!b) return;
+      if (open.type !== 'image' || b.type !== 'image') return void (opts.toast || WB.toast)('Only two images can be compared', { ms: 2500, key: 'compare' });
+      interact();
+      if (in3d) set3d(false);
+      const img = ab ? ab.img : el('img', { class: 'v-ab-img', draggable: 'false', decoding: 'async' });
+      img.src = b.prev || b.src;
+      img.alt = b.name;
+      // Another laid over in its place keeps the line where it was.
+      ab = { ...b, img, full: !b.prev, split: ab ? ab.split : 0.5 };
+      if (!img.isConnected) pieceBox.insertBefore(img, ink);
+      paintFilm();
+      paintAB();
+    }
+    function endCompare() {
+      if (!ab) return;
+      ab.img.remove();
+      ab = null;
+      for (const node of film.querySelectorAll('.compared')) node.classList.remove('compared');
+      paintAB();
+    }
+    // Turned, the line starts again from the middle.
+    function setAbAxis(axis) {
+      abAxis = axis;
+      store('wb:abaxis', axis);
+      if (ab) ab.split = 0.5;
+      paintAB();
+    }
+    const abLineAt = () => (abAxis === 'y' ? cam.y + ab.split * H * cam.s : cam.x + ab.split * W * cam.s);
+    function paintAB() {
+      abGroup.hidden = abLine.hidden = !ab;
+      if (!ab) return;
+      const across = abAxis === 'y';
+      const at = `${(ab.split * 100).toFixed(3)}%`;
+      ab.img.style.clipPath = across ? `inset(${at} 0 0 0)` : `inset(0 0 0 ${at})`;
+      abAxisBtn.innerHTML = across ? ICON.splitAcross : ICON.split;
+      abAxisBtn.title = across ? 'Divide them left and right instead (X)' : 'Divide them top and bottom instead (X)';
+      abNameA.textContent = nameEl.textContent;
+      abNameB.textContent = ab.name;
+      // The line runs over as much of them as is in sight, between the bar, the strip and the comments (on a
+      // narrow window a sheet along the bottom, not beside them).
+      const l = Math.max(cam.x, shown(film) ? film.getBoundingClientRect().right : 0);
+      const r = Math.min(cam.x + W * cam.s, shown(panel) && !narrow() ? panel.getBoundingClientRect().left : innerWidth);
+      const t = Math.max(cam.y, bar.offsetHeight);
+      const b = Math.min(cam.y + H * cam.s, innerHeight - (narrow() ? bottomChrome() : 0));
+      abLine.classList.toggle('across', across);
+      Object.assign(abLine.style, across
+        ? { left: `${l}px`, width: `${Math.max(0, r - l)}px`, top: `${abLineAt()}px`, height: '' }
+        : { top: `${t}px`, height: `${Math.max(0, b - t)}px`, left: `${abLineAt()}px`, width: '' });
+      // Zoomed in past its preview, it shows its original, as the one open does.
+      if (!ab.full && cam.s * W * (window.devicePixelRatio || 1) > (ab.pw || 2048) * 1.1) {
+        ab.full = true;
+        ab.img.src = ab.src;
+      }
+    }
+    abLine.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || !ab) return;
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        abLine.setPointerCapture(e.pointerId);
+      } catch {
+        // without it the drag lasts only while the pointer stays on the line
+      }
+      interact();
+      abLine.classList.add('held');
+      // Held where it was pressed, so the line does not jump to the pointer.
+      const along = (m) => (abAxis === 'y' ? m.clientY : m.clientX);
+      const off = along(e) - abLineAt();
+      const onMove = (m) => {
+        m.stopPropagation();
+        if (!ab) return;
+        ab.split = abAxis === 'y' ? clamp((along(m) - off - cam.y) / (H * cam.s), 0, 1) : clamp((along(m) - off - cam.x) / (W * cam.s), 0, 1);
+        paintAB();
+      };
+      const onEnd = () => {
+        abLine.classList.remove('held');
+        abLine.removeEventListener('pointermove', onMove);
+        abLine.removeEventListener('pointerup', onEnd);
+        abLine.removeEventListener('pointercancel', onEnd);
+      };
+      abLine.addEventListener('pointermove', onMove);
+      abLine.addEventListener('pointerup', onEnd);
+      abLine.addEventListener('pointercancel', onEnd);
+    });
+    abLine.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      if (!ab) return;
+      ab.split = 0.5;
+      paintAB();
+    });
 
     // ---- the timeline under a video
 
@@ -2621,8 +2755,9 @@ const WBViewer = (() => {
       if ((e.shiftKey && (e.code === 'Digit1' || e.code === 'Digit2')) || k === 'home') fit();
       else if (k === 'escape') {
         if (tool !== 'pan') setTool('pan');
+        else if (ab) endCompare();
         else close();
-      } else if (k === 'f' && e.shiftKey) toggleFilm();
+      } else if (k === 'x' && ab && !e.shiftKey) setAbAxis(abAxis === 'x' ? 'y' : 'x'); else if (k === 'f' && e.shiftKey) toggleFilm();
       else if (k === 'c' && e.shiftKey) { if (can.read()) togglePanel(); }
       else if (k === 'c' && !e.shiftKey) startComment();
       else if (videoOpen() && (k === 'k' || k === 'enter')) togglePlay();

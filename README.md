@@ -171,6 +171,14 @@ the app (`#/vocabulary`) lays the same out in pictures.
   and zooming in on a large image loads its original. What is drawn belongs to the piece, so it moves
   and scales with it, and everyone who has it open sees it live. The laser (L, and L or Esc again to
   put it away) still points for everyone. Somebody holding a link has no pen.
+- **Comparing two images.** With an image open, Ctrl+click another image in the strip (or one of the
+  open version's attachments under it) and it is laid over the open one in the same frame, with a line
+  between them: the open one on one side, the other on the other, each named at the line, as in a
+  render viewer's A/B. Drag the line across them (a double-click puts it back in the middle); X, or the
+  button in the bar, turns it upright or across. The two zoom and move together as one picture, and one
+  of another shape is fitted inside the frame, not stretched. The other is ringed in grey in the strip.
+  Ctrl+click it again, press Esc, or go to another piece to stop. Only images are compared, never videos,
+  and never in 3D. What is said and drawn still belongs to the open one.
 - **One meaning per key.** In the viewer the arrow keys always go to the next or previous image or
   video (so do a click in the strip, a swipe, or, on a window too narrow for the strip, the arrows in the bar), in the order the board reads:
   frame by frame, rows first and then left to right, with loose media taking its place among the

@@ -90,6 +90,9 @@
   --swatch-ring: rgba(255, 255, 255, 0.2);
   --eraser-a: #fff;
   --eraser-b: #111;
+  /* The line between two images compared lies on the pictures, so it is the same in both themes. */
+  --split: #fff;
+  --split-edge: rgba(0, 0, 0, 0.45);
 
   --r-1: 3px;
   --r-2: 5px;
@@ -1260,6 +1263,9 @@ body.focus .item:is(.image, .video).peersel { outline: none; }
 .fs-sub { padding-left: 20px; }
 .fs-item.holds .fs-num { color: var(--text); font-weight: 600; }
 .fs-item.holds .fs-thumb { opacity: 1; }
+/* The image laid over the one open, to compare them: ringed in grey, as the open one is in blue. */
+.fs-item.compared .fs-num { color: var(--text); font-weight: 600; }
+.fs-item.compared .fs-thumb { opacity: 1; box-shadow: 0 0 0 2px var(--text-2); }
 /* With the strip there, it is where they are chosen: the bar has them only on a narrow window. */
 @media (min-width: 700px) { .v-files { display: none; } }
 /* Put away and brought back by a tab on its edge, and made wider by that edge. */
@@ -2271,6 +2277,24 @@ a.seq-row-head:hover { color: var(--text); }
 .v-piece { position: absolute; left: 0; top: 0; transform-origin: 0 0; background: var(--thumb-bg); box-shadow: 0 0 0 1px var(--ring-c), 0 12px 40px -12px rgba(0, 0, 0, 0.6); }
 .v-piece > img, .v-piece > video, .v-piece > .vhold { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
 .v-ink { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+/* Two images compared: the other one over the one open, shown past the line only, and the line itself,
+   drawn on the screen (not scaled with the pictures) so it stays one hairline at any zoom. An image of
+   another shape is fitted inside the frame, not stretched. */
+.v-piece > .v-ab-img { object-fit: contain; background: var(--thumb-bg); }
+.v-ab { position: absolute; width: 16px; transform: translateX(-50%); touch-action: none; cursor: ew-resize; }
+.v-ab.across { width: auto; height: 16px; transform: translateY(-50%); cursor: ns-resize; }
+.v-ab::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; transform: translateX(-50%); background: var(--split); box-shadow: 0 0 0 0.5px var(--split-edge), 0 0 6px var(--split-edge); }
+.v-ab.across::before { left: 0; right: 0; top: 50%; bottom: auto; width: auto; height: 1px; transform: translateY(-50%); }
+.v-ab-grip { position: absolute; left: 50%; top: 50%; width: 8px; height: 32px; transform: translate(-50%, -50%); border-radius: var(--r-pill); background: var(--split); box-shadow: 0 0 0 0.5px var(--split-edge), var(--shadow-1); transition: transform 0.12s var(--ease); }
+.v-ab.across .v-ab-grip { width: 32px; height: 8px; }
+.v-ab:hover .v-ab-grip, .v-ab.held .v-ab-grip { transform: translate(-50%, -50%) scale(1.15); }
+.v-ab-name { position: absolute; top: 8px; max-width: 32ch; padding: 2px 6px; overflow: hidden; border-radius: var(--r-1); background: var(--tip-bg); color: var(--tip-fg); font-size: var(--fs-cap); font-weight: 500; line-height: 16px; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
+.v-ab-a { right: calc(50% + 8px); }
+.v-ab-b { left: calc(50% + 8px); }
+/* Lying across, they are beside the grip, clear of the arrows at either side. */
+.v-ab.across .v-ab-name { left: calc(50% + 24px); right: auto; }
+.v-ab.across .v-ab-a { top: auto; bottom: calc(50% + 8px); }
+.v-ab.across .v-ab-b { top: calc(50% + 8px); }
 .v-ink g { transition: filter 0.9s ease-out, opacity 0.12s; }
 .v-ink g.erased { opacity: 0.2; }
 .v-ink g.callout { filter: drop-shadow(0 0 4px #fff) drop-shadow(0 0 14px #fff); transition: filter 0.2s ease-out; }

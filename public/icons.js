@@ -84,6 +84,9 @@
     // A ball lit from one side: how the venue is drawn (its light and shade).
     shade: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/>',
     snap: '<path d="M6 3v8a6 6 0 0 0 12 0V3h-4v8a2 2 0 0 1-4 0V3z"/><path d="M6 7h4M14 7h4"/>',
+    // Two images compared: the line between them upright (left and right), or across (top and bottom).
+    split: '<rect x="3.5" y="4.5" width="17" height="15" rx="1.5"/><path d="M12 2.5v19"/><path d="M12 4.5h7a1.5 1.5 0 0 1 1.5 1.5v12a1.5 1.5 0 0 1-1.5 1.5h-7z" fill="currentColor" stroke="none" opacity="0.35"/>',
+    splitAcross: '<rect x="3.5" y="4.5" width="17" height="15" rx="1.5"/><path d="M1.5 12h21"/><path d="M3.5 12h17v6a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 18z" fill="currentColor" stroke="none" opacity="0.35"/>',
     sparkle: '<path d="M10 3.5l1.6 4.4a3 3 0 0 0 1.8 1.8l4.4 1.6-4.4 1.6a3 3 0 0 0-1.8 1.8L10 19.1l-1.6-4.4a3 3 0 0 0-1.8-1.8L2.2 11.3l4.4-1.6a3 3 0 0 0 1.8-1.8z"/><path d="M18 3v4M16 5h4M19 16v3M17.5 17.5h3"/>',
     sound: '<path d="M4 9v6h4l5 4V5L8 9zM17 8a5 5 0 0 1 0 8"/>',
     // Prints one on another: the versions of a piece.

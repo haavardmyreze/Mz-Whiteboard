@@ -33,6 +33,7 @@ const WBVocabulary = (() => {
       ['animatic', 'Animatic', 'An edit of the project’s shots on a timeline. Each clip points at a shot, not a file, so it always plays that shot’s newest version: the cut keeps up as work is filed.'],
       ['comment', 'Comment', 'A note on a picture or a video, written in the player. It can carry a drawing that shows what it means, and replies to it make a thread. A comment on a version stays with it wherever the version is shown.'],
       ['note', 'Sticky note', 'Text placed on a board as part of its layout. It isn’t a comment: it doesn’t belong to any piece of work, only to the board.'],
+      ['external', 'Web link', 'A web page put on a board by pasting its address. It shows as a card with the page’s picture, title and site, and a double-click opens the page.'],
       ['activity', 'Activity', 'Everything that has happened in a project since it started: versions filed, comments, new playlists and animatics. For you narrows it to what concerns you.'],
     ]],
     ['People and sharing', [

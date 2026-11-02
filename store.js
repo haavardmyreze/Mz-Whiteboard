@@ -321,6 +321,7 @@ function derive(it) {
   if (it.type === 'frame') label = text(it.title);
   else if (it.type === 'image' || it.type === 'video') label = text(it.name);
   else if (it.type === 'note' || it.type === 'text' || it.type === 'block' || it.type === 'comment') label = text(it.text);
+  else if (it.type === 'weblink') label = text(it.title) || text(it.url);
   return {
     type: String(it.type),
     label,
@@ -329,8 +330,8 @@ function derive(it) {
     // What it belongs to: the image or video a drawing or note was made on, or the content a comment is on.
     parent_id: typeof it.pid === 'string' ? it.pid : typeof it.on === 'string' ? it.on : null,
     media: it.type === 'image' || it.type === 'video' ? uploadName(it.src) : null,
-    // The small still the board list shows for it.
-    thumb: typeof it.th === 'string' ? it.th : it.type === 'image' && typeof (it.prev || it.src) === 'string' ? it.prev || it.src : null,
+    // The small still the board list shows for it. A web link's picture is its page's, not the board's work.
+    thumb: it.type === 'weblink' ? null : typeof it.th === 'string' ? it.th : it.type === 'image' && typeof (it.prev || it.src) === 'string' ? it.prev || it.src : null,
     // The catalogue version it shows, when it is one.
     version_id: typeof it.ver === 'string' ? it.ver : null,
   };

@@ -18,6 +18,7 @@ const naming = require('./public/naming');
 const { createAi } = require('./ai');
 const likely = require('./likely');
 const cutfiles = require('./cutfiles');
+const { unfurl } = require('./unfurl');
 
 // Settings can live in a .env file next to this one (KEY=value per line); real environment variables win.
 try {
@@ -600,7 +601,8 @@ function checkVer(it, board) {
 // itself, or, for an image added by its address (pasted or dropped from another site), that address.
 // Its stills and preview (`th`, `poster`, `prev`) are made here, so uploaded or written in; the file a
 // video was made from (`orig`) is always uploaded; its timeline strip (`wf`) is the colours and loudness
-// packed small, as a version keeps it (see cleanLook). Anything else in those fields is dropped.
+// packed small, as a version keeps it (see cleanLook). A web link's `url` is the web address it goes to.
+// Anything else in those fields is dropped.
 const UPLOADED = /^\/uploads\/[\w-]+\.[a-z0-9]+$/i;
 const DATA_IMAGE = /^data:image\/[\w.+-]+[;,]/i;
 const WEB_ADDRESS = /^https?:\/\/[^\s"'<>\\]+$/i;
@@ -614,6 +616,8 @@ const MEDIA_FIELDS = {
   orig: (v) => UPLOADED.test(v),
   // A video's phone copy (see "phone copies" below).
   lo: (v) => UPLOADED.test(v),
+  // Where a web link goes.
+  url: (v, type) => type === 'weblink' && WEB_ADDRESS.test(v) && v.length <= 2000,
 };
 const cleanStrip = (v) => (v && typeof v === 'object' && typeof v.c === 'string' && v.c.length < 100000 && (v.p === undefined || (typeof v.p === 'string' && v.p.length < 100000)) ? { c: v.c, ...(v.p !== undefined && { p: v.p }) } : null);
 // Checks those fields of an item, or of a patch to one (where null clears a field), in place.
@@ -679,7 +683,8 @@ function applyOps(board, ops, peer, touch = true) {
         continue;
       }
       cleanMedia(it, it.type);
-      if (it.type === 'stroke' || it.type === 'frame' || it.type === 'note' || it.type === 'text' || it.type === 'block') delete it.ver;
+      if (it.type === 'weblink' && typeof it.url !== 'string') continue;
+      if (it.type === 'stroke' || it.type === 'frame' || it.type === 'note' || it.type === 'text' || it.type === 'block' || it.type === 'weblink') delete it.ver;
       else checkVer(it, board);
       if (typeof it.ver === 'string') applied.versions.add(it.ver);
       board.items.set(it.id, it);
@@ -2769,6 +2774,22 @@ function handleUpload(req, res, url) {
   req.pipe(out);
 }
 
+// A file the server fetched itself (a web link's picture), kept as an upload is: under a name made from
+// what is in it, so the same picture fetched again is the one copy.
+async function keepBytes(bytes, ext, user) {
+  const name = `${crypto.createHash('sha1').update(bytes).digest('hex').slice(0, 24)}${ext}`;
+  const dest = path.join(UPLOAD_DIR, name);
+  if (!fs.existsSync(dest)) {
+    const tmp = path.join(UPLOAD_DIR, `.upload-${newId(9)}`);
+    await fsp.writeFile(tmp, bytes);
+    await fsp.rename(tmp, dest);
+  }
+  const crc = zlib.crc32(bytes) >>> 0;
+  store.addMedia({ name, size: bytes.length, by: user ? user.name : null, crc });
+  store.setMediaCrc(name, crc);
+  return `/uploads/${name}`;
+}
+
 // Joins the pieces in order, checking none is missing, under a content-addressed name so that
 // re-uploading the same file reuses the stored copy.
 async function assembleUpload(partsDir, ext, user) {
@@ -3136,6 +3157,20 @@ async function handleApi(req, res, url) {
     return handlePresentApi(req, res, url, project, parts[4] || '');
   }
   if (['projects', 'entities', 'versions', 'playlists', 'animatics', 'people'].includes(parts[1])) return handleCatalogue(req, res, parts);
+  // POST /api/unfurl { url }: what a web link pasted on a board shows of its page (see unfurl.js), its
+  // picture kept here as an upload.
+  if (parts[1] === 'unfurl' && parts.length === 2 && req.method === 'POST') {
+    const body = await readJson(req);
+    const url = typeof body.url === 'string' ? body.url.trim() : '';
+    if (!WEB_ADDRESS.test(url) || url.length > 2000) return sendJson(res, 400, { error: 'Not a web address' });
+    try {
+      const page = await unfurl(url);
+      const th = page.picture ? await keepBytes(page.picture.bytes, page.picture.ext, req.user) : null;
+      return sendJson(res, 200, { title: page.title, desc: page.desc, site: page.site, th });
+    } catch (err) {
+      return sendJson(res, err.status || 502, { error: err.name === 'TimeoutError' ? 'The page took too long to answer' : err.message });
+    }
+  }
   if (parts[1] === 'library' && req.method === 'GET') {
     return sendJson(res, 200, {
       folders: [...folders.values()].filter((f) => canSee(req.user, f.workspace)).map(publicFolder),

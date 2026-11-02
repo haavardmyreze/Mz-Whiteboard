@@ -5,7 +5,8 @@ Milanote and PureRef. One machine runs the server; everyone else opens a board i
 browser. Built for standup reviews: pin up stills and playblasts, group them into frames,
 open them in a viewer that steps frame by frame, and comment where it matters.
 
-All media stays on the machine that runs the server. Nothing is sent to a cloud service.
+All media stays on the machine that runs the server. Nothing is sent to a cloud service. The one thing it
+fetches from elsewhere is the page of a web link somebody pastes on a board, to show its title and picture.
 
 **In development.** The app is not used in production yet: all boards, uploads and catalogues are test
 data, and a new version may not read what an older one stored. Start from a fresh data folder when it
@@ -51,6 +52,7 @@ the app (`#/vocabulary`) lays the same out in pictures.
 | Animatic | An edit of a project's shots on a timeline. Each clip points at a shot, so it always plays the newest version |
 | Comment | A note on a picture or video, written in the player. It can carry a **drawing**, and a **reply** to it makes a **thread** |
 | Sticky note | Text placed on a board as part of its layout; never a comment |
+| Web link | A web page's address pasted on a board, shown as a card with the page's picture, title and site |
 | Artist, CC | Set on an entity: who makes it, and who else follows it |
 | Role, group | What someone may do on a folder or board (viewer, commenter, editor, manager), and people given the same roles |
 | Share link | A link to one board for someone without an account: to look, read the comments, or comment |
@@ -117,6 +119,14 @@ the app (`#/vocabulary`) lays the same out in pictures.
   and is only full when the file lands. If whoever was adding it leaves before it is done, what is
   left behind says so instead of waiting for ever. Double-click a corner handle of a selected image or
   video and it goes back to the size it was added at, the corner across from the handle staying put.
+- **Web links.** Paste or drop the address of a web page and it lands as a card, at once showing the address,
+  then filled in with what the page says about itself: its picture, its title, a line about it and the site
+  it is on. The server reads the page (a browser may not read another site's), from the Open Graph tags most
+  sites write for exactly this, or the page's own title and description where there are none, and keeps the
+  picture with the uploads, so it shows to everyone, link holders too, even after the page has changed. A page
+  that cannot be read keeps its address. Double-click the card, or press the open button over it, to open the
+  page in a new tab; through a read-only link one click does. The card scales from its corners like a picture.
+  Addresses of images still come in as images.
 - **Review copies of video.** Every video is re-encoded in the browser before it is uploaded: H.264
   MP4 (VP9 WebM where the browser cannot encode H.264), 1080p at most, at most 12 Mbps, audio kept, and a
   key frame every quarter of a second. A browser can only show a frame by decoding from the key frame before
@@ -984,8 +994,8 @@ uploaded file it shows, so questions across boards are quick. It can be asked di
 
 | Parameter | Finds |
 | --------- | ----- |
-| `type`    | `frame`, `image`, `video`, `note`, `text`, `block`, `stroke`, or several: `image,video` |
-| `name`    | Items called exactly this, ignoring case and spacing: a frame's title, a file's name, a note's text |
+| `type`    | `frame`, `image`, `video`, `note`, `text`, `block`, `stroke`, `weblink`, or several: `image,video` |
+| `name`    | Items called exactly this, ignoring case and spacing: a frame's title, a file's name, a note's text, a web link's title |
 | `in`      | Items inside a frame called this |
 | `q`       | Words anywhere in what items are called or say; the last word may be the start of one |
 | `media`   | Items showing this uploaded file (its name in `data/uploads/`) |
@@ -1014,6 +1024,8 @@ filed, comments, playlists and animatics made), `limit` lines a page (50, at mos
 of the page before when `more` is true, `since` a time to go back no further than, and `for=me` only what
 is for whoever asks (`name` without sign-in), each line with its `why`, and each with the `color` of its
 person's avatar (their profile's, else their sign-in's, else one picked by their name),
+`POST /api/unfurl` `{ url }` what a web link shows of its page (`title`, `desc`, `site`, and `th`, its
+picture as kept here, or null),
 `PUT /api/me/profile` `{ name, color }` who a page's person is and the colour chosen in Your account, which
 every avatar of theirs then has (behind a sign-in, the sign-in's name and colour, whatever is sent),
 `GET /api/folders/<project>/sharing` who has what of a project (its permissions, the boards in it open by

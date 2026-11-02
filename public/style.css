@@ -835,6 +835,28 @@ body[data-tool="arrow"] #viewport, body[data-tool="laser"] #viewport, body[data-
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* A web link rests on the board as a note does, as a card of the same paper. Its page's picture is inset in
+   it as a print is, square and with a hairline, and the page's title, a line about it and its site are written
+   beneath. Sizes are in em of the card's 13, so they read 15, 12 and 11 on the interface's own scale. */
+.weblink {
+  padding: 0.6154em;
+  border-radius: 0.25em;
+  box-shadow: 0 0 0 0.04em var(--ring-c), 0 0.06em 0.16em color-mix(in srgb, var(--lift-c) 50%, transparent);
+  line-height: 1.4;
+  letter-spacing: -0.005em;
+  overflow-wrap: anywhere;
+}
+.weblink .wl-pic { display: block; width: 100%; aspect-ratio: 1.91 / 1; margin-bottom: 0.6154em; object-fit: cover; background: var(--thumb-bg); box-shadow: 0 0 0 0.04em var(--ring-c); }
+.weblink .wl-pic[hidden] { display: none; }
+.weblink .wl-title, .weblink .wl-desc { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
+.weblink .wl-title { font-size: 1.1538em; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; -webkit-line-clamp: 3; }
+/* Only the address, while the page is read or when it cannot be: not set as if it were a title. */
+.weblink .wl-title.bare { font-size: 1em; font-weight: 500; -webkit-line-clamp: 2; }
+.weblink .wl-desc { margin-top: 0.3333em; font-size: 0.9231em; color: color-mix(in srgb, currentColor 72%, transparent); -webkit-line-clamp: 3; }
+.weblink .wl-desc[hidden] { display: none; }
+.weblink .wl-site { margin-top: 0.5455em; font-size: 0.8462em; color: color-mix(in srgb, currentColor 58%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.viewonly:not(.focus) .item.weblink { cursor: pointer; }
+
 /* Headings are set tight and heavy, the larger the tighter; plain text is left alone. */
 .text { font-weight: 600; line-height: 1.15; letter-spacing: -0.015em; white-space: pre; }
 .text[data-lvl="0"] { font-weight: 400; line-height: 1.45; letter-spacing: -0.005em; }

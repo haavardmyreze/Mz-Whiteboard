@@ -60,6 +60,10 @@
   const IMG_MAX_H = 1080;
   const NOTE_W = 260;
   const NOTE_FS = 16;
+  // A web link is a card about as wide as a note, its writing on the interface's own scale (13, with its
+  // title at 15 and the rest at 12 and 11, as the CSS has it in em).
+  const WEBLINK_W = 300;
+  const WEBLINK_FS = 13;
   // A note is made to be read where it is made: on a board zoomed out, a new note is made larger, in a few
   // steps (so notes made at about the same zoom match), until its writing is near its usual size on screen.
   // Zoomed in, it is the usual note.
@@ -85,7 +89,7 @@
   const levelSize = (lvl) => (TEXT_LEVELS.find((l) => l.lvl === lvl) || TEXT_LEVELS[1]).size;
   const noteScale = () => NOTE_STEPS.find((s) => s * cam.z >= 0.8) || NOTE_STEPS[NOTE_STEPS.length - 1];
   const COLORABLE = new Set(['note', 'text', 'frame', 'block', 'stroke']);
-  const ITEM_TYPES = new Set(['image', 'video', 'note', 'text', 'frame', 'block', 'stroke']);
+  const ITEM_TYPES = new Set(['image', 'video', 'note', 'text', 'frame', 'block', 'stroke', 'weblink']);
   const ICON = WB.iconSet(20); // icons.js
   const CURSOR_SVG = '<svg viewBox="0 0 16 16" width="16" height="16"><path d="M1 1l4.5 13 2.2-5.3L13 6.5z" fill="var(--c)" stroke="#fff" stroke-width="1"/></svg>';
 
@@ -176,6 +180,7 @@
       return { x: it.x, y: it.y, w: node ? node.offsetWidth : it.fs * 4, h: node ? node.offsetHeight : it.fs * 1.2 };
     }
     if (it.type === 'note') return { x: it.x, y: it.y, w: it.w, h: node ? node.offsetHeight : it.h || it.fs * 3 };
+    if (it.type === 'weblink') return { x: it.x, y: it.y, w: it.w, h: node ? node.offsetHeight : it.w * 0.8 };
     if (it.type === 'block') return { x: it.x, y: it.y, w: it.w, h: BLOCK_H };
     return { x: it.x, y: it.y, w: it.w, h: it.h };
   }
@@ -510,6 +515,10 @@
       buildUpload(node);
     } else if (it.type === 'note' || it.type === 'text' || it.type === 'block') {
       node.append(el('div', { class: 'txt', spellcheck: 'false' }));
+    } else if (it.type === 'weblink') {
+      node.append(
+        el('img', { class: 'wl-pic', alt: '', draggable: 'false', decoding: 'async' }),
+        el('div', { class: 'wl-title' }), el('div', { class: 'wl-desc' }), el('div', { class: 'wl-site' }));
     } else if (it.type === 'frame') {
       node.append(
         el('div', { class: 'frame-head' }, el('div', { class: 'frame-title txt', spellcheck: 'false' }), el('div', { class: 'frame-sub' })),
@@ -581,6 +590,8 @@
       st.background = noteFill(it.color);
       st.color = isLight() ? NOTE_INK.light : NOTE_INK.dark;
       if (!isEditing) fillText(node.firstChild, it.text);
+    } else if (it.type === 'weblink') {
+      paintWeblink(node, it);
     } else if (it.type === 'text') {
       node.dataset.lvl = it.lvl;
       st.fontSize = `${it.fs}px`;
@@ -624,6 +635,44 @@
         ink.style.strokeWidth = `${it.size}px`;
       }
     }
+  }
+
+  // A web link's card: its page's picture at its own shape, then its title, a line about it and the site it
+  // is on. Until the page has been read (or when it cannot be), its address stands in for the title.
+  function paintWeblink(node, it) {
+    const st = node.style;
+    st.width = `${it.w}px`;
+    st.fontSize = `${it.fs}px`;
+    st.background = noteFill(NOTE_FILLS[0]);
+    st.color = isLight() ? NOTE_INK.light : NOTE_INK.dark;
+    const [pic, title, desc, site] = node.children;
+    const src = typeof it.th === 'string' ? it.th : '';
+    if (pic.dataset.src !== src) {
+      pic.dataset.src = src;
+      if (src) pic.src = src;
+      else pic.removeAttribute('src');
+    }
+    pic.hidden = !src;
+    // At its own shape, from square to a wide banner; anything taller or wider is cut to fit that.
+    pic.style.aspectRatio = it.iw > 0 && it.ih > 0 ? String(clamp(it.iw / it.ih, 1, 2.5)) : '';
+    let host = '';
+    try {
+      host = new URL(it.url).hostname.replace(/^www\./, '');
+    } catch {
+      // an address the browser cannot read is shown as it is
+    }
+    title.textContent = it.title || String(it.url || '').replace(/^https?:\/\/(www\.)?/, '');
+    title.classList.toggle('bare', !it.title);
+    desc.textContent = it.desc || '';
+    desc.hidden = !it.desc;
+    // The site's own name where it gives one that is not just its address again.
+    site.textContent = it.site && it.site.toLowerCase() !== host ? `${it.site} · ${host}` : host;
+  }
+
+  const weblinkAddress = (it) => (it && it.type === 'weblink' && /^https?:\/\//i.test(it.url || '') ? it.url : null);
+  function openWeblink(it) {
+    const url = weblinkAddress(it);
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
   }
 
   function removeItem(id) {
@@ -920,7 +969,7 @@
     const b = bounds(it);
     const g = glides.get(it.id);
     if (!g) return b;
-    return { x: g.cur.x ?? b.x, y: g.cur.y ?? b.y, w: g.cur.w ?? b.w, h: it.type === 'note' ? b.h : g.cur.h ?? b.h };
+    return { x: g.cur.x ?? b.x, y: g.cur.y ?? b.y, w: g.cur.w ?? b.w, h: it.type === 'note' || it.type === 'weblink' ? b.h : g.cur.h ?? b.h };
   }
 
   // What this hand has changed during each gesture that is going on: id -> the keys it set. A gesture's
@@ -1102,6 +1151,7 @@
     if (list.length > 1) kids.push(btn(ICON.tidy, 'Tidy into a grid (Ctrl+P)', packSelection));
     kids.push(btn(ICON.dup, 'Duplicate (Ctrl+D)', duplicate));
     if (one && (one.type === 'image' || one.type === 'video')) kids.push(btn(ICON.focus, 'Open it, to comment and draw on it (double-click)', () => enterFocus(one.id)));
+    if (weblinkAddress(one)) kids.push(btn(ICON.external, 'Open the page in a new tab (double-click)', () => openWeblink(one)));
     if (one && onServer(one)) kids.push(btn(ICON.download, downloadTitle(one), () => downloadPiece(one.id)));
     if (project && !viewOnly && fileable(list).length) kids.push(btn(ICON.file, fileable(list).length > 1 ? `File these ${fileable(list).length} as versions in ${project.name} (Shift+V)` : `File as a version in ${project.name} (Shift+V)`, () => fileSelection()));
     kids.push(btn(ICON.trash, 'Delete (Del)', deleteSel));
@@ -1300,6 +1350,7 @@
   function scaledSize(it, s) {
     if (it.type === 'text') return { fs: round(it.fs * s) };
     if (it.type === 'block') return { w: round(it.w * s), h: BLOCK_H };
+    if (it.type === 'weblink') return { w: round(it.w * s), fs: round(it.fs * s) };
     const patch = { w: round(it.w * s), h: round((it.h || 0) * s) };
     if (it.type === 'note') patch.fs = round(it.fs * s);
     if (it.type === 'stroke') patch.size = round(it.size * s);
@@ -2646,7 +2697,47 @@
     const trimmed = text.trim();
     if (!trimmed) return;
     if (/^https?:\/\/\S+$/.test(trimmed) && IMG_EXT.test(trimmed.split(/[?#]/)[0])) return addImageUrl(trimmed, at);
+    if (/^https?:\/\/[^\s"'<>\\]+$/i.test(trimmed) && trimmed.length <= 2000) return addWeblink(trimmed, at);
     createTextItem('note', at, trimmed.slice(0, 20000));
+  }
+
+  // A web address pasted or dropped on its own is a web link: its card is on the board at once, showing the
+  // address, and fills in with the page's title, picture and site once the server has read them.
+  function addWeblink(url, at) {
+    const s = noteScale();
+    const w = WEBLINK_W * s;
+    const item = { id: uid(), type: 'weblink', x: round(at.x - w / 2), y: round(at.y - 24 * s), w, fs: WEBLINK_FS * s, url, z: topZ() + 1 };
+    const frame = frameAt(at);
+    if (frame) item.fid = frame.id;
+    exec(addOps([item]));
+    setSel([item.id]);
+    readWeblink(item.id, url);
+  }
+
+  // What the page says is written into the card as it would have come, not as a step of its own to undo.
+  async function readWeblink(id, url) {
+    let page;
+    try {
+      page = await WB.api('POST', '/api/unfurl', { url });
+    } catch {
+      return; // the card keeps its address, and still opens the page
+    }
+    const patch = { title: page.title || '', desc: page.desc || '', site: page.site || '' };
+    if (page.th) {
+      try {
+        const img = await loadImage(page.th);
+        Object.assign(patch, { th: page.th, iw: img.naturalWidth, ih: img.naturalHeight });
+      } catch {
+        // a picture this browser cannot show is left off
+      }
+    }
+    const it = items.get(id);
+    if (!it || it.url !== url) return;
+    const ops = [{ t: 'set', id, patch }];
+    applyOps(ops);
+    sendOps(ops, true);
+    if (it.fid) refitLive([it.fid]);
+    updateOverlay();
   }
 
   // ------------------------------------------------------------- pointer input
@@ -3288,13 +3379,15 @@
     let it = node && items.get(node.dataset.id);
     if (it && it.type === 'stroke' && it.pid) it = items.get(it.pid);
     if (!it) return;
+    if (it.type === 'weblink') return openWeblink(it);
     if ((viewOnly || tool === 'pan') && it.type !== 'video' && it.type !== 'image') return;
     if (it.type === 'note' || it.type === 'text' || it.type === 'block') startEdit(it.id);
     else if (it.type === 'frame') { if (hit.closest('.frame-head')) startEdit(it.id); }
     else if (it.type === 'video' || it.type === 'image') enterFocus(it.id);
   });
 
-  // Read-only: a plain click on an image or video opens it, since looking closer is the one thing to do.
+  // Read-only: a plain click on an image or video opens it, since looking closer is the one thing to do,
+  // and on a web link opens its page.
   if (viewOnly) {
     let down = null;
     vp.addEventListener('pointerdown', (e) => {
@@ -3311,6 +3404,7 @@
       // The big play button plays; anywhere else on an image or video opens it.
       if (it.type === 'video' && start.play) toggleVideo(it.id);
       else if (it.type === 'image' || it.type === 'video') enterFocus(it.id);
+      else if (it.type === 'weblink') openWeblink(it);
     });
   }
 

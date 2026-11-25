@@ -702,7 +702,7 @@
           fullRes.delete(it.id);
           renderItem(it);
         }
-      } else if (it.w * cam.z * dpr > it.pw * 1.1 && intersects(view, it)) {
+      } else if (it.w * cam.z * dpr > it.pw && intersects(view, it)) {
         fullRes.add(it.id);
         renderItem(it);
       }

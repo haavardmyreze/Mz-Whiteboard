@@ -1213,7 +1213,7 @@ const WBViewer = (() => {
         zoomBtn.title = z ? `At ${z}. Click to fit to the screen` : 'Fitted to the screen. Click for actual size';
       }
       // A large picture shows its preview until it is zoomed past it, then its original.
-      if (open && open.type === 'image' && open.prev && media && !fullRes.has(open.id) && cam.s * W * (window.devicePixelRatio || 1) > (open.pw || 2048) * 1.1) {
+      if (open && open.type === 'image' && open.prev && media && !fullRes.has(open.id) && cam.s * W * (window.devicePixelRatio || 1) > (open.pw || 2048)) {
         fullRes.add(open.id);
         media.src = open.src;
       }
@@ -1467,7 +1467,7 @@ const WBViewer = (() => {
         ? { left: `${l}px`, width: `${Math.max(0, r - l)}px`, top: `${abLineAt()}px`, height: '' }
         : { top: `${t}px`, height: `${Math.max(0, b - t)}px`, left: `${abLineAt()}px`, width: '' });
       // Zoomed in past its preview, it shows its original, as the one open does.
-      if (!ab.full && cam.s * W * (window.devicePixelRatio || 1) > (ab.pw || 2048) * 1.1) {
+      if (!ab.full && cam.s * W * (window.devicePixelRatio || 1) > (ab.pw || 2048)) {
         ab.full = true;
         ab.img.src = ab.src;
       }

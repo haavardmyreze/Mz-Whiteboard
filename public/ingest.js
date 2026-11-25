@@ -338,13 +338,34 @@ const WBIngest = (() => {
     });
   }
 
+  // A picture (an image, a video frame or a canvas) `w` by `h` drawn on a canvas `tw` by `th`. It is
+  // halved step by step until one last step of less than half is left: Firefox draws a picture shrunk
+  // further than that in one go from only some of its pixels, so thin lines break up and small text
+  // turns to grit, whatever smoothing is asked for.
+  function shrunk(source, w, h, tw, th) {
+    let from = source;
+    while (w / 2 >= tw && h / 2 >= th) {
+      w = Math.round(w / 2);
+      h = Math.round(h / 2);
+      from = drawn(from, w, h);
+    }
+    return drawn(from, tw, th);
+  }
+
+  function drawn(source, w, h) {
+    const canvas = el('canvas', { width: w, height: h });
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(source, 0, 0, w, h);
+    return canvas;
+  }
+
   // A small still of an image or of a video frame, for the board list: opening the list should never
   // mean fetching originals. Best effort; without one the list falls back to what it showed before.
   async function makeThumb(source, w, h) {
     try {
       const k = Math.min(1, THUMB_MAX / Math.max(w, h));
-      const canvas = el('canvas', { width: Math.max(1, Math.round(w * k)), height: Math.max(1, Math.round(h * k)) });
-      canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+      const canvas = shrunk(source, w, h, Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.8));
       return blob ? (await upload(blob, EXT_BY_TYPE[blob.type] || '.webp')).url : null;
     } catch {
@@ -696,8 +717,7 @@ const WBIngest = (() => {
   // The still a video shows until it is played: the frame its thumbnail is made from, large enough to fill the item.
   async function videoPoster(video) {
     const k = Math.min(1, POSTER_MAX / Math.max(video.videoWidth, video.videoHeight));
-    const canvas = el('canvas', { width: Math.round(video.videoWidth * k), height: Math.round(video.videoHeight * k) });
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const canvas = shrunk(video, video.videoWidth, video.videoHeight, Math.round(video.videoWidth * k), Math.round(video.videoHeight * k));
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.86));
     return blob ? (await upload(blob, EXT_BY_TYPE[blob.type] || '.webp')).url : null;
   }
@@ -765,8 +785,7 @@ const WBIngest = (() => {
       if (Math.max(nw, nh) > PREVIEW_MAX * 1.25 && ext !== '.gif' && ext !== '.svg') {
         try {
           const k = PREVIEW_MAX / Math.max(nw, nh);
-          const canvas = el('canvas', { width: Math.round(nw * k), height: Math.round(nh * k) });
-          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          const canvas = shrunk(img, nw, nh, Math.round(nw * k), Math.round(nh * k));
           const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.86));
           if (blob) {
             out.prev = (await upload(blob, EXT_BY_TYPE[blob.type] || '.webp')).url;
